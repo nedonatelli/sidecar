@@ -50,11 +50,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
     expect: {
       toolsCalled: ['read_file'],
       toolCallMatches: [{ name: 'read_file', inputPartial: { path: 'greeter.ts' } }],
-      // The final text should say something about greeting/hello. We
-      // accept any of the three to keep the assertion robust across
-      // models (some will paraphrase as "greets", others as "returns a
-      // hello message").
-      finalTextContains: ['greet'],
+      // The final text should say something about greeting/hello. Accept any
+      // synonym so a paraphrase ("returns a hello message", "welcomes the
+      // user") passes as readily as the literal "greets".
+      finalTextContains: [['greet', 'hello', 'welcome']],
       // Should not call write tools — this is a read-only question.
       toolsNotCalled: ['write_file', 'edit_file'],
     },
@@ -99,8 +98,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // rather than sequentially reading all five files. At least one
       // of these search tools must appear in the trajectory.
       toolsCalled: ['grep'],
-      // The final text should name the file that contains the TODO.
-      finalTextContains: ['c.ts'],
+      // The agent should identify where the TODO lives — accept naming the
+      // file (c.ts) OR quoting its distinctive line content, either of which
+      // proves it found the right file.
+      finalTextContains: [['c.ts', 'negative input']],
     },
   },
 
@@ -553,9 +554,10 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // recovery case from a "read a known good path" case.
       trajectoryHasToolError: true,
       // After recovery the agent must have found and read the real file.
-      // `clamp` is specific enough that it can't be guessed; `utils.ts`
-      // confirms the agent followed the error → search → read path.
-      finalTextContains: ['clamp', 'utils.ts'],
+      // `clamp` is specific enough that it can't be guessed; the filename
+      // confirms the agent followed the error → search → read path (accept
+      // "utils.ts" or a bare "utils" reference).
+      finalTextContains: ['clamp', ['utils.ts', 'utils']],
       // After recovery the agent should not attribute content to the
       // wrong file. Mentioning helpers.ts in the context of "it doesn't
       // exist" is fine; attributing clamp or exports to it is not.

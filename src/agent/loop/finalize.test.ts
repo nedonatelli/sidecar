@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
-import { finalize } from './finalize.js';
+import { finalize, buildRunFailureSignals } from './finalize.js';
+import { createGateState } from '../completionGate.js';
 import type { LoopState } from './state.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
@@ -170,5 +171,86 @@ describe('finalize — suggestion contents', () => {
     });
     finalize(state, stubCallbacks({ onSuggestNextSteps }));
     expect(onSuggestNextSteps).not.toHaveBeenCalled(); // no tools scanned → no suggestions
+  });
+});
+
+describe('finalize — F1 outcome classification', () => {
+  it('reports null (success) for a natural completion', () => {
+    const onOutcome = vi.fn();
+    finalize(stubLoopState({ termination: 'natural' }), stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith(null);
+  });
+
+  it('reports null for a user abort (a clean stop is not a failure)', () => {
+    const onOutcome = vi.fn();
+    finalize(stubLoopState({ termination: 'aborted' }), stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith(null);
+  });
+
+  it('reports timeout when the iteration cap was reached', () => {
+    const onOutcome = vi.fn();
+    finalize(stubLoopState({ termination: 'max-iterations' }), stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith('timeout');
+  });
+
+  it('reports timeout when resources ran out (token budget / request timeout)', () => {
+    const onOutcome = vi.fn();
+    finalize(stubLoopState({ termination: 'out-of-resources' }), stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith('timeout');
+  });
+
+  it('reports malformed-call when repair could not recover the tool calls', () => {
+    const onOutcome = vi.fn();
+    finalize(stubLoopState({ termination: 'stuck', unrepairedMalformedCalls: 2 }), stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith('malformed-call');
+  });
+
+  it('reports bad-reasoning for a stuck (cycle/burst) bail with healthy tool calls', () => {
+    const onOutcome = vi.fn();
+    const state = stubLoopState({
+      termination: 'stuck',
+      messages: [{ role: 'assistant', content: [use('read_file', { path: 'a.ts' })] }],
+    });
+    finalize(state, stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith('bad-reasoning');
+  });
+
+  it('never lets an onOutcome throw block onDone', () => {
+    const onDone = vi.fn();
+    const onOutcome = vi.fn(() => {
+      throw new Error('boom');
+    });
+    finalize(stubLoopState({ termination: 'natural' }), stubCallbacks({ onDone, onOutcome }));
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+});
+
+describe('buildRunFailureSignals', () => {
+  it('counts tool calls + errors from the message history', () => {
+    const state = stubLoopState({
+      termination: 'stuck',
+      messages: [
+        { role: 'assistant', content: [use('write_file', { path: 'a.ts' }), use('run_tests')] },
+        { role: 'user', content: [result('tu-write_file', true), result('tu-run_tests', false)] },
+      ],
+    });
+    const signals = buildRunFailureSignals(state);
+    expect(signals.toolCalls).toBe(2);
+    expect(signals.toolErrors).toBe(1);
+  });
+
+  it('flags gateExhausted when the gate spent its budget with edits outstanding', () => {
+    const gateState = createGateState('do the thing');
+    gateState.gateInjections = 2; // MAX_GATE_INJECTIONS
+    gateState.editedFiles.add('src/a.ts');
+    const state = stubLoopState({ termination: 'natural', gateState });
+    expect(buildRunFailureSignals(state).gateExhausted).toBe(true);
+  });
+
+  it('does not flag gateExhausted when no files were edited', () => {
+    const gateState = createGateState('do the thing');
+    gateState.gateInjections = 2;
+    const state = stubLoopState({ termination: 'natural', gateState });
+    expect(buildRunFailureSignals(state).gateExhausted).toBe(false);
   });
 });

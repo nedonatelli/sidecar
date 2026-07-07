@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Verify-the-verifier audit (§4): mutation-test SideCar's own moat-critical modules to confirm their tests catch faults, not just pass. One-time / on-demand — not CI (too slow). Scope via `mutate`.",
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.config.ts" },
+  "ignorePatterns": [
+    ".vscode-test",
+    ".vscode-test-web",
+    "out",
+    "dist",
+    "coverage",
+    "*.vsix",
+    "swe_campaign_*",
+    ".sidecar",
+    ".stryker-tmp",
+    "reports",
+    "docs"
+  ],
+  "mutate": [
+    "src/agent/completionGate.ts",
+    "src/agent/completionGate/reprompts.ts",
+    "src/agent/completionGate/behavioralReprompt.ts",
+    "src/agent/completionGate/pathUtil.ts",
+    "src/agent/loop/keepBestRatchet.ts",
+    "src/agent/loop/textParsing.ts",
+    "src/agent/loop/forceFinalAnswer.ts",
+    "src/agent/loop/unappliedEdit.ts",
+    "src/agent/analyticBounds.ts",
+    "src/agent/injectionGuard.ts",
+    "src/agent/jsonRepair.ts"
+  ],
+  "reporters": ["clear-text", "progress"],
+  "coverageAnalysis": "perTest",
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "thresholds": { "high": 90, "low": 70, "break": 0 }
+}

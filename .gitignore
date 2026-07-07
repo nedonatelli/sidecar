@@ -29,3 +29,11 @@ eval_output.log
 test-errors.log
 test-failures.log
 eval-failures.md
+
+# Internal working/planning docs — NEVER git-controlled. Put any private draft,
+# strategy note, dogfood plan, or results write-up under internal/ and it is
+# ignored automatically (no per-file maintenance). Polished PUBLIC docs go in
+# docs/ or ROADMAP.md, not here. (The old root-level sidecar-*.md / PLAN.md were
+# moved into internal/; they remain in git history — this only stops future
+# tracking.)
+/internal/

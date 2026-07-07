@@ -5,6 +5,7 @@ import type { AgentLogger } from '../logger.js';
 import type { ChangeLog } from '../changelog.js';
 import type { MCPManager } from '../mcpManager.js';
 import { createGateState, lastUserText } from '../completionGate.js';
+import { initRatchetRunState } from './keepBestRatchetWiring.js';
 import { getToolDefinitionsForTier } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
@@ -75,6 +76,21 @@ export interface LoopState {
   messages: ChatMessage[];
   iteration: number;
   totalChars: number;
+
+  // F1 failure taxonomy. `termination` is set at each loop-exit point so
+  // finalize() can classify the run into a failure bucket. `undefined` means
+  // the loop exited via a thrown exception (finalize is called from the catch
+  // path before rethrow). `unrepairedMalformedCalls` accumulates tool calls
+  // whose arguments never parsed even after constrained-decoding repair.
+  // finalize.ts reads both.
+  //
+  //   natural          — model declared done (or plan presented)
+  //   aborted          — user Stop / checkpoint decline
+  //   out-of-resources — token budget or request timeout
+  //   max-iterations   — the iteration cap was reached
+  //   stuck            — burst cap / repeated-action cycle bail
+  termination?: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck';
+  unrepairedMalformedCalls: number;
   /**
    * Actual input+output token count from the most recent API usage event.
    * When present, compression checks prefer this over the char-based estimate
@@ -149,6 +165,15 @@ export interface LoopState {
   // edit_file had just fixed. circularRewrite.ts records; fs.ts writeFile reads.
   filesEditedViaEditTool: Set<string>;
 
+  // Per-path signature of the most recent edit_file call that failed with
+  // "search and replace identical" or "search not found" (both are
+  // unrecoverable-without-more-info failures — the tool can only show a hint,
+  // not safely guess the intended change). A weak model frequently resubmits
+  // the EXACT same failing call instead of adapting; fs.ts's editFile reads
+  // this to escalate the error message on a verbatim repeat rather than
+  // showing the same hint again, and clears the entry on a successful edit.
+  editFailureSignatures: Map<string, string>;
+
   // Most recent failing verification output (test failure / traceback /
   // diagnostics error), ANSI-stripped and truncated. Surfaced inline when the
   // model loops on a blocked rewrite so it sees WHAT to fix. circularRewrite.ts
@@ -203,10 +228,20 @@ export interface LoopState {
   // Fires at most once. analysisCriticHook is the only writer.
   analysisCriticFired: boolean;
 
+  // True once the unapplied-edit nudge has fired this run. Bounds the nudge to
+  // one injection so a false positive (an explanatory code block) costs at most
+  // one extra message. unappliedEditHook is the only writer.
+  unappliedEditNudged: boolean;
+
   // Capability-driven scaffolding intensity (A2). Set at loop start only when
   // `adaptiveScaffolding.enabled` is on; otherwise undefined and the loop reads
   // the historical constants. cycleDetection / actionReprompt / gate read it.
   scaffoldingProfile?: import('../scaffoldingProfile.js').ScaffoldingProfile;
+
+  // Keep-best ratchet state (Pareto-safe scaffolding, §2.1). Present only when
+  // `scaffolding.keepBest` is on and not in audit mode; `enabled=false`
+  // otherwise. keepBestRatchetWiring.ts is the only reader/writer.
+  ratchet?: import('./keepBestRatchetWiring.js').RatchetRunState;
 
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
@@ -272,6 +307,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     messages: copiedMessages,
     iteration: 0,
     totalChars,
+    unrepairedMalformedCalls: 0,
     systemPromptOverride: options.systemPromptOverride,
     modelOverride: options.modelOverride,
 
@@ -287,6 +323,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     writesSinceVerifyByFile: new Map<string, number>(),
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
+    editFailureSignatures: new Map<string, string>(),
     escalatedRewriteByFile: new Set<string>(),
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
@@ -295,9 +332,17 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     criticInjectionsByFile: new Map<string, number>(),
     criticInjectionsByTestHash: new Map<string, number>(),
     analysisCriticFired: false,
+    unappliedEditNudged: false,
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(lastUserText(copiedMessages)),
     currentEditPlan: null,
     checkpointFired: false,
+    // Keep-best ratchet: opt-in and disabled in audit mode (writes are buffered
+    // in memory there, so a disk-level revert doesn't apply).
+    ratchet: initRatchetRunState(
+      (options.config ?? getConfig()).keepBestRatchetEnabled === true &&
+        (options.config ?? getConfig()).agentMode !== 'audit',
+      (options.config ?? getConfig()).keepBestOverEngineerBytes,
+    ),
   };
 }

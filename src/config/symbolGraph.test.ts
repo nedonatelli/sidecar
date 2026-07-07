@@ -135,7 +135,7 @@ describe('SymbolGraph', () => {
     graph.addFile('src/b.ts', [sym('bar', 'src/b.ts')], [imp('src/b.ts', 'src/a', ['foo'])], 'h2');
 
     const json = graph.toJSON();
-    expect(json.version).toBe(2);
+    expect(json.version).toBe(3);
     expect(json.symbols).toHaveLength(2);
     expect(json.imports).toHaveLength(1);
 
@@ -149,7 +149,16 @@ describe('SymbolGraph', () => {
   });
 
   it('fromJSON returns null for wrong version', () => {
-    const data = { version: 999, buildTime: '', symbols: [], imports: [], calls: [], typeEdges: [], fileHashes: {} };
+    const data = {
+      version: 999,
+      buildTime: '',
+      symbols: [],
+      imports: [],
+      calls: [],
+      typeEdges: [],
+      typeUses: [],
+      fileHashes: {},
+    };
     expect(SymbolGraph.fromJSON(data)).toBeNull();
   });
 
@@ -171,6 +180,18 @@ describe('SymbolGraph', () => {
     expect(ctx).toContain('myFunc');
     expect(ctx).toContain('src/a.ts');
     expect(ctx).toContain('src/b.ts');
+  });
+
+  it('addFile clears prior fileContents — content must be set AFTER addFile', () => {
+    const graph = new SymbolGraph();
+    // Wrong order: set then add → addFile's removeFile wipes the content.
+    graph.setFileContent('src/a.ts', 'export const x = 1;');
+    graph.addFile('src/a.ts', [sym('x', 'src/a.ts')], [], 'h1');
+    expect(graph.getFileContent('src/a.ts')).toBeUndefined();
+
+    // Correct order: add then set → content survives.
+    graph.setFileContent('src/a.ts', 'export const x = 1;');
+    expect(graph.getFileContent('src/a.ts')).toBe('export const x = 1;');
   });
 
   it('getFileGraphContext shows dependencies', () => {
@@ -324,18 +345,18 @@ describe('SymbolGraph', () => {
 
   describe('fromJSON edge validation (#19)', () => {
     it('returns null when symbols is not an array', () => {
-      const data = { version: 2, buildTime: '', symbols: null, imports: [], calls: [], typeEdges: [], fileHashes: {} };
+      const data = { version: 3, buildTime: '', symbols: null, imports: [], calls: [], typeEdges: [], fileHashes: {} };
       expect(SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData)).toBeNull();
     });
 
     it('returns null when imports is not an array', () => {
-      const data = { version: 2, buildTime: '', symbols: [], imports: null, calls: [], typeEdges: [], fileHashes: {} };
+      const data = { version: 3, buildTime: '', symbols: [], imports: null, calls: [], typeEdges: [], fileHashes: {} };
       expect(SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData)).toBeNull();
     });
 
     it('skips symbols with missing filePath', () => {
       const data = {
-        version: 2,
+        version: 3,
         buildTime: '',
         fileHashes: {},
         symbols: [
@@ -353,7 +374,7 @@ describe('SymbolGraph', () => {
 
     it('skips call edges with missing callerFile or non-numeric line', () => {
       const data = {
-        version: 2,
+        version: 3,
         buildTime: '',
         fileHashes: { 'a.ts': '' },
         symbols: [],
@@ -368,6 +389,202 @@ describe('SymbolGraph', () => {
       const g = SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData);
       expect(g).not.toBeNull();
       expect(g!.getCallsInFile('a.ts')).toHaveLength(1);
+    });
+  });
+
+  describe('consequence edges + impactOf', () => {
+    it('getCallees returns calls made from a symbol', () => {
+      const graph = new SymbolGraph();
+      graph.addFile('src/a.ts', [sym('handler', 'src/a.ts')], [], 'h1', [
+        { callerFile: 'src/a.ts', callerName: 'handler', calleeName: 'requireAuth', line: 3 },
+        { callerFile: 'src/a.ts', callerName: 'handler', calleeName: 'loadUser', line: 4 },
+      ]);
+
+      expect(
+        graph
+          .getCallees('handler')
+          .map((c) => c.calleeName)
+          .sort(),
+      ).toEqual(['loadUser', 'requireAuth']);
+      expect(graph.getCallers('requireAuth').map((c) => c.callerName)).toEqual(['handler']);
+      expect(graph.getCallees('nobody')).toEqual([]);
+    });
+
+    it('getTypeUsers indexes type references by name', () => {
+      const graph = new SymbolGraph();
+      graph.addFile(
+        'src/a.ts',
+        [sym('route', 'src/a.ts')],
+        [],
+        'h1',
+        [],
+        [],
+        [{ userFile: 'src/a.ts', userName: 'route', typeName: 'AuthConfig', role: 'param', line: 2 }],
+      );
+
+      const users = graph.getTypeUsers('AuthConfig');
+      expect(users).toHaveLength(1);
+      expect(users[0].userName).toBe('route');
+      expect(graph.getTypeUsers('Nothing')).toEqual([]);
+    });
+
+    it('impactOf walks callers transitively up to maxDepth', () => {
+      const graph = new SymbolGraph();
+      // c -> b -> a  (c calls b, b calls a)
+      graph.addFile('src/a.ts', [sym('a', 'src/a.ts')], [], 'h1');
+      graph.addFile('src/b.ts', [sym('b', 'src/b.ts')], [], 'h2', [
+        { callerFile: 'src/b.ts', callerName: 'b', calleeName: 'a', line: 1 },
+      ]);
+      graph.addFile('src/c.ts', [sym('c', 'src/c.ts')], [], 'h3', [
+        { callerFile: 'src/c.ts', callerName: 'c', calleeName: 'b', line: 1 },
+      ]);
+
+      const direct = graph.impactOf(['a'], { maxDepth: 1 }).filter((i) => i.reason === 'calls');
+      expect(direct.map((i) => i.name)).toEqual(['b']);
+
+      const transitive = graph.impactOf(['a'], { maxDepth: 2 }).filter((i) => i.reason === 'calls');
+      expect(transitive.map((i) => i.name).sort()).toEqual(['b', 'c']);
+      expect(transitive.find((i) => i.name === 'c')!.hops).toBe(2);
+    });
+
+    it('impactOf reports type users, subtypes, and importers of exported symbols', () => {
+      const graph = new SymbolGraph();
+      graph.addFile(
+        'src/types.ts',
+        [sym('AuthConfig', 'src/types.ts', { type: 'interface', exported: true })],
+        [],
+        'h1',
+        [],
+        [],
+        [],
+      );
+      graph.addFile(
+        'src/route.ts',
+        [sym('route', 'src/route.ts')],
+        [imp('src/route.ts', 'src/types', ['AuthConfig'])],
+        'h2',
+        [],
+        [],
+        [{ userFile: 'src/route.ts', userName: 'route', typeName: 'AuthConfig', role: 'param', line: 2 }],
+      );
+      graph.addFile(
+        'src/strict.ts',
+        [sym('StrictConfig', 'src/strict.ts', { type: 'interface' })],
+        [],
+        'h3',
+        [],
+        [{ childFile: 'src/strict.ts', childName: 'StrictConfig', parentName: 'AuthConfig', kind: 'extends' }],
+      );
+
+      const report = graph.impactOf(['AuthConfig']);
+      expect(report.find((i) => i.reason === 'type-use' && i.name === 'route')).toBeTruthy();
+      expect(report.find((i) => i.reason === 'subtype' && i.name === 'StrictConfig')).toBeTruthy();
+      expect(report.find((i) => i.reason === 'imports' && i.name === 'src/route.ts')).toBeTruthy();
+    });
+
+    it('impactOf resolves edges against the defining file (disambiguates same-named symbols)', () => {
+      const graph = new SymbolGraph();
+      // Two different `handleError`, in a.ts and b.ts.
+      graph.addFile('src/a.ts', [sym('handleError', 'src/a.ts', { exported: true })], [], 'h1');
+      graph.addFile('src/b.ts', [sym('handleError', 'src/b.ts', { exported: true })], [], 'h2');
+      // routeA imports handleError from a.ts and calls it; routeB from b.ts.
+      graph.addFile(
+        'src/routeA.ts',
+        [sym('routeA', 'src/routeA.ts')],
+        [{ fromFile: 'src/routeA.ts', toFile: 'src/a', importedNames: ['handleError'] }],
+        'h3',
+        [{ callerFile: 'src/routeA.ts', callerName: 'routeA', calleeName: 'handleError', line: 2 }],
+      );
+      graph.addFile(
+        'src/routeB.ts',
+        [sym('routeB', 'src/routeB.ts')],
+        [{ fromFile: 'src/routeB.ts', toFile: 'src/b', importedNames: ['handleError'] }],
+        'h4',
+        [{ callerFile: 'src/routeB.ts', callerName: 'routeB', calleeName: 'handleError', line: 2 }],
+      );
+
+      // Name-only: over-approximates — both routes surface.
+      const nameOnly = graph.impactOf(['handleError']).filter((i) => i.reason === 'calls');
+      expect(nameOnly.map((i) => i.name).sort()).toEqual(['routeA', 'routeB']);
+      expect(nameOnly.every((i) => i.resolved === false)).toBe(true);
+
+      // Resolved to a.ts: only routeA (which imports from a.ts) surfaces.
+      const resolved = graph.impactOf([{ name: 'handleError', file: 'src/a.ts' }]).filter((i) => i.reason === 'calls');
+      expect(resolved.map((i) => i.name)).toEqual(['routeA']);
+      expect(resolved[0].resolved).toBe(true);
+    });
+
+    it('impactOf resolves type-users and importers to the defining file', () => {
+      const graph = new SymbolGraph();
+      graph.addFile('src/a.ts', [sym('Cfg', 'src/a.ts', { type: 'interface', exported: true })], [], 'h1');
+      graph.addFile('src/b.ts', [sym('Cfg', 'src/b.ts', { type: 'interface', exported: true })], [], 'h2');
+      // userA imports Cfg from a.ts and types a param with it.
+      graph.addFile(
+        'src/userA.ts',
+        [sym('userA', 'src/userA.ts')],
+        [{ fromFile: 'src/userA.ts', toFile: 'src/a', importedNames: ['Cfg'] }],
+        'h3',
+        [],
+        [],
+        [{ userFile: 'src/userA.ts', userName: 'userA', typeName: 'Cfg', role: 'param', line: 1 }],
+      );
+      // userB types with the OTHER Cfg (from b.ts).
+      graph.addFile(
+        'src/userB.ts',
+        [sym('userB', 'src/userB.ts')],
+        [{ fromFile: 'src/userB.ts', toFile: 'src/b', importedNames: ['Cfg'] }],
+        'h4',
+        [],
+        [],
+        [{ userFile: 'src/userB.ts', userName: 'userB', typeName: 'Cfg', role: 'param', line: 1 }],
+      );
+
+      const report = graph.impactOf([{ name: 'Cfg', file: 'src/a.ts' }]);
+      expect(report.find((i) => i.reason === 'type-use' && i.name === 'userA')).toBeTruthy();
+      expect(report.find((i) => i.reason === 'type-use' && i.name === 'userB')).toBeFalsy();
+      // Importer is resolved too: userA imports Cfg, surfaces; userB imports the other.
+      expect(report.find((i) => i.reason === 'imports' && i.name === 'src/userA.ts')).toBeTruthy();
+      expect(report.find((i) => i.reason === 'imports' && i.name === 'src/userB.ts')).toBeFalsy();
+    });
+
+    it('impactOf ignores <module> seeds and empty input', () => {
+      const graph = new SymbolGraph();
+      graph.addFile('src/a.ts', [sym('a', 'src/a.ts')], [], 'h1');
+      expect(graph.impactOf([])).toEqual([]);
+      expect(graph.impactOf(['<module>'])).toEqual([]);
+    });
+
+    it('removeFile clears callsFrom and typeUse indexes', () => {
+      const graph = new SymbolGraph();
+      graph.addFile(
+        'src/a.ts',
+        [sym('a', 'src/a.ts')],
+        [],
+        'h1',
+        [{ callerFile: 'src/a.ts', callerName: 'a', calleeName: 'b', line: 1 }],
+        [],
+        [{ userFile: 'src/a.ts', userName: 'a', typeName: 'Cfg', role: 'param', line: 1 }],
+      );
+      graph.removeFile('src/a.ts');
+      expect(graph.getCallees('a')).toEqual([]);
+      expect(graph.getTypeUsers('Cfg')).toEqual([]);
+    });
+
+    it('toJSON/fromJSON round-trips type-use edges', () => {
+      const graph = new SymbolGraph();
+      graph.addFile(
+        'src/a.ts',
+        [sym('route', 'src/a.ts')],
+        [],
+        'h1',
+        [],
+        [],
+        [{ userFile: 'src/a.ts', userName: 'route', typeName: 'AuthConfig', role: 'return', line: 7 }],
+      );
+      const restored = SymbolGraph.fromJSON(graph.toJSON());
+      expect(restored).not.toBeNull();
+      expect(restored!.getTypeUsers('AuthConfig')).toHaveLength(1);
+      expect(restored!.getTypeUsers('AuthConfig')[0].role).toBe('return');
     });
   });
 });

@@ -202,6 +202,7 @@ export function registerEditorFeatures(
     const trust = await checkWorkspaceConfigTrust(
       'scheduledTasks',
       'SideCar: This workspace defines scheduled tasks that will run an autonomous agent loop on a timer. Only trust these from repositories you control.',
+      { modal: true },
     );
     if (trust === 'blocked') {
       logger.info('[SideCar] Workspace scheduledTasks blocked by user');

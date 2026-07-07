@@ -117,6 +117,7 @@ export const vizSpecTools: RegisteredTool[] = [
   {
     definition: {
       name: 'render_viz',
+      producesHtml: true,
       description:
         'Render a visualization spec (chart, table, timeline, heatmap) inline in the chat. ' +
         'Use when the agent has data to present visually. Pass a VizSpec JSON object with type (chart/table/timeline/heatmap), ' +

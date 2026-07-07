@@ -35,7 +35,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/llm-eval/**/*.eval.ts'],
+    include: ['tests/llm-eval/**/*.eval.ts', 'bench/**/*.eval.ts'],
     // Eval runs network requests against real LLM backends. Default
     // vitest timeout (5s) is too short for anything but local Ollama.
     // Set via SIDECAR_EVAL_CASE_TIMEOUT (default 120 000 ms) + 60 s overhead.

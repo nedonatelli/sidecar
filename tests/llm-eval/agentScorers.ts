@@ -160,8 +160,14 @@ function collectFailures(
 
   // --- final assistant text ---
   if (expect.finalTextContains) {
+    const haystack = run.finalText.toLowerCase();
     for (const needle of expect.finalTextContains) {
-      if (!run.finalText.toLowerCase().includes(needle.toLowerCase())) {
+      if (Array.isArray(needle)) {
+        // Any-of synonym group: at least one member must appear.
+        if (!needle.some((alt) => haystack.includes(alt.toLowerCase()))) {
+          out.push(`finalTextContains: none of [${needle.map((n) => `"${n}"`).join(', ')}]`);
+        }
+      } else if (!haystack.includes(needle.toLowerCase())) {
         out.push(`finalTextContains: missing "${needle}"`);
       }
     }

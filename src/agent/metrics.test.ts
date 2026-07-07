@@ -69,6 +69,20 @@ describe('MetricsCollector', () => {
     expect(collector.getHistory()[0].totalTokensEstimate).toBe(150);
   });
 
+  it('setTokenEstimate is latest-wins and monotonic (never shrinks)', () => {
+    collector.startRun();
+    collector.setTokenEstimate(500);
+    collector.setTokenEstimate(1200); // grew — takes it
+    collector.setTokenEstimate(900); // shrank — ignored (context only grows)
+    collector.endRun();
+    expect(collector.getHistory()[0].totalTokensEstimate).toBe(1200);
+  });
+
+  it('setTokenEstimate is no-op without startRun', () => {
+    collector.setTokenEstimate(1000); // should not throw
+    expect(collector.getHistory()).toEqual([]);
+  });
+
   it('recordError logs errors', () => {
     collector.startRun();
     collector.recordError('something broke');
@@ -193,5 +207,37 @@ describe('MetricsCollector', () => {
     collector.recordToolStart();
     const duration = collector.getToolDuration();
     expect(duration).toBeGreaterThanOrEqual(0);
+  });
+
+  it('F2 — computes schema-validity, repair, executable rates + CPS + failure buckets', async () => {
+    // Run 1: 4 tool calls, 1 errors; 2 were malformed, 1 repaired; failed (timeout).
+    collector.startRun();
+    collector.recordToolEnd('a', false);
+    collector.recordToolEnd('b', false);
+    collector.recordToolEnd('c', true);
+    collector.recordToolEnd('d', false);
+    collector.recordMalformedToolCalls(2, 1);
+    collector.recordCost(0.5);
+    collector.recordOutcome('timeout');
+    collector.endRun();
+
+    // Run 2: clean success, priced.
+    collector.startRun();
+    collector.recordToolEnd('a', false);
+    collector.recordCost(0.2);
+    collector.recordOutcome(null);
+    collector.endRun();
+
+    const m = (await collector.getMetricsSince(30))!;
+    expect(m.toolCallCount).toBe(5);
+    // 2 of 5 first-attempts were malformed → 3/5 valid.
+    expect(m.schemaValidityRate).toBeCloseTo(3 / 5);
+    expect(m.repairRate).toBeCloseTo(1 / 2);
+    // 1 of 5 calls errored → 4/5 executable.
+    expect(m.executableCallRate).toBeCloseTo(4 / 5);
+    // Only run 2 succeeded with a price → CPS = its cost.
+    expect(m.costPerSuccessfulRun).toBeCloseTo(0.2);
+    expect(m.failureBuckets).toEqual({ timeout: 1 });
+    expect(m.latencyP95Ms).toBeGreaterThanOrEqual(0);
   });
 });

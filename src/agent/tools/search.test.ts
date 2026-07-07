@@ -204,4 +204,17 @@ describe('grep', () => {
     expect(result).toContain('grep: invalid regex');
     expect(result).toContain('run_command');
   });
+
+  it('runs grep in context.cwd (shadow worktree) when a cwd override is set', async () => {
+    const SHADOW = '/tmp/.sidecar/shadows/task-1';
+    let seenCwd: string | undefined;
+    mockExecFile.mockImplementationOnce(
+      (_cmd: unknown, _args: unknown, opts: { cwd?: string }, cb: (err: null, r: { stdout: string }) => void) => {
+        seenCwd = opts.cwd;
+        cb(null, { stdout: '' });
+      },
+    );
+    await grep({ pattern: 'x' }, { cwd: SHADOW } as ToolExecutorContext);
+    expect(seenCwd).toBe(SHADOW);
+  });
 });

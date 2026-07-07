@@ -1,9 +1,14 @@
+import { logger } from '../system/logger.js';
+
 /**
  * MiniLM-L6-v2 (384-dim) used for all SideCar feature-extraction tasks.
  * Single source of truth for the model ID so cache-key validation in
  * every embedding store stays in sync.
  */
 export const MINILM_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+
+/** Default embedding width for MiniLM-L6-v2. */
+export const MINILM_DIMENSION = 384;
 
 /**
  * Typed calling convention for a loaded feature-extraction pipeline.
@@ -67,4 +72,90 @@ let _loaderForTests: PipelineLoader | null = null;
 export function setLoaderForTests(loader: PipelineLoader | null): void {
   _loaderForTests = loader;
   _pipelineCache.clear();
+}
+
+// ---------------------------------------------------------------------------
+// LazyEmbedder — shared model-lifecycle owner for every embedding store.
+//
+// Consolidates the load-once / retry-on-failure / embed logic that was copy
+// pasted (with divergent retry semantics) into EmbeddingIndex,
+// SymbolEmbeddingIndex, EpisodicMemoryStore, and SidecarMdIndex. The unified
+// rule is retry-allowed: a transient load failure nulls the in-flight promise
+// so the next call re-attempts (EmbeddingIndex previously cached the rejected
+// promise and stayed disabled for the whole session).
+//
+// Supports both consumption styles: lazy-first-use (call `embed`/`ensureReady`)
+// and eager-background-start (call `start()` in the owner's constructor).
+// ---------------------------------------------------------------------------
+
+export interface LazyEmbedderOpts {
+  /** Log-prefix label, e.g. 'EmbeddingIndex'. */
+  label: string;
+  modelId?: string;
+  /** Embedding width; output is sliced to this. Default MINILM_DIMENSION. */
+  dimension?: number;
+  /** Truncate input text to this many chars before embedding. Default: no truncation. */
+  maxChars?: number;
+  /** Per-site env options, evaluated at load time (cacheDir may depend on runtime state). */
+  envOpts?: () => EmbeddingPipelineEnvOpts;
+}
+
+export class LazyEmbedder {
+  private pipeline: EmbeddingPipeline | null = null;
+  private loading: Promise<boolean> | null = null;
+
+  constructor(private readonly opts: LazyEmbedderOpts) {}
+
+  /** True once the model is loaded and ready to embed. */
+  get ready(): boolean {
+    return this.pipeline !== null;
+  }
+
+  /** Kick off loading in the background. Safe to call repeatedly. */
+  start(): void {
+    void this.ensureReady();
+  }
+
+  /** Load the model if needed. Returns false (not throwing) when unavailable. */
+  async ensureReady(): Promise<boolean> {
+    if (this.pipeline) return true;
+    if (this.loading) return this.loading;
+    this.loading = (async () => {
+      try {
+        this.pipeline = await getSharedPipeline(this.opts.modelId ?? MINILM_MODEL_ID, this.opts.envOpts?.() ?? {});
+        logger.info(`[${this.opts.label}] Embedding model loaded`);
+        return true;
+      } catch (err) {
+        logger.warn(`[${this.opts.label}] Embedding model failed to load:`, err instanceof Error ? err.message : err);
+        this.loading = null; // retry-allowed: let the next call re-attempt
+        return false;
+      }
+    })();
+    return this.loading;
+  }
+
+  /** Embed one string, or null when the model is unavailable / the call fails. */
+  async embed(text: string): Promise<Float32Array | null> {
+    if (!(await this.ensureReady()) || !this.pipeline) return null;
+    try {
+      const input = this.opts.maxChars ? text.slice(0, this.opts.maxChars) : text;
+      const output = await this.pipeline([input], { pooling: 'mean', normalize: true });
+      return new Float32Array(output.data.slice(0, this.opts.dimension ?? MINILM_DIMENSION));
+    } catch (err) {
+      // The model loaded but this specific embed call threw — surface it (a
+      // caller batching many items keeps going and skips just this one).
+      logger.warn(`[${this.opts.label}] embed failed:`, err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  /**
+   * Test-only: inject a pre-built pipeline, or null to pin the embedder as
+   * permanently unavailable (a resolved-false load, so `embed` returns null
+   * without touching the real model loader).
+   */
+  setPipelineForTests(pipeline: EmbeddingPipeline | null): void {
+    this.pipeline = pipeline;
+    this.loading = Promise.resolve(pipeline !== null);
+  }
 }

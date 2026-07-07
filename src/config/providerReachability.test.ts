@@ -1,7 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { SideCarConfig } from './settings.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
+
+const spawnMock = vi.hoisted(() => vi.fn(() => ({ unref: vi.fn() })));
+vi.mock('child_process', () => ({ spawn: spawnMock }));
 
 // Stub the kickstand token file so the test is deterministic regardless of
 // whether the machine running it has ~/.config/kickstand/token set up.
@@ -12,7 +16,15 @@ vi.mock('fs', async () => {
   return buildKickstandTokenFsMock(actual);
 });
 
-import { isProviderReachable } from './providerReachability.js';
+import { isProviderReachable, ensureOllamaRunning, ensureKickstandRunning } from './providerReachability.js';
+
+function cfg(over: Partial<SideCarConfig> = {}): SideCarConfig {
+  return { baseUrl: 'https://api.test', apiKey: 'sk-1', ...over } as unknown as SideCarConfig;
+}
+
+function ok(status = 200) {
+  return { ok: status >= 200 && status < 300, status };
+}
 
 describe('isProviderReachable', () => {
   beforeEach(() => {
@@ -92,5 +104,94 @@ describe('isProviderReachable', () => {
     mockFetch.mockRejectedValueOnce(new Error('ENOTFOUND'));
     const result = await isProviderReachable('anthropic');
     expect(result).toBe(false);
+  });
+});
+
+describe('isProviderReachable — no-probe providers', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('returns true for copilot and bedrock without an HTTP probe', async () => {
+    expect(await isProviderReachable('copilot')).toBe(true);
+    expect(await isProviderReachable('bedrock')).toBe(true);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('isProviderReachable — OpenAI-compatible providers', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it.each([
+    ['openrouter', 'https://api.test/v1/models'],
+    ['groq', 'https://api.test/models'],
+    ['fireworks', 'https://api.test/models'],
+    ['gemini', 'https://api.test/v1/models'],
+  ] as const)('probes %s at %s with a Bearer header', async (provider, url) => {
+    mockFetch.mockResolvedValueOnce(ok(200));
+    await isProviderReachable(provider, cfg({ apiKey: 'sk-key' }));
+    const [calledUrl, init] = mockFetch.mock.calls[0];
+    expect(calledUrl).toBe(url);
+    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer sk-key');
+  });
+
+  it('omits the Bearer header when the key is the "ollama" sentinel', async () => {
+    mockFetch.mockResolvedValueOnce(ok(200));
+    await isProviderReachable('openai', cfg({ apiKey: 'ollama' }));
+    const init = mockFetch.mock.calls[0][1];
+    expect((init.headers as Record<string, string>)['Authorization']).toBeUndefined();
+  });
+
+  it('treats a 401 as reachable but a 500 as unreachable (remote providers)', async () => {
+    mockFetch.mockResolvedValueOnce(ok(401));
+    expect(await isProviderReachable('groq', cfg())).toBe(true);
+    mockFetch.mockResolvedValueOnce(ok(500));
+    expect(await isProviderReachable('groq', cfg())).toBe(false);
+  });
+});
+
+describe('isProviderReachable — Ollama only accepts 2xx', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('returns false for a 404 from Ollama (unlike remote providers)', async () => {
+    mockFetch.mockResolvedValueOnce(ok(404));
+    expect(await isProviderReachable('ollama', cfg({ baseUrl: 'http://localhost:11434' }))).toBe(false);
+  });
+});
+
+describe('ensure*Running', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    spawnMock.mockClear();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('ensureOllamaRunning returns true immediately when already up (no spawn)', async () => {
+    mockFetch.mockResolvedValueOnce(ok(200));
+    expect(await ensureOllamaRunning()).toBe(true);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('ensureKickstandRunning returns true immediately when already up (no spawn)', async () => {
+    mockFetch.mockResolvedValueOnce(ok(200));
+    expect(await ensureKickstandRunning()).toBe(true);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('ensureOllamaRunning spawns `ollama serve` then succeeds on the first poll', async () => {
+    vi.useFakeTimers();
+    mockFetch
+      .mockRejectedValueOnce(new Error('connection refused')) // initial check → not running
+      .mockResolvedValue(ok(200)); // poll → up
+    const p = ensureOllamaRunning();
+    await vi.advanceTimersByTimeAsync(500); // first poll iteration
+    expect(await p).toBe(true);
+    expect(spawnMock).toHaveBeenCalledWith('ollama', ['serve'], expect.objectContaining({ detached: true }));
+  });
+
+  it('ensureOllamaRunning returns false when the binary is not on PATH', async () => {
+    mockFetch.mockRejectedValue(new Error('connection refused'));
+    spawnMock.mockImplementationOnce(() => {
+      throw new Error('spawn ollama ENOENT');
+    });
+    expect(await ensureOllamaRunning()).toBe(false);
   });
 });

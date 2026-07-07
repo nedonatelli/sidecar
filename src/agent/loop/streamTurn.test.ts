@@ -155,3 +155,67 @@ describe('resolveTurnContent text tool call parsing', () => {
     expect(result.stopReason).toBe('tool_use');
   });
 });
+
+describe('streamOneTurn answer-in-thinking fallback', () => {
+  function clientYielding(events: StreamEvent[]): any {
+    return {
+      async *streamChat() {
+        for (const ev of events) yield ev;
+      },
+    };
+  }
+
+  it('promotes thinking to text when a turn ends with thinking but no text and no tool call', async () => {
+    // qwen3.5 under a large system prompt: whole answer arrives as thinking,
+    // content empty. The thinking IS the answer — surface it as text.
+    const events: StreamEvent[] = [
+      { type: 'thinking', thinking: 'The file exports a greet function ' },
+      { type: 'thinking', thinking: 'that returns a hello message.' },
+      { type: 'stop', stopReason: 'end_turn' },
+    ];
+    const onText = vi.fn();
+    const result = await streamOneTurn(
+      clientYielding(events),
+      makeState(),
+      new AbortController().signal,
+      makeCallbacks({ onText }),
+      0,
+    );
+    expect(result.fullText).toBe('The file exports a greet function that returns a hello message.');
+    // finalText/observers must see it — the empty-answer bug was that onText never fired.
+    expect(onText).toHaveBeenCalledWith('The file exports a greet function that returns a hello message.');
+  });
+
+  it('does NOT promote thinking when the turn also produced real text', async () => {
+    const events: StreamEvent[] = [
+      { type: 'thinking', thinking: 'reasoning...' },
+      { type: 'text', text: 'The real answer.' },
+      { type: 'stop', stopReason: 'end_turn' },
+    ];
+    const result = await streamOneTurn(
+      clientYielding(events),
+      makeState(),
+      new AbortController().signal,
+      makeCallbacks(),
+      0,
+    );
+    expect(result.fullText).toBe('The real answer.');
+  });
+
+  it('does NOT promote thinking when the turn produced a tool call (thinking is genuine reasoning)', async () => {
+    const events: StreamEvent[] = [
+      { type: 'thinking', thinking: 'I should read the file first.' },
+      { type: 'tool_use', toolUse: { type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'x.ts' } } },
+      { type: 'stop', stopReason: 'tool_use' },
+    ];
+    const result = await streamOneTurn(
+      clientYielding(events),
+      makeState(),
+      new AbortController().signal,
+      makeCallbacks(),
+      0,
+    );
+    expect(result.fullText).toBe('');
+    expect(result.pendingToolUses).toHaveLength(1);
+  });
+});

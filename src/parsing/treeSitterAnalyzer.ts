@@ -7,7 +7,22 @@
 import * as path from 'path';
 import { logger } from '../system/logger.js';
 import type { CodeAnalyzer, CodeElement, ParsedFile } from './types.js';
+import { SimpleCodeAnalyzer, type ParsedCall, type ParsedTypeRelation, type ParsedTypeUse } from '../astContext.js';
 import { createParser, type Parser } from './treeSitterLoader.js';
+import {
+  type AnyNode,
+  walkDeclarator,
+  extractTsEdges,
+  extractPyEdges,
+  hasPublicModifier,
+  hasSwiftPublicModifier,
+} from './treeSitterEdges.js';
+
+// Languages whose call/type edges are extracted from the AST below (TS-family
+// node types). Python has its own extractor (different node types). Everything
+// else delegates edge extraction to the regex analyzer (SimpleCodeAnalyzer) so
+// switching the indexer to tree-sitter never regresses edge coverage.
+const TS_EDGE_LANGUAGES = new Set(['typescript', 'tsx', 'javascript']);
 
 // Map file extensions to tree-sitter language names
 const EXT_TO_LANGUAGE: Record<string, string> = {
@@ -186,60 +201,6 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   ],
 };
 
-/**
- * Walk a C/C++ declarator chain to find the innermost identifier.
- * function_definition.declarator may be: function_declarator, pointer_declarator,
- * reference_declarator, qualified_identifier, or identifier.
- */
-function walkDeclarator(node: AnyNode): string {
-  if (node.type === 'identifier' || node.type === 'field_identifier') {
-    return node.text;
-  }
-  // qualified_identifier: last child is the unqualified name
-  if (node.type === 'qualified_identifier') {
-    const name = node.childForFieldName('name');
-    return name ? name.text : (node.text.split('::').pop() ?? node.text);
-  }
-  // function_declarator carries the callee in its 'declarator' field
-  const inner = node.childForFieldName('declarator');
-  if (inner) return walkDeclarator(inner);
-  // Fallback: first identifier-type child
-  for (let i = 0; i < node.childCount; i++) {
-    const child = node.child(i);
-    if (child && (child.type === 'identifier' || child.type === 'field_identifier')) return child.text;
-  }
-  return '';
-}
-
-interface AnyNode {
-  type: string;
-  text: string;
-  childCount: number;
-  child(i: number): AnyNode | null;
-  childForFieldName(name: string): AnyNode | null;
-}
-
-function hasPublicModifier(node: AnyNode): boolean {
-  for (let i = 0; i < node.childCount; i++) {
-    const child = node.child(i);
-    if (child && (child.type === 'modifiers' || child.type === 'modifier')) {
-      if (child.text.includes('public')) return true;
-    }
-    // Java/Kotlin: modifier nodes are direct children
-    if (child && child.type === 'public') return true;
-  }
-  return false;
-}
-
-function hasSwiftPublicModifier(node: AnyNode): boolean {
-  for (let i = 0; i < node.childCount; i++) {
-    const child = node.child(i);
-    if (child && child.type === 'attribute' && child.text === 'public') return true;
-    if (child && child.type === 'modifier' && (child.text === 'public' || child.text === 'open')) return true;
-  }
-  return false;
-}
-
 class TreeSitterCodeAnalyzer implements CodeAnalyzer {
   readonly supportedExtensions = SUPPORTED_EXTENSIONS;
   private parsers = new Map<string, Parser>();
@@ -387,9 +348,32 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
     };
 
     visit();
+
+    // Edges: AST-accurate for TS/JS + Python; regex fallback for every other
+    // language so switching the indexer to tree-sitter never loses edge coverage.
+    let calls: ParsedCall[] | undefined;
+    let typeRelations: ParsedTypeRelation[] | undefined;
+    let typeUses: ParsedTypeUse[] | undefined;
+    const astEdges =
+      langName === 'python'
+        ? extractPyEdges(tree.rootNode as unknown as AnyNode)
+        : TS_EDGE_LANGUAGES.has(langName)
+          ? extractTsEdges(tree.rootNode as unknown as AnyNode)
+          : null;
+    if (astEdges) {
+      calls = astEdges.calls.length > 0 ? astEdges.calls : undefined;
+      typeRelations = astEdges.typeRelations.length > 0 ? astEdges.typeRelations : undefined;
+      typeUses = astEdges.typeUses.length > 0 ? astEdges.typeUses : undefined;
+    } else {
+      const regex = SimpleCodeAnalyzer.parseFileContent(filePath, content);
+      calls = regex.calls;
+      typeRelations = regex.typeRelations;
+      typeUses = regex.typeUses;
+    }
+
     tree.delete();
 
-    return { filePath, elements, content };
+    return { filePath, elements, content, calls, typeRelations, typeUses };
   }
 
   findRelevantElements(parsedFile: ParsedFile, query: string): CodeElement[] {
@@ -455,28 +439,37 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
 export async function createTreeSitterAnalyzer(wasmDir: string): Promise<CodeAnalyzer> {
   const parsers = new Map<string, Parser>();
 
-  // Load all available language parsers in parallel
   const languages = Object.values(EXT_TO_LANGUAGE).filter(
     (v, i, arr) => arr.indexOf(v) === i, // dedupe
   );
 
-  const results = await Promise.allSettled(
-    languages.map(async (lang) => {
-      const parser = await createParser(wasmDir, lang);
-      return { lang, parser };
-    }),
-  );
-
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      parsers.set(result.value.lang, result.value.parser);
-    } else {
-      logger.warn(`[SideCar] Failed to load tree-sitter grammar:`, result.reason);
+  // Load grammars SERIALLY, not in parallel. web-tree-sitter's `Language.load`
+  // mutates a shared Emscripten runtime and is NOT concurrency-safe: parallel
+  // loads corrupt each other's dynamic-linking symbol tables, so a load resolves
+  // another grammar's scanner export and fails. This surfaced only under the
+  // Linux CI runner's timing (loading 'python' failed on 'rust'/'tsx' exports);
+  // macOS happened to survive the race. Serial load makes it deterministic.
+  const failures: string[] = [];
+  for (const lang of languages) {
+    try {
+      parsers.set(lang, await createParser(wasmDir, lang));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      failures.push(`${lang}: ${reason}`);
+      logger.warn(`[SideCar] Failed to load tree-sitter grammar '${lang}': ${reason}`);
+      // A grammar compiled for a newer tree-sitter ABI than web-tree-sitter
+      // supports is a benign skip (that language just isn't analyzed). Anything
+      // else is an unexpected degradation — the symbol graph / PKI / impact
+      // analysis silently go empty — so surface it loudly.
+      if (!/Incompatible language version/i.test(reason)) {
+        // eslint-disable-next-line no-console
+        console.error(`[SideCar][tree-sitter] GRAMMAR LOAD FAILED — ${lang}: ${reason}`);
+      }
     }
   }
 
   if (parsers.size === 0) {
-    throw new Error('No tree-sitter grammars loaded');
+    throw new Error(`No tree-sitter grammars loaded. Failures:\n${failures.join('\n')}`);
   }
 
   logger.info(`[SideCar] Tree-sitter loaded with ${parsers.size} languages: ${[...parsers.keys()].join(', ')}`);

@@ -3290,6 +3290,48 @@ body {
   border-color: transparent;
 }
 
+/* Facet-dispatch graphic — richer chips (status icon · label · model badge). */
+.batch-progress-item .bp-icon {
+  font-size: 9px;
+  line-height: 1;
+}
+.batch-progress-item .bp-label {
+  font-weight: 500;
+}
+.batch-progress-item .bp-model {
+  font-size: 9.5px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  padding: 0 4px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.18);
+  opacity: 0.85;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* On the pending chip (no colored fill) the badge needs a visible tint. */
+.batch-progress-item.bp-pending .bp-model {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+/* Gentle pulse so the active facet reads as live, not stalled. */
+.batch-progress-item.bp-running {
+  animation: bp-pulse 1.4s ease-in-out infinite;
+}
+@keyframes bp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+#batch-progress-list.facets {
+  gap: 6px;
+}
+
 #bg-agents-header {
   display: flex;
   align-items: center;

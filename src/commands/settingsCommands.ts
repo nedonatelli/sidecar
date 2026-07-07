@@ -12,6 +12,7 @@ export const SKILL_MARKETPLACE_URL = 'https://github.com/topics/sidecar-skill';
 /** Public MCP marketplace — browseable GitHub topic index of `mcp-server` repos. */
 export const MCP_MARKETPLACE_URL = 'https://github.com/topics/mcp-server';
 import { registerNoSqlMcpCommands } from './noSqlMcpCommands.js';
+import { bedrockRuntimeOrigin } from '../ollama/bedrockBackend.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 
@@ -67,8 +68,26 @@ export async function promptBedrockRegion(): Promise<string | undefined> {
     region = typed.trim();
   }
 
-  await workspace.getConfiguration('sidecar').update('bedrock.region', region, true);
-  window.showInformationMessage(`SideCar: Bedrock region set to ${region}.`);
+  // FIPS endpoint — required for some connections (notably AWS GovCloud). Offer
+  // it, ordering FIPS first for gov regions where it's typically mandatory.
+  const isGov = region.startsWith('us-gov-');
+  const standardItem = { label: 'Standard endpoint', fips: false, description: bedrockRuntimeOrigin(region, false) };
+  const fipsItem = { label: 'FIPS endpoint', fips: true, description: bedrockRuntimeOrigin(region, true) };
+  const endpointPick = await window.showQuickPick(isGov ? [fipsItem, standardItem] : [standardItem, fipsItem], {
+    title: 'Bedrock endpoint',
+    placeHolder: isGov ? 'GovCloud typically requires FIPS' : 'Use FIPS only if your account/region requires it',
+  });
+  if (!endpointPick) return undefined;
+  const fips = endpointPick.fips;
+  const baseUrl = bedrockRuntimeOrigin(region, fips);
+
+  const cfg = workspace.getConfiguration('sidecar');
+  await cfg.update('bedrock.region', region, true);
+  await cfg.update('bedrock.fips', fips, true);
+  // Keep the displayed/used base URL in sync with the chosen region + FIPS, so
+  // switching away from us-east-1 (or into GovCloud) updates it correctly.
+  await cfg.update('baseUrl', baseUrl, true);
+  window.showInformationMessage(`SideCar: Bedrock set to ${region}${fips ? ' (FIPS)' : ''} — ${baseUrl}`);
   return region;
 }
 

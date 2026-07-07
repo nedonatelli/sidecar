@@ -66,6 +66,15 @@ export interface ToolDefinition {
    * Replaces the hardcoded `DEDUP_EXEMPT_TOOLS` set in `promptPruner.ts`.
    */
   nondeterministicOutput?: boolean;
+  /**
+   * When true, this tool's result is trusted, pre-built HTML (a rendered chart
+   * or DB table) that the chat webview may inject as markup. The webview renders
+   * HTML ONLY for tools carrying this flag — arbitrary tool output that merely
+   * *contains* HTML/SVG (e.g. `read_file` on a `.svg`) is shown as text, closing
+   * a UI-spoofing injection surface. Set only on `render_viz`, `db_query`,
+   * `db_execute`.
+   */
+  producesHtml?: boolean;
 }
 
 // Messages

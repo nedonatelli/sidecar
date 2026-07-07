@@ -2,6 +2,7 @@ import type { ChatState } from '../chatState.js';
 import { logger } from '../../system/logger.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
+import { toolProducesHtml } from '../../agent/tools.js';
 import { getConfig } from '../../config/settings.js';
 import type { PlanStore } from '../../agent/plans/planStore.js';
 import { extractGoal } from '../../agent/plans/planStore.js';
@@ -106,12 +107,23 @@ export function createAgentCallbacks(
       }
     },
     onToolResult: (name, result, isError, id) => {
+      // Only tools that declare producesHtml emit trusted markup; the webview
+      // renders HTML solely on this flag, never by sniffing content. HTML output
+      // is sent in full (truncating would corrupt the markup); everything else
+      // is previewed.
+      const isHtml = toolProducesHtml(name);
       const preview =
-        result.length > TOOL_RESULT_PREVIEW_MAX ? result.slice(0, TOOL_RESULT_PREVIEW_MAX) + '...' : result;
-      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview });
+        !isHtml && result.length > TOOL_RESULT_PREVIEW_MAX ? result.slice(0, TOOL_RESULT_PREVIEW_MAX) + '...' : result;
+      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview, isHtml });
       const durationMs = state.metricsCollector.getToolDuration();
       state.metricsCollector.recordToolEnd(name, isError);
       state.auditLog?.recordToolResult(name, id, result, isError, durationMs);
+    },
+    onMalformedToolCalls: (malformed, repaired) => {
+      state.metricsCollector.recordMalformedToolCalls(malformed, repaired);
+    },
+    onOutcome: (bucket) => {
+      state.metricsCollector.recordOutcome(bucket);
     },
     onAssistantText: (text, iteration) => {
       void state.auditLog?.recordTextTurn(text, iteration);
@@ -132,6 +144,8 @@ export function createAgentCallbacks(
     },
     onIterationStart: (info) => {
       currentIteration = info.iteration;
+      state.metricsCollector.recordIteration();
+      state.metricsCollector.setTokenEstimate(info.estimatedTokens);
       if (planStore && config.executiveFunctionEnabled) {
         void planStore.save({
           goal: extractGoal(chatMessages),
@@ -264,7 +278,11 @@ export function createAgentCallbacks(
       if (planStore && config.executiveFunctionEnabled) {
         void planStore.clear();
       }
-      if (!cancelled) state.postMessage({ command: 'done' });
+      // Report the authoritative transcript length so the webview can resync
+      // its message-index counter. A turn appends assistant + tool entries the
+      // webview never counts, so without this the next user bubble is stamped
+      // with a stale index and delete/edit target the wrong message.
+      if (!cancelled) state.postMessage({ command: 'done', messageCount: state.messages.length });
     },
   };
 

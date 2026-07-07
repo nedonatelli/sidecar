@@ -1,8 +1,26 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { BedrockBackend } from './bedrockBackend.js';
+import { BedrockBackend, bedrockRuntimeOrigin, bedrockControlOrigin } from './bedrockBackend.js';
 import type { ChatMessage } from './types.js';
 
 const CREDS = { accessKeyId: 'AKID', secretAccessKey: 'secret' };
+
+describe('bedrock endpoint helpers', () => {
+  it('derives the standard runtime + control hosts per region', () => {
+    expect(bedrockRuntimeOrigin('us-east-1')).toBe('https://bedrock-runtime.us-east-1.amazonaws.com');
+    expect(bedrockRuntimeOrigin('eu-central-1')).toBe('https://bedrock-runtime.eu-central-1.amazonaws.com');
+    expect(bedrockControlOrigin('us-west-2')).toBe('https://bedrock.us-west-2.amazonaws.com');
+  });
+
+  it('derives the FIPS hosts (required for GovCloud)', () => {
+    expect(bedrockRuntimeOrigin('us-gov-east-1', true)).toBe(
+      'https://bedrock-runtime-fips.us-gov-east-1.amazonaws.com',
+    );
+    expect(bedrockRuntimeOrigin('us-gov-west-1', true)).toBe(
+      'https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com',
+    );
+    expect(bedrockControlOrigin('us-gov-west-1', true)).toBe('https://bedrock-fips.us-gov-west-1.amazonaws.com');
+  });
+});
 
 // Build one AWS event-stream chunk frame wrapping an Anthropic event.
 function chunkFrame(innerEvent: object): Buffer {
@@ -71,6 +89,19 @@ describe('BedrockBackend', () => {
     expect(body.anthropic_version).toBe('bedrock-2023-05-31');
     expect(body.model).toBeUndefined(); // model goes in the URL, not the body
     expect(body.system).toBe('sys');
+  });
+
+  it('routes to the FIPS host when constructed with useFips (GovCloud)', async () => {
+    let captured: { url: string } | null = null;
+    vi.stubGlobal('fetch', async (url: string) => {
+      captured = { url };
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ok' }] }), { status: 200 });
+    });
+
+    const backend = new BedrockBackend('us-gov-west-1', { credentials: CREDS }, undefined, true);
+    await backend.complete('anthropic.claude-3-5-sonnet-20241022-v2:0', 'sys', messages, 32);
+
+    expect(captured!.url).toContain('bedrock-runtime-fips.us-gov-west-1.amazonaws.com');
   });
 
   it('uses Bearer auth (a Bedrock API key) instead of SigV4 when a token is set, encoding the model path', async () => {

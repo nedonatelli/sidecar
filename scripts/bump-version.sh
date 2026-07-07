@@ -124,6 +124,10 @@ content = re.sub(r'\d+ Built-in Tools', '${TOOL_COUNT} Built-in Tools', content)
 with open('docs/index.html', 'w') as f:
     f.write(content)
 "
+# Bump the hero version string (e.g. the "v0.116.0" eyebrow). Only the exact
+# current-version string matches, so older "new in vX.Y" feature badges are
+# left alone.
+sed -i '' "s/v$OLD_VERSION/v$NEW_VERSION/g" docs/index.html 2>/dev/null || true
 
 # --- 5. Update docs/agent-mode.md ---
 echo "Updating docs/agent-mode.md..."
@@ -138,6 +142,15 @@ sed -i '' "s/[0-9]* tool definitions add/~$TOOL_COUNT tool definitions add/" doc
 # number form. The old pattern required a literal '+' and never matched.
 echo "Updating README.md..."
 sed -i '' "s/[0-9][0-9]* built-in tools/$TOOL_COUNT built-in tools/g" README.md 2>/dev/null || true
+
+# --- 7b. Update SECURITY.md supported-version table ---
+# Only the supported-version rows are mechanical. The SECRET_PATTERNS "unchanged
+# through vX" line is a manual judgment (assert only when the patterns really
+# didn't change) — see the CONTRIBUTING doc-sync checklist.
+echo "Updating SECURITY.md..."
+MINOR=$(echo "$NEW_VERSION" | cut -d. -f1-2)
+sed -i '' "s/| [0-9][0-9.]*\.x (current) | ✅ |/| ${MINOR}.x (current) | ✅ |/" SECURITY.md 2>/dev/null || true
+sed -i '' "s/| < [0-9][0-9.]* | ❌ |/| < ${MINOR} | ❌ |/" SECURITY.md 2>/dev/null || true
 
 # --- 8. Prepend CHANGELOG entry ---
 echo "Updating CHANGELOG.md..."

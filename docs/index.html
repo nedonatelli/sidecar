@@ -676,7 +676,7 @@ permalink: /
 <!-- HERO -->
 <div class="hero">
   <div>
-    <div class="hero-eyebrow">Open Source &middot; MIT License &middot; v0.114.56</div>
+    <div class="hero-eyebrow">Open Source &middot; MIT License &middot; v0.116.0</div>
     <h1>Your code.<br><span>Your machine.</span>No cloud.</h1>
     <p class="hero-sub">SideCar is a full agentic coding assistant &mdash; not a chatbot wrapper. It reads your files, runs your tests, and ships the fix. Nothing touches a server unless you want it to.</p>
     <div class="hero-cta">
@@ -720,7 +720,7 @@ permalink: /
   <div class="ticker-track">
     <span class="tick">Fully Offline</span><span class="tick-sep">&middot;</span>
     <span class="tick">Autonomous Agent Loop</span><span class="tick-sep">&middot;</span>
-    <span class="tick">80 Built-in Tools</span><span class="tick-sep">&middot;</span>
+    <span class="tick">86 Built-in Tools</span><span class="tick-sep">&middot;</span>
     <span class="tick">MCP Server Support</span><span class="tick-sep">&middot;</span>
     <span class="tick">Security Scanning</span><span class="tick-sep">&middot;</span>
     <span class="tick">Dep Drift Alerts</span><span class="tick-sep">&middot;</span>
@@ -744,7 +744,7 @@ permalink: /
     <!-- Duplicate for seamless loop -->
     <span class="tick">Fully Offline</span><span class="tick-sep">&middot;</span>
     <span class="tick">Autonomous Agent Loop</span><span class="tick-sep">&middot;</span>
-    <span class="tick">80 Built-in Tools</span><span class="tick-sep">&middot;</span>
+    <span class="tick">86 Built-in Tools</span><span class="tick-sep">&middot;</span>
     <span class="tick">MCP Server Support</span><span class="tick-sep">&middot;</span>
     <span class="tick">Security Scanning</span><span class="tick-sep">&middot;</span>
     <span class="tick">Dep Drift Alerts</span><span class="tick-sep">&middot;</span>
@@ -776,7 +776,7 @@ permalink: /
   </div>
   <div class="stat-div"></div>
   <div class="stat-item">
-    <span class="stat-num">6888</span>
+    <span class="stat-num">7698</span>
     <span class="stat-label">tests passing</span>
   </div>
   <div class="stat-div"></div>
@@ -786,7 +786,7 @@ permalink: /
   </div>
   <div class="stat-div"></div>
   <div class="stat-item">
-    <span class="stat-num">80</span>
+    <span class="stat-num">86</span>
     <span class="stat-label">built-in tools</span>
   </div>
 </div>
@@ -868,6 +868,12 @@ permalink: /
       <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></div>
       <h3>Regression Guards</h3>
       <p>Shell-command guards wired into the agent loop. Built-in guards (<code>lint-clean</code>, <code>tests-pass</code>, <code>no-new-todos</code>) run after edits and block the turn on failure. Enable per-skill via <code>guards:</code> frontmatter.</p>
+    </div>
+
+    <div class="feat-card">
+      <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M9 6h6M6 9v6a3 3 0 0 0 3 3h6"/></svg></div>
+      <h3>Change-Impact Analysis</h3>
+      <p>A consequence-aware code graph (AST-exact call/type-flow edges for TS + Python). <code>analyze_impact</code> answers "what depends on this symbol?" &mdash; import-resolved callers, type-users, subtypes, importers &mdash; and an opt-in gate blocks finishing with unverified cross-file dependents. For scientific Python, <code>check_numerical_contracts</code> + <code>check_shape_consistency</code> flag array kernels missing a shape/dtype contract and propagate shape specs to catch provable conflicts.</p>
     </div>
   </div>
 </section>

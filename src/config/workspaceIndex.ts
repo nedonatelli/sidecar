@@ -9,60 +9,12 @@ import type { SidecarDir } from './sidecarDir.js';
 import { readFileStreaming } from './streamingFileReader.js';
 import { getConfig } from './settings.js';
 import { getCurrentContextRules, applyContextRules } from './structuredContextRules.js';
+import { tokenize } from './workspaceIndex/tokenize.js';
+import type { FileNode, RankedFile } from './workspaceIndex/types.js';
+export type { FileNode, RankedFile } from './workspaceIndex/types.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 
-const STOP_WORDS = new Set([
-  'a',
-  'an',
-  'the',
-  'and',
-  'or',
-  'but',
-  'is',
-  'are',
-  'was',
-  'were',
-  'be',
-  'in',
-  'on',
-  'at',
-  'to',
-  'for',
-  'of',
-  'with',
-  'by',
-  'from',
-  'as',
-  'how',
-  'what',
-  'why',
-  'when',
-  'where',
-  'do',
-  'does',
-  'this',
-  'that',
-  'these',
-  'those',
-  'i',
-  'you',
-  'it',
-  'we',
-  'they',
-]);
-
-const CAMEL_SPLIT_RE = /([a-z])([A-Z])/g;
-const NON_ALNUM_RE = /[^a-z0-9]+/;
-
-/** Split text into lowercased tokens, splitting on camelCase, snake_case, kebab-case, paths, and punctuation. */
-function tokenize(text: string): string[] {
-  return text
-    .replace(CAMEL_SPLIT_RE, '$1 $2')
-    .toLowerCase()
-    .split(NON_ALNUM_RE)
-    .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
-}
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
 const INDEX_VERSION = 1;
 
@@ -97,17 +49,6 @@ const ROOT_CONFIG_FILES = new Set([
   'Gemfile',
   'composer.json',
 ]);
-
-export interface FileNode {
-  relativePath: string;
-  sizeBytes: number;
-  relevanceScore: number;
-}
-
-export interface RankedFile extends FileNode {
-  /** Combined heuristic + semantic score for this query. */
-  score: number;
-}
 
 interface IndexCache {
   version: number;

@@ -145,10 +145,15 @@ function findNearestMatch(fileText: string, search: string): string | null {
  *      the result can be passed directly to text.replace() without
  *      accidentally removing the context lines around the target.
  *
- * Returns null when confidence is below 40% so low-signal guesses are
- * rejected rather than silently corrupting unrelated regions.
+ * Returns null when confidence is below `minConfidenceRatio` (default 40%)
+ * so low-signal guesses are rejected rather than silently corrupting
+ * unrelated regions. A caller retrying after repeated identical failures
+ * (see recordEditFailure) may pass a lower ratio — the file/replace content
+ * is unchanged between attempts, so re-running at the SAME ratio would
+ * reject again for the same reason; loosening it is the only way a retry
+ * can find something the stricter first pass didn't.
  */
-function findIntentTarget(fileText: string, replace: string): string | null {
+function findIntentTarget(fileText: string, replace: string, minConfidenceRatio = 0.4): string | null {
   const searchWords = replace
     .split(/\W+/)
     .filter((w) => w.length >= 4)
@@ -172,7 +177,7 @@ function findIntentTarget(fileText: string, replace: string): string | null {
     }
   }
 
-  if (bestIdx < 0 || bestScore < Math.ceil(searchWords.length * 0.4)) return null;
+  if (bestIdx < 0 || bestScore < Math.ceil(searchWords.length * minConfidenceRatio)) return null;
   return fileLines.slice(bestIdx, bestIdx + windowSize).join('\n');
 }
 
@@ -219,6 +224,45 @@ function findNearestMatchWide(fileText: string, search: string, maxLines = 25): 
   const start = Math.max(0, bestIdx - half);
   const end = Math.min(fileLines.length, bestIdx + windowSize + half);
   return fileLines.slice(start, end).join('\n');
+}
+
+/**
+ * Detect a verbatim-repeated failing `edit_file` call for the same path — the
+ * signature of a weak model that got a hint (nearest-match / search-not-found)
+ * and resubmitted the identical broken call instead of adapting. Both
+ * "search === replace" and "search not found" are unrecoverable-without-more-
+ * info failures (the tool can only show a hint, not safely guess the intended
+ * change), so a verbatim repeat means the hint didn't land — escalating to a
+ * blunter instruction is the only lever left before cycle detection bails the
+ * whole run. Records the new signature as a side effect so the NEXT call can
+ * be checked against this one; returns false (never escalates) when the
+ * tracker is absent (unit tests / non-loop calls).
+ */
+function recordEditFailure(
+  context: ToolExecutorContext | undefined,
+  filePath: string,
+  search: string,
+  replace: string,
+): number {
+  const signature = `${search.length}:${replace.length}:${search} ${replace}`;
+  const map = context?.editFailureSignatures;
+  if (!map) return 1;
+  const prev = map.get(filePath);
+  let count = 1;
+  if (prev) {
+    const sepIdx = prev.indexOf('|');
+    const prevCount = Number(prev.slice(0, sepIdx));
+    const prevSignature = prev.slice(sepIdx + 1);
+    if (prevSignature === signature && Number.isFinite(prevCount)) count = prevCount + 1;
+  }
+  map.set(filePath, `${count}|${signature}`);
+  return count;
+}
+
+/** Clear a path's failure-repeat tracking after a successful edit, so a LATER
+ *  distinct failure isn't mistaken for a repeat of an already-fixed one. */
+function clearEditFailure(context: ToolExecutorContext | undefined, filePath: string): void {
+  context?.editFailureSignatures?.delete(filePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -572,6 +616,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         const inferredText = currentContent.replace(intentTarget, replace);
         const patch = computeLineDiff(currentContent, inferredText, filePath);
         if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
+        clearEditFailure(context, filePath);
         if (isAuditModeActive(context)) {
           await getDefaultAuditBuffer().write(filePath, inferredText, (p) => readDiskViaWorkspace(context, p));
           return (
@@ -588,6 +633,24 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
           `Replaced:\n\`\`\`\n${intentTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\``
         );
       }
+    }
+    const failureCount = recordEditFailure(context, filePath, search, replace);
+    if (failureCount >= 2) {
+      // search === replace carries NO information about the intended change
+      // (both fields are identical) — unlike the search-not-found case below,
+      // there's no candidate content to retry a looser auto-repair against.
+      // The only lever left is a MORE PRECISE hint: prefer an exact-line-number
+      // grep hit over the fuzzy nearest-match block, since the model has
+      // already ignored the fuzzy block once (or twice).
+      const preciseHint = currentContent ? buildGrepHint(currentContent, search) : null;
+      return (
+        `Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace text as your ` +
+        `last call to ${filePath}, which failed for the same reason${failureCount > 2 ? ` (attempt ${failureCount})` : ''}. ` +
+        `Repeating an identical call will never work. You MUST change your approach: (1) call read_file on ` +
+        `${filePath} right now, (2) copy the CURRENT text you want to change into search VERBATIM, and ` +
+        `(3) write your DIFFERENT intended new text into replace. search and replace must not be the same string.` +
+        `\n${preciseHint ?? hint}`
+      );
     }
     return `Error: edit_file failed — search and replace text are identical; no change would be made.\n${hint}`;
   }
@@ -621,6 +684,29 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       currentText = diskText;
     }
     if (!currentText.includes(search)) {
+      const failureCount = recordEditFailure(context, filePath, search, replace);
+      // Third+ identical failure: the file/replace content hasn't changed
+      // between attempts, so retrying findIntentTarget at the SAME confidence
+      // would reject again for the same reason. Loosen the threshold — a
+      // real (if lower-confidence) candidate is better than a certain
+      // 4th failure, and it's clearly disclosed so the caller can verify it.
+      if (failureCount >= 3) {
+        const looseTarget = findIntentTarget(currentText, replace, 0.2);
+        if (looseTarget && currentText.includes(looseTarget) && looseTarget !== replace) {
+          const inferredText = currentText.replace(looseTarget, replace);
+          const patch = computeLineDiff(currentText, inferredText, filePath);
+          if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
+          await buf.write(filePath, inferredText, (p) => readDiskViaWorkspace(context, p));
+          getAuditDecorationProvider()?.refresh();
+          clearEditFailure(context, filePath);
+          return (
+            `Auto-repaired ${filePath} after ${failureCount} identical failed attempts (buffered for audit ` +
+            `review): a low-confidence fuzzy match was applied since repeating the same failing call would ` +
+            `only fail again. VERIFY this is correct — it may be wrong.\n` +
+            `Replaced:\n\`\`\`\n${looseTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\``
+          );
+        }
+      }
       const nearest = findNearestMatch(currentText, search);
       const grepHint = buildGrepHint(currentText, search) ?? buildGrepHint(currentText, replace);
       const hint = grepHint
@@ -628,6 +714,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         : nearest
           ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
           : '\n\nCall read_file to see the exact current content.';
+      if (failureCount >= 2) {
+        return (
+          `Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace text as your ` +
+          `last call to ${filePath}, which failed for the same reason. Repeating an identical call will never ` +
+          `work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM into search.${hint}`
+        );
+      }
       return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
     }
     const matchCount = currentText.split(search).length - 1;
@@ -637,6 +730,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     const newText = currentText.replace(search, () => replace);
     await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
+    clearEditFailure(context, filePath);
     return `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
   }
 
@@ -684,6 +778,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
 
       await workspace.fs.writeFile(fileUri, Buffer.from(inferredText, 'utf-8'));
       context?.workspaceIndex?.invalidateFile(filePath);
+      clearEditFailure(context, filePath);
       return (
         `${unreadPrefix}Applied inferred edit to ${filePath}: the search string didn't match exactly, ` +
         `but I found the closest matching region and replaced it with your content.\n` +
@@ -693,6 +788,31 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       );
     }
 
+    const failureCount = recordEditFailure(context, filePath, search, replace);
+    // Third+ identical failure: findIntentTarget already ran above at the
+    // default confidence and either found nothing or found `replace` itself
+    // (a no-op) — both dead ends at that threshold. Retry looser rather than
+    // just repeating the same hint a model has already ignored twice.
+    if (failureCount >= 3) {
+      const looseTarget = findIntentTarget(text, replace, 0.2);
+      if (looseTarget && text.includes(looseTarget) && looseTarget !== replace) {
+        const inferredText = text.replace(looseTarget, replace);
+        const patch = computeLineDiff(text, inferredText, filePath);
+        if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
+        if (context?.editTimeline && !context.cwd) context.editTimeline.record(filePath, text, inferredText);
+        await workspace.fs.writeFile(fileUri, Buffer.from(inferredText, 'utf-8'));
+        context?.workspaceIndex?.invalidateFile(filePath);
+        clearEditFailure(context, filePath);
+        return (
+          `${unreadPrefix}Auto-repaired ${filePath} after ${failureCount} identical failed attempts: a ` +
+          `low-confidence fuzzy match was applied since repeating the same failing call would only fail ` +
+          `again. VERIFY this is correct — it may be wrong.\n` +
+          `Replaced:\n\`\`\`\n${looseTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\`` +
+          (partialReplaceWarning ? `\n${partialReplaceWarning}` : '')
+        );
+      }
+    }
+
     const grepHint2 = buildGrepHint(text, search) ?? buildGrepHint(text, replace);
     const nearest = findNearestMatch(text, search);
     const hint = grepHint2
@@ -700,6 +820,14 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       : nearest
         ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
         : '\n\nCall read_file to see the exact current content.';
+    if (failureCount >= 2) {
+      return (
+        `${unreadPrefix}Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace ` +
+        `text as your last call to ${filePath}, which failed for the same reason. Repeating an identical call ` +
+        `will never work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM ` +
+        `into search.${hint}`
+      );
+    }
     return `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
   }
   const matchCount = text.split(search).length - 1;
@@ -712,6 +840,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     const patch = computeLineDiff(text, newText, filePath);
     if (patch) context.onOutput(DIFF_PREFIX + patch);
   }
+  clearEditFailure(context, filePath);
 
   // Record to edit timeline before overwriting.
   // Skip when cwd is set (shadow workspace).

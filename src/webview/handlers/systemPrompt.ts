@@ -501,7 +501,7 @@ export async function injectSystemContext(
   if (state.contextProviderManager) {
     prevLen = prompt.length;
     try {
-      const issuesBlock = await state.contextProviderManager.buildPromptBlock();
+      const issuesBlock = await state.contextProviderManager.buildPromptBlock(signal);
       if (issuesBlock) prompt += `\n\n${issuesBlock}`;
     } catch {
       // Non-fatal — failing to fetch issues should never block the agent.

@@ -61,12 +61,55 @@ describe('checkWorkspaceConfigTrust — user prompt', () => {
     expect(result).toBe('trusted');
   });
 
-  it('returns "trusted" when the user dismisses the dialog (undefined)', async () => {
+  it('fails closed: returns "blocked" when the user dismisses the dialog (undefined)', async () => {
     withWorkspaceConfig();
     vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
 
     const result = await checkWorkspaceConfigTrust('hooks', 'Allow hooks?');
-    expect(result).toBe('trusted');
+    expect(result).toBe('blocked');
+  });
+
+  it('does not cache a dismissal — re-prompts on the next call', async () => {
+    withWorkspaceConfig();
+    const warnSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+
+    const first = await checkWorkspaceConfigTrust('hooks', 'Allow hooks?');
+    const second = await checkWorkspaceConfigTrust('hooks', 'Allow hooks?');
+
+    expect(first).toBe('blocked');
+    expect(second).toBe('blocked');
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches an explicit Allow across a later dismissal', async () => {
+    withWorkspaceConfig();
+    const warnSpy = vi
+      .spyOn(window, 'showWarningMessage')
+      .mockResolvedValueOnce('Allow' as never)
+      .mockResolvedValueOnce(undefined as never);
+
+    const first = await checkWorkspaceConfigTrust('hooks', 'Allow hooks?');
+    const second = await checkWorkspaceConfigTrust('hooks', 'Allow hooks?');
+
+    expect(first).toBe('trusted');
+    expect(second).toBe('trusted');
+    expect(warnSpy).toHaveBeenCalledOnce();
+  });
+
+  it('passes { modal: true } through to showWarningMessage when requested', async () => {
+    withWorkspaceConfig();
+    const warnSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Allow' as never);
+
+    await checkWorkspaceConfigTrust('hooks', 'Allow hooks?', { modal: true });
+    expect(warnSpy).toHaveBeenCalledWith('Allow hooks?', { modal: true }, 'Allow', 'Block');
+  });
+
+  it('defaults to a non-modal toast when no options are given', async () => {
+    withWorkspaceConfig();
+    const warnSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Allow' as never);
+
+    await checkWorkspaceConfigTrust('hooks', 'Allow hooks?');
+    expect(warnSpy).toHaveBeenCalledWith('Allow hooks?', { modal: false }, 'Allow', 'Block');
   });
 });
 

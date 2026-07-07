@@ -1,0 +1,181 @@
+[
+  {
+    "id": "simple_0",
+    "category": "simple",
+    "question": "What's the weather in Paris in celsius?",
+    "functions": [
+      {
+        "name": "get_current_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string", "description": "City name." },
+            "unit": { "type": "string", "enum": ["celsius", "fahrenheit"], "description": "Temperature unit." }
+          },
+          "required": ["city"]
+        }
+      }
+    ],
+    "groundTruth": [{ "get_current_weather": { "city": ["Paris"], "unit": ["celsius"] } }]
+  },
+  {
+    "id": "simple_1",
+    "category": "simple",
+    "question": "Convert 100 US dollars to euros.",
+    "functions": [
+      {
+        "name": "convert_currency",
+        "description": "Convert an amount from one currency to another.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "amount": { "type": "float", "description": "Amount to convert." },
+            "from": { "type": "string", "description": "Source currency code." },
+            "to": { "type": "string", "description": "Target currency code." }
+          },
+          "required": ["amount", "from", "to"]
+        }
+      }
+    ],
+    "groundTruth": [{ "convert_currency": { "amount": [100, 100.0], "from": ["USD"], "to": ["EUR"] } }]
+  },
+  {
+    "id": "multiple_0",
+    "category": "multiple",
+    "question": "How many shares of AAPL closed above 150 over the last 5 days?",
+    "functions": [
+      {
+        "name": "get_current_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+          "type": "object",
+          "properties": { "city": { "type": "string" } },
+          "required": ["city"]
+        }
+      },
+      {
+        "name": "get_stock_history",
+        "description": "Get historical closing prices for a ticker.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ticker": { "type": "string", "description": "Stock ticker symbol." },
+            "days": { "type": "integer", "description": "Number of past days." }
+          },
+          "required": ["ticker", "days"]
+        }
+      }
+    ],
+    "groundTruth": [{ "get_stock_history": { "ticker": ["AAPL"], "days": [5] } }]
+  },
+  {
+    "id": "parallel_0",
+    "category": "parallel",
+    "question": "Give me the weather in Paris and Tokyo, both in celsius.",
+    "functions": [
+      {
+        "name": "get_current_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" },
+            "unit": { "type": "string", "enum": ["celsius", "fahrenheit"] }
+          },
+          "required": ["city"]
+        }
+      }
+    ],
+    "groundTruth": [
+      { "get_current_weather": { "city": ["Paris"], "unit": ["celsius"] } },
+      { "get_current_weather": { "city": ["Tokyo"], "unit": ["celsius"] } }
+    ]
+  },
+  {
+    "id": "parallel_multiple_0",
+    "category": "parallel_multiple",
+    "question": "What's the weather in Paris in celsius, and how did AAPL do over the last 5 days?",
+    "functions": [
+      {
+        "name": "get_current_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" },
+            "unit": { "type": "string", "enum": ["celsius", "fahrenheit"] }
+          },
+          "required": ["city"]
+        }
+      },
+      {
+        "name": "get_stock_history",
+        "description": "Get historical closing prices for a ticker.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ticker": { "type": "string" },
+            "days": { "type": "integer" }
+          },
+          "required": ["ticker", "days"]
+        }
+      }
+    ],
+    "groundTruth": [
+      { "get_current_weather": { "city": ["Paris"], "unit": ["celsius"] } },
+      { "get_stock_history": { "ticker": ["AAPL"], "days": [5] } }
+    ]
+  },
+  {
+    "id": "irrelevance_0",
+    "category": "irrelevance",
+    "question": "Write me a haiku about the ocean.",
+    "functions": [
+      {
+        "name": "get_current_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+          "type": "object",
+          "properties": { "city": { "type": "string" } },
+          "required": ["city"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "irrelevance_1",
+    "category": "irrelevance",
+    "question": "What is the capital of France?",
+    "functions": [
+      {
+        "name": "get_stock_history",
+        "description": "Get historical closing prices for a ticker.",
+        "parameters": {
+          "type": "object",
+          "properties": { "ticker": { "type": "string" }, "days": { "type": "integer" } },
+          "required": ["ticker", "days"]
+        }
+      }
+    ]
+  },
+  {
+    "id": "relevance_0",
+    "category": "relevance",
+    "question": "What's the weather like in Berlin right now?",
+    "functions": [
+      {
+        "name": "get_current_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" },
+            "unit": { "type": "string", "enum": ["celsius", "fahrenheit"] }
+          },
+          "required": ["city"]
+        }
+      }
+    ]
+  }
+]

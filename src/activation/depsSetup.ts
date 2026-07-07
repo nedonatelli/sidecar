@@ -54,6 +54,8 @@ export function registerDepsFeature(context: ExtensionContext): void {
 
     const results = await scanner.scan([manifestPath], {
       checkVulnerabilities: cfg.depsCheckVulnerabilities,
+      // Cap the background scan so a wedged registry can't hang activation work.
+      signal: AbortSignal.timeout(30_000),
     });
     const result = results[0];
     if (result && mtimeMs !== undefined) {

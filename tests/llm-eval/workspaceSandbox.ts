@@ -77,28 +77,23 @@ function fsPathOf(uri: unknown): string {
 }
 
 /**
- * Install a fresh sandbox for one eval case. Materializes the fixture,
- * points the vscode mock at the temp dir, and returns a handle with a
- * teardown hook the caller must invoke in a `finally` block.
+ * Point the vscode mock at an EXISTING directory: `workspaceFolders` + real-
+ * node-fs-backed `workspace.fs` + a `findFiles` walker, all rooted at `root`.
+ * Returns a restore function that puts the mock back. This is the hook that
+ * makes the agent's fs tools (read_file/edit_file/search_files) operate on real
+ * disk instead of the default stub mock (which returns "mock file content").
+ *
+ * Used by `installSandbox` (after materializing a fixture) and by benchmark
+ * drivers (e.g. SWE-bench) that already have a checked-out repo on disk.
  */
-export async function installSandbox(fixture: WorkspaceFixture, caseId: string): Promise<Sandbox> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), `sidecar-eval-${caseId}-`));
-
-  // Materialize every fixture file, creating intermediate dirs as needed.
-  for (const [relPath, content] of Object.entries(fixture)) {
-    const abs = path.join(root, relPath);
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, content, 'utf-8');
-  }
-
-  // Save originals so teardown can restore them.
+export function mountWorkspaceRoot(root: string): () => void {
   const mutable = workspace as unknown as VscodeWorkspaceMutable;
   const origFolders = mutable.workspaceFolders;
   const origFs = { ...mutable.fs };
   const origFindFiles = mutable.findFiles;
 
-  // Point workspace.workspaceFolders at the temp dir so tools that read
-  // `workspace.workspaceFolders[0].uri.fsPath` via getRoot() land in the sandbox.
+  // Point workspace.workspaceFolders at the dir so tools that read
+  // `workspace.workspaceFolders[0].uri.fsPath` via getRoot() land in it.
   mutable.workspaceFolders = [{ uri: { fsPath: root, scheme: 'file', path: root }, name: 'eval', index: 0 }];
 
   // Swap workspace.fs with real-node-fs-backed wrappers. Each wrapper
@@ -134,13 +129,9 @@ export async function installSandbox(fixture: WorkspaceFixture, caseId: string):
 
   // workspace.findFiles powers the `search_files` tool. The default
   // vscode mock returns [] unconditionally, so search_files always
-  // reports "No files found" in the eval harness. Swap in a
-  // minimatch-style walker that applies the include glob against
-  // every file under the sandbox root and respects the exclude
-  // pattern (used to skip node_modules / .git / dist etc. in the
-  // real tool). Minimal glob grammar — enough to cover the
-  // patterns the agent emits in practice (`**/*.ts`, `src/**/*.test.ts`,
-  // `**/README.md`) without pulling in a dependency.
+  // reports "No files found". Swap in a minimatch-style walker that applies
+  // the include glob against every file under root and respects the exclude
+  // pattern. Minimal glob grammar — `**/*.ts`, `src/**/*.test.ts`, `**/*.py`.
   mutable.findFiles = async (include, exclude, maxResults) => {
     const includePattern = typeof include === 'string' ? include : String(include);
     const excludePattern = typeof exclude === 'string' ? exclude : '';
@@ -159,13 +150,35 @@ export async function installSandbox(fixture: WorkspaceFixture, caseId: string):
     return results;
   };
 
+  return () => {
+    mutable.workspaceFolders = origFolders;
+    mutable.fs = origFs;
+    mutable.findFiles = origFindFiles;
+  };
+}
+
+/**
+ * Install a fresh sandbox for one eval case. Materializes the fixture,
+ * points the vscode mock at the temp dir, and returns a handle with a
+ * teardown hook the caller must invoke in a `finally` block.
+ */
+export async function installSandbox(fixture: WorkspaceFixture, caseId: string): Promise<Sandbox> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), `sidecar-eval-${caseId}-`));
+
+  // Materialize every fixture file, creating intermediate dirs as needed.
+  for (const [relPath, content] of Object.entries(fixture)) {
+    const abs = path.join(root, relPath);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, content, 'utf-8');
+  }
+
+  const restore = mountWorkspaceRoot(root);
+
   return {
     root,
     snapshot: async () => walk(root, root),
     teardown: async () => {
-      mutable.workspaceFolders = origFolders;
-      mutable.fs = origFs;
-      mutable.findFiles = origFindFiles;
+      restore();
       // Best-effort cleanup — don't throw if another process is still
       // holding a file handle (shell session on Windows is the most
       // likely culprit).

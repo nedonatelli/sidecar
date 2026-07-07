@@ -33,6 +33,100 @@ import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../oll
  * patterns within a single turn usually indicates a confused model,
  * and mixing them in our parser would double-dispatch the same call.
  */
+/** Salvage a known tool name from a malformed tool-call blob, or null. */
+function salvageToolName(raw: string, toolNames: Set<string>): string | null {
+  const m = raw.match(/"(?:name|function)"\s*:\s*"(\w+)"/);
+  return m && toolNames.has(m[1]) ? m[1] : null;
+}
+
+/** Split a comma-separated argument list at top level, respecting quotes and brackets. Exported for tests. */
+export function splitTopLevelArgs(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote) {
+      cur += c;
+      if (c === quote && s[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      cur += c;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    if (c === ',' && depth === 0) {
+      parts.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += c;
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts;
+}
+
+/** Coerce a raw Python-kwarg value token to a JS value (string/number/bool/null). Exported for tests. */
+export function coerceArgValue(raw: string): unknown {
+  const t = raw.trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    return t.slice(1, -1);
+  }
+  if (t === 'true' || t === 'True') return true;
+  if (t === 'false' || t === 'False') return false;
+  if (t === 'null' || t === 'None') return null;
+  if (/^-?\d+$/.test(t)) return parseInt(t, 10);
+  if (/^-?\d*\.\d+$/.test(t)) return parseFloat(t);
+  return t; // bareword — treat as a string
+}
+
+/**
+ * Salvage a tool call whose NAME captured the whole call expression — e.g.
+ * name=`read_file(path="src/x.ts")` with empty args. Some model runtimes
+ * (notably Ollama's native qwen3.5 tool parser) occasionally fail to split the
+ * function name from its arguments, and models sometimes echo the prompt's
+ * `read_file(path="…")` example syntax as a literal text call. Both leave the
+ * base name unresolvable ("Unknown tool") when the real intent was clear.
+ *
+ * Returns the base name plus arguments parsed from the parentheses — Python-style
+ * kwargs (`path="x", start_line=5`) or an embedded JSON object (`{"path":"x"}`).
+ * Positional-only args can't be mapped without the schema, so they yield an empty
+ * input (the base name still resolves, and the tool surfaces a clear missing-arg
+ * error instead of an opaque "Unknown tool"). Returns null when `rawName` is not
+ * a `name(...)` call expression — real tool names are plain identifiers, so this
+ * never fires on a legitimate call.
+ */
+export function parseMangledToolName(rawName: string): { name: string; input: Record<string, unknown> } | null {
+  const m = rawName.match(/^\s*([A-Za-z_]\w*)\s*\(([\s\S]*)\)\s*$/);
+  if (!m) return null;
+  const name = m[1];
+  const argStr = m[2].trim();
+  if (argStr === '') return { name, input: {} };
+
+  // Embedded JSON object: read_file({"path":"x"})
+  if (argStr.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(argStr);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return { name, input: parsed as Record<string, unknown> };
+      }
+    } catch {
+      // fall through to kwargs parsing
+    }
+  }
+
+  const input: Record<string, unknown> = {};
+  for (const part of splitTopLevelArgs(argStr)) {
+    const kv = part.match(/^\s*([A-Za-z_]\w*)\s*=\s*([\s\S]+?)\s*$/);
+    if (kv) input[kv[1]] = coerceArgValue(kv[2]);
+  }
+  return { name, input };
+}
+
 export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
   const toolNames = new Set(tools.map((t) => t.name));
   const results: ToolUseContentBlock[] = [];
@@ -73,14 +167,25 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       if (firstType !== 'tc') continue;
       try {
         const parsed = JSON.parse(match[3]);
-        const name = parsed.name || parsed.function?.name;
-        const args = parsed.arguments || parsed.function?.arguments || parsed.parameters || {};
+        const name = parsed.name || parsed.tool || parsed.function?.name;
+        const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || {};
         if (name && toolNames.has(name)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
-        /* skip malformed */
+        // Malformed JSON: don't silently drop — emit a marker so the
+        // constrained-repair layer can recover it (A5).
+        const name = salvageToolName(match[3], toolNames);
+        if (name) {
+          results.push({
+            type: 'tool_use',
+            id: `text_tc_${idCounter++}`,
+            name,
+            input: {},
+            _malformedInputRaw: match[3],
+          });
+        }
       }
     }
     // Pattern 3: ```json\n{...}\n```
@@ -90,13 +195,22 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       try {
         const parsed = JSON.parse(match[4]);
         const name = parsed.name || parsed.tool || parsed.function;
-        const args = parsed.arguments || parsed.parameters || parsed.input || {};
+        const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && toolNames.has(name)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
-        /* skip malformed */
+        const name = salvageToolName(match[4], toolNames);
+        if (name) {
+          results.push({
+            type: 'tool_use',
+            id: `text_tc_${idCounter++}`,
+            name,
+            input: {},
+            _malformedInputRaw: match[4],
+          });
+        }
       }
     }
   }
@@ -130,14 +244,24 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       try {
         const parsed = JSON.parse(candidate);
         const name = parsed.name;
-        const args = parsed.arguments || parsed.parameters || parsed.input || {};
+        const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && toolNames.has(name)) {
           firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
-        /* skip malformed */
+        const name = salvageToolName(candidate, toolNames);
+        if (name) {
+          firstType = 'bare';
+          results.push({
+            type: 'tool_use',
+            id: `text_tc_${idCounter++}`,
+            name,
+            input: {},
+            _malformedInputRaw: candidate,
+          });
+        }
       }
     }
   }

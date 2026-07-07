@@ -2,7 +2,7 @@
 title: Reducing API Costs
 layout: docs
 nav_order: 4
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Reducing API Costs
@@ -15,14 +15,14 @@ This guide is for developers using SideCar with Anthropic or OpenAI APIs who wan
 
 Every API request bills you for two token pools: **input** and **output**.
 
-| Source | Typical token count | Relative cost |
-|--------|--------------------|-|
-| System prompt (base rules + SIDECAR.md sections) | 2,000–6,000 | Input — expensive if repeated uncached |
-| Tool schemas (79 built-in tools) | ~4,000–6,000 | Input — constant, ideal for caching |
-| Workspace context (RAG hits, pinned files) | 1,000–20,000 | Input — varies by query |
-| Prior conversation history | grows per turn | Input — compressible |
-| Tool results (file reads, shell output, etc.) | 500–8,000 each | Input — prunable |
-| Assistant output | 200–2,000 per turn | Output — most expensive per-token |
+| Source                                           | Typical token count | Relative cost                          |
+| ------------------------------------------------ | ------------------- | -------------------------------------- |
+| System prompt (base rules + SIDECAR.md sections) | 2,000–6,000         | Input — expensive if repeated uncached |
+| Tool schemas (86 built-in tools)                 | ~4,000–6,000        | Input — constant, ideal for caching    |
+| Workspace context (RAG hits, pinned files)       | 1,000–20,000        | Input — varies by query                |
+| Prior conversation history                       | grows per turn      | Input — compressible                   |
+| Tool results (file reads, shell output, etc.)    | 500–8,000 each      | Input — prunable                       |
+| Assistant output                                 | 200–2,000 per turn  | Output — most expensive per-token      |
 
 Output tokens cost 4–5x more per token than input tokens on most Claude models, but they are also the shortest part of most turns. The biggest savings come from reducing **repeated input tokens** across turns — system prompt, tool schemas, and conversation history.
 
@@ -128,6 +128,7 @@ This uses Haiku for planning and a free local Ollama model for all execution tur
 When `sidecar.delegateTask.enabled` is `true` (the default), the orchestrating cloud model can offload read-only research sub-tasks to a local Ollama worker using the `delegate_task` tool. The frontier model receives only the worker's compact summary — never the raw file contents, grep results, or tool outputs that the worker consumed.
 
 **When it fires:** the agent decides autonomously whether to delegate. Tasks that trigger delegation most often:
+
 - "Read all the test files and summarize what's covered"
 - "Find all places where X is called and list the call sites"
 - "Scan the dependency tree and identify circular imports"
@@ -157,8 +158,8 @@ Set daily or weekly caps to prevent runaway spend during long sessions or automa
 
 ```json
 {
-  "sidecar.dailyBudget": 5.00,
-  "sidecar.weeklyBudget": 25.00
+  "sidecar.dailyBudget": 5.0,
+  "sidecar.weeklyBudget": 25.0
 }
 ```
 
@@ -197,7 +198,7 @@ Then define rules. Rules are evaluated in order; the first match wins:
       "when": "agent-loop.complexity=high",
       "model": "claude-sonnet-4-6",
       "fallbackModel": "claude-haiku-4-5-20251001",
-      "sessionBudget": 2.00
+      "sessionBudget": 2.0
     },
     {
       "when": "agent-loop",
@@ -223,11 +224,11 @@ Enable `sidecar.modelRouting.dryRun` first to log routing decisions without appl
 
 **Cost profile for the Claude family (approximate list prices):**
 
-| Model | Input / 1M | Output / 1M |
-|-------|-----------|-------------|
-| `claude-opus-4-7` | $15 | $75 |
-| `claude-sonnet-4-6` | $3 | $15 |
-| `claude-haiku-4-5-20251001` | $0.80 | $4 |
+| Model                       | Input / 1M | Output / 1M |
+| --------------------------- | ---------- | ----------- |
+| `claude-opus-4-7`           | $15        | $75         |
+| `claude-sonnet-4-6`         | $3         | $15         |
+| `claude-haiku-4-5-20251001` | $0.80      | $4          |
 
 Haiku has a 96% eval score on SideCar's 92-case harness — essentially identical to Sonnet on agentic tasks. Use Sonnet or Opus only for tasks that genuinely require deeper reasoning (novel architectural design, complex debugging with ambiguous root causes, security audits).
 

@@ -6,56 +6,32 @@
  * Pure data structure — no VS Code dependencies — for testability.
  */
 
-export interface SymbolEntry {
-  name: string;
-  qualifiedName: string; // e.g. "MyClass.myMethod" or just "myFunction"
-  type: 'function' | 'class' | 'interface' | 'type' | 'variable' | 'method' | 'enum';
-  filePath: string; // relative to workspace root
-  startLine: number;
-  endLine: number;
-  exported: boolean;
-}
+import type {
+  SymbolEntry,
+  ImportEdge,
+  CallEdge,
+  TypeEdge,
+  TypeUseEdge,
+  ImpactedItem,
+  ImpactSeed,
+  SymbolReference,
+  SymbolGraphData,
+} from './symbolGraph/types.js';
 
-export interface ImportEdge {
-  fromFile: string; // the file that imports
-  toFile: string; // resolved relative path of the imported file
-  importedNames: string[]; // named imports, or ['*'] for star, ['default'] for default
-}
+export type {
+  SymbolEntry,
+  ImportEdge,
+  CallEdge,
+  TypeEdge,
+  TypeUseEdge,
+  ImpactedItem,
+  ImpactSeed,
+  SymbolReference,
+  SymbolGraphData,
+} from './symbolGraph/types.js';
 
-/** A function/method call from one symbol to another. */
-export interface CallEdge {
-  callerFile: string;
-  callerName: string; // qualified name of the calling function/method
-  calleeName: string; // name of the called function/method
-  line: number; // 1-based line of the call site
-}
-
-/** A type relationship (extends, implements). */
-export interface TypeEdge {
-  childFile: string;
-  childName: string;
-  parentName: string;
-  kind: 'extends' | 'implements';
-}
-
-export interface SymbolReference {
-  file: string;
-  line: number;
-  context: string; // truncated line content
-}
-
-/** Serialization format for persistence. */
-export interface SymbolGraphData {
-  version: number;
-  buildTime: string;
-  symbols: SymbolEntry[];
-  imports: ImportEdge[];
-  calls: CallEdge[];
-  typeEdges: TypeEdge[];
-  fileHashes: Record<string, string>;
-}
-
-const GRAPH_VERSION = 2;
+// v3: added typeUses edges + the callsFrom (callee) index for change-impact analysis.
+const GRAPH_VERSION = 3;
 
 export class SymbolGraph {
   // Primary storage: symbols indexed by file
@@ -70,6 +46,12 @@ export class SymbolGraph {
   private callsByFile = new Map<string, CallEdge[]>();
   // Reverse call index: callee name → call edges
   private callsTo = new Map<string, CallEdge[]>();
+  // Forward call index: caller name → call edges (what does this symbol call?)
+  private callsFrom = new Map<string, CallEdge[]>();
+  // Type-use edges per file (user side)
+  private typeUsesByFile = new Map<string, TypeUseEdge[]>();
+  // Reverse type-use index: type name → edges that reference it
+  private typeUsesByName = new Map<string, TypeUseEdge[]>();
   // Type relationship edges per file (child side)
   private typeEdgesByFile = new Map<string, TypeEdge[]>();
   // Reverse type index: parent name → type edges
@@ -89,6 +71,7 @@ export class SymbolGraph {
     hash: string,
     calls?: CallEdge[],
     typeEdges?: TypeEdge[],
+    typeUses?: TypeUseEdge[],
   ): void {
     // Remove old data first
     this.removeFile(filePath);
@@ -126,6 +109,25 @@ export class SymbolGraph {
           existing.push(edge);
         } else {
           this.callsTo.set(edge.calleeName, [edge]);
+        }
+        const fromExisting = this.callsFrom.get(edge.callerName);
+        if (fromExisting) {
+          fromExisting.push(edge);
+        } else {
+          this.callsFrom.set(edge.callerName, [edge]);
+        }
+      }
+    }
+
+    // Store type-use edges
+    if (typeUses && typeUses.length > 0) {
+      this.typeUsesByFile.set(filePath, typeUses);
+      for (const edge of typeUses) {
+        const existing = this.typeUsesByName.get(edge.typeName);
+        if (existing) {
+          existing.push(edge);
+        } else {
+          this.typeUsesByName.set(edge.typeName, [edge]);
         }
       }
     }
@@ -201,8 +203,34 @@ export class SymbolGraph {
             this.callsTo.delete(edge.calleeName);
           }
         }
+        const fromList = this.callsFrom.get(edge.callerName);
+        if (fromList) {
+          const filtered = fromList.filter((e) => e.callerFile !== filePath);
+          if (filtered.length > 0) {
+            this.callsFrom.set(edge.callerName, filtered);
+          } else {
+            this.callsFrom.delete(edge.callerName);
+          }
+        }
       }
       this.callsByFile.delete(filePath);
+    }
+
+    // Remove type-use edges
+    const oldTypeUses = this.typeUsesByFile.get(filePath);
+    if (oldTypeUses) {
+      for (const edge of oldTypeUses) {
+        const reverseList = this.typeUsesByName.get(edge.typeName);
+        if (reverseList) {
+          const filtered = reverseList.filter((e) => e.userFile !== filePath);
+          if (filtered.length > 0) {
+            this.typeUsesByName.set(edge.typeName, filtered);
+          } else {
+            this.typeUsesByName.delete(edge.typeName);
+          }
+        }
+      }
+      this.typeUsesByFile.delete(filePath);
     }
 
     // Remove type edges
@@ -271,6 +299,173 @@ export class SymbolGraph {
   /** Get all call sites where `symbolName` is called. */
   getCallers(symbolName: string): CallEdge[] {
     return this.callsTo.get(symbolName) || [];
+  }
+
+  /** Get all calls made from within `callerName` (what this symbol calls). */
+  getCallees(callerName: string): CallEdge[] {
+    return this.callsFrom.get(callerName) || [];
+  }
+
+  /** Get all symbols that reference `typeName` in a signature/variable. */
+  getTypeUsers(typeName: string): TypeUseEdge[] {
+    return this.typeUsesByName.get(typeName) || [];
+  }
+
+  /**
+   * Does `file` import `name` from `defFile`? Import edges resolve to
+   * extensionless module paths (resolveImportPath) while symbol files carry an
+   * extension, so we match `defFile` both ways. A `*` (namespace) or `default`
+   * binding counts as importing every name.
+   */
+  private fileImportsSymbol(file: string, name: string, defFile: string): boolean {
+    const edges = this.importsByFile.get(file);
+    if (!edges || edges.length === 0) return false;
+    const defKeys = new Set([defFile, defFile.replace(/\.[^./]+$/, '')]);
+    for (const e of edges) {
+      if (!defKeys.has(e.toFile)) continue;
+      if (e.importedNames.includes(name) || e.importedNames.includes('*') || e.importedNames.includes('default')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether an edge located in `edgeFile` that references `name` binds to the
+   * definition in `defFile`. With no `defFile` it's name-only (always true,
+   * Stage 1). Otherwise it binds iff the edge is in the defining file itself or
+   * the edge's file imports `name` from the defining file.
+   */
+  private edgeBindsTo(edgeFile: string, name: string, defFile?: string): boolean {
+    if (defFile === undefined) return true;
+    if (edgeFile === defFile) return true;
+    return this.fileImportsSymbol(edgeFile, name, defFile);
+  }
+
+  /**
+   * Change-impact analysis: given the symbols a change touches, return the
+   * symbols/files potentially affected — direct + transitive callers (up to
+   * `maxDepth` hops), symbols that use a changed symbol as a type, declared
+   * subtypes, and files that import the changed symbol.
+   *
+   * Pass {@link ImpactSeed}s with a `file` to get binding-accurate results:
+   * each edge is resolved against the import graph, so a change to `foo` in
+   * `a.ts` never reports dependents of an unrelated `foo` in `b.ts`. Bare
+   * strings (or seeds without `file`) fall back to name-only matching — an
+   * over-approximation flagged with `resolved: false` on every item.
+   */
+  impactOf(changed: ReadonlyArray<string | ImpactSeed>, opts?: { maxDepth?: number; limit?: number }): ImpactedItem[] {
+    const maxDepth = Math.max(1, opts?.maxDepth ?? 2);
+    const limit = Math.max(1, opts?.limit ?? 200);
+    const seeds: ImpactSeed[] = changed
+      .map((c) => (typeof c === 'string' ? { name: c } : c))
+      .filter((s) => s.name && s.name !== '<module>');
+    if (seeds.length === 0) return [];
+
+    const items: ImpactedItem[] = [];
+    const seen = new Set<string>(); // dedupe key: reason|file|name|line
+    const push = (item: ImpactedItem): void => {
+      const key = `${item.reason}|${item.file}|${item.name}|${item.line ?? ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push(item);
+    };
+
+    // Transitive caller walk (BFS), carrying each symbol's defining file so
+    // resolution holds at every hop: a caller of `foo@a.ts` must itself bind to
+    // `a.ts`, and its own callers then resolve against the caller's file.
+    const visited = new Set<string>(); // key: name|file
+    let frontier: ImpactSeed[] = [];
+    for (const s of seeds) {
+      const key = `${s.name}|${s.file ?? ''}`;
+      if (!visited.has(key)) {
+        visited.add(key);
+        frontier.push(s);
+      }
+    }
+    for (let hop = 1; hop <= maxDepth && frontier.length > 0; hop++) {
+      const next: ImpactSeed[] = [];
+      for (const cur of frontier) {
+        for (const edge of this.getCallers(cur.name)) {
+          if (!this.edgeBindsTo(edge.callerFile, cur.name, cur.file)) continue;
+          push({
+            name: edge.callerName,
+            file: edge.callerFile,
+            line: edge.line,
+            reason: 'calls',
+            detail: `calls ${cur.name}`,
+            hops: hop,
+            resolved: cur.file !== undefined,
+          });
+          if (edge.callerName !== '<module>') {
+            // Keep a name-only walk name-only; only carry file context forward
+            // when the seed opted into resolution, so the next hop resolves the
+            // caller's own callers against the caller's file.
+            const nextFile = cur.file !== undefined ? edge.callerFile : undefined;
+            const k = `${edge.callerName}|${nextFile ?? ''}`;
+            if (!visited.has(k)) {
+              visited.add(k);
+              next.push({ name: edge.callerName, file: nextFile });
+            }
+          }
+        }
+      }
+      frontier = next;
+    }
+
+    // Direct type users + subtypes + importers (1 hop — not walked transitively).
+    for (const s of seeds) {
+      const resolved = s.file !== undefined;
+      for (const edge of this.getTypeUsers(s.name)) {
+        if (!this.edgeBindsTo(edge.userFile, s.name, s.file)) continue;
+        push({
+          name: edge.userName,
+          file: edge.userFile,
+          line: edge.line,
+          reason: 'type-use',
+          detail: `${edge.role} typed ${s.name}`,
+          hops: 1,
+          resolved,
+        });
+      }
+      for (const edge of this.getSubtypes(s.name)) {
+        if (!this.edgeBindsTo(edge.childFile, s.name, s.file)) continue;
+        push({
+          name: edge.childName,
+          file: edge.childFile,
+          reason: 'subtype',
+          detail: `${edge.kind} ${s.name}`,
+          hops: 1,
+          resolved,
+        });
+      }
+      // Importers: files that import the changed symbol's defining file. In
+      // resolved mode we additionally require the dependent to import THIS name.
+      const defFiles = s.file
+        ? [s.file]
+        : this.lookupSymbol(s.name)
+            .filter((d) => d.exported)
+            .map((d) => d.filePath);
+      for (const defFile of defFiles) {
+        const depKeys = new Set([defFile, defFile.replace(/\.[^./]+$/, '')]);
+        const dependents = new Set<string>();
+        for (const k of depKeys) for (const d of this.getDependents(k)) dependents.add(d);
+        for (const dependent of dependents) {
+          if (resolved && !this.fileImportsSymbol(dependent, s.name, defFile)) continue;
+          push({
+            name: dependent,
+            file: dependent,
+            reason: 'imports',
+            detail: `imports ${s.name}`,
+            hops: 1,
+            resolved,
+          });
+        }
+      }
+    }
+
+    items.sort((a, b) => a.hops - b.hops);
+    return items.slice(0, limit);
   }
 
   /** Get all calls made from within a file. */
@@ -489,6 +684,11 @@ export class SymbolGraph {
       typeEdges.push(...edges);
     }
 
+    const typeUses: TypeUseEdge[] = [];
+    for (const edges of this.typeUsesByFile.values()) {
+      typeUses.push(...edges);
+    }
+
     const fileHashes: Record<string, string> = {};
     for (const [k, v] of this.fileHashes) {
       fileHashes[k] = v;
@@ -501,6 +701,7 @@ export class SymbolGraph {
       imports,
       calls,
       typeEdges,
+      typeUses,
       fileHashes,
     };
   }
@@ -560,12 +761,25 @@ export class SymbolGraph {
       }
     }
 
+    // Group type-use edges by userFile
+    const typeUsesByFrom = new Map<string, TypeUseEdge[]>();
+    for (const edge of data.typeUses || []) {
+      if (!edge || typeof edge.userFile !== 'string') continue;
+      const list = typeUsesByFrom.get(edge.userFile);
+      if (list) {
+        list.push(edge);
+      } else {
+        typeUsesByFrom.set(edge.userFile, [edge]);
+      }
+    }
+
     // Collect all files referenced by any edge type
     const allFiles = new Set<string>();
     for (const f of byFile.keys()) allFiles.add(f);
     for (const f of importsByFrom.keys()) allFiles.add(f);
     for (const f of callsByFrom.keys()) allFiles.add(f);
     for (const f of typeEdgesByFrom.keys()) allFiles.add(f);
+    for (const f of typeUsesByFrom.keys()) allFiles.add(f);
 
     // Rebuild the graph file by file
     for (const filePath of allFiles) {
@@ -573,8 +787,9 @@ export class SymbolGraph {
       const imports = importsByFrom.get(filePath) || [];
       const fileCalls = callsByFrom.get(filePath) || [];
       const fileTypeEdges = typeEdgesByFrom.get(filePath) || [];
+      const fileTypeUses = typeUsesByFrom.get(filePath) || [];
       const hash = data.fileHashes[filePath] || '';
-      graph.addFile(filePath, symbols, imports, hash, fileCalls, fileTypeEdges);
+      graph.addFile(filePath, symbols, imports, hash, fileCalls, fileTypeEdges, fileTypeUses);
     }
 
     return graph;

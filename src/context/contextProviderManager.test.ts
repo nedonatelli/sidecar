@@ -175,4 +175,19 @@ describe('ContextProviderManager', () => {
     const results = await mgr.fetchAll();
     expect(results).toHaveLength(2);
   });
+
+  it('passes a timeout AbortSignal to the underlying fetch', async () => {
+    const mgr = new ContextProviderManager([makeConfig()], mockFetch as unknown as typeof fetch, '/workspace');
+    await mgr.fetchAll();
+    const opts = mockFetch.mock.calls[0][1] as { signal?: AbortSignal };
+    expect(opts.signal).toBeInstanceOf(AbortSignal);
+    expect(opts.signal!.aborted).toBe(false);
+  });
+
+  it('aborts the fetch when the turn signal is already aborted', async () => {
+    const mgr = new ContextProviderManager([makeConfig()], mockFetch as unknown as typeof fetch, '/workspace');
+    await mgr.fetchAll(AbortSignal.abort());
+    const opts = mockFetch.mock.calls[0][1] as { signal?: AbortSignal };
+    expect(opts.signal!.aborted).toBe(true);
+  });
 });

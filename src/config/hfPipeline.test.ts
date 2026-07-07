@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getSharedPipeline, setLoaderForTests } from './hfPipeline.js';
+import { getSharedPipeline, setLoaderForTests, LazyEmbedder } from './hfPipeline.js';
 import type { EmbeddingPipeline } from './hfPipeline.js';
 
 afterEach(() => {
@@ -65,5 +65,49 @@ describe('getSharedPipeline — cache eviction on rejection', () => {
     expect(rA).toBe(fnA);
     expect(rB).toBe(fnB);
     expect(calls.sort()).toEqual(['model-c', 'model-d']);
+  });
+});
+
+describe('LazyEmbedder', () => {
+  function outputPipeline(values: number[]): EmbeddingPipeline {
+    return vi.fn(async () => ({ data: new Float32Array(values) }));
+  }
+
+  it('re-attempts loading after a transient failure (the EmbeddingIndex bug)', async () => {
+    let calls = 0;
+    setLoaderForTests(async () => {
+      calls++;
+      if (calls === 1) throw new Error('cold-start failure');
+      return outputPipeline([1, 2, 3, 4]);
+    });
+    const emb = new LazyEmbedder({ label: 'Test', modelId: 'm', dimension: 4 });
+
+    // First attempt fails and must NOT latch the index off permanently.
+    expect(await emb.ensureReady()).toBe(false);
+    expect(emb.ready).toBe(false);
+
+    // A later call re-attempts and succeeds — the divergent semantics that
+    // left the rejected promise cached would have returned false forever here.
+    const vec = await emb.embed('hello');
+    expect(vec).toEqual(new Float32Array([1, 2, 3, 4]));
+    expect(emb.ready).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it('truncates input to maxChars and slices output to dimension', async () => {
+    const pipe = outputPipeline([0.1, 0.2, 0.3, 0.4, 0.5]);
+    setLoaderForTests(async () => pipe);
+    const emb = new LazyEmbedder({ label: 'Test', modelId: 'm', dimension: 3, maxChars: 4 });
+
+    const vec = await emb.embed('abcdefgh');
+    expect((pipe as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual(['abcd']);
+    expect(vec).toEqual(new Float32Array([0.1, 0.2, 0.3]));
+  });
+
+  it('setPipelineForTests(null) simulates an unavailable model', async () => {
+    const emb = new LazyEmbedder({ label: 'Test' });
+    emb.setPipelineForTests(null);
+    expect(emb.ready).toBe(false);
+    expect(await emb.embed('x')).toBeNull();
   });
 });

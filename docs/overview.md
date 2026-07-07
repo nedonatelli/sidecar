@@ -5,6 +5,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 ## Key Features
 
 ### Autonomous Agent
+
 - Run full agent loops with local Ollama or cloud APIs
 - Execute tools automatically based on LLM decisions
 - Generate and execute plans before implementation
@@ -17,6 +18,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Continuous operation until task completion or user interruption
 
 ### Multi-Modal Interface
+
 - Chat-based interface in VS Code
 - Inline code completion
 - Code review and PR summarization
@@ -27,27 +29,30 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - **Streaming tool-call normalization** — models that emit `<function=name>...</function>` or `<tool_call>...</tool_call>` in plain text (qwen3-coder, Hermes-style) are parsed at the backend boundary so the raw XML never leaks into the chat
 
 ### Powerful Tool System
+
 - Built-in tools for file operations, code search, shell commands, Git operations
 - Custom tools defined in settings
 - MCP (Model Control Protocol) integration for external tools
 - Sub-agent spawning for complex tasks (max 3 levels deep, 15 iterations each)
 - Tool execution with approval modes and security checks
-- **Typed Sub-Agent Facets** *(new in v0.66)* — dispatch named specialists (`general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `data-engineer`) against a shared task via `SideCar: Facets: Dispatch Specialists`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce into a single aggregated review flow instead of stacking per-facet prompts. Typed RPC bus lets facets coordinate. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via `sidecar.facets.registry`
-- **Fork & Parallel Solve** *(new in v0.67)* — `/fork <task>` or `SideCar: Fork & Compare` spawns N parallel approaches to the same task, each running a full agent loop inside its own Shadow Workspace off the current `HEAD`. When every fork settles, a pick-the-winner QuickPick + `vscode.diff` + modal confirm + `git apply` picks the best output and discards the losers. Differs from Facets (N specialists on different subtasks) — Fork is N attempts at the **same** task. Config: `sidecar.fork.defaultCount` (default `3`), `sidecar.fork.maxConcurrent` (default `3`)
+- **Typed Sub-Agent Facets** _(new in v0.66)_ — dispatch named specialists (`general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `data-engineer`) against a shared task via `SideCar: Facets: Dispatch Specialists`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce into a single aggregated review flow instead of stacking per-facet prompts. Typed RPC bus lets facets coordinate. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via `sidecar.facets.registry`
+- **Fork & Parallel Solve** _(new in v0.67)_ — `/fork <task>` or `SideCar: Fork & Compare` spawns N parallel approaches to the same task, each running a full agent loop inside its own Shadow Workspace off the current `HEAD`. When every fork settles, a pick-the-winner QuickPick + `vscode.diff` + modal confirm + `git apply` picks the best output and discards the losers. Differs from Facets (N specialists on different subtasks) — Fork is N attempts at the **same** task. Config: `sidecar.fork.defaultCount` (default `3`), `sidecar.fork.maxConcurrent` (default `3`)
 
 ### Context Management
+
 - **Semantic search** — ONNX embeddings (all-MiniLM-L6-v2) for meaning-based file relevance, blended with keyword scoring
 - **Structured context rules** — `.sidecarrules` files with glob patterns to prefer, ban, or require files in context
 - Workspace indexing with file pattern filtering
 - Automatic context compression and summarization
 - AST-based code understanding
-- **SIDECAR.md path-scoped section injection** *(new in v0.67)* — sections in `SIDECAR.md` opt-in to path-aware routing via `<!-- @paths: src/transforms/** -->` sentinels immediately under their H2 heading. SideCar injects only the sections matching the active file (or user-mentioned paths), dropping whole sections on overflow instead of mid-chopping. Closes the "15 KB SIDECAR.md burns 3.7 KB of every turn" bloat on small-context local models. Degrades to legacy whole-file behavior when no sentinels are present
+- **SIDECAR.md path-scoped section injection** _(new in v0.67)_ — sections in `SIDECAR.md` opt-in to path-aware routing via `<!-- @paths: src/transforms/** -->` sentinels immediately under their H2 heading. SideCar injects only the sections matching the active file (or user-mentioned paths), dropping whole sections on overflow instead of mid-chopping. Closes the "15 KB SIDECAR.md burns 3.7 KB of every turn" bloat on small-context local models. Degrades to legacy whole-file behavior when no sentinels are present
 - Conversation history management
 - **Large file & monorepo handling**: streaming reads with summary mode for files >50KB, lazy indexing for large directories, depth-limited traversal
 - **RAG (Retrieval-Augmented Generation)**: automatic documentation discovery and keyword-based search over README, docs/, wiki/ files
 - **Agent memory**: persistent learning across sessions with pattern tracking, decision recording, and use-count scoring
 
 ### Code Quality
+
 - **Stub validator** — auto-detects placeholder code in agent output and reprompts the model to finish
 - **Streaming diff preview** — cautious mode shows file changes in VS Code's diff editor with dual accept/reject UI
 - **JSDoc staleness diagnostics** — on save, detects orphan `@param` tags and missing parameter documentation. Surfaces as warnings with "Remove orphan" and "Add missing" quick fixes that preserve JSDoc indentation. Toggle with `sidecar.jsDocSync.enabled`
@@ -55,6 +60,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - **Chat logging** — JSONL tmp files for every conversation for debugging and recovery
 
 ### Integration Points
+
 - Git operations (status, diff, commit, push, pull, branch, stash)
 - Testing framework integration
 - Security scanning
@@ -80,16 +86,19 @@ SideCar is built as a VS Code extension with the following main components:
 ## Supported Models
 
 ### Local Ollama
-- Default: `ministral-3:latest` (or other local models)
+
+- Default: `gemma4:e4b` (or other local models)
 - Works with any Ollama-compatible model
 - No internet required for operation
 
 ### Cloud APIs
+
 - Anthropic Claude models (e.g., `claude-sonnet-4-6`)
 - OpenAI models (when configured)
 - Other providers via custom API configuration
 
-### Kickstand *(new in v0.67)*
+### Kickstand _(new in v0.67)_
+
 - Self-hosted LLM backend with managed GPU memory and model lifecycle
 - **Hot-swap LoRA adapters** on loaded models without reloading — attach a fine-tuned style/domain adapter via `SideCar: Kickstand: Load LoRA Adapter`, stack multiple adapters with per-adapter scaling, detach with `Kickstand: Unload LoRA Adapter`
 - **Browse HuggingFace repos** directly from the command palette — `SideCar: Browse & Pull Models` walks the repo, renders each GGUF/MLX file with its size and quantization, and pulls the pick via Kickstand's streaming pull endpoint
@@ -106,24 +115,29 @@ SideCar is built as a VS Code extension with the following main components:
 ## Usage Patterns
 
 ### Chat Mode
+
 - Ask questions about your codebase
 - Request explanations of code sections
 - Get help with debugging issues
 
 ### Autonomous Mode
+
 - Let the agent work on tasks without intervention
 - Execute complex operations like code generation or refactoring
 
 ### Plan Mode
+
 - Generate a plan for approval before executing tools
 - Review and modify the approach before implementation
 
 ### Code Review
+
 - Review current changes with the agent
 - Generate PR summaries
 - Create commit messages
 
 ### Testing
+
 - Run test suites
 - Generate new tests
 - Analyze test failures
@@ -131,6 +145,7 @@ SideCar is built as a VS Code extension with the following main components:
 ## Configuration
 
 SideCar can be configured through VS Code settings with options for:
+
 - API base URL and keys
 - Model selection
 - File patterns to include in context

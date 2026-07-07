@@ -36,6 +36,7 @@ export async function fetchGitHubIssues(
   config: ContextProviderConfig,
   workspacePath: string,
   fetchFn: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<ContextProviderResult> {
   const baseUrl = config.baseUrl ? stripTrailingSlash(config.baseUrl) : 'https://api.github.com';
   const repo = config.project || (await detectRepo(workspacePath));
@@ -74,6 +75,7 @@ export async function fetchGitHubIssues(
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal,
     });
 
     if (!res.ok) {

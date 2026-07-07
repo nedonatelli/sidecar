@@ -23,12 +23,15 @@ import type { EditPlan } from '../../agent/editPlan.js';
 function makeState(overrides: Partial<ChatState> = {}): ChatState {
   return {
     postMessage: vi.fn(),
+    messages: [],
     logMessage: vi.fn(),
     requestConfirm: vi.fn(),
     metricsCollector: {
       recordToolStart: vi.fn(),
       recordToolEnd: vi.fn(),
       getToolDuration: vi.fn().mockReturnValue(0),
+      recordIteration: vi.fn(),
+      setTokenEstimate: vi.fn(),
     },
     auditLog: undefined,
     workspaceIndex: undefined,
@@ -89,7 +92,20 @@ describe('createAgentCallbacks — onText streaming + flush', () => {
     cb.onText('unflushed');
     cb.onDone();
     expect(state.postMessage).toHaveBeenCalledWith({ command: 'assistantMessage', content: 'unflushed' });
-    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done', messageCount: 0 });
+  });
+
+  it('reports the authoritative transcript length on done for msgIndex resync', () => {
+    const state = makeState({
+      messages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'yo' },
+        { role: 'user', content: 'tool result' },
+      ],
+    } as unknown as Partial<ChatState>);
+    const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
+    cb.onDone();
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done', messageCount: 3 });
   });
 });
 
@@ -228,6 +244,10 @@ describe('createAgentCallbacks — onIterationStart', () => {
         atCapacity: false,
       }),
     );
+    // Operational metrics were silently dead (iterations/tokens 0/129 in
+    // metrics.jsonl) because the loop never called these. Lock the wiring.
+    expect(state.metricsCollector.recordIteration).toHaveBeenCalled();
+    expect(state.metricsCollector.setTokenEstimate).toHaveBeenCalledWith(5000);
   });
 
   it('surfaces the at-capacity warning in the verbose log', () => {

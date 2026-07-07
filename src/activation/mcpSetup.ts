@@ -22,6 +22,7 @@ export function initMcpSetup(context: ExtensionContext, mcpManager: MCPManager):
       const trust = await checkWorkspaceConfigTrust(
         'mcpServers',
         'SideCar: This workspace defines MCP server configs that may spawn external processes. Only trust these from repositories you control.',
+        { modal: true },
       );
       if (trust === 'blocked') {
         logger.info('[SideCar] Workspace MCP servers blocked by user');

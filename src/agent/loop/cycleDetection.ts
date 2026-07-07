@@ -19,19 +19,26 @@ import type { LoopState, NormalizedEntry } from './state.js';
 //      for length-1..MAX_CYCLE_LEN patterns:
 //
 //      a. *Exact* buffer: full `name:JSON(input)` signature. Fires on
-//         length-1 after MIN_IDENTICAL_REPEATS (4) consecutive hits,
-//         length-2..4 as soon as two full cycles appear. Higher
-//         threshold for length-1 because agents legitimately re-run
-//         a tool (verify after edit, retry tests, refine inputs).
+//         length-1 after `cycleDetectionMinRepeats + 1` consecutive hits
+//         (one more than the normalized pass — see below), length-2..4 as
+//         soon as two full cycles appear. Higher threshold for length-1
+//         because agents legitimately re-run a tool (verify after edit,
+//         retry tests, refine inputs).
 //
 //      b. *Normalized* buffer: `name:primaryResource` — keeps the tool
 //         name and the first path/command/query arg but strips secondary
 //         args (edit content, line ranges, flags). Fires at
-//         MIN_NORMALIZED_REPEATS (3). This catches loops that bypass
-//         exact matching by varying secondary args while hammering the
-//         same file or command repeatedly — e.g.
-//         `edit_file(a.ts, search1, replace1)` × 3 times with different
+//         `sidecar.scaffolding.cycleDetectionMinRepeats` (default 10, was a
+//         fixed 3 before it became configurable). This catches loops that
+//         bypass exact matching by varying secondary args while hammering
+//         the same file or command repeatedly — e.g.
+//         `edit_file(a.ts, search1, replace1)` × N times with different
 //         content each time.
+//
+//      Both buffers' lookback windows scale with the configured threshold
+//      (see REPEAT_WINDOW_MARGIN) so raising it can never make either check
+//      mathematically unable to fire — a config value alone can't silently
+//      disable the safety net.
 //
 // Both helpers return `true` when the loop should break. They also
 // emit user-visible text via `callbacks.onText` and log via
@@ -39,20 +46,36 @@ import type { LoopState, NormalizedEntry } from './state.js';
 // ---------------------------------------------------------------------------
 
 const MAX_TOOL_CALLS_PER_ITERATION = 12;
-const CYCLE_WINDOW = 8;
 const MAX_CYCLE_LEN = 4;
-const MIN_IDENTICAL_REPEATS = 4;
-const MIN_NORMALIZED_REPEATS = 3;
-const WRITE_TARGET_WINDOW = 8;
+// Default for the normalized-signature pass, user-configurable via
+// `sidecar.scaffolding.cycleDetectionMinRepeats` (LoopState.config —
+// weaker models sometimes need a few attempts to self-correct from an
+// edit_file hint before genuinely succeeding; see editFailureSignatures in
+// fs.ts). The exact-signature pass fires one repeat later (see
+// identicalRepeatsFor) — it always did, preserving that a stricter/narrower
+// match tolerates one more legitimate re-run before bailing. Both buffers'
+// lookback windows scale with the configured threshold (see
+// REPEAT_WINDOW_MARGIN and windowFor) so raising it can never make either
+// check mathematically unable to fire.
+const DEFAULT_MIN_NORMALIZED_REPEATS = 10;
+// Slack added on top of a repeat threshold to size that pass's lookback
+// window, so a few interleaved non-matching calls (e.g. a read_file the
+// model made in response to a hint) don't fall out of the window before the
+// repeat count is reached.
+const REPEAT_WINDOW_MARGIN = 5;
 // Pure runaway backstop. The content-AWARE passes (consecutive/frequency at
-// MIN_NORMALIZED_REPEATS, which only fire on REPEATED content) catch a model
-// genuinely stuck re-applying the same change. write-target is content-blind,
-// so it must stay lenient — a model legitimately iterating on a fix rewrites
-// the same file several times with DIFFERENT content (progress, not thrash).
-// 6-of-8 means "almost every recent step mutated this one file" — real
-// thrash — while leaving room for fix→verify→fix→verify loops. (Was 4, which
-// bailed productive iteration; dogfooding repeatedly tripped it mid-fix.)
-const WRITE_TARGET_THRESHOLD = 6;
+// the configured normalized-repeat threshold, which only fire on REPEATED
+// content) catch a model genuinely stuck re-applying the same change.
+// write-target is content-blind, so it must stay lenient — a model
+// legitimately iterating on a fix rewrites the same file several times with
+// DIFFERENT content (progress, not thrash). 6-of-8 means "almost every
+// recent step mutated this one file" — real thrash — while leaving room for
+// fix→verify→fix→verify loops. (Was 4, which bailed productive iteration;
+// dogfooding repeatedly tripped it mid-fix.) Scales UP with the configured
+// normalized-repeat threshold (never down — 6 stays the floor) so a raised
+// `cycleDetectionMinRepeats` isn't silently capped by this separate,
+// content-blind pass on the same-file case.
+const DEFAULT_WRITE_TARGET_THRESHOLD = 6;
 
 // Keys checked in priority order to extract a tool's primary resource.
 // The first matching non-empty string value becomes the normalized key.
@@ -76,6 +99,35 @@ const MUTATION_TOOLS = new Set([
 // variation (e.g. different line ranges) still indicate a stuck loop. The
 // secondary-hash check is skipped for these tools — sig match alone is enough.
 const READ_ONLY_TOOLS = new Set(['read_file', 'grep', 'list_directory', 'search_files', 'get_diagnostics']);
+
+/** The normalized pass's repeat threshold: user-configurable, falls back to
+ *  the default when config is absent (unit tests / non-loop calls). */
+function normalizedRepeatsFor(state: LoopState): number {
+  return state.config?.cycleDetectionMinRepeats ?? DEFAULT_MIN_NORMALIZED_REPEATS;
+}
+
+/** The exact-signature pass fires one repeat later than the normalized pass
+ *  — it always did (4 vs 3) — since an exact match is a narrower, stricter
+ *  condition that tolerates one more legitimate re-run before bailing. */
+function identicalRepeatsFor(minNormalizedRepeats: number): number {
+  return minNormalizedRepeats + 1;
+}
+
+/** Lookback window for a ring buffer checked against `threshold` repeats.
+ *  Always at least `threshold + REPEAT_WINDOW_MARGIN` so raising the
+ *  configured threshold can never make a check mathematically unable to
+ *  fire (you can't observe N occurrences in a window smaller than N). */
+function windowFor(threshold: number): number {
+  return threshold + REPEAT_WINDOW_MARGIN;
+}
+
+/** The write-target pass's threshold scales UP with the configured
+ *  normalized-repeat threshold (never down) — otherwise raising
+ *  `cycleDetectionMinRepeats` to give a model more attempts would be
+ *  silently capped by this separate, content-blind, same-file pass. */
+function writeTargetThresholdFor(minNormalizedRepeats: number): number {
+  return Math.max(DEFAULT_WRITE_TARGET_THRESHOLD, minNormalizedRepeats);
+}
 
 /**
  * Enforce the per-iteration tool-call burst cap. Returns `true` when
@@ -107,33 +159,38 @@ export function exceedsBurstCap(
  * detected and the loop should terminate.
  *
  * Two passes run in order:
- *   1. Exact signatures (`name:JSON(input)` joined with `|`) — fires
- *      at MIN_IDENTICAL_REPEATS (4) for length-1, immediately for
+ *   1. Exact signatures (`name:JSON(input)` joined with `|`) — fires at
+ *      `cycleDetectionMinRepeats + 1` for length-1, immediately for
  *      length-2..MAX_CYCLE_LEN.
  *   2. Normalized signatures (`name:primaryResource`) — fires at
- *      MIN_NORMALIZED_REPEATS (3) for length-1 and length-2..MAX_CYCLE_LEN.
- *      Catches "same file, different edit content" loops missed by pass 1.
+ *      `state.config.cycleDetectionMinRepeats` (default 10) for length-1 and
+ *      length-2..MAX_CYCLE_LEN. Catches "same file, different edit content"
+ *      loops missed by pass 1.
  */
 export function detectCycleAndBail(
   pendingToolUses: ToolUseContentBlock[],
   state: LoopState,
   callbacks: AgentCallbacks,
 ): boolean {
+  const minNormalizedRepeats = normalizedRepeatsFor(state);
+  const minIdenticalRepeats = identicalRepeatsFor(minNormalizedRepeats);
+
   // --- Exact signature pass ---
   const callSignature = pendingToolUses.map((tu) => `${tu.name}:${sortedStringify(tu.input)}`).join('|');
   state.recentToolCalls.push(callSignature);
-  if (state.recentToolCalls.length > CYCLE_WINDOW) {
+  const identicalWindow = windowFor(minIdenticalRepeats);
+  if (state.recentToolCalls.length > identicalWindow) {
     state.recentToolCalls.shift();
   }
 
-  if (state.recentToolCalls.length >= MIN_IDENTICAL_REPEATS) {
-    const lastN = state.recentToolCalls.slice(-MIN_IDENTICAL_REPEATS);
+  if (state.recentToolCalls.length >= minIdenticalRepeats) {
+    const lastN = state.recentToolCalls.slice(-minIdenticalRepeats);
     if (lastN.every((v) => v === lastN[0])) {
       state.logger?.warn(
-        `Agent loop cycle detected (${MIN_IDENTICAL_REPEATS} identical calls) — ${callSignature.slice(0, 100)}`,
+        `Agent loop cycle detected (${minIdenticalRepeats} identical calls) — ${callSignature.slice(0, 100)}`,
       );
       callbacks.onText(
-        `\n\n⚠️ Agent stopped: ${callSignature.slice(0, 80)} repeated ${MIN_IDENTICAL_REPEATS} times in a row.\n`,
+        `\n\n⚠️ Agent stopped: ${callSignature.slice(0, 80)} repeated ${minIdenticalRepeats} times in a row.\n`,
       );
       return true;
     }
@@ -150,14 +207,15 @@ export function detectCycleAndBail(
   }
 
   // --- Normalized signature pass ---
+  const normalizedWindow = windowFor(minNormalizedRepeats);
   const normEntry = normalizeEntry(pendingToolUses);
   state.recentNormalizedCalls.push(normEntry);
-  if (state.recentNormalizedCalls.length > CYCLE_WINDOW) {
+  if (state.recentNormalizedCalls.length > normalizedWindow) {
     state.recentNormalizedCalls.shift();
   }
 
-  if (state.recentNormalizedCalls.length >= MIN_NORMALIZED_REPEATS) {
-    const lastN = state.recentNormalizedCalls.slice(-MIN_NORMALIZED_REPEATS);
+  if (state.recentNormalizedCalls.length >= minNormalizedRepeats) {
+    const lastN = state.recentNormalizedCalls.slice(-minNormalizedRepeats);
     if (lastN.every((e) => e.sig === lastN[0].sig)) {
       // For read-only tools (read_file, grep, etc.) skip the secondary-hash
       // check. Reading the same file with slightly different line ranges is
@@ -174,18 +232,18 @@ export function detectCycleAndBail(
       const hasRepeatedSecondary = lastN.every((e) => e.secondaryHash === lastN[0].secondaryHash);
       if (!editVerifyExempt && (isReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(lastN[0].sig, state)) {
         state.logger?.warn(
-          `Agent loop normalized cycle detected (${MIN_NORMALIZED_REPEATS} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,
+          `Agent loop normalized cycle detected (${minNormalizedRepeats} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,
         );
         callbacks.onText(
           `\n\n⚠️ Agent stopped: ${normEntry.sig.slice(0, 80)} repeated ` +
-            `${MIN_NORMALIZED_REPEATS} times — try a different approach.\n`,
+            `${minNormalizedRepeats} times — try a different approach.\n`,
         );
         return true;
       }
     }
 
     // Frequency-over-window check: catch the same sig appearing
-    // MIN_NORMALIZED_REPEATS times anywhere in the CYCLE_WINDOW, even
+    // minNormalizedRepeats times anywhere in the normalized window, even
     // non-consecutively. The consecutive check above misses patterns like
     // read_file(bad) → list_dir → read_file(bad) → list_dir → read_file(bad)
     // where other calls break the trailing-N streak. The same
@@ -198,7 +256,7 @@ export function detectCycleAndBail(
       sigGroups.set(e.sig, arr);
     }
     for (const [sig, entries] of sigGroups) {
-      if (entries.length < MIN_NORMALIZED_REPEATS) continue;
+      if (entries.length < minNormalizedRepeats) continue;
       const sigToolName = sig.split(':')[0] ?? '';
       const sigIsReadOnly = READ_ONLY_TOOLS.has(sigToolName);
       const editVerifyExempt = sigIsReadOnly && sigTargetsRecentlyMutatedFile(sig, state);
@@ -254,13 +312,15 @@ export function detectCycleAndBail(
   // Catches "same file, different approach" loops where the agent alternates
   // tools (write_file → edit_file → run_command sed …) on the same target,
   // bypassing both exact and normalized signature checks.
+  const writeTargetThreshold = writeTargetThresholdFor(minNormalizedRepeats);
+  const writeTargetWindow = windowFor(writeTargetThreshold);
   const iterationTargets = extractWriteTargets(pendingToolUses);
   state.recentWriteTargets.push(iterationTargets);
-  if (state.recentWriteTargets.length > WRITE_TARGET_WINDOW) {
+  if (state.recentWriteTargets.length > writeTargetWindow) {
     state.recentWriteTargets.shift();
   }
 
-  if (state.recentWriteTargets.length >= WRITE_TARGET_THRESHOLD) {
+  if (state.recentWriteTargets.length >= writeTargetThreshold) {
     const fileCounts = new Map<string, number>();
     for (const targets of state.recentWriteTargets) {
       for (const f of targets) {
@@ -273,7 +333,7 @@ export function detectCycleAndBail(
       // and the driving mechanism's own budget bounds that loop. The exact-match
       // pass still catches a truly-stuck identical-edit loop.
       if (isUnderActiveFix(file, state)) continue;
-      if (count >= WRITE_TARGET_THRESHOLD) {
+      if (count >= writeTargetThreshold) {
         state.logger?.warn(
           `Agent loop write-target thrash detected: ${file} targeted in ${count}/${state.recentWriteTargets.length} iterations`,
         );
@@ -383,7 +443,8 @@ function sigTargetsOnlyGateFiles(sig: string, state: LoopState): boolean {
  * the model MUST read_file to see the current contents after each edit.
  * Dogfooding: a write→read→write→read fix loop on `gui_calculator.py` tripped
  * the read-only cycle bail mid-fix, killing the run with a half-written file.
- * Bounded by WRITE_TARGET_WINDOW — once edits age out, pure re-reads bail again.
+ * Bounded by the write-target pass's lookback window — once edits age out,
+ * pure re-reads bail again.
  */
 function sigTargetsRecentlyMutatedFile(sig: string, state: LoopState): boolean {
   const resources = sig

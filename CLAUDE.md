@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, AWS Bedrock, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, Fireworks, Gemini, and GitHub Copilot as backends. The extension provides an agent loop with 80 built-in tools (file ops, shell, git, web search, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation, CI failure analysis, research assistant, monorepo analysis), inline completions, code review, and a chat UI.
+SideCar is a VS Code extension that turns local and cloud LLMs into a full agentic coding assistant. It supports Ollama, Anthropic, AWS Bedrock, OpenAI-compatible servers, Kickstand, OpenRouter, Groq, Fireworks, Gemini, and GitHub Copilot as backends. The extension provides an agent loop with 86 built-in tools (file ops, shell, git, web search, change-impact analysis, numerical-contract checking, vision, database, doc-to-test synthesis, PDF/Zotero, MCP, Notebook Mode research, dependency drift, code profiling, LaTeX compilation, CI failure analysis, research assistant, monorepo analysis), inline completions, code review, and a chat UI.
 
 ## Architecture diagrams (start here when onboarding)
 
@@ -29,11 +29,21 @@ npx vitest run path/to/file.test.ts  # Run a single test file
 npm run lint              # ESLint
 npm run compile           # TypeScript type-check (tsc -p ./)
 npm run build             # compile + esbuild bundle + copy tree-sitter wasm grammars
-npm run check             # compile + lint + test (full CI check)
+npm run check             # compile + compile:bench + lint + format:check + test (full CI check)
 npm run package           # build + vsce package → .vsix
 ```
 
 Pre-commit hooks (lint-staged via husky) run `prettier --write`, `eslint --max-warnings=0`, `tsc --noEmit`, and `vitest run --silent` (excluding `**/shadowWorkspace.test.ts` since those tests use real `git worktree` which conflicts with lint-staged's stash-and-restore context). Full suite runs in CI.
+
+## Development & Release Process
+
+Full process in [`CONTRIBUTING.md`](CONTRIBUTING.md). The non-negotiables:
+
+- **Coding loop:** branch off `main` (never commit to main); complete implementations, no stubs; co-locate tests, new files ≥80%, never drop the CI coverage floor (70/63/67/71); run `npm run check` before every commit; conventional commits + `Co-Authored-By` footer. **Never push or tag without an explicit request.** Refactors preserve the public import surface via barrel re-exports.
+- **Verification pyramid** (match tier to risk; run all before a release): **T0** every commit — `npm run check`. **T1** pre-release, no model — `build` + `package` + `verify:package` + `test:coverage` + Stryker on the moat modules (`npx stryker run`; add moved moat files to `stryker.conf.json`). **T2** pre-release, needs a model — `eval:smoke` on `qwen2.5-coder:7b` **plus a differential 2nd model**; the gate is **zero infra errors** (500s / `Unknown tool` / empty-final-answer / thrash-to-maxIterations), not the pass rate. **T3** campaign — `bench:bfcl`, `bench:swe:predict`.
+- **Release:** verify pyramid (all green, zero infra errors) → pick version (semver from the last git tag; the bump script rejects skips) → sync CHANGELOG **and** README **and** ROADMAP **and** `docs/index.html` **and** `SECURITY.md` (supported-version table auto-bumped by the script; verify the `SECRET_PATTERNS_VERSION` "unchanged through vX" line manually) (+ stat drift; see CONTRIBUTING's doc-sync matrix) → `package` + `verify:package` → commit, tag `vX.Y.Z`, push **on explicit go-ahead only**.
+- **Debugging model-interaction bugs:** reproduce at the lowest layer (raw `/api/chat`) → bisect one variable → **differential across models** (fails on both = SideCar; on one = that model) → read _trajectories_ not pass/fail → instrument with temp `console.error` DIAG then `git checkout` to revert → correct the record when a hypothesis is disproven → a bug found via eval is a real product bug: fix it **and** add a regression test.
+- **Eval harness** measures whether the model can address the task, played by a cooperative user: assertions tolerate synonyms (any-of groups), the harness answers `ask_user` via `clarifyFn`, thinking is off for speed, `qwen2.5-coder:7b` is the reliable baseline / `qwen3.5:latest` the stress model.
 
 ## Testing
 
@@ -48,7 +58,7 @@ Pre-commit hooks (lint-staged via husky) run `prettier --write`, `eslint --max-w
 
 ### Extension Entry Point
 
-`src/extension.ts` — 135-line orchestrator that activates all subsystems and registers commands. Logic is fully extracted into focused modules under `src/activation/` (baseSetup, servicesInit, mcpSetup, warmup, workspaceIndexer, chatViewSetup, editorFeatures) and `src/commands/` (autoMode, settings, agent, prAndReview). `src/ui/statusBar.ts` owns status-bar state.
+`src/extension.ts` — thin orchestrator that activates all subsystems and registers commands. Logic is fully extracted into focused modules under `src/activation/` (baseSetup, servicesInit, mcpSetup, warmup, workspaceIndexer, chatViewSetup, editorFeatures) and `src/commands/` (autoMode, settings, agent, prAndReview). `src/ui/statusBar.ts` owns status-bar state.
 
 ### Backend Abstraction (`src/ollama/`)
 
@@ -63,7 +73,9 @@ ApiBackend (interface)
 ├── KickstandBackend   — /v1/chat/completions + /api/v1/models/* management
 ├── OpenRouterBackend  — OpenAI-compat + catalog + referrer headers
 ├── GroqBackend        — OpenAI-compat
-└── FireworksBackend   — OpenAI-compat
+├── FireworksBackend   — OpenAI-compat
+├── GeminiBackend      — OpenAI-compat (Google generativelanguage endpoint; overrides model listing)
+└── CopilotBackend     — GitHub Copilot API
 ```
 
 `BedrockBackend` reuses the Anthropic message/tool mapping and the shared `anthropicStreamTranslate.ts` (also used by `AnthropicBackend`); Bedrock-specific concerns are isolated in `awsSigV4.ts` (request signing, no AWS SDK), `awsEventStream.ts` (AWS event-stream frame decoding), and `awsCredentials.ts` (env / `~/.aws/credentials` resolution). Auth is the AWS credential chain, not an API key.
@@ -178,9 +190,9 @@ Scope is the agent's file-authoring surface only — shell commands still run no
 
 ### Typed Sub-Agent Facets (`src/agent/facets/`)
 
-v0.66+ dispatchable specialist system. A facet is a named sub-agent with a preferredModel, tool allowlist, system prompt, optional `dependsOn` edges, and optional RPC schema. Built-in catalog ships 8 specialists embedded in code (not loaded from disk — avoids a broken-unpack footgun). Users layer project or user facets on top via `<workspace>/.sidecar/facets/*.md` or `sidecar.facets.registry` paths.
+v0.66+ dispatchable specialist system. A facet is a named sub-agent with a preferredModel, tool allowlist, system prompt, optional `dependsOn` edges, and optional RPC schema. Built-in catalog ships 9 specialists embedded in code (not loaded from disk — avoids a broken-unpack footgun). Users layer project or user facets on top via `<workspace>/.sidecar/facets/*.md` or `sidecar.facets.registry` paths.
 
-- `facetLoader.ts` — `parseFacetFile(path, raw, source)` YAML-frontmatter parser, `FacetValidationError` with typed reason codes (`missing-frontmatter` / `missing-id` / `duplicate-id` / `unknown-dep` / `cycle` / `io-error`), `builtInFacets()` returning the 8-facet baseline.
+- `facetLoader.ts` — `parseFacetFile(path, raw, source)` YAML-frontmatter parser, `FacetValidationError` with typed reason codes (`missing-frontmatter` / `missing-id` / `duplicate-id` / `unknown-dep` / `cycle` / `io-error`), `builtInFacets()` returning the 9-facet baseline.
 - `facetRegistry.ts` — `buildFacetRegistry(facets)` validates duplicate ids + unknown deps + cycles (DFS 3-coloring) and computes topological layers. `mergeWithBuiltInFacets(overrides)` — disk facets with matching ids replace built-ins.
 - `facetDiskLoader.ts` — `loadFacetRegistry({ workspaceRoot, registryPaths, fsOverride? })` scans disk, merges with built-ins, returns a `LoadFacetsOutcome { registry, errors }`. Per-file parse errors never abort the load; registry-level failures fall back to built-ins only so the dispatcher is never empty.
 - `facetDispatcher.ts` — `dispatchFacet` runs one facet through `runAgentLoopInSandbox` with preferredModel pin+restore, allowlist → `toolOverride` + `modeToolPermissions`, system-prompt composition on top of the orchestrator's, `approvalMode: 'autonomous'`, `deferPrompt: true` (see Shadow Workspaces below). `dispatchFacets(client, registry, ids, callbacks, { task, maxConcurrent, rpcTimeoutMs, rpcHandlers })` walks the registry's topological layers with bounded parallelism; returns `{ results, rpcWireTrace }` in input order.
@@ -233,6 +245,7 @@ Config: `sidecar.sidecarMd.{mode, alwaysIncludeHeadings, lowPriorityHeadings, ma
 ### Code Profiling (`src/agent/tools/profiling.ts`)
 
 v0.93+ `profile_code` agent tool. Auto-detects ecosystem from workspace manifests (`package.json` → node, `requirements.txt`/`pyproject.toml` → python, `Cargo.toml` → rust, `go.mod` → go). Builds and runs the appropriate profiler command via `getDefaultToolRuntime().getShellSession()`. Parses structured output for each ecosystem:
+
 - **Python**: `python -m cProfile -s cumulative` — parses `ncalls/tottime/cumtime` table.
 - **Go**: `go test -bench=. -run=^$ -benchmem` — ranks by `ns/op` descending.
 - **Rust**: `cargo bench` — ranks by `ns/iter` descending.
@@ -243,6 +256,7 @@ Returns ranked hotspot markdown + raw `<details>` block. Gated by `sidecar.profi
 ### LaTeX Agentic Debugging (`src/agent/tools/latex.ts`)
 
 v0.94+ `latex_compile` agent tool. Compiles a `.tex` document and returns structured errors and warnings with file and line references. `parseLatexOutput(output, mainFile)` is a pure function that handles:
+
 - Classic pdflatex `! Error message` / `l.NNN context` two-line format
 - Inline `file:line: message` format (latexmk / pdflatex with `-file-line-error`)
 - LaTeX/Package/Overfull/Underfull warning lines with embedded line-number extraction
@@ -277,14 +291,14 @@ v0.95+ two-direction MCP delegation.
 ### Terminal Execution (`src/terminal/`)
 
 - `shellSession.ts` — long-lived `child_process.spawn`-based shell with per-command alias/function namespace reset. Fallback path for agent commands when shell integration isn't available.
-- `agentExecutor.ts` — v0.59+ `AgentTerminalExecutor` routes agent `run_command` / `run_tests` through VS Code's `terminal.shellIntegration.executeCommand` API in a reusable *SideCar Agent* terminal. Listens to `onDidEndTerminalShellExecution` for exit codes. Returns `null` when shellIntegration is unavailable — caller falls back to `ShellSession`.
+- `agentExecutor.ts` — v0.59+ `AgentTerminalExecutor` routes agent `run_command` / `run_tests` through VS Code's `terminal.shellIntegration.executeCommand` API in a reusable _SideCar Agent_ terminal. Listens to `onDidEndTerminalShellExecution` for exit codes. Returns `null` when shellIntegration is unavailable — caller falls back to `ShellSession`.
 - `shellExecutor.ts` — v0.92 `CompositeShellExecutor` + `IShellExecutor` interface. Consolidates the terminal→ShellSession routing that `shell.ts` previously duplicated in `runCommand` and `runTests`. Foreground commands try `AgentTerminalExecutor` first; background commands always use `ShellSession`. `AgentTerminalExecutor` is only instantiated when `terminalExecution.enabled` is true.
 - `manager.ts` — user-facing terminal manager for `handleRunCommand` (chat "run this command" prompts). Distinct from the agent-facing path above.
 - `errorWatcher.ts` — subscribes to `onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution` to surface user-run command failures to the agent.
 
 ### Webview & Message Handlers (`src/webview/`)
 
-`chatView.ts` — 258-line WebviewViewProvider that hosts the chat panel. Routes incoming webview messages (typed union in `chatWebview.ts`) to handler modules under `src/webview/handlers/`:
+`chatView.ts` — WebviewViewProvider that hosts the chat panel. Routes incoming webview messages (typed union in `chatWebview.ts`) to handler modules under `src/webview/handlers/`:
 
 - `chatHandlers.ts` — thin orchestrator; pure logic extracted into submodules below
 - `dispatchHandlers.ts` — top-level message dispatcher; routes each message type to the right handler
@@ -321,18 +335,21 @@ The chat UI itself is vanilla HTML/JS/CSS in `media/chat.js` + `media/chat.css`.
 v0.61+ opt-in semantic layer. Symbol-granularity sibling of the file-level `EmbeddingIndex` — same `@huggingface/transformers` MiniLM-L6-v2 model + 384-dim space (note: package renamed from `@xenova/transformers` to `@huggingface/transformers` in v0.83). `SymbolIndexer.setSymbolEmbeddings(index, maxSymbolsPerFile?)` wires the embedder so every parsed file feeds each extracted symbol's body into a debounced `queueSymbol` batch drain (500 ms window, 20/batch). Queried via the `project_knowledge_search` agent tool in [`src/agent/tools/projectKnowledge.ts`](src/agent/tools/projectKnowledge.ts); tool runs cosine over the flat vector store, then calls `enrichWithGraphWalk(directHits, graph, { maxDepth, maxGraphHits })` to walk `SymbolGraph.getCallers` edges outward from each hit — so a query like "where is auth handled?" returns `requireAuth` plus every route that wraps it, tagged with `vector: 0.823` or `graph: called-by (1 hop from requireAuth)`. Gated behind `sidecar.projectKnowledge.enabled` (default-on since v0.63).
 
 **v0.62 additions**:
-- **Vector backend abstraction** ([`src/config/vectorStore.ts`](src/config/vectorStore.ts)) — storage extracted into a `VectorStore<M>` interface with a `FlatVectorStore<M>` implementation. `sidecar.projectKnowledge.backend: 'flat' | 'lance'` reserves the Lance name for a future release. `FlatVectorStore` is also reused by `EpisodicMemoryStore` for session-scoped conversation context retrieval.
+
+- **Vector backend abstraction** ([`src/config/vectorStore.ts`](src/config/vectorStore.ts)) — storage extracted into a `VectorStore<M>` interface with `FlatVectorStore<M>` (default) and `LanceVectorStore` implementations, selected by `sidecar.projectKnowledge.backend: 'flat' | 'lance'`. `LanceVectorStore` `require()`s `@lancedb/lancedb` lazily and throws `UnsupportedBackendError` (→ falls back to flat) when it's absent. The ~92 MB `@lancedb` native binary is **not bundled** in the `.vsix` (see `.vscodeignore`), so `lance` is opt-in: users install the package into the extension runtime themselves. `FlatVectorStore` is also reused by `EpisodicMemoryStore` for session-scoped conversation context retrieval.
 - **`SemanticRetriever` migration** (`src/agent/retrieval/semanticRetriever.ts`) — prefers symbol-level hits from `SymbolEmbeddingIndex` when PKI is wired + ready + non-empty; falls back to file-level `rankFiles` when not.
 - **Merkle layer** ([`src/config/merkleTree.ts`](src/config/merkleTree.ts)) — content-addressed tree with SHA-256 leaf hashes + mean-pooled aggregated embeddings at file nodes. `SymbolEmbeddingIndex.setMerkleTree(tree)` replays persisted entries; `search` uses `descend(queryVec, k)` to pick candidate subtrees before scoring leaves. Gated by `sidecar.merkleIndex.enabled` (default `true`).
 - **RAG-eval** ([`src/test/retrieval-eval/`](src/test/retrieval-eval/)) — golden-case fixture + harness + metrics (precision@K, recall@K, F1@K, MRR). CI ratchet in `baseline.test.ts` gates retrieval quality against floor thresholds. LLM-judged `Faithfulness` + `AnswerRelevancy` layer under `tests/llm-eval/retrieval.eval.ts` runs with `npm run eval:llm`.
 
 **v0.84 additions**:
+
 - **Query rewriting** (`src/agent/retrieval/queryRewriter.ts`) — `rewriteQuery(text, mode, completeFn)` expands the user's retrieval query before it hits the vector store. Four modes: `'off'` (passthrough), `'rule'` (keyword extraction + camelCase split), `'llm'` (LLM-generated alternative phrasings), `'expand'` (rule + LLM combined). Controlled by `sidecar.retrievalQueryRewrite`. Called in `systemPrompt.ts` before the retriever fusion step.
 - **Chunk-level prose retrieval** — prose documents (README, markdown files) are now chunked and indexed at the paragraph level rather than file level, enabling the retriever to return the specific section relevant to the query rather than the whole file.
 
 ### HuggingFace Model Import (`src/ollama/huggingface.ts` + `hfSafetensorsImport.ts`)
 
 Two install paths:
+
 1. **GGUF repos** → `ollama pull hf.co/org/repo:file` (native Ollama)
 2. **Safetensors repos** → download shards + `ollama create -q` (local conversion)
 
@@ -349,6 +366,7 @@ Management endpoints: `/api/v1/models/pull` (SSE), `/api/v1/models/{id}/load`, `
 - All imports use explicit `.js` extensions (NodeNext module resolution)
 - Never write stub/placeholder code — always complete implementations
 - `.sidecar/` top-level is tracked (for curated files like `SIDECAR.md`, `shadow.json` per the Multi-User Agent Shadows feature); ephemeral subdirs (`cache/`, `memory/`, `history-index/`, `sessions/`, `logs/`, `scratchpad/`, `shadows/`) are gitignored via the root `.gitignore`. When a new feature writes under `.sidecar/`, ask: is this hand-curated shared state (→ top level, tracked) or generated per-user state (→ subdir, add to ignore)?
+- **Internal working docs go in `internal/` (gitignored) — never commit them.** This repo is **public**. Private drafts, strategy/architecture notes, dogfood plans, literature reading lists, and results write-ups belong under `internal/` (ignored via `/internal/` in `.gitignore`, so no per-file maintenance). Polished, public-facing docs go in `docs/` or the tracked root docs (`README.md`, `ROADMAP.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`). Before adding any new top-level `.md`, ask: is this meant for the public repo? If not, it goes in `internal/`.
 - Workspace-scoped executing surfaces go through `checkWorkspaceConfigTrust` (hooks · MCP servers · toolPermissions · scheduledTasks · customTools · SIDECAR.md). Any new config that runs commands from `.vscode/settings.json` should follow the same per-session trust-prompt pattern
 - Kickstand needs no API key prompt — the token file is read automatically from `~/.config/kickstand/token`
 - Test files co-locate with source: `foo.ts` → `foo.test.ts`. Tests that use real OS state (fs, os.homedir, child_process, real git) must mock it — see `providerReachability.test.ts`, `modelHandlers.test.ts`, `kickstandBackend.test.ts` for the `vi.mock('fs', …)` passthrough pattern. Real-git tests (e.g. `shadowWorkspace.test.ts`) are excluded from the lint-staged vitest run but execute in CI

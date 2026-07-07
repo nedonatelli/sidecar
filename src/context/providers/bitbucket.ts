@@ -35,6 +35,7 @@ function buildAuthHeader(token: string): string {
 export async function fetchBitbucketPRs(
   config: ContextProviderConfig,
   fetchFn: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<ContextProviderResult> {
   const baseUrl = config.baseUrl ? stripTrailingSlash(config.baseUrl) : 'https://api.bitbucket.org/2.0';
   const projectSlug = config.project?.trim() ?? '';
@@ -78,6 +79,7 @@ export async function fetchBitbucketPRs(
         Authorization: buildAuthHeader(token),
         Accept: 'application/json',
       },
+      signal,
     });
 
     if (!res.ok) {

@@ -1,6 +1,13 @@
 import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { getRootUri, validateFilePath, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import {
+  getRootUri,
+  validateFilePath,
+  hasShellMetachar,
+  shellQuote,
+  type ToolExecutorContext,
+  type RegisteredTool,
+} from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { getConfig } from '../../config/settings.js';
 
@@ -105,19 +112,22 @@ async function resolveCompilerCommand(
   compiler: string,
   session: { execute: (cmd: string, opts?: object) => Promise<{ stdout: string; exitCode: number }> },
 ): Promise<string> {
+  // `file` is model-controlled; single-quote it (the caller also rejects shell
+  // metacharacters first, so this is belt-and-suspenders).
+  const q = shellQuote(file);
   if (compiler === 'pdflatex') {
-    return `pdflatex -interaction=nonstopmode -halt-on-error "${file}"`;
+    return `pdflatex -interaction=nonstopmode -halt-on-error ${q}`;
   }
   // Default: latexmk, falling back to pdflatex if latexmk is unavailable
   try {
     const probe = await session.execute('latexmk --version 2>&1', { timeout: 5000 });
     if (probe.exitCode === 0) {
-      return `latexmk -pdf -interaction=nonstopmode "${file}"`;
+      return `latexmk -pdf -interaction=nonstopmode ${q}`;
     }
   } catch {
     /* latexmk not found */
   }
-  return `pdflatex -interaction=nonstopmode -halt-on-error "${file}"`;
+  return `pdflatex -interaction=nonstopmode -halt-on-error ${q}`;
 }
 
 export async function latexCompile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
@@ -148,6 +158,9 @@ export async function latexCompile(input: Record<string, unknown>, context?: Too
 
   const pathError = validateFilePath(file);
   if (pathError) return `Invalid file path: ${pathError}`;
+  if (hasShellMetachar(file)) {
+    return 'Error: `file` contains shell metacharacters. Pass a plain .tex path (e.g. "paper/main.tex").';
+  }
 
   const compiler = cfg.latexCompiler;
   const runtime = context?.toolRuntime ?? getDefaultToolRuntime();

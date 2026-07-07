@@ -3,12 +3,13 @@ import * as path from 'path';
 import * as os from 'os';
 import { stripTrailingSlash } from '../util/url.js';
 import type { ApiBackend, BackendCapabilities } from './backend.js';
-import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './types.js';
+import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 import { streamOpenAiSse } from './openAiSseStream.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
-import { charsToTokens } from '../config/tokenEstimation.js';
+import { estimateRequestTokens } from '../config/tokenEstimation.js';
+import { toOpenAIMessages } from './openaiBackend.js';
 
 const KICKSTAND_TOKEN_PATH = path.join(os.homedir(), '.config', 'kickstand', 'token');
 const TOKEN_CACHE_TTL_MS = 60_000;
@@ -35,15 +36,6 @@ async function readKickstandToken(): Promise<string> {
 }
 
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
-
-function estimateRequestTokens(systemPrompt: string, messages: ChatMessage[], maxOutputTokens: number): number {
-  let chars = systemPrompt.length;
-  for (const m of messages) {
-    const c = m.content;
-    chars += typeof c === 'string' ? c.length : c.reduce((sum, b) => sum + JSON.stringify(b).length, 0);
-  }
-  return charsToTokens(chars) + maxOutputTokens;
-}
 
 // ---------------------------------------------------------------------------
 // Kickstand API types
@@ -115,65 +107,8 @@ interface KickstandChatResponse {
 // now and owns its own OpenAIChatChunk type. Kickstand streams the same
 // dialect, so there's nothing left for this file to describe.
 
-// ---------------------------------------------------------------------------
-// Message format conversion
-// ---------------------------------------------------------------------------
-
-function toKickstandMessages(messages: ChatMessage[], systemPrompt: string): KickstandMessage[] {
-  const result: KickstandMessage[] = [];
-
-  if (systemPrompt) {
-    result.push({ role: 'system', content: systemPrompt });
-  }
-
-  for (const msg of messages) {
-    if (typeof msg.content === 'string') {
-      result.push({ role: msg.role, content: msg.content });
-      continue;
-    }
-
-    const blocks = msg.content as ContentBlock[];
-
-    if (msg.role === 'user') {
-      const toolResults = blocks.filter((b) => b.type === 'tool_result');
-      const textBlocks = blocks.filter((b) => b.type === 'text');
-
-      for (const tr of toolResults) {
-        if (tr.type === 'tool_result') {
-          result.push({ role: 'tool', content: tr.content, tool_call_id: tr.tool_use_id });
-        }
-      }
-      if (textBlocks.length > 0) {
-        const text = textBlocks.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
-        result.push({ role: 'user', content: text });
-      }
-    } else {
-      const textParts: string[] = [];
-      const toolCalls: NonNullable<KickstandMessage['tool_calls']> = [];
-
-      for (const block of blocks) {
-        if (block.type === 'text') {
-          textParts.push(block.text);
-        } else if (block.type === 'tool_use') {
-          toolCalls.push({
-            id: block.id,
-            type: 'function',
-            function: { name: block.name, arguments: JSON.stringify(block.input) },
-          });
-        }
-      }
-
-      const assistantMsg: KickstandMessage = {
-        role: 'assistant',
-        content: textParts.join('\n') || null,
-      };
-      if (toolCalls.length > 0) assistantMsg.tool_calls = toolCalls;
-      result.push(assistantMsg);
-    }
-  }
-
-  return result;
-}
+// Message conversion: Kickstand is OpenAI-compatible, so reuse the OpenAI
+// backend's converter (KickstandMessage is structurally identical to OpenAIMessage).
 
 // ---------------------------------------------------------------------------
 // Kickstand backend
@@ -244,7 +179,7 @@ export class KickstandBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const llmMessages = toKickstandMessages(messages, systemPrompt);
+    const llmMessages = toOpenAIMessages(messages, systemPrompt);
 
     const body: KickstandChatRequest = {
       model,
@@ -319,7 +254,7 @@ export class KickstandBackend implements ApiBackend {
     maxTokens: number,
     signal?: AbortSignal,
   ): Promise<string> {
-    const llmMessages = toKickstandMessages(messages, systemPrompt);
+    const llmMessages = toOpenAIMessages(messages, systemPrompt);
 
     const body: KickstandChatRequest = {
       model,

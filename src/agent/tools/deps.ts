@@ -1,10 +1,12 @@
 import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
-import type { RegisteredTool } from './shared.js';
+import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 import { getRoot } from './shared.js';
 import { DriftScanner } from '../../deps/driftScanner.js';
 import type { ManifestScanResult } from '../../deps/types.js';
 import { workspace } from 'vscode';
+
+const DEPS_SCAN_TIMEOUT_MS = 30_000;
 
 const MANIFEST_PATTERNS = ['**/package.json', '**/requirements*.txt', '**/Cargo.toml', '**/go.mod'];
 const SKIP_DIRS = new Set(['node_modules', '.git', 'vendor', 'dist', 'build', '__pycache__']);
@@ -99,7 +101,7 @@ const checkDependenciesDef: ToolDefinition = {
 
 const scanner = new DriftScanner();
 
-async function checkDependencies(input: Record<string, unknown>): Promise<string> {
+async function checkDependencies(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const root = getRoot();
   const ecosystem = input.ecosystem as string | undefined;
   const checkVulns = input.checkVulnerabilities !== false;
@@ -109,7 +111,13 @@ async function checkDependencies(input: Record<string, unknown>): Promise<string
     return 'No manifest files found in the workspace.';
   }
 
-  const results = await scanner.scan(manifests, { checkVulnerabilities: checkVulns });
+  // Bound the registry/OSV fetches: a wedged registry would otherwise pin the
+  // tool for undici's ~5-minute default, unabortable. Combine the turn's abort
+  // signal with a hard timeout.
+  const timeout = AbortSignal.timeout(DEPS_SCAN_TIMEOUT_MS);
+  const signal = context?.signal ? AbortSignal.any([context.signal, timeout]) : timeout;
+
+  const results = await scanner.scan(manifests, { checkVulnerabilities: checkVulns, signal });
   return formatResults(results);
 }
 

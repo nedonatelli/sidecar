@@ -32,6 +32,7 @@ function makeState(logger?: AgentLogger): LoopState {
     messages: [],
     iteration: 0,
     totalChars: 0,
+    unrepairedMalformedCalls: 0,
     episodicMemory: {
       query: vi.fn().mockResolvedValue([]),
       add: vi.fn(),
@@ -48,6 +49,7 @@ function makeState(logger?: AgentLogger): LoopState {
     writesSinceVerifyByFile: new Map(),
     forceVerifyBeforeBailByFile: new Map(),
     filesEditedViaEditTool: new Set(),
+    editFailureSignatures: new Map(),
     escalatedRewriteByFile: new Set(),
     enforceEditBlocksByFile: new Map(),
     stubFixRetries: 0,
@@ -56,6 +58,7 @@ function makeState(logger?: AgentLogger): LoopState {
     criticInjectionsByFile: new Map(),
     criticInjectionsByTestHash: new Map(),
     analysisCriticFired: false,
+    unappliedEditNudged: false,
     toolCallCounts: new Map(),
     gateState: null as any,
     checkpointFired: false,

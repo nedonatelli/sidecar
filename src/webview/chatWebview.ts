@@ -222,6 +222,8 @@ export interface ExtensionMessage {
   toolName?: string;
   toolCallId?: string;
   isDiff?: boolean;
+  /** Set on `toolResult` when the content is trusted, pre-built HTML (render_viz / db_*). */
+  isHtml?: boolean;
   confirmId?: string;
   confirmActions?: string[];
   /** Unified diff to render inline in the confirm card. */
@@ -357,7 +359,13 @@ export interface ExtensionMessage {
   batchProgress?: {
     kind: 'facets' | 'forks';
     task: string;
-    items: readonly { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error' }[];
+    items: readonly {
+      id: string;
+      label: string;
+      status: 'pending' | 'running' | 'done' | 'error';
+      /** Facet's preferred model, rendered as a badge in the dispatch graphic. */
+      model?: string;
+    }[];
     doneCount: number;
     totalCount: number;
   };

@@ -1,0 +1,47 @@
+{
+  "model": "qwen2.5-coder:7b",
+  "recordedAt": "2026-07-06T17:56:38.038Z",
+  "version": "0.116.0",
+  "cases": {
+    "read-single-file": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 1855
+    },
+    "grep-for-todo": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 1923
+    },
+    "no-stub-in-write": {
+      "passed": true,
+      "iterationsUsed": 4,
+      "durationMs": 8934
+    },
+    "fix-simple-bug": {
+      "passed": true,
+      "iterationsUsed": 8,
+      "durationMs": 13821
+    },
+    "plan-mode-no-tools": {
+      "passed": true,
+      "iterationsUsed": 1,
+      "durationMs": 8091
+    },
+    "error-recovery-to-correct-file": {
+      "passed": false,
+      "iterationsUsed": 8,
+      "durationMs": 28900
+    },
+    "version-from-package-json": {
+      "passed": false,
+      "iterationsUsed": 6,
+      "durationMs": 12993
+    },
+    "run-fix-iteration-cycle": {
+      "passed": false,
+      "iterationsUsed": 8,
+      "durationMs": 20877
+    }
+  }
+}

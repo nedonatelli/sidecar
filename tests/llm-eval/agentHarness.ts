@@ -301,6 +301,18 @@ export async function runAgentCase(
     // Permissive confirmFn for the rare case an irrecoverable-gate
     // or alwaysRequireApproval tool fires under autonomous mode.
     confirmFn: async () => 'Allow',
+    // Cooperative clarifyFn: the test plays a helpful user. A clarifying
+    // question is a legitimate move (better than guessing wrong), so we answer
+    // it and let the agent continue — the case measures whether the model
+    // ultimately addresses the issue, not whether it avoided asking. Cases can
+    // supply a specific `clarifyResponse`; the default nudges it to proceed.
+    // (The reply surfaces in the trajectory as the ask_user tool_result.)
+    clarifyFn: async (question: string, clarifyOptions: string[] = []) => {
+      const cr = evalCase.clarifyResponse;
+      return typeof cr === 'function'
+        ? cr(question, clarifyOptions)
+        : (cr ?? 'Yes — go ahead and answer based on what you found. Use your best judgment.');
+    },
     // Disable macOS seatbelt for eval runs — the sandbox is already a
     // controlled temp dir; seatbelt wrapping causes shell init hangs
     // when the ShellSession CWD is /var/folders (not the VS Code workspace).

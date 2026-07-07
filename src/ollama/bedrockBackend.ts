@@ -32,6 +32,22 @@ import { streamBedrockChunks } from './awsEventStream.js';
  * Prompt caching (`cache_control`) is intentionally NOT sent here — Bedrock
  * gates it per-account and rejects unknown fields, so v1 sends plain blocks.
  */
+/**
+ * Bedrock runtime host for a region. FIPS mode uses the `-fips` host
+ * (`bedrock-runtime-fips.<region>.amazonaws.com`), which is required for some
+ * connections — notably AWS GovCloud (`us-gov-east-1` / `us-gov-west-1`).
+ * GovCloud regions are on the standard `amazonaws.com` domain, so the only
+ * difference is the FIPS service-name segment.
+ */
+export function bedrockRuntimeOrigin(region: string, fips = false): string {
+  return `https://bedrock-runtime${fips ? '-fips' : ''}.${region}.amazonaws.com`;
+}
+
+/** Bedrock control-plane host (model discovery) for a region, FIPS-aware. */
+export function bedrockControlOrigin(region: string, fips = false): string {
+  return `https://bedrock${fips ? '-fips' : ''}.${region}.amazonaws.com`;
+}
+
 export class BedrockBackend implements ApiBackend {
   private rateLimits: RateLimitStore;
 
@@ -39,6 +55,7 @@ export class BedrockBackend implements ApiBackend {
     private region: string,
     private auth: { bearerToken?: string; credentials?: AwsCredentials } = {},
     rateLimits?: RateLimitStore,
+    private useFips = false,
   ) {
     this.rateLimits = rateLimits ?? new RateLimitStore();
   }
@@ -48,7 +65,7 @@ export class BedrockBackend implements ApiBackend {
   }
 
   private get origin(): string {
-    return `https://bedrock-runtime.${this.region}.amazonaws.com`;
+    return bedrockRuntimeOrigin(this.region, this.useFips);
   }
 
   /**
@@ -254,7 +271,7 @@ export class BedrockBackend implements ApiBackend {
 
   /** Signed/bearer GET against the Bedrock control-plane endpoint. */
   private async controlGet(rawPath: string, signal?: AbortSignal): Promise<unknown> {
-    const origin = `https://bedrock.${this.region}.amazonaws.com`;
+    const origin = bedrockControlOrigin(this.region, this.useFips);
     const bearer = this.bearer();
     let url: string;
     let headers: Record<string, string>;

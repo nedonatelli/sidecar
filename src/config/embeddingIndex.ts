@@ -17,7 +17,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { cosine } from './math.js';
-import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from './hfPipeline.js';
+import { MINILM_MODEL_ID as MODEL_ID, LazyEmbedder } from './hfPipeline.js';
 const DIMENSION = 384;
 const META_FILE = 'cache/embeddings-meta.json';
 const BIN_FILE = 'cache/embeddings.bin';
@@ -42,9 +42,16 @@ interface EmbeddingMeta {
 
 export class EmbeddingIndex implements Disposable {
   private sidecarDir: SidecarDir | null;
-  private pipeline: EmbeddingPipeline | null = null;
-  private modelLoading: Promise<void> | null = null;
-  private ready = false;
+  private embedder = new LazyEmbedder({
+    label: 'EmbeddingIndex',
+    dimension: DIMENSION,
+    maxChars: MAX_INPUT_CHARS,
+    // Evaluated at load time, after the constructor has set sidecarDir.
+    envOpts: () => ({
+      cacheDir: this.sidecarDir?.isReady() ? this.sidecarDir.getPath('cache', 'models') : undefined,
+      allowRemoteModels: true,
+    }),
+  });
 
   // In-memory embedding store
   private vectors = new Float32Array(0);
@@ -72,7 +79,7 @@ export class EmbeddingIndex implements Disposable {
 
   /** Whether the embedding index is ready for queries. */
   isReady(): boolean {
-    return this.ready && this.pipeline !== null;
+    return this.embedder.ready;
   }
 
   /**
@@ -81,58 +88,16 @@ export class EmbeddingIndex implements Disposable {
    */
   async initialize(): Promise<void> {
     await this.restoreCache();
-    this.modelLoading = this.loadModel();
-    // Don't await — let it load in the background
-    this.modelLoading.catch((err) => {
-      logger.warn('[SideCar] Embedding model failed to load:', err.message || err);
-      // Extension continues working with keyword scoring only
-    });
-  }
-
-  private async loadModel(): Promise<void> {
-    try {
-      this.pipeline = await getSharedPipeline(MODEL_ID, {
-        cacheDir: this.sidecarDir?.isReady() ? this.sidecarDir.getPath('cache', 'models') : undefined,
-        allowRemoteModels: true,
-      });
-      this.ready = true;
-      logger.info('[SideCar] Embedding model loaded:', MODEL_ID);
-    } catch (err) {
-      this.ready = false;
-      throw err;
-    }
-  }
-
-  /**
-   * Ensure the model is loaded before proceeding.
-   * Returns false if the model failed to load or isn't available.
-   */
-  private async ensureModel(): Promise<boolean> {
-    if (this.pipeline) return true;
-    if (this.modelLoading) {
-      try {
-        await this.modelLoading;
-        return this.pipeline !== null;
-      } catch {
-        return false;
-      }
-    }
-    return false;
+    // Load in the background; the extension works with keyword scoring until ready.
+    this.embedder.start();
   }
 
   /**
    * Compute embedding for a text string.
    * Returns a Float32Array of length DIMENSION, or null if model unavailable.
    */
-  async embed(text: string): Promise<Float32Array | null> {
-    if (!(await this.ensureModel()) || !this.pipeline) return null;
-
-    const truncated = text.slice(0, MAX_INPUT_CHARS);
-    const output = await this.pipeline([truncated], {
-      pooling: 'mean',
-      normalize: true,
-    });
-    return new Float32Array(output.data.slice(0, DIMENSION));
+  embed(text: string): Promise<Float32Array | null> {
+    return this.embedder.embed(text);
   }
 
   /**
@@ -188,7 +153,7 @@ export class EmbeddingIndex implements Disposable {
   private async flushUpdates(): Promise<void> {
     this.updateTimer = null;
     if (this.pendingUpdates.size === 0) return;
-    if (!(await this.ensureModel())) return;
+    if (!(await this.embedder.ensureReady())) return;
 
     const batch = Array.from(this.pendingUpdates.entries()).slice(0, BATCH_SIZE);
     for (const [relPath] of batch) {

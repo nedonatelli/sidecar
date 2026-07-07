@@ -1,5 +1,6 @@
 import { applyAutoFix } from './autoFix.js';
 import { applyIsolateRewriteNudge } from './isolateRewrite.js';
+import { applyUnappliedEditNudge } from './unappliedEdit.js';
 import { applyStubCheck } from './stubCheck.js';
 import { applyCritic, applyAnalysisCritic } from './criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
@@ -55,6 +56,23 @@ const isolateRewriteHook: PolicyHook = {
   async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
     if (!ctx.pendingToolUses) return { mutated: false };
     const mutated = applyIsolateRewriteNudge(state, ctx.pendingToolUses, ctx.callbacks);
+    return { mutated };
+  },
+};
+
+/**
+ * Unapplied-edit nudge. The mirror of isolateRewrite: fires when the model
+ * described an edit in a code fence but applied NOTHING (no mutation tool) and
+ * then tried to verify it. Redirects the model to actually call edit_file /
+ * write_file before cycle detection bails on the identical-failure loop. Bounded
+ * to one injection per run. Registered after isolateRewrite so the two "how you
+ * edit" nudges sit together.
+ */
+const unappliedEditHook: PolicyHook = {
+  name: 'unappliedEdit',
+  async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
+    if (!ctx.pendingToolUses || ctx.fullText === undefined) return { mutated: false };
+    const mutated = applyUnappliedEditNudge(state, ctx.pendingToolUses, ctx.fullText, ctx.callbacks);
     return { mutated };
   },
 };
@@ -165,6 +183,7 @@ export function defaultPolicyHooks(): PolicyHook[] {
   return [
     autoFixHook,
     isolateRewriteHook,
+    unappliedEditHook,
     stubCheckHook,
     criticHook,
     actionRepromptHook,

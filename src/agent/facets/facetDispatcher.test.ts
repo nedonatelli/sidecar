@@ -316,6 +316,23 @@ describe('dispatchFacets — orchestration', () => {
     expect(events.indexOf('root-end')).toBeLessThan(events.indexOf('child-start'));
   });
 
+  it('onBatchProgress carries each facet label + preferred model (dispatch graphic data)', async () => {
+    runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
+    const facets = [facet({ id: 'a', preferredModel: 'claude-sonnet-4' }), facet({ id: 'b' })];
+    const reg = buildFacetRegistry(facets);
+    const snapshots: { id: string; model?: string; status: string }[][] = [];
+    await dispatchFacets(makeClient(), reg, ['a', 'b'], makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      maxConcurrent: 2,
+      onBatchProgress: (s) => snapshots.push(s.items.map((i) => ({ id: i.id, model: i.model, status: i.status }))),
+    });
+    const last = snapshots[snapshots.length - 1];
+    expect(last.find((i) => i.id === 'a')?.model).toBe('claude-sonnet-4');
+    expect(last.find((i) => i.id === 'b')?.model).toBeUndefined();
+    expect(last.every((i) => i.status === 'done' || i.status === 'error')).toBe(true);
+  });
+
   it('returns results in original input order regardless of layer order', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const facets = [facet({ id: 'root' }), facet({ id: 'leaf', dependsOn: ['root'] }), facet({ id: 'independent' })];

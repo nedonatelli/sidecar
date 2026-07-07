@@ -30,14 +30,23 @@ import {
   pushToolResultsMessage,
   accountToolTokens,
   capToolResults,
+  guardToolResults,
 } from './loop/messageBuild.js';
 import { HookBus, PolicyEnforcementError, type PolicyHook, type HookContext } from './loop/policyHook.js';
 import { defaultPolicyHooks } from './loop/builtInHooks.js';
 import { buildRegressionGuardHooks } from './guards/regressionGuardHook.js';
 import { getSdkHooks } from '../sdk/registry.js';
 import { dispatchPendingToolUses } from './loop/dispatchToolUses.js';
+import { repairMalformedToolUses } from './loop/toolCallRepair.js';
 import { notifyIterationStart, maybeEmitProgressSummary, shouldStopAtCheckpoint } from './loop/notifications.js';
 import { finalize } from './loop/finalize.js';
+import { maybeForceFinalAnswer } from './loop/forceFinalAnswer.js';
+import {
+  captureRatchetOriginals,
+  captureScaffoldBoundary,
+  evaluateRatchetAtTermination,
+  makeWorkspaceRatchetIo,
+} from './loop/keepBestRatchetWiring.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
@@ -125,6 +134,18 @@ export interface AgentCallbacks {
    * propagates, so listeners shouldn't throw from this handler.
    */
   onStreamFailure?: (partial: string, error: Error) => void;
+  /**
+   * F2 — fired after the constrained-decoding repair pass on a turn's tool
+   * calls: how many arrived malformed and how many repair recovered. Feeds the
+   * schema-validity + repair-rate diagnostics.
+   */
+  onMalformedToolCalls?: (malformed: number, repaired: number) => void;
+  /**
+   * F1 — fired once when the run terminates, with the classified failure
+   * bucket (or `null` for a clean success). Feeds the per-model failure
+   * distribution that steers where scaffolding effort goes.
+   */
+  onOutcome?: (bucket: import('./failureTaxonomy.js').FailureBucket | null) => void;
   onDone: () => void;
 }
 
@@ -312,6 +333,11 @@ export async function runAgentLoop(
     state.scaffoldingProfile = resolveScaffoldingProfile(resolveModelCapability(client.getModel()).tier);
   }
 
+  // Keep-best ratchet IO (§2.1). Built once, rooted at the loop's effective
+  // working dir (cwdOverride → Shadow Workspace / mounted root). Null when the
+  // ratchet is off, so all ratchet touch points below no-op cheaply.
+  const ratchetIo = state.ratchet?.enabled ? makeWorkspaceRatchetIo(options.cwdOverride) : null;
+
   // Start from a clean compression cache. The teardown `finally` also clears
   // it, but clearing here guarantees a fresh slate even if a prior run's
   // teardown was skipped (e.g. a synchronous throw before its finally ran),
@@ -363,6 +389,7 @@ export async function runAgentLoop(
       state.iteration++;
       if (signal.aborted) {
         state.logger?.logAborted();
+        state.termination = 'aborted';
         break;
       }
 
@@ -377,8 +404,12 @@ export async function runAgentLoop(
       // Pre-turn budget compression. Returns 'exhausted' when
       // compaction couldn't bring us below the hard ceiling.
       const compressionOutcome = await applyBudgetCompression(client, state);
-      if (signal.aborted) break;
+      if (signal.aborted) {
+        state.termination = 'aborted';
+        break;
+      }
       if (compressionOutcome === 'exhausted') {
+        state.termination = 'out-of-resources';
         const estimatedTokens =
           state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
         state.logger?.warn(
@@ -392,7 +423,10 @@ export async function runAgentLoop(
 
       notifyIterationStart(state, state.config, callbacks);
       maybeEmitProgressSummary(state, callbacks);
-      if (await shouldStopAtCheckpoint(state, callbacks)) break;
+      if (await shouldStopAtCheckpoint(state, callbacks)) {
+        state.termination = 'aborted';
+        break;
+      }
 
       // Architect / Editor model split. No-op when sidecar.editorModel is
       // blank (the default). When set, planning turns use sidecar.model and
@@ -452,6 +486,7 @@ export async function runAgentLoop(
           `You can increase sidecar.firstTokenTimeout (first token) or sidecar.requestTimeout (between tokens) in settings.`;
         state.logger?.warn(msg);
         callbacks.onText(`\n\n⚠️ ${msg}\n`);
+        state.termination = 'out-of-resources';
         break;
       }
       if (rawTurn.terminated === 'aborted') {
@@ -466,17 +501,43 @@ export async function runAgentLoop(
             const names = rawTurn.pendingToolUses.map((tu) => `\`${tu.name}\``).join(', ');
             callbacks.onText(`\n⚠️ Stopped — cancelled in-flight: ${names}\n`);
           }
+          state.termination = 'aborted';
           break;
         }
         if (options.steerQueue && options.steerQueue.size() > 0) {
           state.logger?.info('Turn aborted by steer interrupt — continuing to next iteration');
           continue;
         }
+        state.termination = 'aborted';
         break;
       }
 
       const resolved = resolveTurnContent(rawTurn, state, callbacks);
       const { fullText, pendingToolUses } = resolved;
+
+      // Phase 1: constrained-decoding repair of malformed tool calls — at the
+      // action boundary, before dispatch. Heuristic JSON repair first, then a
+      // schema-constrained regeneration. Recovers calls that would otherwise
+      // error/drop, instead of burning a whole retry turn.
+      const malformedCount = pendingToolUses.filter((tu) => tu._malformedInputRaw !== undefined).length;
+      if (malformedCount > 0) {
+        try {
+          const fixed = await repairMalformedToolUses(pendingToolUses, {
+            client,
+            model: state.modelOverride,
+            signal,
+            schemaFor: (name) =>
+              state.tools.find((t) => t.name === name)?.input_schema as Record<string, unknown> | undefined,
+            logger: state.logger,
+          });
+          callbacks.onMalformedToolCalls?.(malformedCount, fixed); // F2 — schema-validity + repair rate
+          state.unrepairedMalformedCalls += malformedCount - fixed; // F1 — syntactic-failure signal
+          if (fixed > 0) callbacks.onText?.(`\n\n🔧 Repaired ${fixed} malformed tool call${fixed === 1 ? '' : 's'}.\n`);
+        } catch (err) {
+          if (err instanceof Error && err.name === 'AbortError') throw err;
+          state.unrepairedMalformedCalls += malformedCount; // repair threw — none recovered
+        }
+      }
 
       // No tools this turn — handle the empty-response branch. Runs
       // the text-tool-attempt heuristic (to record a tool failure on
@@ -490,6 +551,7 @@ export async function runAgentLoop(
         // asking questions and is presenting its plan.
         if (options.approvalMode === 'plan' && fullText) {
           callbacks.onPlanGenerated?.(fullText);
+          state.termination = 'natural';
           break;
         }
 
@@ -519,8 +581,20 @@ export async function runAgentLoop(
           fullText,
         };
         const emptyMutated = await hookBus.runEmptyResponse(state, emptyCtx);
-        if (emptyMutated) continue;
+        if (emptyMutated) {
+          // A scaffold reprompt fired (completion gate). Arm the keep-best
+          // ratchet at this boundary if it hasn't been — everything the model
+          // does in response is scaffold-driven and subject to revert.
+          if (ratchetIo) await captureScaffoldBoundary(state, ratchetIo);
+          continue;
+        }
 
+        // Nothing more to do and no hook kept the loop alive — the model
+        // declared itself done. Mark natural completion; the completion gate
+        // (a runEmptyResponse hook) would have mutated above if it still had
+        // budget, so reaching here means verification is as complete as the
+        // gate could make it.
+        state.termination = 'natural';
         break;
       }
 
@@ -530,7 +604,10 @@ export async function runAgentLoop(
       // Per-iteration burst cap + cycle detection. Each returns
       // `true` when the loop should terminate and is responsible for
       // its own user-visible onText notification.
-      if (exceedsBurstCap(pendingToolUses, state, callbacks)) break;
+      if (exceedsBurstCap(pendingToolUses, state, callbacks)) {
+        state.termination = 'stuck';
+        break;
+      }
       // Remove blocked circular rewrites (content byte-identical to a prior
       // write this run) from what cycle detection counts — the write_file
       // executor soft-blocks them, so they shouldn't bail the whole run.
@@ -548,6 +625,7 @@ export async function runAgentLoop(
         forCycleDetection.length > 0 &&
         detectCycleAndBail(forCycleDetection, state, callbacks)
       ) {
+        state.termination = 'stuck';
         break;
       }
 
@@ -558,7 +636,10 @@ export async function runAgentLoop(
       // Re-check abort between streaming and tool dispatch. The outer
       // loop only checks at iteration start, so a Stop fired during
       // streaming would otherwise still execute all queued tools.
-      if (signal.aborted) break;
+      if (signal.aborted) {
+        state.termination = 'aborted';
+        break;
+      }
 
       // Dispatch every tool_use. For pure-write turns with fanout
       // ≥ multiFileEditsMinFilesForPlan the dispatcher inserts an
@@ -569,6 +650,12 @@ export async function runAgentLoop(
       // Combine outer + inner signals: dispatch respects both a full
       // user "Stop" and a steer-interrupt that fired after streaming.
       const dispatchSignal = combineSignals(signal, turnController.signal);
+
+      // Keep-best ratchet: baseline the pre-edit content of every file this
+      // turn is about to write, so a scaffold-tail change can be reverted
+      // precisely (delete if created this run, restore original otherwise).
+      if (ratchetIo) await captureRatchetOriginals(state, pendingToolUses, ratchetIo);
+
       const toolResults = await dispatchPendingToolUses(
         state,
         pendingToolUses,
@@ -617,9 +704,22 @@ export async function runAgentLoop(
       // (e.g. "grep kickstand") can return hundreds of KB and exhaust
       // the token budget even in a fresh conversation, because the raw
       // size is counted even though the backend truncates it anyway.
-      const storedResults = state.config.promptPruningEnabled
+      const cappedResults = state.config.promptPruningEnabled
         ? capToolResults(toolResults, pendingToolUses, state.config.promptPruningMaxToolResultTokens)
         : toolResults;
+
+      // Prompt-injection guard (§4): fence tool output that carries injection
+      // attempts as untrusted data before it reaches the model. Runs after
+      // capping so the fence boundary survives truncation.
+      const guarded = guardToolResults(cappedResults, pendingToolUses, state.config.injectionGuardEnabled);
+      if (guarded.findings.length > 0) {
+        for (const f of guarded.findings) {
+          state.logger?.warn(`Prompt-injection guard: fenced ${f.tool} output — ${f.categories.join(', ')}`);
+        }
+        const summary = guarded.findings.map((f) => `${f.tool} (${f.categories.join(', ')})`).join('; ');
+        callbacks.onText(`\n\n🛡️ Prompt-injection guard: fenced untrusted content as data — ${summary}\n`);
+      }
+      const storedResults = guarded.results;
 
       // Token accounting and history append for the tool results.
       accountToolTokens(state, pendingToolUses, storedResults);
@@ -652,6 +752,10 @@ export async function runAgentLoop(
 
       // Continue the loop — model will respond to tool results.
     }
+    // Fell out of the while via the iteration-cap condition (every break that
+    // reached here set its own reason; an unset reason means the counter ran
+    // out). F1 classifies this as a `timeout` bucket.
+    state.termination ??= 'max-iterations';
   } catch (err) {
     if (err instanceof PolicyEnforcementError) {
       const msg =
@@ -680,6 +784,20 @@ export async function runAgentLoop(
     if (state.config.editorModel) {
       client.updateModel(state.config.model);
     }
+  }
+
+  // Answer-forcing: the loop hit the iteration cap or a stuck-loop bail without
+  // the model voluntarily answering. Run one tools-disabled synthesis turn so
+  // the user gets an answer from the data already gathered instead of a wall of
+  // tool-call JSON. No-op on natural/aborted/out-of-resources termination.
+  await maybeForceFinalAnswer(state, client, callbacks, signal);
+
+  // Keep-best ratchet: at natural completion, revert scaffold-driven changes
+  // that regressed a test signal or ballooned the patch with no gain. Skipped
+  // on user-abort (the user stopped deliberately — don't touch their files) and
+  // when the ratchet never armed (scaffolding drove no extra work).
+  if (ratchetIo && state.termination !== 'aborted') {
+    await evaluateRatchetAtTermination(state, ratchetIo, callbacks);
   }
 
   return finalize(state, callbacks);

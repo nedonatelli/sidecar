@@ -19,7 +19,7 @@ import * as crypto from 'crypto';
 import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
 import { hashLeaf, type MerkleTree } from './merkleTree.js';
-import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, getSharedPipeline } from './hfPipeline.js';
+import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, LazyEmbedder } from './hfPipeline.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const META_FILE = 'cache/symbol-embeddings-meta.json';
@@ -101,9 +101,16 @@ export interface SymbolMetadata {
 }
 
 export class SymbolEmbeddingIndex implements Disposable {
-  private pipeline: EmbeddingPipeline | null = null;
-  private modelLoading: Promise<void> | null = null;
-  private ready = false;
+  private embedder = new LazyEmbedder({
+    label: 'PKI',
+    dimension: DIMENSION,
+    maxChars: MAX_INPUT_CHARS,
+    // Evaluated at load time, after the constructor has set sidecarDir.
+    envOpts: () => ({
+      cacheDir: this.sidecarDir?.isReady() ? this.sidecarDir.getPath('cache', 'models') : undefined,
+      allowRemoteModels: true,
+    }),
+  });
 
   /**
    * Pluggable storage backend. Default: the flat in-
@@ -170,8 +177,8 @@ export class SymbolEmbeddingIndex implements Disposable {
    * is required when upgrading past c.2.
    */
   constructor(sidecarDir: SidecarDir | null, store?: VectorStore<SymbolMetadata>) {
-    // Kept so loadModel can cache the ONNX model in the stable, workspace-local
-    // `.sidecar/cache/models` (same as the file-level EmbeddingIndex) rather than
+    // Kept so the embedder's envOpts can cache the ONNX model in the stable,
+    // workspace-local `.sidecar/cache/models` (same as EmbeddingIndex) rather than
     // the transformers default — the packaged extension's per-version `.cache`,
     // which is volatile (re-downloaded on every .vsix version) and inconsistent.
     this.sidecarDir = sidecarDir;
@@ -200,7 +207,7 @@ export class SymbolEmbeddingIndex implements Disposable {
    *  to serve queries. Callers should fall back to keyword search if
    *  this is false (model may still be loading). */
   isReady(): boolean {
-    return this.ready && this.pipeline !== null;
+    return this.embedder.ready;
   }
 
   /**
@@ -221,10 +228,8 @@ export class SymbolEmbeddingIndex implements Disposable {
     } else {
       logger.info(`[PKI] restored from cache${kv({ vectors: restored, bytes })}`);
     }
-    this.modelLoading = this.loadModel();
-    this.modelLoading.catch((err) => {
-      logger.warn('[SideCar] Symbol embedding model failed to load:', err?.message || err);
-    });
+    // Load in the background; callers fall back to keyword search until ready.
+    this.embedder.start();
   }
 
   /**
@@ -233,8 +238,7 @@ export class SymbolEmbeddingIndex implements Disposable {
    * boot per suite). Production callers use `initialize()` instead.
    */
   setPipelineForTests(pipeline: EmbeddingPipeline | null): void {
-    this.pipeline = pipeline;
-    this.ready = pipeline !== null;
+    this.embedder.setPipelineForTests(pipeline);
   }
 
   /**
@@ -279,45 +283,13 @@ export class SymbolEmbeddingIndex implements Disposable {
     tree.rebuild();
   }
 
-  private async loadModel(): Promise<void> {
-    try {
-      this.pipeline = await getSharedPipeline(MODEL_ID, {
-        cacheDir: this.sidecarDir?.isReady() ? this.sidecarDir.getPath('cache', 'models') : undefined,
-        allowRemoteModels: true,
-      });
-      this.ready = true;
-      logger.info('[SideCar] Symbol embedding model loaded:', MODEL_ID);
-    } catch (err) {
-      this.ready = false;
-      throw err;
-    }
-  }
-
-  private async ensureModel(): Promise<boolean> {
-    if (this.pipeline) return true;
-    if (this.modelLoading) {
-      try {
-        await this.modelLoading;
-        return this.pipeline !== null;
-      } catch {
-        // Load failed — null it out so flushQueue can restart it.
-        this.modelLoading = null;
-        return false;
-      }
-    }
-    return false;
-  }
-
   /**
    * Produce a normalized 384-dim embedding for `text`. Returns null
    * when the model isn't available — callers treat this as "skip,
    * try again when ready" rather than an error.
    */
-  async embed(text: string): Promise<Float32Array | null> {
-    if (!(await this.ensureModel()) || !this.pipeline) return null;
-    const truncated = text.slice(0, MAX_INPUT_CHARS);
-    const output = await this.pipeline([truncated], { pooling: 'mean', normalize: true });
-    return new Float32Array(output.data.slice(0, DIMENSION));
+  embed(text: string): Promise<Float32Array | null> {
+    return this.embedder.embed(text);
   }
 
   /**
@@ -432,14 +404,9 @@ export class SymbolEmbeddingIndex implements Disposable {
   private async flushQueue(): Promise<void> {
     this.flushTimer = null;
     if (this.pendingQueue.size === 0) return;
-    if (!(await this.ensureModel())) {
-      // Model not ready — (re)start loading if it isn't already, then retry.
-      if (!this.modelLoading) {
-        this.modelLoading = this.loadModel();
-        this.modelLoading.catch((err) =>
-          logger.warn('[SideCar] Symbol embedding model retry failed:', err?.message || err),
-        );
-      }
+    if (!(await this.embedder.ensureReady())) {
+      // Model not ready — ensureReady already re-attempts a failed load, so just
+      // schedule another flush to pick it up once loading finishes.
       this.flushTimer = setTimeout(() => {
         this.flushQueue().catch((err) => logger.warn('[SideCar] flushQueue retry error:', err?.message || err));
       }, SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);

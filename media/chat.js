@@ -3871,13 +3871,32 @@
     taskEl.textContent = task.length > 80 ? task.slice(0, 80) + '…' : task;
 
     list.innerHTML = '';
+    list.classList.toggle('facets', kind === 'facets');
     for (const item of items) {
       const el = document.createElement('span');
       el.className = `batch-progress-item bp-${item.status}`;
-      const dot =
-        item.status === 'running' ? '● ' : item.status === 'done' ? '✓ ' : item.status === 'error' ? '✕ ' : '○ ';
-      el.textContent = dot + item.label;
-      el.title = `${item.id} — ${item.status}`;
+
+      const icon = document.createElement('span');
+      icon.className = 'bp-icon';
+      icon.textContent =
+        item.status === 'running' ? '●' : item.status === 'done' ? '✓' : item.status === 'error' ? '✕' : '○';
+      el.appendChild(icon);
+
+      const label = document.createElement('span');
+      label.className = 'bp-label';
+      label.textContent = item.label;
+      el.appendChild(label);
+
+      // Facets carry a preferred model — show it as a compact badge so the
+      // graphic reads as "which specialist runs on which model".
+      if (item.model) {
+        const badge = document.createElement('span');
+        badge.className = 'bp-model';
+        badge.textContent = String(item.model).split('/').pop();
+        el.appendChild(badge);
+      }
+
+      el.title = `${item.id} — ${item.status}${item.model ? ' · ' + item.model : ''}`;
       list.appendChild(el);
     }
   }
@@ -4503,6 +4522,14 @@
 
       case 'done': {
         finishAssistantMessage();
+        // Resync the message-index counter to the extension's authoritative
+        // transcript length. A turn appends assistant + tool entries (and
+        // transient status bubbles) this side never counted, so without this
+        // the next user bubble's msgIndex drifts and delete/edit would target
+        // the wrong entry in state.messages.
+        if (typeof event.data.messageCount === 'number') {
+          messageCounter = event.data.messageCount;
+        }
         setLoading(false);
         toolOutputChars.clear();
         toolFullOutput.clear();
@@ -5111,6 +5138,10 @@
         const resultToolId = event.data.toolCallId;
         const resultToolName = event.data.toolName || '';
         const text = content || '';
+        // Only tools the extension marks isHtml (render_viz / db_*) emit trusted
+        // markup. Everything else is shown as text even if it happens to contain
+        // HTML/SVG \u2014 closes a UI-spoofing injection surface (e.g. read_file on an .svg).
+        const resultIsHtml = event.data.isHtml === true;
         const isError = text.startsWith('\u2717') || text.includes('Error');
 
         // Find the matching tool call element by ID, or fall back to last .running
@@ -5175,16 +5206,12 @@
           if (text) {
             const matchedBody = matchedTool.querySelector('.tool-call-body');
             if (matchedBody) {
-              // Check if result is rendered HTML (viz, chart, or db table)
-              if (
-                text.trim().startsWith('<') &&
-                (text.includes('sidecar-viz') ||
-                  text.includes('sidecar-db-result') ||
-                  text.includes('xmlns="http://www.w3.org/2000/svg"'))
-              ) {
+              // Render as markup ONLY when the extension flagged this as a
+              // trusted HTML producer; otherwise show as text.
+              if (resultIsHtml && text.trim().startsWith('<')) {
                 const vizContainer = document.createElement('div');
                 vizContainer.className = 'tool-result-viz';
-                vizContainer.innerHTML = text;
+                vizContainer.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : text;
                 matchedBody.appendChild(vizContainer);
               } else {
                 matchedBody.textContent += '\n' + text;
@@ -5250,16 +5277,11 @@
           badge.textContent = isError ? '\u2717' : '\u2713';
           summary.appendChild(badge);
           details.appendChild(summary);
-          // Check if result is rendered HTML (viz, chart, or db table)
-          if (
-            text.trim().startsWith('<') &&
-            (text.includes('sidecar-viz') ||
-              text.includes('sidecar-db-result') ||
-              text.includes('xmlns="http://www.w3.org/2000/svg"'))
-          ) {
+          // Render as markup ONLY when the extension flagged a trusted HTML producer.
+          if (resultIsHtml && text.trim().startsWith('<')) {
             const vizBody = document.createElement('div');
             vizBody.className = 'tool-result-body tool-result-viz';
-            vizBody.innerHTML = text;
+            vizBody.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : text;
             details.appendChild(vizBody);
           } else {
             const body = document.createElement('pre');

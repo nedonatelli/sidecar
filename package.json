@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.114.56",
+  "version": "0.116.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -36,7 +36,8 @@
     "mistral",
     "gemma",
     "codellama",
-    "copilot"
+    "copilot",
+    "cline"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -70,13 +71,13 @@
           },
           "sidecar.model": {
             "type": "string",
-            "default": "ministral-3:latest",
+            "default": "gemma4:e4b",
             "order": 2,
             "tags": [
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Model to use for chat. **Recommended local default: `ministral-3:latest`** (6 GB, 94% agent eval pass rate).\n\nExamples:\n\n- Ollama: `ministral-3:latest`, `granite4.1:3b` (2 GB low-RAM), `gemma4:e4b`, `qwen3.5:latest`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
+            "markdownDescription": "Model to use for chat. **Recommended local default: `gemma4:e4b`** (9 GB, ~10 GB VRAM; the most-dogfooded local model, strongest prompt-following).\n\nExamples:\n\n- Ollama: `gemma4:e4b`, `ministral-3:latest` (6 GB, lighter), `granite4.1:3b` (2 GB low-RAM), `qwen3-coder:8b`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
           },
           "sidecar.editorModel": {
             "type": "string",
@@ -163,6 +164,16 @@
               "backend"
             ],
             "markdownDescription": "AWS region for the Bedrock backend (e.g. `us-east-1`, `us-west-2`, `eu-central-1`). The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. Credentials come from the standard AWS chain (env vars or `~/.aws/credentials`); no API key prompt is shown."
+          },
+          "sidecar.bedrock.fips": {
+            "type": "boolean",
+            "default": false,
+            "order": 5,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Use the Bedrock **FIPS** endpoint — `bedrock-runtime-fips.<region>.amazonaws.com` instead of the standard host. Required for some connections, notably **AWS GovCloud** (`us-gov-east-1` / `us-gov-west-1`). The `SideCar: Bedrock: Set Region` command offers this automatically for GovCloud regions and keeps `sidecar.baseUrl` in sync."
           },
           "sidecar.fallbackBaseUrl": {
             "type": "string",
@@ -335,6 +346,19 @@
             ],
             "markdownDescription": "Temperature for agent tool-calling requests.\n\n- `0.1-0.3` — deterministic tool selection (recommended for agent loops)\n- `0.7-1.0` — creative, more exploration\n\nNon-tool requests always use `0`."
           },
+          "sidecar.agentSeed": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "default": null,
+            "order": 21,
+            "tags": [
+              "sidecar",
+              "agent"
+            ],
+            "markdownDescription": "Fixed RNG seed for generation, for **reproducible runs** (benchmarks / ablation). `null` (default) leaves generation unseeded. When set, identical prompts produce identical outputs on backends that honor a seed (Ollama). The `SIDECAR_AGENT_SEED` environment variable overrides this for headless runs."
+          },
           "sidecar.ollama.numCtx": {
             "type": [
               "number",
@@ -441,6 +465,22 @@
             "type": "boolean",
             "default": false,
             "description": "Tune loop-safety scaffolding to the active model's capability tier (A2). Strong models relax (fewer reprompts, looser burst cap → less latency); weak models get a larger reprompt budget to recover. Behavior-neutral when off. Experimental — values are still being validated via the ablation harness (npm run eval:ablation)."
+          },
+          "sidecar.scaffolding.keepBest": {
+            "type": "boolean",
+            "default": false,
+            "description": "Pareto-safe scaffolding (keep-best ratchet). When on, the loop snapshots your files at the point scaffolding first drives extra work, then at the end reverts scaffold-driven changes that regressed a passing test OR grew the patch with no test-signal gain (over-engineering). By default ANY unproven growth reverts, not just large bloat — see keepBestOverEngineerBytes. Makes the completion gate / critic unable to turn a good run into a worse one. Disabled automatically in audit mode (writes are buffered, not on disk). Experimental."
+          },
+          "sidecar.scaffolding.keepBestOverEngineerBytes": {
+            "type": "number",
+            "default": 0,
+            "description": "Byte growth past which a scaffold-driven patch that improved no test signal is reverted as over-engineered (keep-best ratchet). Default 0: any growth without a proven improvement (a new passing test, or the project suite going green) reverts — a byte-size gate alone can't tell a legitimate small addition from a wrong one. Raise this (e.g. 4096) to tolerate some unverified growth before reverting."
+          },
+          "sidecar.scaffolding.cycleDetectionMinRepeats": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "description": "Repeats of the same tool + file (content-aware) before the agent loop bails as a stuck cycle. Default 10 — was a fixed 3. Weaker/smaller models sometimes need a few attempts to self-correct from a hint (e.g. an edit_file search/replace mistake) before genuinely succeeding; raising this gives more retries before the safety net stops the loop, at the cost of a truly stuck model burning more iterations first. Lower it (e.g. back to 3) for a stricter, faster-to-bail loop."
           },
           "sidecar.critic.model": {
             "type": "string",
@@ -1013,7 +1053,7 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — LanceDB-backed persistent store. Immediately durable (no persist step), handles large indexes that don't fit in memory. Requires `@lancedb/lancedb` to be installed (`npm install -g @lancedb/lancedb`); falls back to `flat` with a warning if the package is absent.\n\nThe backend is swappable without rebuilding the index — both implementations serve the same `VectorStore<M>` interface."
+            "markdownDescription": "*(Project Knowledge Index, v0.62)* Vector storage backend for the symbol embedding index.\n\n- `flat` (default) — in-memory `Float32Array` with linear cosine-scan search. Fast enough for workspaces up to ~100k symbols.\n- `lance` — LanceDB-backed persistent store. Immediately durable (no persist step), handles large indexes that don't fit in memory. `@lancedb/lancedb` (~92 MB native) is **not bundled** with the extension; install it into the extension's runtime yourself to enable this backend. Falls back to `flat` with a warning if the package is absent.\n\nThe backend is swappable without rebuilding the index — both implementations serve the same `VectorStore<M>` interface."
           },
           "sidecar.projectKnowledge.graphWalkDepth": {
             "type": "number",
@@ -2045,6 +2085,46 @@
             "default": false,
             "description": "Enable the profile_code agent tool. Profiles Node.js (--prof), Python (cProfile), Go (go test -bench), and Rust (cargo bench) projects and returns top-N CPU hotspots.",
             "requiresWindowReload": true
+          },
+          "sidecar.mutation.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the mutation_test agent tool (verify-the-verifier). Seeds single-point faults into a source file and reports which mutants SURVIVE the test suite — proof the tests would miss that class of bug. Requires a green baseline; runs the test command once per mutant (bounded by sidecar.mutation.maxMutants).",
+            "requiresWindowReload": true
+          },
+          "sidecar.mutation.maxMutants": {
+            "type": "number",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Cap on the number of mutants generated and tested per mutation_test run (bounds runtime — the test command runs once per mutant)."
+          },
+          "sidecar.mutation.testTimeoutMs": {
+            "type": "number",
+            "default": 60000,
+            "minimum": 1000,
+            "maximum": 600000,
+            "description": "Per-test-run timeout (ms) for each mutant in mutation_test. A mutant whose test run times out is counted as errored, not killed."
+          },
+          "sidecar.codeGraph.impactGate": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Block completion when the agent edits an exported symbol that has unverified cross-file dependents. Uses the symbol graph's import-resolved change-impact analysis (the same data behind the `analyze_impact` tool) to require the agent verify downstream callers/type-users still hold before finishing. Off by default: the impact summary is always shown as a non-blocking advisory regardless of this setting; turning it on promotes that advisory to a one-time hard block when the edited symbols weren't covered by a passing test."
+          },
+          "sidecar.numericalContracts.gate": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Block completion when the agent edits a numerical kernel (a function with array/tensor/quantity-typed parameters or returns, e.g. `np.ndarray`) that lacks a shape/dtype/unit contract — a shaped type annotation, a `assert arr.shape == …` / dtype check, or a docstring shape spec. Uses the code graph's type-flow edges (the same data behind the `check_numerical_contracts` tool). Off by default: an advisory listing uncontracted kernels always shows when numerical code is edited; turning this on promotes it to a one-time hard block so a green test suite can't pass over a bare, unconstrained array contract."
+          },
+          "sidecar.analyticBounds.gate": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Block completion when the agent edits a kernel that DECLARES an analytic value bound — e.g. `# bounds: 0 <= result <= 1` (a probability), `# bounds: result >= 0` (energy/norm), or `# invariant: sum(result) == 1` — but nothing in the code enforces it (no assertion, clip, or raise). Shape contracts prove the array is the right shape; analytic bounds prove the *values* are physically admissible. Off by default: an advisory always shows the unenforced bounds with the exact assertion to add; turning this on promotes it to a one-time hard block so a comment-only bound can't pass as a guarantee. The '§5 vertical' — encodes a research correctness discipline as a gate."
+          },
+          "sidecar.injectionGuard.enabled": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Prompt-injection guard. Scans tool output (file contents, web-search results, fetched URLs, shell/CI logs, tickets) for injection attempts — instruction overrides ('ignore previous instructions'), role hijacks ('you are now…'), fake system turns, permission manipulation, and secret-exfiltration lures — and FENCES any it finds in an explicit untrusted-data boundary before the content reaches the model, so external text is treated as data, not instructions. Non-blocking: it only wraps flagged content and surfaces a 🛡️ notice; clean output is untouched. On by default (small models are markedly more injection-susceptible). This is reasoning-layer defense, distinct from the secret/vulnerability scanners."
           },
           "sidecar.evalHistory.enabled": {
             "type": "boolean",
@@ -3296,6 +3376,7 @@
     "copy-grammars": "mkdir -p grammars && cp node_modules/web-tree-sitter/tree-sitter.wasm grammars/ && cp node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm node_modules/tree-sitter-wasms/out/tree-sitter-java.wasm node_modules/tree-sitter-wasms/out/tree-sitter-kotlin.wasm node_modules/tree-sitter-wasms/out/tree-sitter-c_sharp.wasm node_modules/tree-sitter-wasms/out/tree-sitter-ruby.wasm node_modules/tree-sitter-wasms/out/tree-sitter-swift.wasm node_modules/tree-sitter-wasms/out/tree-sitter-c.wasm node_modules/tree-sitter-wasms/out/tree-sitter-cpp.wasm node_modules/tree-sitter-wasms/out/tree-sitter-bash.wasm node_modules/tree-sitter-wasms/out/tree-sitter-php.wasm node_modules/tree-sitter-wasms/out/tree-sitter-lua.wasm node_modules/tree-sitter-wasms/out/tree-sitter-scala.wasm node_modules/tree-sitter-wasms/out/tree-sitter-dart.wasm node_modules/tree-sitter-wasms/out/tree-sitter-vue.wasm grammars/",
     "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
+    "verify:package": "node scripts/verify-package.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -3303,21 +3384,29 @@
     "eval:llm": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts",
     "eval:smoke": "SIDECAR_DISABLE_THINKING=true SIDECAR_EVAL_TAGS=smoke vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
     "eval:agent": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
+    "eval:agent:baseline": "SIDECAR_DISABLE_THINKING=true SIDECAR_AGENT_SEED=42 vitest run --config vitest.eval.config.ts tests/llm-eval/agentBaseline.eval.ts",
+    "eval:agent:baseline:record": "SIDECAR_RECORD_AGENT_BASELINE=1 SIDECAR_DISABLE_THINKING=true SIDECAR_AGENT_SEED=42 vitest run --config vitest.eval.config.ts tests/llm-eval/agentBaseline.eval.ts",
     "eval:ablation": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/ablation.eval.ts",
     "eval:prompt": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/prompt.eval.ts",
     "eval:case": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts tests/llm-eval/prompt.eval.ts",
     "eval:parity": "vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:compare": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/modelComparison.eval.ts",
+    "bench:bfcl": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts bench/bfcl/run.eval.ts",
+    "bench:swe:predict": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/swe.eval.ts",
+    "bench:swe:ablate": "vitest run --config vitest.eval.config.ts bench/swe/ablate.eval.ts",
+    "compile:bench": "tsc -p tsconfig.bench.json",
     "lint": "eslint src/ media/",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "check": "npm run compile && npm run lint && npm run format:check && npm run test",
+    "check": "npm run compile && npm run compile:bench && npm run lint && npm run format:check && npm run test",
     "bump": "bash scripts/bump-version.sh",
     "prepare": "husky"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
@@ -3334,6 +3423,7 @@
     "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
+    "fast-check": "^4.8.0",
     "happy-dom": "^20.10.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
@@ -3366,6 +3456,11 @@
       "eslint --max-warnings=0",
       "bash -c 'tsc --noEmit'",
       "bash -c 'vitest run --silent --exclude \"**/shadowWorkspace.test.ts\" --exclude \"**/shadowSweep.test.ts\"'"
+    ],
+    "bench/**/*.ts": [
+      "prettier --write",
+      "bash -c 'tsc -p tsconfig.bench.json'",
+      "bash -c 'vitest run bench/ --silent'"
     ],
     "media/**/*.css": [
       "prettier --write"

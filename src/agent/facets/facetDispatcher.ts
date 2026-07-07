@@ -146,7 +146,8 @@ export async function dispatchFacet(
     },
   };
 
-  parentCallbacks.onText(`\n[facet ${facet.id} dispatching: ${options.task.slice(0, 80)}]\n`);
+  // Per-facet progress is shown by the dispatch graphic (batchProgress panel),
+  // not inline ASCII status lines in the chat transcript.
 
   // Compose the agent-options shape: tool allowlist → toolOverride
   // + modeToolPermissions (same technique localWorker uses), plus
@@ -209,7 +210,6 @@ export async function dispatchFacet(
       // once all facets complete, so we don't stack N quickpicks.
       { forceShadow: true, deferPrompt: true },
     );
-    parentCallbacks.onText(`\n[facet ${facet.id} completed]\n`);
     return {
       facetId: facet.id,
       output: output.trim() || '(facet produced no output)',
@@ -220,7 +220,6 @@ export async function dispatchFacet(
     };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    parentCallbacks.onText(`\n[facet ${facet.id} failed: ${errorMessage}]\n`);
     return {
       facetId: facet.id,
       output: output.trim(),
@@ -282,7 +281,13 @@ export interface FacetDispatchBatchResult {
  * not yet started are skipped (surface as aborted with an explanatory
  * error).
  */
-export type FacetProgressItem = { id: string; label: string; status: 'pending' | 'running' | 'done' | 'error' };
+export type FacetProgressItem = {
+  id: string;
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  /** The facet's preferred model, shown as a badge in the dispatch graphic. */
+  model?: string;
+};
 export type FacetBatchProgressCallback = (state: {
   done: number;
   total: number;
@@ -345,7 +350,10 @@ export async function dispatchFacets(
 
   // Build mutable progress state shared across all layers.
   const progressItems = new Map<string, FacetProgressItem>(
-    resolved.map((f) => [f.id, { id: f.id, label: f.displayName, status: 'pending' as const }]),
+    resolved.map((f) => [
+      f.id,
+      { id: f.id, label: f.displayName, status: 'pending' as const, model: f.preferredModel },
+    ]),
   );
   let doneCount = 0;
   const emitProgress = () => {
@@ -367,7 +375,12 @@ export async function dispatchFacets(
       layer,
       async (facet) => {
         const facetStartMs = Date.now();
-        progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: 'running' });
+        progressItems.set(facet.id, {
+          id: facet.id,
+          label: facet.displayName,
+          status: 'running',
+          model: facet.preferredModel,
+        });
         emitProgress();
         try {
           const r = await dispatchFacet(client, facet, parentCallbacks, {
@@ -376,7 +389,12 @@ export async function dispatchFacets(
             rpcPeers,
           });
           resultsById.set(facet.id, r);
-          progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: r.success ? 'done' : 'error' });
+          progressItems.set(facet.id, {
+            id: facet.id,
+            label: facet.displayName,
+            status: r.success ? 'done' : 'error',
+            model: facet.preferredModel,
+          });
           doneCount++;
           emitProgress();
           logger.debug(
@@ -397,7 +415,12 @@ export async function dispatchFacets(
             sandbox: { mode: 'direct', applied: false, reason: 'apply-failed' },
             durationMs: Date.now() - facetStartMs,
           });
-          progressItems.set(facet.id, { id: facet.id, label: facet.displayName, status: 'error' });
+          progressItems.set(facet.id, {
+            id: facet.id,
+            label: facet.displayName,
+            status: 'error',
+            model: facet.preferredModel,
+          });
           doneCount++;
           emitProgress();
         } finally {

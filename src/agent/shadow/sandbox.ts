@@ -5,6 +5,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import { getConfig } from '../../config/settings.js';
 import { getRoot } from '../tools/shared.js';
+import { ToolRuntime } from '../tools/runtime.js';
 
 /**
  * Result of a sandboxed agent-loop run. Indicates whether the run
@@ -87,6 +88,11 @@ export async function runAgentLoopInSandbox(
   }
 
   const shadow = new ShadowWorkspace({ mainRoot });
+  // Per-run shell rooted at the shadow worktree so run_command / run_tests /
+  // profiling execute against the agent's edits, not the main tree. Graph /
+  // embedding lookups on this runtime are null and fall through to the default
+  // (main-tree) index, which is correct — the shadow's edits aren't indexed.
+  const shadowRuntime = new ToolRuntime(shadow.path);
   try {
     await shadow.create();
     callbacks.onText?.(`\n[shadow workspace ${shadow.id} active at ${shadow.path}]\n`);
@@ -94,6 +100,7 @@ export async function runAgentLoopInSandbox(
     await runAgentLoop(client, messages, callbacks, signal, {
       ...options,
       cwdOverride: shadow.path,
+      toolRuntime: shadowRuntime,
     });
 
     const diff = await shadow.diff();
@@ -149,6 +156,8 @@ export async function runAgentLoopInSandbox(
     callbacks.onText?.(`\n[shadow ${shadow.id} rejected — main tree unchanged]\n`);
     return { mode: 'shadow', applied: false, reason: 'rejected', rejectedDiff: diff, shadowId: shadow.id };
   } finally {
+    // Tear down the per-run shell child process before the worktree goes away.
+    shadowRuntime.dispose();
     if (cfg.shadowWorkspaceAutoCleanup) {
       await shadow.dispose();
     } else {

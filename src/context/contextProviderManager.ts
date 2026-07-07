@@ -5,10 +5,21 @@ import { fetchJiraIssues } from './providers/jira.js';
 import { fetchBitbucketPRs } from './providers/bitbucket.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const FETCH_TIMEOUT_MS = 10_000;
 
 interface CacheEntry {
   result: ContextProviderResult;
   fetchedAt: number;
+}
+
+/**
+ * A signal that aborts on the turn's cancellation OR after FETCH_TIMEOUT_MS.
+ * A connected-but-hung issue tracker would otherwise wedge prompt assembly for
+ * undici's ~5-minute default with the UI stuck spinning and uncancellable.
+ */
+function fetchSignal(turnSignal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  return turnSignal ? AbortSignal.any([turnSignal, timeout]) : timeout;
 }
 
 function cacheKey(cfg: ContextProviderConfig): string {
@@ -59,7 +70,7 @@ export class ContextProviderManager {
   }
 
   /** Fetch from all configured providers (parallel), respecting cache TTL. */
-  async fetchAll(): Promise<ContextProviderResult[]> {
+  async fetchAll(turnSignal?: AbortSignal): Promise<ContextProviderResult[]> {
     if (this.configs.length === 0) return [];
 
     const now = Date.now();
@@ -69,7 +80,7 @@ export class ContextProviderManager {
       if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
         return cached.result;
       }
-      const result = await this.fetchOne(cfg);
+      const result = await this.fetchOne(cfg, turnSignal);
       this.cache.set(key, { result, fetchedAt: Date.now() });
       return result;
     });
@@ -78,22 +89,23 @@ export class ContextProviderManager {
   }
 
   /** Fetch from a single provider config. */
-  private fetchOne(cfg: ContextProviderConfig): Promise<ContextProviderResult> {
+  private fetchOne(cfg: ContextProviderConfig, turnSignal?: AbortSignal): Promise<ContextProviderResult> {
+    const signal = fetchSignal(turnSignal);
     switch (cfg.type) {
       case 'github':
-        return fetchGitHubIssues(cfg, this.workspacePath, this.fetchFn);
+        return fetchGitHubIssues(cfg, this.workspacePath, this.fetchFn, signal);
       case 'linear':
-        return fetchLinearIssues(cfg, this.fetchFn);
+        return fetchLinearIssues(cfg, this.fetchFn, signal);
       case 'jira':
-        return fetchJiraIssues(cfg, this.fetchFn);
+        return fetchJiraIssues(cfg, this.fetchFn, signal);
       case 'bitbucket':
-        return fetchBitbucketPRs(cfg, this.fetchFn);
+        return fetchBitbucketPRs(cfg, this.fetchFn, signal);
     }
   }
 
   /** Fetch all providers and return the formatted `## Active Issues` block. */
-  async buildPromptBlock(): Promise<string> {
-    const results = await this.fetchAll();
+  async buildPromptBlock(turnSignal?: AbortSignal): Promise<string> {
+    const results = await this.fetchAll(turnSignal);
     return formatActiveIssues(results);
   }
 

@@ -250,6 +250,7 @@ export async function buildRegressionGuardHooks(): Promise<PolicyHook[]> {
   const trust = await checkWorkspaceConfigTrust(
     'regressionGuards',
     'SideCar: This workspace defines regression guards that execute shell commands after agent edits. Only trust these from repositories you control.',
+    { modal: true },
   );
   if (trust === 'blocked') {
     logger.info('[SideCar] Workspace regressionGuards blocked by user');

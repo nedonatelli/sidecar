@@ -40,9 +40,20 @@ export function applyAgentLoopRouting(
 ): boolean {
   if (!client.getRouter()) return false;
 
+  // E2 — verifier-triggered escalation. Cumulative completion-gate pushback
+  // (gate + syntax + behavioral injections) is how often verification has
+  // rejected this run's work; feed it as `retryCount` so a routing rule like
+  // `agent-loop.retryCount>=2 → <stronger model>` escalates a stuck subtask to
+  // a stronger model instead of letting a weak primary keep failing.
+  const verifierFailures =
+    (state.gateState?.gateInjections ?? 0) +
+    (state.gateState?.syntaxGateInjections ?? 0) +
+    (state.gateState?.behavioralVerificationInjections ?? 0);
+
   const signals: RouteSignals = {
     role: 'agent-loop',
     turnCount: state.iteration,
+    retryCount: verifierFailures,
     prompt: extractUserPrompt(state.messages),
     consecutiveToolUseBlocks: countLastAssistantToolUses(state.messages),
   };

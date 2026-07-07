@@ -2,7 +2,7 @@
 title: Typed Sub-Agent Facets
 layout: docs
 nav_order: 11
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Typed Sub-Agent Facets
@@ -29,15 +29,15 @@ After all selected facets complete, a single review UI collects the diffs side-b
 
 ### How Facets Differ from `/bg` and `/fork`
 
-| | `/bg` background agent | `/fork` parallel solve | Facets |
-|---|---|---|---|
-| **What it does** | Runs a generic agent on an independent task | Runs the same task N times with natural variance to pick the best approach | Dispatches N distinct roles against the same task |
-| **Tool surface** | Full agent tool registry | Full agent tool registry | Per-facet allowlist — enforced at dispatch |
-| **Model** | Global `sidecar.model` | Global `sidecar.model` | Per-facet `preferredModel` |
-| **Isolation** | Optional Shadow Workspace | Forced Shadow Workspace | Forced Shadow Workspace |
-| **Review** | Per-agent, fires during or after the run | Single winner — pick one diff | Batch — Accept/Reject each facet's diff |
-| **Inter-agent coordination** | None | None | Typed RPC bus — facets can call methods on peers |
-| **When to use** | You have multiple independent tasks to run at once | You want the best of several autonomous attempts at one task | You want specialised roles to cover different dimensions of the same task |
+|                              | `/bg` background agent                             | `/fork` parallel solve                                                     | Facets                                                                    |
+| ---------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **What it does**             | Runs a generic agent on an independent task        | Runs the same task N times with natural variance to pick the best approach | Dispatches N distinct roles against the same task                         |
+| **Tool surface**             | Full agent tool registry                           | Full agent tool registry                                                   | Per-facet allowlist — enforced at dispatch                                |
+| **Model**                    | Global `sidecar.model`                             | Global `sidecar.model`                                                     | Per-facet `preferredModel`                                                |
+| **Isolation**                | Optional Shadow Workspace                          | Forced Shadow Workspace                                                    | Forced Shadow Workspace                                                   |
+| **Review**                   | Per-agent, fires during or after the run           | Single winner — pick one diff                                              | Batch — Accept/Reject each facet's diff                                   |
+| **Inter-agent coordination** | None                                               | None                                                                       | Typed RPC bus — facets can call methods on peers                          |
+| **When to use**              | You have multiple independent tasks to run at once | You want the best of several autonomous attempts at one task               | You want specialised roles to cover different dimensions of the same task |
 
 The decision rule: **Facets** when the work has natural role boundaries (code + tests + docs + security audit). **`/fork`** when you want the agent to try the same thing multiple ways and you'll pick the winner. **`/bg`** when the tasks are genuinely independent.
 
@@ -45,18 +45,19 @@ The decision rule: **Facets** when the work has natural role boundaries (code + 
 
 ## The Built-in Facets
 
-SideCar ships eight facets embedded in the extension. They are always available — no disk I/O, no broken-unpack footgun.
+SideCar ships nine facets embedded in the extension. They are always available — no disk I/O, no broken-unpack footgun.
 
-| ID | Display Name | Tool Allowlist | Skill Bundle | When to Use |
-|---|---|---|---|---|
-| `general-coder` | General Coder | `read_file`, `write_file`, `edit_file`, `search_files`, `grep`, `list_directory`, `get_diagnostics`, `run_tests`, `run_command`, `find_references` | — | General implementation work, coordinating across other facets when the task crosses domain boundaries. |
-| `latex-writer` | LaTeX Writer | `read_file`, `write_file`, `edit_file`, `grep`, `list_directory` | `technical-paper` | Editing `.tex` / `.bib` files, maintaining math blocks and cite-keys. Publishes equations via RPC so sibling facets can stay in lock-step. |
-| `signal-processing` | Signal Processing | `read_file`, `write_file`, `edit_file`, `grep`, `get_diagnostics`, `run_tests`, `find_references` | `signal-processing`, `numerical-methods` | FFT, filter design, wavelet and transform code. Attentive to numerical stability, DC bin, Nyquist, and windowing edge cases. |
-| `frontend` | Frontend | `read_file`, `write_file`, `edit_file`, `search_files`, `grep`, `get_diagnostics`, `run_tests` | `react` | Component extraction, accessible markup (ARIA + semantic HTML), matching existing styling conventions before inventing new abstractions. |
-| `test-author` | Test Author | `read_file`, `write_file`, `edit_file`, `grep`, `get_diagnostics`, `run_tests`, `find_references` | — | Writing tests covering behavior, edge cases, and regression invariants. Probes untested branches via `get_diagnostics`. |
-| `technical-writer` | Technical Writer | `read_file`, `write_file`, `edit_file`, `grep`, `list_directory`, `find_references` | `technical-paper` | Keeping README, JSDoc, and changelog entries in sync with the code on the branch. Favours concrete examples and file-path references. |
-| `security-reviewer` | Security Reviewer | `read_file`, `grep`, `search_files`, `find_references`, `list_directory`, `git_diff` | `cybersecurity-architecture` | **Read-only.** Audits diffs and nearby code for injection, auth gaps, secret exposure, unsafe deserialization, and supply-chain risk. Reports findings with `file:line` references — never edits. |
-| `data-engineer` | Data Engineer | `read_file`, `write_file`, `edit_file`, `grep`, `run_tests`, `run_command` | — | ETL / streaming pipelines, schema migrations, query optimizations. Validates every schema change against downstream consumers before proposing it. |
+| ID                      | Display Name          | Tool Allowlist                                                                                                                                     | Skill Bundle                             | When to Use                                                                                                                                                                                                                  |
+| ----------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `general-coder`         | General Coder         | `read_file`, `write_file`, `edit_file`, `search_files`, `grep`, `list_directory`, `get_diagnostics`, `run_tests`, `run_command`, `find_references` | —                                        | General implementation work, coordinating across other facets when the task crosses domain boundaries.                                                                                                                       |
+| `latex-writer`          | LaTeX Writer          | `read_file`, `write_file`, `edit_file`, `grep`, `list_directory`                                                                                   | `technical-paper`                        | Editing `.tex` / `.bib` files, maintaining math blocks and cite-keys. Publishes equations via RPC so sibling facets can stay in lock-step.                                                                                   |
+| `signal-processing`     | Signal Processing     | `read_file`, `write_file`, `edit_file`, `grep`, `get_diagnostics`, `run_tests`, `find_references`                                                  | `signal-processing`, `numerical-methods` | FFT, filter design, wavelet and transform code. Attentive to numerical stability, DC bin, Nyquist, and windowing edge cases.                                                                                                 |
+| `frontend`              | Frontend              | `read_file`, `write_file`, `edit_file`, `search_files`, `grep`, `get_diagnostics`, `run_tests`                                                     | `react`                                  | Component extraction, accessible markup (ARIA + semantic HTML), matching existing styling conventions before inventing new abstractions.                                                                                     |
+| `test-author`           | Test Author           | `read_file`, `write_file`, `edit_file`, `grep`, `get_diagnostics`, `run_tests`, `find_references`                                                  | —                                        | Writing tests covering behavior, edge cases, and regression invariants. Probes untested branches via `get_diagnostics`.                                                                                                      |
+| `technical-writer`      | Technical Writer      | `read_file`, `write_file`, `edit_file`, `grep`, `list_directory`, `find_references`                                                                | `technical-paper`                        | Keeping README, JSDoc, and changelog entries in sync with the code on the branch. Favours concrete examples and file-path references.                                                                                        |
+| `security-reviewer`     | Security Reviewer     | `read_file`, `grep`, `search_files`, `find_references`, `list_directory`, `git_diff`                                                               | `cybersecurity-architecture`             | **Read-only.** Audits diffs and nearby code for injection, auth gaps, secret exposure, unsafe deserialization, and supply-chain risk. Reports findings with `file:line` references — never edits.                            |
+| `architecture-reviewer` | Architecture Reviewer | `read_file`, `grep`, `search_files`, `find_references`, `list_directory`, `git_diff`, `project_knowledge_search`                                   | `software-architecture`                  | **Read-only.** Reviews subsystem structure and coupling from code read this session — maps before judging, cites `file:symbol` per finding, and checks whether a pattern already exists before recommending it. Never edits. |
+| `data-engineer`         | Data Engineer         | `read_file`, `write_file`, `edit_file`, `grep`, `run_tests`, `run_command`                                                                         | —                                        | ETL / streaming pipelines, schema migrations, query optimizations. Validates every schema change against downstream consumers before proposing it.                                                                           |
 
 The `security-reviewer` allowlist is worth noting explicitly: it does not include any write tool. The facet is structurally incapable of modifying files, regardless of what the model attempts.
 
@@ -79,6 +80,7 @@ A multi-select QuickPick opens listing every available facet (built-ins first, t
 After selecting facets, you are prompted for a task description. All selected facets receive the **same task prompt**. Write it in terms of the overall goal — each facet interprets it through its own role and tool constraints.
 
 Good:
+
 ```
 Add rate limiting to the /api/auth/login endpoint
 ```
@@ -147,10 +149,10 @@ A facet is a `.md` file with YAML-ish frontmatter. The body is the system prompt
 id: api-contract-tester
 displayName: API Contract Tester
 preferredModel: claude-haiku-4-5
-toolAllowlist: ["read_file", "grep", "run_tests", "edit_file", "write_file"]
+toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
 skillBundle: []
-dependsOn: ["general-coder"]
-rpcSchema: {"reportFinding": {"params": {"endpoint": "string", "severity": "string", "detail": "string"}}}
+dependsOn: ['general-coder']
+rpcSchema: { 'reportFinding': { 'params': { 'endpoint': 'string', 'severity': 'string', 'detail': 'string' } } }
 ---
 
 You are an API contract tester. For every change to a route handler:
@@ -166,15 +168,15 @@ Do not add functionality — only write defensive tests.
 
 ### Frontmatter Field Reference
 
-| Field | Required | Type | Description |
-|---|---|---|---|
-| `id` | Yes | string | Unique identifier. Must match `/^[a-z0-9][a-z0-9_-]*$/`. Disk facets with the same `id` as a built-in override the built-in. |
-| `displayName` | Yes | string | Human-readable label shown in the QuickPick and review UI. |
-| `toolAllowlist` | No | JSON array of strings | Tool names the facet is permitted to call. Omit to inherit the full orchestrator tool registry. An empty array `[]` means no tools — the facet is a pure thinker. |
-| `preferredModel` | No | string | Model pinned for this facet's run. Leave blank to use the global `sidecar.model`. |
-| `skillBundle` | No | JSON array of strings | Skill IDs merged into the facet's system prompt. Use skills from `SkillLoader` (built-in or `~/.claude/commands/`, `<workspace>/.sidecar/skills/`). |
-| `dependsOn` | No | JSON array of strings | Facet IDs this facet must wait for. The dispatcher walks a DAG in topological order; cycles are detected at load time and rejected. |
-| `rpcSchema` | No | JSON object | Methods this facet exposes to peers. Each key is a method name; each value is an object with optional `params` and `returns` hints. |
+| Field            | Required | Type                  | Description                                                                                                                                                       |
+| ---------------- | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | Yes      | string                | Unique identifier. Must match `/^[a-z0-9][a-z0-9_-]*$/`. Disk facets with the same `id` as a built-in override the built-in.                                      |
+| `displayName`    | Yes      | string                | Human-readable label shown in the QuickPick and review UI.                                                                                                        |
+| `toolAllowlist`  | No       | JSON array of strings | Tool names the facet is permitted to call. Omit to inherit the full orchestrator tool registry. An empty array `[]` means no tools — the facet is a pure thinker. |
+| `preferredModel` | No       | string                | Model pinned for this facet's run. Leave blank to use the global `sidecar.model`.                                                                                 |
+| `skillBundle`    | No       | JSON array of strings | Skill IDs merged into the facet's system prompt. Use skills from `SkillLoader` (built-in or `~/.claude/commands/`, `<workspace>/.sidecar/skills/`).               |
+| `dependsOn`      | No       | JSON array of strings | Facet IDs this facet must wait for. The dispatcher walks a DAG in topological order; cycles are detected at load time and rejected.                               |
+| `rpcSchema`      | No       | JSON object           | Methods this facet exposes to peers. Each key is a method name; each value is an object with optional `params` and `returns` hints.                               |
 
 ### Parsing Rules
 
@@ -198,8 +200,8 @@ Use `dependsOn` to enforce ordering when one facet's output is an input for anot
 ---
 id: docs-writer
 displayName: Docs Writer
-toolAllowlist: ["read_file", "write_file", "edit_file", "grep"]
-dependsOn: ["general-coder"]
+toolAllowlist: ['read_file', 'write_file', 'edit_file', 'grep']
+dependsOn: ['general-coder']
 ---
 
 You document the code changes made by the general-coder facet.
@@ -221,7 +223,8 @@ Declare a method your facet will answer:
 ```markdown
 ---
 id: latex-writer
-rpcSchema: {"publishMathBlock": {"params": {"symbol": "string", "latex": "string"}, "returns": {"ok": "boolean"}}}
+rpcSchema:
+  { 'publishMathBlock': { 'params': { 'symbol': 'string', 'latex': 'string' }, 'returns': { 'ok': 'boolean' } } }
 ---
 ```
 
@@ -243,12 +246,12 @@ After each batch, `rpcWireTrace` records every RPC attempt: caller, receiver, me
 
 All facets settings are under `sidecar.facets.*`.
 
-| Setting | Default | Description |
-|---|---|---|
-| `sidecar.facets.enabled` | `true` | Master toggle. When `false`, `SideCar: Facets: Dispatch Specialists` shows a one-line info toast instead of the picker. |
-| `sidecar.facets.maxConcurrent` | `3` | Maximum facets running in parallel within a single topological layer. Clamped 1–16. Higher values finish wide batches faster at the cost of more concurrent Shadow Workspaces and more simultaneous LLM requests. |
-| `sidecar.facets.rpcTimeoutMs` | `30000` | Milliseconds a `rpc.<peerId>.<method>` call waits before the bus resolves it as `{ ok: false, errorKind: 'timeout' }`. Clamped 1000–300000 (1 second to 5 minutes). The bus never hangs the calling facet — timeouts become typed outcomes. |
-| `sidecar.facets.registry` | `[]` | Array of absolute paths to individual facet `.md` files. Loaded alongside built-ins and `.sidecar/facets/*.md`. Use for personal facets in a dotfiles repo or a shared team registry. |
+| Setting                        | Default | Description                                                                                                                                                                                                                                 |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.facets.enabled`       | `true`  | Master toggle. When `false`, `SideCar: Facets: Dispatch Specialists` shows a one-line info toast instead of the picker.                                                                                                                     |
+| `sidecar.facets.maxConcurrent` | `3`     | Maximum facets running in parallel within a single topological layer. Clamped 1–16. Higher values finish wide batches faster at the cost of more concurrent Shadow Workspaces and more simultaneous LLM requests.                           |
+| `sidecar.facets.rpcTimeoutMs`  | `30000` | Milliseconds a `rpc.<peerId>.<method>` call waits before the bus resolves it as `{ ok: false, errorKind: 'timeout' }`. Clamped 1000–300000 (1 second to 5 minutes). The bus never hangs the calling facet — timeouts become typed outcomes. |
+| `sidecar.facets.registry`      | `[]`    | Array of absolute paths to individual facet `.md` files. Loaded alongside built-ins and `.sidecar/facets/*.md`. Use for personal facets in a dotfiles repo or a shared team registry.                                                       |
 
 ### Example: Raise Concurrency for a Fast Batch
 
@@ -281,14 +284,14 @@ Or, if the repo is always cloned to the same relative path:
 
 ## When to Use Facets vs. `/bg` vs. `/fork`
 
-| Scenario | Recommended |
-|---|---|
-| "Write tests and update docs for this PR." | **Facets** — `test-author` + `technical-writer` in parallel, both reading the same branch. |
-| "Refactor the auth module, and separately update the CI config." | **`/bg`** — two independent tasks with no shared output. |
-| "Implement this feature — give me three different approaches to choose from." | **`/fork`** — same task, natural variance, pick the winner. |
+| Scenario                                                                                                                       | Recommended                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| "Write tests and update docs for this PR."                                                                                     | **Facets** — `test-author` + `technical-writer` in parallel, both reading the same branch.                          |
+| "Refactor the auth module, and separately update the CI config."                                                               | **`/bg`** — two independent tasks with no shared output.                                                            |
+| "Implement this feature — give me three different approaches to choose from."                                                  | **`/fork`** — same task, natural variance, pick the winner.                                                         |
 | "Audit the new payment endpoint for security issues, implement the missing test coverage, and document the rate-limit policy." | **Facets** — `security-reviewer` (read-only audit), `test-author`, and `technical-writer`. Natural role boundaries. |
-| "Clean up this file." | **Main agent** — single task, no role specialization needed. |
-| "Run the full regression suite and file a bug report if it fails." | **`/bg`** — independent background task, not role-specific. |
+| "Clean up this file."                                                                                                          | **Main agent** — single task, no role specialization needed.                                                        |
+| "Run the full regression suite and file a bug report if it fails."                                                             | **`/bg`** — independent background task, not role-specific.                                                         |
 
 The practical signal: if you find yourself about to give different instructions to different agents based on their role, that is a facet dispatch. If you want parallel independent work, that is `/bg`. If you want to compare approaches to the same thing, that is `/fork`.
 

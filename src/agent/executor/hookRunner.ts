@@ -35,6 +35,7 @@ export async function runHook(
   const hookTrust = await checkWorkspaceConfigTrust(
     'hooks',
     'SideCar: This workspace defines hook commands that will execute shell commands. Only trust hooks from repositories you control.',
+    { modal: true },
   );
   if (hookTrust === 'blocked') return undefined;
 

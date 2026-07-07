@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,8 @@ vi.mock('../completionGate.js', () => ({
 
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
 import { recordToolCall, checkCompletionGate } from '../completionGate.js';
+import { setSymbolGraph } from '../tools/runtime.js';
+import { SymbolGraph } from '../../config/symbolGraph.js';
 import type { LoopState } from './state.js';
 import type { AgentOptions } from '../loop.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
@@ -188,5 +190,278 @@ describe('maybeInjectCompletionGate — injection path', () => {
     // The injection summary is logged (alongside the syntax gate's own
     // observability line for the non-checkable a.ts edit).
     expect(info.mock.calls.some((c) => String(c[0]).includes('#1/2'))).toBe(true);
+  });
+});
+
+describe('maybeInjectCompletionGate — change-impact gate', () => {
+  const signal = new AbortController().signal;
+
+  afterEach(() => setSymbolGraph(null));
+
+  // auth.ts exports requireAuth; route.ts imports + calls it (a resolved
+  // cross-file dependent).
+  function graphWithDependents(): SymbolGraph {
+    const g = new SymbolGraph();
+    g.addFile(
+      'src/auth.ts',
+      [
+        {
+          name: 'requireAuth',
+          qualifiedName: 'requireAuth',
+          type: 'function',
+          filePath: 'src/auth.ts',
+          startLine: 0,
+          endLine: 4,
+          exported: true,
+        },
+      ],
+      [],
+      'h1',
+    );
+    g.addFile(
+      'src/route.ts',
+      [
+        {
+          name: 'handleLogin',
+          qualifiedName: 'handleLogin',
+          type: 'function',
+          filePath: 'src/route.ts',
+          startLine: 0,
+          endLine: 6,
+          exported: true,
+        },
+      ],
+      [{ fromFile: 'src/route.ts', toFile: 'src/auth', importedNames: ['requireAuth'] }],
+      'h2',
+      [{ callerFile: 'src/route.ts', callerName: 'handleLogin', calleeName: 'requireAuth', line: 3 }],
+    );
+    return g;
+  }
+
+  function gateState(overrides: Record<string, unknown> = {}) {
+    return {
+      editedFiles: new Set(['src/auth.ts']),
+      gateInjections: 0,
+      projectTestsPassed: false,
+      passingTestFiles: new Set<string>(),
+      testsRunForFiles: new Set<string>(),
+      ...overrides,
+    } as unknown as LoopState['gateState'];
+  }
+
+  it('blocks once when enabled, an edited exported symbol has unverified dependents', async () => {
+    setSymbolGraph(graphWithDependents());
+    const gs = gateState();
+    const state = stubLoopState({ gateState: gs });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ impactGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('injected');
+    expect((gs as unknown as { impactGateInjections: number }).impactGateInjections).toBe(1);
+    expect(
+      state.messages.some((m) => m.role === 'user' && JSON.stringify(m.content).includes('cross-file dependents')),
+    ).toBe(true);
+  });
+
+  it('does not block when the setting is off (advisory only → falls through to skip)', async () => {
+    setSymbolGraph(graphWithDependents());
+    const state = stubLoopState({ gateState: gateState() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ impactGateEnabled: false }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+  });
+
+  it('does not block when a test already passed this run', async () => {
+    setSymbolGraph(graphWithDependents());
+    const state = stubLoopState({ gateState: gateState({ passingTestFiles: new Set(['src/auth.test.ts']) }) });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ impactGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+  });
+
+  it('does not block twice (bounded to one injection)', async () => {
+    setSymbolGraph(graphWithDependents());
+    const state = stubLoopState({ gateState: gateState({ impactGateInjections: 1 }) });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ impactGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+  });
+});
+
+describe('maybeInjectCompletionGate — numerical-contract gate', () => {
+  const signal = new AbortController().signal;
+  afterEach(() => setSymbolGraph(null));
+
+  const SRC = [
+    'def orient(p: np.ndarray) -> np.ndarray:',
+    '    return p[::-1]',
+    '',
+    'def checked(p: np.ndarray) -> np.ndarray:',
+    '    assert p.shape == (3,)',
+    '    return p',
+  ].join('\n');
+
+  function pyGraph(src = SRC): SymbolGraph {
+    const g = new SymbolGraph();
+    const sym = (name: string, s: number, e: number) => ({
+      name,
+      qualifiedName: name,
+      type: 'function' as const,
+      filePath: 'geo.py',
+      startLine: s,
+      endLine: e,
+      exported: true,
+    });
+    const use = (name: string, role: 'param' | 'return') => ({
+      userFile: 'geo.py',
+      userName: name,
+      typeName: 'ndarray',
+      role,
+      line: 1,
+    });
+    g.addFile(
+      'geo.py',
+      [sym('orient', 0, 1), sym('checked', 3, 5)],
+      [],
+      'h1',
+      [],
+      [],
+      [use('orient', 'param'), use('orient', 'return'), use('checked', 'param')],
+    );
+    g.setFileContent('geo.py', src);
+    return g;
+  }
+
+  function gs(overrides: Record<string, unknown> = {}) {
+    // syntaxGateInjections: 2 disables the real parse-check shell for the .py
+    // edited file (it would otherwise spawn py_compile and time out in tests).
+    return {
+      editedFiles: new Set(['geo.py']),
+      gateInjections: 0,
+      syntaxGateInjections: 2,
+      ...overrides,
+    } as unknown as LoopState['gateState'];
+  }
+
+  it('blocks once when enabled and an edited kernel lacks a contract', async () => {
+    setSymbolGraph(pyGraph());
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('injected');
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes('numerical-contract issues'))).toBe(true);
+  });
+
+  it('blocks on a shape-contract conflict even when contracts are present', async () => {
+    const g = new SymbolGraph();
+    const sym = (name: string, s: number, e: number) => ({
+      name,
+      qualifiedName: name,
+      type: 'function' as const,
+      filePath: 'geo.py',
+      startLine: s,
+      endLine: e,
+      exported: true,
+    });
+    g.addFile(
+      'geo.py',
+      [sym('f', 0, 2)],
+      [],
+      'h1',
+      [],
+      [],
+      [{ userFile: 'geo.py', userName: 'f', typeName: 'NDArray', role: 'param', line: 1 }],
+    );
+    // annotation says (N, 3); the assertion says (N, 4) — a provable dim conflict.
+    g.setFileContent(
+      'geo.py',
+      ['def f(a: NDArray[Shape["N, 3"]]) -> None:', '    assert a.shape == (N, 4)', '    return None'].join('\n'),
+    );
+    setSymbolGraph(g);
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('injected');
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes('Shape-contract conflicts'))).toBe(true);
+  });
+
+  it('does not block when the setting is off (advisory only → skip)', async () => {
+    setSymbolGraph(pyGraph());
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: false }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+  });
+
+  it('does not fire when every edited kernel already has a contract', async () => {
+    // Only `checked` has a contract; drop `orient` so nothing is uncontracted.
+    const g = new SymbolGraph();
+    g.addFile(
+      'geo.py',
+      [
+        {
+          name: 'checked',
+          qualifiedName: 'checked',
+          type: 'function',
+          filePath: 'geo.py',
+          startLine: 0,
+          endLine: 2,
+          exported: true,
+        },
+      ],
+      [],
+      'h1',
+      [],
+      [],
+      [{ userFile: 'geo.py', userName: 'checked', typeName: 'ndarray', role: 'param', line: 1 }],
+    );
+    g.setFileContent(
+      'geo.py',
+      ['def checked(p: np.ndarray):', '    assert p.shape == (3,)', '    return p'].join('\n'),
+    );
+    setSymbolGraph(g);
+    const state = stubLoopState({ gateState: gs() });
+    const out = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ numericalContractGateEnabled: true }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
   });
 });

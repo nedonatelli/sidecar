@@ -103,6 +103,47 @@ describe('OllamaBackend', () => {
       expect(body.messages[0]).toEqual({ role: 'system', content: 'Be helpful' });
     });
 
+    it('sets options.seed from SIDECAR_AGENT_SEED for reproducible runs, absent otherwise', async () => {
+      const respond = () =>
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          body: ndjsonBody([
+            { model: 'test', message: { role: 'assistant', content: 'ok' }, done: true, done_reason: 'stop' },
+          ]),
+        });
+
+      // Unseeded by default — no seed key in options.
+      respond();
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+      expect('seed' in JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options).toBe(false);
+
+      // With the env override, the seed is threaded into options.
+      process.env.SIDECAR_AGENT_SEED = '1234';
+      try {
+        respond();
+        for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.seed).toBe(1234);
+      } finally {
+        delete process.env.SIDECAR_AGENT_SEED;
+      }
+    });
+
+    it('neutralizes presence/frequency penalties so aggressive Modelfile defaults cannot break tool-call XML', async () => {
+      // qwen3.5's Modelfile ships presence_penalty 1.5, which pushes the model
+      // off the repeated-token tool-call XML format → malformed XML → Ollama 500.
+      // We must always send 0 to override it. Regression guard for that fix.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { model: 'test', message: { role: 'assistant', content: 'ok' }, done: true, done_reason: 'stop' },
+        ]),
+      });
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+      const options = JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options;
+      expect(options.presence_penalty).toBe(0);
+      expect(options.frequency_penalty).toBe(0);
+    });
+
     it('converts tools to Ollama format', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

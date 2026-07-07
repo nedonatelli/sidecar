@@ -110,6 +110,21 @@ describe('DocRetriever — vector search', () => {
     // Calls: entry sync (1) + query (1) + query (1) = 3
     expect(embedCalls).toHaveLength(3);
   });
+
+  it('re-embeds an entry when its content changes (not only on a new id)', async () => {
+    const entry = makeEntry({ content: 'original body' });
+    const indexer = makeIndexer([entry]);
+    const embIdx = makeEmbeddingIndex(true);
+    const dr = new DocRetriever(indexer as never, embIdx);
+
+    await dr.retrieve('q', 5);
+    entry.content = 'edited body'; // same id, changed content
+    await dr.retrieve('q', 5);
+
+    const embedTexts = (embIdx.embed as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+    // The old id-only cache would have skipped this; the content hash catches it.
+    expect(embedTexts.some((t) => t.includes('edited body'))).toBe(true);
+  });
 });
 
 describe('DocRetriever — hit formatting', () => {

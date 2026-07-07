@@ -13,8 +13,10 @@ import {
   buildUnverifiedClaimReprompt,
   buildBehavioralVerificationReprompt,
   classifyTestResult,
+  isAnalysisRequest,
   findColocatedTest,
   lastUserText,
+  firstUserText,
 } from './completionGate.js';
 
 vi.mock('vscode', () => ({
@@ -26,6 +28,9 @@ vi.mock('vscode', () => ({
   },
   Uri: {
     file: vi.fn((p: string) => ({ fsPath: p })),
+    joinPath: vi.fn((base: { fsPath: string }, ...segments: string[]) => ({
+      fsPath: [base.fsPath, ...segments].join('/'),
+    })),
   },
 }));
 
@@ -46,6 +51,10 @@ function ok(): ToolResultContentBlock {
 }
 function err(): ToolResultContentBlock {
   return { type: 'tool_result', tool_use_id: 'id', content: 'boom', is_error: true };
+}
+/** A FAILING (but not errored) verification result — content classifies as 'fail'. */
+function failing(): ToolResultContentBlock {
+  return { type: 'tool_result', tool_use_id: 'id', content: '1 failed, 2 passed', is_error: false };
 }
 
 describe('completionGate — recordToolCall', () => {
@@ -263,6 +272,66 @@ describe('completionGate — recordToolCall', () => {
   });
 });
 
+// Mutation-hardening: every existing recordToolCall test used a PASSING result
+// (`ok()`), so mutating any `if (passed)` branch never broke anything — the
+// state ended up the same either way. These pin the FAILING path: testsRun is
+// recorded either way, but passingTestFiles / projectTestsPassed must NOT be.
+describe('completionGate — recordToolCall failing-result hardening', () => {
+  it('run_tests with a file that FAILS: tracked as run, NOT as passing', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunTests('src/foo.test.ts'), failing());
+    expect([...state.testsRunForFiles]).toEqual(['src/foo.test.ts']);
+    expect([...state.passingTestFiles]).toEqual([]);
+  });
+
+  it('run_tests with a file OUTSIDE the workspace root: normalizePath→null, nothing recorded', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunTests('/etc/passwd'), ok());
+    expect(state.testsRunForFiles.size).toBe(0);
+  });
+
+  it('run_tests whole-project that FAILS: ran=true, passed=false', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunTests(), failing());
+    expect(state.projectTestsRan).toBe(true);
+    expect(state.projectTestsPassed).toBe(false);
+  });
+
+  it('run_command test-runner match with a file that FAILS: run, not passing', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npx vitest run src/foo.test.ts'), failing());
+    expect([...state.testsRunForFiles]).toEqual(['src/foo.test.ts']);
+    expect([...state.passingTestFiles]).toEqual([]);
+  });
+
+  it('run_command test-runner match with NO file (whole project) that FAILS', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npx vitest run'), failing());
+    expect(state.projectTestsRan).toBe(true);
+    expect(state.projectTestsPassed).toBe(false);
+  });
+
+  it('run_command "npm test" whole-suite that FAILS', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npm test'), failing());
+    expect(state.projectTestsRan).toBe(true);
+    expect(state.projectTestsPassed).toBe(false);
+  });
+
+  it('run_command with NO test-runner keyword at all: state untouched (testMatch is null)', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('echo hello'), ok());
+    expect(state.testsRunForFiles.size).toBe(0);
+    expect(state.projectTestsRan).toBe(false);
+  });
+
+  it('is_error short-circuits BEFORE any classification, even for run_tests', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunTests('src/foo.test.ts'), err());
+    expect(state.testsRunForFiles.size).toBe(0);
+  });
+});
+
 describe('completionGate — findColocatedTest', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -438,6 +507,10 @@ describe('completionGate — buildGateInjection', () => {
     expect(text).toContain('get_diagnostics');
     // src/foo.ts is JS/TS, so the eslint suggestion still appears.
     expect(text).toContain('npx eslint src/foo.ts');
+    // Exclusivity: no missingTest/testNotUpdated findings here — kills the
+    // `.length >= 0` mutants that would render these sections unconditionally.
+    expect(text).not.toContain('Tests for the files you edited have not run');
+    expect(text).not.toContain('did not update their test files');
   });
 
   it('does NOT suggest eslint for Python files — only get_diagnostics (the dogfood fix)', () => {
@@ -451,6 +524,26 @@ describe('completionGate — buildGateInjection', () => {
     expect(text).toContain('Tests for the files you edited have not run');
     expect(text).toContain('run_tests with file: src/foo.test.ts');
     expect(text).toContain('npx vitest run src/foo.test.ts');
+    // Exclusivity: no needsLint/testNotUpdated findings here.
+    expect(text).not.toContain('static check');
+    expect(text).not.toContain('did not update their test files');
+  });
+
+  it('includes a test-update section ONLY when testNotUpdated findings exist', () => {
+    const text = buildGateInjection([{ file: 'src/foo.ts', testNotUpdated: 'src/foo.test.ts' }], 1, 2);
+    expect(text).toContain('did not update their test files');
+    expect(text).toContain('src/foo.ts  ->  src/foo.test.ts');
+    expect(text).not.toContain('static check');
+    expect(text).not.toContain('Tests for the files you edited have not run');
+  });
+
+  it('an empty findings array renders none of the three optional sections', () => {
+    const text = buildGateInjection([], 1, 2);
+    expect(text).not.toContain('static check');
+    expect(text).not.toContain('Tests for the files you edited have not run');
+    expect(text).not.toContain('did not update their test files');
+    // The directive header still renders regardless.
+    expect(text).toContain('Completion gate');
   });
 
   it('deduplicates lint files across findings', () => {
@@ -586,6 +679,79 @@ describe('completionGate — buildNoReadReprompt', () => {
     const msgs = [userMsg('Read src/greeter.ts and tell me what it does.')];
     expect(buildNoReadReprompt(msgs, new Set(['calculator.py']))).not.toBeNull();
   });
+
+  // Mutation-hardening for hasReadToolCallForFile's guard chain.
+  it('an assistant message with STRING content does not satisfy the check', () => {
+    const msgs = [
+      userMsg('Read src/greeter.ts and tell me what it does.'),
+      { role: 'assistant' as const, content: 'ok, reading now' },
+    ];
+    expect(buildNoReadReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a non-tool_use block does not satisfy the check', () => {
+    const msgs = [
+      userMsg('Read src/greeter.ts and tell me what it does.'),
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'looking' }] },
+    ];
+    expect(buildNoReadReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a read-capable tool call for a DIFFERENT file does not satisfy the requirement', () => {
+    const msgs = [
+      userMsg('Read src/greeter.ts and tell me what it does.'),
+      assistantToolMsg('read_file', { path: 'src/unrelated.ts' }),
+    ];
+    expect(buildNoReadReprompt(msgs)).not.toBeNull();
+  });
+
+  it('finds the matching read call as the SECOND block (loop continues past a non-match)', () => {
+    const msgs = [
+      userMsg('Read src/greeter.ts and tell me what it does.'),
+      {
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'let me check' }, tool('read_file', { path: 'src/greeter.ts' })],
+      },
+    ];
+    expect(buildNoReadReprompt(msgs)).toBeNull();
+  });
+
+  it('grep also counts as a read-capable tool (name-set coverage), matched case-insensitively', () => {
+    const msgs = [
+      userMsg('Read src/GREETER.ts and tell me what it does.'),
+      assistantToolMsg('grep', { pattern: 'class', path: 'src/greeter.ts' }),
+    ];
+    expect(buildNoReadReprompt(msgs)).toBeNull();
+  });
+
+  // Adversarial guard-bypass cases: constructed so that if the role filter or
+  // the block-shape guard were REMOVED (mutated to always-false / never-skip),
+  // the check would incorrectly find a match. A same-shaped-but-benign test
+  // can't distinguish "guard correctly skipped this" from "guard was a no-op
+  // and there was nothing to match anyway" — these can.
+  it('a matching read_file call under role "user" must NOT satisfy the assistant-only check', () => {
+    // If the `msg.role !== 'assistant'` guard were mutated to never-skip, this
+    // well-formed match under the WRONG role would incorrectly satisfy it.
+    const msgs = [
+      userMsg('Read src/greeter.ts and tell me what it does.'),
+      { role: 'user' as const, content: [tool('read_file', { path: 'src/greeter.ts' })] },
+    ];
+    expect(buildNoReadReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a non-tool_use block that HAPPENS to carry a matching name+input must NOT satisfy the check', () => {
+    // If the `b.type !== 'tool_use'` guard were removed, this text block —
+    // which carries a read_file-shaped name/input by coincidence — would
+    // incorrectly satisfy the requirement.
+    const msgs = [
+      userMsg('Read src/greeter.ts and tell me what it does.'),
+      {
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'x', name: 'read_file', input: { path: 'src/greeter.ts' } } as any],
+      },
+    ];
+    expect(buildNoReadReprompt(msgs)).not.toBeNull();
+  });
 });
 
 describe('completionGate — lastUserText', () => {
@@ -600,6 +766,140 @@ describe('completionGate — lastUserText', () => {
 
   it('returns empty string when there are no user messages', () => {
     expect(lastUserText([{ role: 'assistant' as const, content: 'hi' }])).toBe('');
+  });
+
+  // Mutation-hardening: pin every guard in the backward-scan loop + the
+  // block-shape checks (kills the EqualityOperator `i > 0`/`i >= 0` boundary
+  // mutant and the LogicalOperator/ConditionalExpression chain on each block).
+  it('BOUNDARY: finds the user message at index 0 (kills the i>0 vs i>=0 mutant)', () => {
+    // Only ONE message, at index 0 — a mutated `i > 0` would skip it (loop body
+    // never runs at i=0), producing '' instead of the real text.
+    const msgs = [{ role: 'user' as const, content: 'only message' }];
+    expect(lastUserText(msgs)).toBe('only message');
+  });
+
+  it('skips a non-text block before finding the text block in the same message', () => {
+    const msgs = [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 'x', content: 'irrelevant' },
+          { type: 'text' as const, text: 'the real question' },
+        ],
+      },
+    ];
+    expect(lastUserText(msgs)).toBe('the real question');
+  });
+
+  it('array content with no text block at all yields empty string, not a crash', () => {
+    const msgs = [
+      { role: 'user' as const, content: [{ type: 'tool_result' as const, tool_use_id: 'x', content: 'x' }] },
+    ];
+    expect(lastUserText(msgs)).toBe('');
+  });
+
+  it('skips an assistant message sandwiched between two user messages', () => {
+    const msgs = [
+      { role: 'user' as const, content: 'first' },
+      { role: 'assistant' as const, content: 'reply' },
+      { role: 'user' as const, content: 'second' },
+    ];
+    expect(lastUserText(msgs)).toBe('second');
+  });
+
+  it('a trailing assistant message with array-text content must NOT satisfy the user-only check', () => {
+    // If the `msg.role !== 'user'` guard were mutated to never-skip, the scan
+    // (which runs backward) would return the assistant's text instead.
+    const msgs = [
+      { role: 'user' as const, content: 'the real question' },
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'ASSISTANT REPLY' }] },
+    ];
+    expect(lastUserText(msgs)).toBe('the real question');
+  });
+
+  it('a non-text block with a coincidental `.text` property must NOT be returned', () => {
+    // If the `b.type === 'text'` guard were removed, this tool_result block —
+    // which happens to carry a `.text` field — would be returned instead of
+    // the real text block that follows it.
+    const msgs = [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 'x', content: 'y', text: 'WRONG' } as any,
+          { type: 'text' as const, text: 'the real question' },
+        ],
+      },
+    ];
+    expect(lastUserText(msgs)).toBe('the real question');
+  });
+});
+
+describe('completionGate — firstUserText', () => {
+  it('returns the FIRST user message, not the last (opposite of lastUserText)', () => {
+    const msgs = [
+      { role: 'user' as const, content: 'original task' },
+      { role: 'assistant' as const, content: 'ok' },
+      { role: 'user' as const, content: 'follow-up' },
+    ];
+    expect(firstUserText(msgs)).toBe('original task');
+  });
+
+  it('returns empty string when there are no user messages', () => {
+    expect(firstUserText([{ role: 'assistant' as const, content: 'hi' }])).toBe('');
+  });
+
+  it('skips a leading assistant message to find the first user one', () => {
+    const msgs = [
+      { role: 'assistant' as const, content: 'system greeting' },
+      { role: 'user' as const, content: 'the actual task' },
+    ];
+    expect(firstUserText(msgs)).toBe('the actual task');
+  });
+
+  it('extracts text from an array-content user message', () => {
+    const msgs = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'array form' }] }];
+    expect(firstUserText(msgs)).toBe('array form');
+  });
+
+  it('skips a non-text block to find the text block after it', () => {
+    const msgs = [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 'x', content: 'noise' },
+          { type: 'text' as const, text: 'the question' },
+        ],
+      },
+    ];
+    expect(firstUserText(msgs)).toBe('the question');
+  });
+
+  it('array content with no text block yields empty string', () => {
+    const msgs = [
+      { role: 'user' as const, content: [{ type: 'tool_result' as const, tool_use_id: 'x', content: 'x' }] },
+    ];
+    expect(firstUserText(msgs)).toBe('');
+  });
+
+  it('a LEADING assistant message with array-text content must NOT satisfy the user-only check', () => {
+    const msgs = [
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'ASSISTANT REPLY' }] },
+      { role: 'user' as const, content: 'the real question' },
+    ];
+    expect(firstUserText(msgs)).toBe('the real question');
+  });
+
+  it('a non-text block with a coincidental `.text` property must NOT be returned', () => {
+    const msgs = [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 'x', content: 'y', text: 'WRONG' } as any,
+          { type: 'text' as const, text: 'the real question' },
+        ],
+      },
+    ];
+    expect(firstUserText(msgs)).toBe('the real question');
   });
 });
 
@@ -640,6 +940,72 @@ describe('completionGate — buildNoShellReprompt', () => {
   it('returns null for a non-metric question mentioning src/', () => {
     const msgs = [userMsg('Explain how the agent loop in src/ works.')];
     expect(buildNoShellReprompt(msgs)).toBeNull();
+  });
+
+  // Mutation-hardening for hasRunCommandCall's guard chain: role filter,
+  // Array.isArray(content) filter, block-shape checks, and tool-name match.
+  it('an assistant message with STRING content (no array) does not satisfy the check', () => {
+    const msgs = [
+      userMsg('How many test files are in src/?'),
+      { role: 'assistant' as const, content: 'I will check that for you.' },
+    ];
+    expect(buildNoShellReprompt(msgs)).not.toBeNull(); // string content ⇒ no tool call found ⇒ still fires
+  });
+
+  it('a non-tool_use block (e.g. text) in the array does not satisfy the check', () => {
+    const msgs = [
+      userMsg('How many test files are in src/?'),
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'let me think' }] },
+    ];
+    expect(buildNoShellReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a DIFFERENT tool call (not run_command) does not satisfy the check', () => {
+    const msgs = [
+      userMsg('How many test files are in src/?'),
+      {
+        role: 'assistant' as const,
+        content: [{ type: 'tool_use' as const, id: 'x', name: 'read_file', input: { path: 'a.ts' } }],
+      },
+    ];
+    expect(buildNoShellReprompt(msgs)).not.toBeNull();
+  });
+
+  it('finds run_command as the SECOND block in the content array (loop continues past a non-match)', () => {
+    const msgs = [
+      userMsg('How many test files are in src/?'),
+      {
+        role: 'assistant' as const,
+        content: [
+          { type: 'text' as const, text: 'checking now' },
+          { type: 'tool_use' as const, id: 'x', name: 'run_command', input: { command: 'wc -l src/*.ts' } },
+        ],
+      },
+    ];
+    expect(buildNoShellReprompt(msgs)).toBeNull();
+  });
+
+  it('a user message with tool_use-shaped content is ignored (role filter, not content shape)', () => {
+    // Malformed/unusual input: a tool_use block under role 'user' must NOT
+    // satisfy the assistant-only check.
+    const msgs = [
+      userMsg('How many test files are in src/?'),
+      {
+        role: 'user' as const,
+        content: [{ type: 'tool_use' as const, id: 'x', name: 'run_command', input: { command: 'wc -l' } }],
+      },
+    ];
+    expect(buildNoShellReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a non-tool_use block that HAPPENS to carry name="run_command" must NOT satisfy the check', () => {
+    // If the block-shape/type guard were removed, this text block — carrying a
+    // run_command-shaped `name` by coincidence — would incorrectly match.
+    const msgs = [
+      userMsg('How many test files are in src/?'),
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'x', name: 'run_command' } as any] },
+    ];
+    expect(buildNoShellReprompt(msgs)).not.toBeNull();
   });
 });
 
@@ -691,6 +1057,76 @@ describe('completionGate — buildNoGroundingReprompt', () => {
 
   it('returns null when there are no messages', () => {
     expect(buildNoGroundingReprompt([])).toBeNull();
+  });
+
+  // Mutation-hardening for hasAnyGroundingToolCall's guard chain.
+  it('an assistant message with STRING content does not satisfy the check', () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      { role: 'assistant' as const, content: 'Sure, let me look.' },
+    ];
+    expect(buildNoGroundingReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a non-tool_use block does not satisfy the check', () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'thinking...' }] },
+    ];
+    expect(buildNoGroundingReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a non-grounding tool call (e.g. write_file) does not satisfy the check', () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantToolMsg('write_file', { path: 'notes.md', content: 'x' }),
+    ];
+    expect(buildNoGroundingReprompt(msgs)).not.toBeNull();
+  });
+
+  it('finds a grounding tool as the SECOND block (loop continues past a non-match)', () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      {
+        role: 'assistant' as const,
+        content: [
+          { type: 'text' as const, text: 'let me check' },
+          { type: 'tool_use' as const, id: 'x', name: 'grep', input: { pattern: 'class' } },
+        ],
+      },
+    ];
+    expect(buildNoGroundingReprompt(msgs)).toBeNull();
+  });
+
+  it('list_directory and search_files also count as grounding (full name-set coverage)', () => {
+    expect(
+      buildNoGroundingReprompt([
+        userMsg('Review the architecture.'),
+        assistantToolMsg('list_directory', { path: '.' }),
+      ]),
+    ).toBeNull();
+    expect(
+      buildNoGroundingReprompt([
+        userMsg('Review the architecture.'),
+        assistantToolMsg('search_files', { query: 'auth' }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('a matching read_file call under role "user" must NOT satisfy the assistant-only check', () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      { role: 'user' as const, content: [{ type: 'tool_use' as const, id: 'x', name: 'read_file', input: {} }] },
+    ];
+    expect(buildNoGroundingReprompt(msgs)).not.toBeNull();
+  });
+
+  it('a non-tool_use block that HAPPENS to carry a grounding tool name must NOT satisfy the check', () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'x', name: 'read_file' } as any] },
+    ];
+    expect(buildNoGroundingReprompt(msgs)).not.toBeNull();
   });
 });
 
@@ -749,6 +1185,84 @@ describe('completionGate — buildUnverifiedClaimReprompt', () => {
     const msgs = [userMsg('Review the architecture of this project.')];
     expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
   });
+
+  it('returns null for an explicitly empty requestText (distinct from "no messages")', async () => {
+    const msgs = [assistantMsg('The loop (`src/agent/loop.ts`) is well structured.')];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists, '')).toBeNull();
+  });
+
+  it('deduplicates a citation repeated twice — flagged once, not per-occurrence', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('`src/context/context.ts` handles this, and `src/context/context.ts` is used throughout.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).not.toBeNull();
+    // Cited once in the reprompt body despite two occurrences in the answer.
+    expect((result!.match(/context\/context\.ts/g) || []).length).toBe(1);
+  });
+
+  it('singular wording for exactly one fabricated path', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('Handled in `src/context/context.ts`.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).toContain('a path that does not exist');
+    expect(result).not.toContain('paths that do not exist');
+  });
+
+  it('plural wording for two or more fabricated paths', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('See `src/context/context.ts` and `src/context/other.ts`.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists);
+    expect(result).toContain('paths that do not exist');
+    expect(result).not.toContain('a path that does not exist');
+  });
+
+  // Mutation-hardening for lastAssistantText's guard chain (same technique as
+  // lastUserText/firstUserText — same-shape-but-benign tests can't distinguish
+  // "guard correctly skipped" from "nothing to match anyway").
+  it('a trailing user message with array-text content must NOT satisfy the assistant-only check', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('Handled in `src/context/context.ts`.'),
+      { role: 'user' as const, content: [{ type: 'text' as const, text: 'thanks' }] },
+    ];
+    // If the assistant-only guard were bypassed, the trailing user text would
+    // be scanned instead — it cites nothing, so the reprompt would wrongly
+    // return null. Confirms the real (fabricated) answer is still used.
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).not.toBeNull();
+  });
+
+  it('a non-text block with a coincidental `.text` property must NOT be returned', async () => {
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      {
+        role: 'assistant' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 'x', content: 'y', text: 'src/context/context.ts' } as any,
+          { type: 'text' as const, text: 'Handled in `src/agent/loop.ts`, which is real.' },
+        ],
+      },
+    ];
+    // If the type==='text' guard were bypassed, the coincidental `.text` field
+    // (a fabricated citation) would be scanned instead of the real, clean answer.
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
+  });
+
+  it('array-content assistant message with STRING content still concatenates via join (no crash)', async () => {
+    // lastAssistantText on array content returns filter().map().join('\n') —
+    // an array with ZERO text blocks joins to '' (falsy), which must be
+    // treated the same as "no answer yet".
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      { role: 'assistant' as const, content: [{ type: 'tool_use' as const, id: 'x', name: 'read_file', input: {} }] },
+    ];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
+  });
 });
 
 describe('completionGate — buildBehavioralVerificationReprompt', () => {
@@ -771,6 +1285,10 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     const r = await buildBehavioralVerificationReprompt('clicking the number buttons does nothing', edited, noTests);
     expect(r).not.toBeNull();
     expect(r).toContain('test');
+    // Exclusivity: no hollow test exists here (nothing ran at all), so the
+    // hollow-specific wording must be ABSENT — kills the `hollow.length >= 0`
+    // mutant that would render this section even when hollow.length is 0.
+    expect(r).not.toContain('never imports the module under test');
   });
 
   it('matches varied bug-report phrasings', async () => {
@@ -868,6 +1386,23 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     ).toBeNull();
   });
 
+  // Mutation-hardening for candidateTestFiles: every test above edits a BARE
+  // filename (no directory), so `dir` is always '' and the `slash !== -1`
+  // dir-prefixed-candidate branch is never exercised. This proves it works
+  // for a nested file, via the whole-suite conventional-test-file path.
+  it('finds a dir-prefixed conventional test file for a nested source path', async () => {
+    const nestedEdited = new Set<string>(['src/calc.py']);
+    const suite = {
+      testsRunForFiles: new Set<string>(),
+      passingTestFiles: new Set<string>(),
+      projectTestsPassed: true,
+    };
+    // Only the dir-prefixed candidate ("src/test_calc.py") has content —
+    // proves candidateTestFiles actually generated and checked it.
+    const readNested = async (p: string) => (p === 'src/test_calc.py' ? 'from calc import add\n' : null);
+    expect(await buildBehavioralVerificationReprompt('the calc is broken', nestedEdited, suite, readNested)).toBeNull();
+  });
+
   // --- Hollow-test detection (dogfood: model wrote test_gui_calculator.py that
   //     never imported gui_calculator and tested an inline mock instead). ---
   it('fires with the hollow-test message when the test never imports the module', async () => {
@@ -885,6 +1420,10 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     expect(r).toContain('never imports the module under test');
     expect(r).toContain('test_gui_calculator.py');
     expect(r).toContain('from gui_calculator import');
+    // Exclusivity: gui_calculator.py was found via the hollow path, not pushed
+    // to `uncovered` — kills the `uncovered.length >= 0` mutant that would
+    // render the uncovered-files section even when uncovered.length is 0.
+    expect(r).not.toContain('You edited code');
   });
 
   it('does NOT flag a hollow test when the test genuinely imports the module', async () => {
@@ -932,6 +1471,36 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
     expect(r).toContain('PASSES');
     expect(r).toContain('NO TESTS RAN'); // failure context surfaced inline
   });
+
+  // Mutation-hardening: pin each exclusion clause in the behavioralEdits
+  // filter (SOURCE_FILE_RE && !.d.ts && !TEST_FILE_RE && !PY_TEST_FILE_RE)
+  // independently, so a removed clause breaks a test instead of silently
+  // widening what counts as "behavioral source".
+  it('excludes a .d.ts declaration file — no behavioral obligation for type-only edits', async () => {
+    const onlyTypes = new Set<string>(['calculator.d.ts']);
+    expect(await buildBehavioralVerificationReprompt('the gui is broken', onlyTypes, noTests)).toBeNull();
+  });
+
+  it('excludes a JS/TS test file (TEST_FILE_RE) even without the .py convention', async () => {
+    const onlyJsTest = new Set<string>(['calculator.test.ts']);
+    expect(await buildBehavioralVerificationReprompt('the app is broken', onlyJsTest, noTests)).toBeNull();
+  });
+
+  it('excludes a non-source file entirely (fails SOURCE_FILE_RE)', async () => {
+    const onlyDocs = new Set<string>(['README.md']);
+    expect(await buildBehavioralVerificationReprompt('the app is broken', onlyDocs, noTests)).toBeNull();
+  });
+
+  it('a mixed edit set still obligates the ONE genuinely-behavioral file', async () => {
+    // .d.ts and the test file itself are excluded; the actual source file
+    // still needs a behavioral test — proves the exclusions filter
+    // per-file, not all-or-nothing.
+    const mixed = new Set<string>(['gui_calculator.py', 'gui_calculator.d.ts', 'test_gui_calculator.py']);
+    const r = await buildBehavioralVerificationReprompt('the gui is broken', mixed, noTests);
+    expect(r).not.toBeNull();
+    expect(r).toContain('gui_calculator.py');
+    expect(r).not.toContain('gui_calculator.d.ts');
+  });
 });
 
 describe('completionGate — classifyTestResult', () => {
@@ -974,6 +1543,87 @@ describe('completionGate — classifyTestResult', () => {
   it('treats a non-zero exit as failure and zero exit as pass', () => {
     expect(classifyTestResult('something\n(exit code: 2)')).toBe('fail');
     expect(classifyTestResult('done\n(exit code: 0)')).toBe('pass');
+  });
+});
+
+// Mutation-hardening: pin every branch + boundary so a flipped condition/operator
+// in the classifier is caught (the completion gate's most load-bearing decision —
+// misreading a pass as fail makes it loop, misreading a fail as pass ships bugs).
+describe('completionGate — classifyTestResult branch + boundary hardening', () => {
+  it('each EMPTY trigger in isolation', () => {
+    for (const s of [
+      'no tests ran',
+      'Ran 0 tests in 0.0s',
+      'collected 0 items',
+      '0 tests passed',
+      '0 tests collected',
+    ]) {
+      expect(classifyTestResult(s)).toBe('empty');
+    }
+    expect(classifyTestResult('done\n(exit code: 5)')).toBe('empty'); // exit 5 = pytest "no tests"
+  });
+
+  it('each FAIL trigger in isolation', () => {
+    expect(classifyTestResult('3 failed')).toBe('fail');
+    expect(classifyTestResult('2 errors')).toBe('fail');
+    expect(classifyTestResult('1 error')).toBe('fail');
+    expect(classifyTestResult('FAILED')).toBe('fail');
+    expect(classifyTestResult('FAIL')).toBe('fail');
+    expect(classifyTestResult('AssertionError: nope')).toBe('fail');
+    expect(classifyTestResult('Traceback (most recent call last):')).toBe('fail');
+    expect(classifyTestResult('x\n(exit code: 1)')).toBe('fail');
+  });
+
+  it('each PASS trigger in isolation', () => {
+    expect(classifyTestResult('7 passed')).toBe('pass');
+    expect(classifyTestResult('7 passing')).toBe('pass');
+    expect(classifyTestResult('ran everything\nOK')).toBe('pass');
+    expect(classifyTestResult('all tests passed')).toBe('pass');
+    expect(classifyTestResult('x\n(exit code: 0)')).toBe('pass');
+  });
+
+  it('BOUNDARY: a zero count is not a fail/pass (kills the [1-9] digit boundary)', () => {
+    // "0 failed" must NOT read as fail; "0 passed" must NOT read as pass. With no
+    // other signal + no exit code, both are 'unknown'.
+    expect(classifyTestResult('0 failed')).toBe('unknown');
+    expect(classifyTestResult('0 errors')).toBe('unknown');
+    expect(classifyTestResult('0 passed')).toBe('unknown');
+  });
+
+  it('PRECEDENCE: exit 5 → empty even alongside a passing count', () => {
+    // exit===5 (empty) is checked before the pass branch — pins that ordering.
+    expect(classifyTestResult('no tests ran\n5 passed earlier\n(exit code: 5)')).toBe('empty');
+  });
+
+  it('unrecognized output is unknown, not a false pass/fail', () => {
+    expect(classifyTestResult('building project...')).toBe('unknown');
+    expect(classifyTestResult('')).toBe('unknown');
+  });
+});
+
+describe('completionGate — isAnalysisRequest (verb AND target, kills the && mutation)', () => {
+  it('true only when BOTH an analysis verb and a code target are present', () => {
+    expect(isAnalysisRequest('review the codebase')).toBe(true);
+    expect(isAnalysisRequest('audit this project')).toBe(true);
+    expect(isAnalysisRequest('inspect the architecture')).toBe(true);
+    expect(isAnalysisRequest('analyze the implementation')).toBe(true);
+    expect(isAnalysisRequest('critique the design')).toBe(true);
+  });
+
+  it('false with a verb but NO code target (kills && → ||)', () => {
+    expect(isAnalysisRequest('review this')).toBe(false);
+    expect(isAnalysisRequest('please assess it')).toBe(false);
+    expect(isAnalysisRequest('evaluate the results')).toBe(false);
+  });
+
+  it('false with a target but NO analysis verb (kills && → || the other way)', () => {
+    expect(isAnalysisRequest('the codebase is large')).toBe(false);
+    expect(isAnalysisRequest('open the architecture doc')).toBe(false);
+  });
+
+  it('false when neither is present', () => {
+    expect(isAnalysisRequest('hello there')).toBe(false);
+    expect(isAnalysisRequest('')).toBe(false);
   });
 });
 
@@ -1069,5 +1719,48 @@ describe('completionGate — buildNoFileWriteReprompt', () => {
     const edited = new Set<string>(['gui_calculator.py']);
     const exists = async (p: string) => p.includes('calculator.py') && !p.includes('gui_');
     expect(await buildNoFileWriteReprompt(msgs, edited, undefined, exists)).toBeNull();
+  });
+
+  // Mutation-hardening: pin the wasWritten match paths + pluralization.
+  it('matches via the suffix path (f.endsWith("/"+base)) — neither exact nor bare-basename match applies', async () => {
+    // editedFiles holds a path that ends with the mentioned basename but is
+    // NEITHER the exact mentioned path NOR the bare basename itself — only
+    // the third `.some(f => f.endsWith('/' + base) ...)` disjunct can match.
+    const msgs = [userMsg('Extend `src/deps/semver.test.ts` with a describe block for semverLte.')];
+    const edited = new Set<string>(['other/nested/semver.test.ts']);
+    expect(await buildNoFileWriteReprompt(msgs, edited, undefined, noFile)).toBeNull();
+  });
+
+  it('singular wording ("it" / "that file") for exactly one unwritten file', async () => {
+    const msgs = [userMsg('Add semverLte to `src/deps/semver.ts`.')];
+    const result = await buildNoFileWriteReprompt(msgs, new Set(), undefined, noFile);
+    expect(result).toContain('finished without writing to it');
+    expect(result).toContain('changes to that file');
+    expect(result).not.toContain('any of them');
+    expect(result).not.toContain('those files');
+  });
+
+  it('plural wording ("any of them" / "those files") for two or more unwritten files', async () => {
+    const msgs = [userMsg('Add semverLte to `src/deps/semver.ts` and tests to `src/deps/semver.test.ts`.')];
+    const result = await buildNoFileWriteReprompt(msgs, new Set(), undefined, noFile);
+    expect(result).toContain('finished without writing to any of them');
+    expect(result).toContain('changes to those files');
+    expect(result).not.toContain('writing to it.');
+  });
+
+  it('uses the real defaultFileExists (default param) against the mocked workspace', async () => {
+    // No custom fileExists injected — exercises the actual workspace.fs.stat
+    // path. Configured to say the file does NOT exist, so the gate fires.
+    (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
+    const msgs = [userMsg('Create `src/deps/newmath.ts` with a clamp function.')];
+    const result = await buildNoFileWriteReprompt(msgs, new Set());
+    expect(result).not.toBeNull();
+    expect(result).toContain('newmath.ts');
+  });
+
+  it('the real defaultFileExists returns null (no fire) when workspace.fs.stat resolves', async () => {
+    (mockWorkspace.fs.stat as any).mockResolvedValue(undefined);
+    const msgs = [userMsg('Create `src/deps/newmath.ts` with a clamp function.')];
+    expect(await buildNoFileWriteReprompt(msgs, new Set())).toBeNull();
   });
 });

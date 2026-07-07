@@ -4,6 +4,9 @@
  * (functions, classes, methods) based on query content.
  */
 
+import { findBlockEnd, findIndentEnd, parseImport, resolveImportPath } from './astContext/importScan.js';
+import { findRelevantElements, extractRelevantContent } from './astContext/relevance.js';
+
 export interface CodeElement {
   type: 'function' | 'class' | 'method' | 'variable' | 'import' | 'export' | 'interface' | 'type' | 'enum';
   name: string;
@@ -31,13 +34,78 @@ export interface ParsedTypeRelation {
   kind: 'extends' | 'implements';
 }
 
+/** A use of a named type in a signature/variable (return, param, or variable annotation). */
+export interface ParsedTypeUse {
+  userName: string; // enclosing symbol that references the type, or '<module>'
+  typeName: string;
+  role: 'return' | 'param' | 'variable';
+  line: number; // 1-based
+}
+
 export interface ParsedFile {
   filePath: string;
   elements: CodeElement[];
   content: string;
   calls?: ParsedCall[];
   typeRelations?: ParsedTypeRelation[];
+  typeUses?: ParsedTypeUse[];
 }
+
+// `: Type` annotations (params, fields, variables). Capitalized head only, so
+// primitives (string, number, boolean, void, any, …) are skipped by construction.
+const TYPE_ANNOT_PATTERN = /:\s*([A-Z][\w$.]*)/g;
+// `Foo<Bar>` generic arguments — capture the capitalized argument head.
+const GENERIC_ARG_PATTERN = /<\s*([A-Z][\w$.]*)/g;
+// Common built-in/library PascalCase types that are never workspace symbols.
+// Skipping them keeps the persisted edge set lean (the impact query would
+// filter them anyway, since no workspace symbol is defined by these names).
+const BUILTIN_TYPE_NAMES = new Set([
+  'Promise',
+  'Array',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Record',
+  'Partial',
+  'Required',
+  'Readonly',
+  'Pick',
+  'Omit',
+  'Exclude',
+  'Extract',
+  'ReturnType',
+  'Parameters',
+  'Awaited',
+  'Object',
+  'Function',
+  'Date',
+  'RegExp',
+  'Error',
+  'Symbol',
+  'BigInt',
+  'String',
+  'Number',
+  'Boolean',
+  'Iterable',
+  'Iterator',
+  'Generator',
+  'AsyncGenerator',
+  'Uint8Array',
+  'ArrayBuffer',
+  // Python typing
+  'List',
+  'Dict',
+  'Tuple',
+  'Optional',
+  'Union',
+  'Any',
+  'Callable',
+  'Sequence',
+  'Mapping',
+  'Type',
+  'Final',
+]);
 
 /**
  * Simple code element extractor for common languages
@@ -45,138 +113,11 @@ export interface ParsedFile {
  */
 export class SimpleCodeAnalyzer {
   /**
-   * Find the closing brace for a block that starts on `startLine`.
-   * Counts `{` / `}` from the start line forward.  Returns the line
-   * index of the matching `}`, or the last line of the file.
-   */
-  private static findBlockEnd(lines: string[], startLine: number): number {
-    let depth = 0;
-    for (let i = startLine; i < lines.length; i++) {
-      for (const ch of lines[i]) {
-        if (ch === '{') depth++;
-        else if (ch === '}') {
-          depth--;
-          if (depth === 0) return i;
-        }
-      }
-    }
-    return lines.length - 1;
-  }
-
-  /**
-   * Find the end of a Python-style indented block starting after `startLine`.
-   * Returns the last line that is either blank or indented deeper than the
-   * definition line.
-   */
-  private static findIndentEnd(lines: string[], startLine: number): number {
-    const defIndent = lines[startLine].search(/\S/);
-    let last = startLine;
-    for (let i = startLine + 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.trim() === '') {
-        // Blank lines inside a block are part of it
-        continue;
-      }
-      const indent = line.search(/\S/);
-      if (indent <= defIndent) break;
-      last = i;
-    }
-    return last;
-  }
-
-  /**
-   * Parse an import statement, handling multi-line imports.
-   * Returns the module path, named bindings, and end line.
-   */
-  private static parseImport(
-    line: string,
-    lines: string[],
-    startLine: number,
-  ): { modulePath: string; bindings: string[]; endLine: number } | null {
-    // Named imports: import { A, B } from '...'
-    const namedMatch = line.match(/import\s+\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/);
-    if (namedMatch) {
-      const bindings = namedMatch[1]
-        .split(',')
-        .map((b) =>
-          b
-            .trim()
-            .split(/\s+as\s+/)[0]
-            .trim(),
-        )
-        .filter(Boolean);
-      return { modulePath: namedMatch[2], bindings, endLine: startLine };
-    }
-
-    // Multi-line named imports: import {\n  A,\n  B\n} from '...'
-    if (line.match(/import\s+\{/) && !line.includes('}')) {
-      let endLine = startLine;
-      let accumulated = line;
-      for (let j = startLine + 1; j < lines.length && j < startLine + 20; j++) {
-        accumulated += ' ' + lines[j];
-        if (lines[j].includes('}')) {
-          endLine = j;
-          break;
-        }
-      }
-      const multiMatch = accumulated.match(/import\s+\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/);
-      if (multiMatch) {
-        const bindings = multiMatch[1]
-          .split(',')
-          .map((b) =>
-            b
-              .trim()
-              .split(/\s+as\s+/)[0]
-              .trim(),
-          )
-          .filter(Boolean);
-        return { modulePath: multiMatch[2], bindings, endLine };
-      }
-    }
-
-    // Default import: import Foo from '...'
-    const defaultMatch = line.match(/import\s+([a-zA-Z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]/);
-    if (defaultMatch) {
-      return { modulePath: defaultMatch[2], bindings: ['default'], endLine: startLine };
-    }
-
-    // Star import: import * as Foo from '...'
-    const starMatch = line.match(/import\s+\*\s+as\s+([a-zA-Z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]/);
-    if (starMatch) {
-      return { modulePath: starMatch[2], bindings: ['*'], endLine: startLine };
-    }
-
-    // Side-effect import: import '...'
-    const sideEffectMatch = line.match(/import\s+['"]([^'"]+)['"]/);
-    if (sideEffectMatch) {
-      return { modulePath: sideEffectMatch[1], bindings: [], endLine: startLine };
-    }
-
-    return null;
-  }
-
-  /**
    * Best-effort resolution of a relative import path to a file path.
    * Tries common extensions (.ts, .tsx, .js, .jsx) and index files.
    */
   static resolveImportPath(importerFile: string, moduleSpecifier: string): string | null {
-    // Only resolve relative imports
-    if (!moduleSpecifier.startsWith('.')) return null;
-
-    const importerDir = importerFile.substring(0, importerFile.lastIndexOf('/'));
-    const segments = moduleSpecifier.split('/');
-    const resolved: string[] = importerDir ? importerDir.split('/') : [];
-
-    for (const seg of segments) {
-      if (seg === '.') continue;
-      if (seg === '..') {
-        resolved.pop();
-      } else {
-        resolved.push(seg);
-      }
-    }
-
-    return resolved.join('/');
+    return resolveImportPath(importerFile, moduleSpecifier);
   }
 
   /**
@@ -236,6 +177,7 @@ export class SimpleCodeAnalyzer {
     // Track call sites and type relations for the symbol graph
     const calls: ParsedCall[] = [];
     const typeRelations: ParsedTypeRelation[] = [];
+    const typeUses: ParsedTypeUse[] = [];
     // Regex for function calls: identifier followed by ( — excludes keywords/declarations
     const CALL_PATTERN = /\b([a-zA-Z_$][\w$]*)\s*\(/g;
     const SKIP_CALL_NAMES = new Set([
@@ -273,7 +215,7 @@ export class SimpleCodeAnalyzer {
         if (line.includes('function ') && !line.includes('function(')) {
           const match = line.match(/function\s+([a-zA-Z_$][\w$]*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -290,7 +232,7 @@ export class SimpleCodeAnalyzer {
           /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s+)?(?:\(|[a-zA-Z_$])/,
         );
         if (arrowMatch && (line.includes('=>') || lines[i + 1]?.includes('=>'))) {
-          const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+          const endLine = line.includes('{') ? findBlockEnd(lines, i) : i;
           elements.push({
             type: 'function',
             name: arrowMatch[1],
@@ -306,7 +248,7 @@ export class SimpleCodeAnalyzer {
         if (line.includes('interface ')) {
           const match = line.match(/interface\s+([a-zA-Z_$][\w$]*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'interface',
               name: match[1],
@@ -324,7 +266,7 @@ export class SimpleCodeAnalyzer {
           const match = line.match(/type\s+([a-zA-Z_$][\w$]*)/);
           if (match) {
             // Type aliases can be single-line or multi-line
-            const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+            const endLine = line.includes('{') ? findBlockEnd(lines, i) : i;
             elements.push({
               type: 'type',
               name: match[1],
@@ -341,7 +283,7 @@ export class SimpleCodeAnalyzer {
         if (line.includes('enum ')) {
           const match = line.match(/(?:const\s+)?enum\s+([a-zA-Z_$][\w$]*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'enum',
               name: match[1],
@@ -357,7 +299,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:async\s+)?def\s/)) {
           const match = line.match(/def\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findIndentEnd(lines, i);
+            const endLine = findIndentEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -372,7 +314,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:pub\s+)?(?:async\s+)?fn\s/)) {
           const match = line.match(/fn\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -387,7 +329,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^func\s/)) {
           const match = line.match(/func\s+(?:\([^)]*\)\s+)?([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -402,7 +344,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:public|private|protected|internal)?\s*(?:static\s+)?(?:fun\s|[\w<>\[\]]+\s+\w+\s*\()/)) {
           const match = line.match(/(?:fun\s+)?([a-zA-Z_]\w*)\s*\(/);
           if (match && !CONTROL_KEYWORDS.has(match[1])) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'method',
               name: match[1],
@@ -418,7 +360,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:typedef\s+)?(?:struct|union)\s+([a-zA-Z_]\w*)/)) {
           const match = line.match(/(?:struct|union)\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'class',
               name: match[1],
@@ -434,7 +376,7 @@ export class SimpleCodeAnalyzer {
           /^(?![\s]*(if|for|while|switch|return|#))[\w\s*&:<>]+?\b([a-zA-Z_][\w:]*)\s*\([^)]*\)\s*(?:\{|$)/,
         );
         if (fnMatch && !CONTROL_KEYWORDS.has(fnMatch[2]) && fnMatch[2] !== 'if') {
-          const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+          const endLine = line.includes('{') ? findBlockEnd(lines, i) : i;
           elements.push({
             type: 'function',
             name: fnMatch[2],
@@ -462,7 +404,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:public|private|protected|internal|)?\s*interface\s+/)) {
           const match = line.match(/interface\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'interface',
               name: match[1],
@@ -481,7 +423,7 @@ export class SimpleCodeAnalyzer {
         ) {
           const match = line.match(/\b([a-zA-Z_]\w*)\s*\(/);
           if (match && !CONTROL_KEYWORDS.has(match[1]) && match[1] !== 'if') {
-            const endLine = line.includes('{') ? this.findBlockEnd(lines, i) : i;
+            const endLine = line.includes('{') ? findBlockEnd(lines, i) : i;
             elements.push({
               type: 'method',
               name: match[1],
@@ -498,7 +440,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*def\s+/)) {
           const match = line.match(/def\s+(?:self\.)?([a-zA-Z_]\w*[?!]?)/);
           if (match) {
-            const endLine = this.findIndentEnd(lines, i);
+            const endLine = findIndentEnd(lines, i);
             elements.push({
               type: 'method',
               name: match[1],
@@ -513,7 +455,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*module\s+/)) {
           const match = line.match(/module\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findIndentEnd(lines, i);
+            const endLine = findIndentEnd(lines, i);
             elements.push({
               type: 'interface',
               name: match[1],
@@ -532,7 +474,7 @@ export class SimpleCodeAnalyzer {
         ) {
           const match = line.match(/func\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -550,7 +492,7 @@ export class SimpleCodeAnalyzer {
           if (typeMatch) {
             const elType: CodeElement['type'] =
               typeMatch[1] === 'protocol' ? 'interface' : typeMatch[1] === 'enum' ? 'enum' : 'class';
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: elType,
               name: typeMatch[2],
@@ -568,7 +510,7 @@ export class SimpleCodeAnalyzer {
         if (fnMatch || line.match(/^\s*function\s+([a-zA-Z_][\w-]*)\s*\{?/)) {
           const match = fnMatch ?? line.match(/function\s+([a-zA-Z_][\w-]*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -584,7 +526,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:local\s+)?function\s+/)) {
           const match = line.match(/function\s+([\w.]+)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -600,7 +542,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:override\s+)?(?:def|val|var)\s+/)) {
           const match = line.match(/\bdef\s+([a-zA-Z_]\w*)/);
           if (match && !CONTROL_KEYWORDS.has(match[1])) {
-            const endLine = line.includes('=') && !line.includes('{') ? i : this.findBlockEnd(lines, i);
+            const endLine = line.includes('=') && !line.includes('{') ? i : findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -615,7 +557,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:case\s+)?(?:object|trait)\s+/)) {
           const match = line.match(/(?:object|trait)\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'class',
               name: match[1],
@@ -631,7 +573,7 @@ export class SimpleCodeAnalyzer {
         if (line.match(/^\s*(?:public|private|protected|static|abstract|final)?\s*function\s+/)) {
           const match = line.match(/function\s+([a-zA-Z_]\w*)/);
           if (match) {
-            const endLine = this.findBlockEnd(lines, i);
+            const endLine = findBlockEnd(lines, i);
             elements.push({
               type: 'function',
               name: match[1],
@@ -654,7 +596,7 @@ export class SimpleCodeAnalyzer {
         const match = line.match(/class\s+([a-zA-Z_$][\w$]*)/);
         if (match) {
           const isExportedClass = /\b(?:export|public)\b/.test(line);
-          const endLine = usesBraces ? this.findBlockEnd(lines, i) : this.findIndentEnd(lines, i);
+          const endLine = usesBraces ? findBlockEnd(lines, i) : findIndentEnd(lines, i);
           elements.push({
             type: 'class',
             name: match[1],
@@ -669,7 +611,7 @@ export class SimpleCodeAnalyzer {
 
       // --- Import statements with binding extraction ---
       if (line.includes('import') && line.match(/^\s*import\s/)) {
-        const parsed = this.parseImport(line, lines, i);
+        const parsed = parseImport(line, lines, i);
         if (parsed) {
           elements.push({
             type: 'import',
@@ -780,98 +722,71 @@ export class SimpleCodeAnalyzer {
       }
     }
 
+    // --- Type-use extraction (TS + Python explicit annotations) ---
+    // Attribute each referenced type to its enclosing symbol. Liberal capture
+    // is safe: the impact query only surfaces types that are defined symbols,
+    // so built-in captures (Promise, List, …) never reach a report unless the
+    // workspace actually defines a symbol by that name. Stage 2 (tree-sitter)
+    // replaces this with binding-accurate extraction behind the same edges.
+    const isTs = ext === '.ts' || ext === '.tsx';
+    if (isTs || lang === 'py') {
+      const pushTypeUse = (typeName: string, role: ParsedTypeUse['role'], lineIdx: number): void => {
+        // Strip generic/namespace qualifiers to the head name.
+        const head = typeName.split(/[<.[]/, 1)[0];
+        if (!head || !/^[A-Z]/.test(head) || BUILTIN_TYPE_NAMES.has(head)) return;
+        typeUses.push({ userName: findScope(lineIdx), typeName: head, role, line: lineIdx + 1 });
+      };
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (
+          trimmed.startsWith('import ') ||
+          trimmed.startsWith('//') ||
+          trimmed.startsWith('*') ||
+          trimmed.startsWith('#')
+        )
+          continue;
+
+        // Return type: `): Foo` (TS) or `-> Foo` (Python).
+        const ret = line.match(/\)\s*:\s*([A-Za-z_$][\w$.<[\]]*)/) || line.match(/->\s*([A-Za-z_$][\w$.<[\]]*)/);
+        if (ret) pushTypeUse(ret[1], 'return', i);
+
+        // Variable declaration with a type annotation.
+        const isVarDecl = /^\s*(?:export\s+)?(?:const|let|var|readonly)\s/.test(line);
+
+        // Every `: Type` annotation on the line (params, fields, variables).
+        TYPE_ANNOT_PATTERN.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = TYPE_ANNOT_PATTERN.exec(line)) !== null) {
+          // Skip the `):` return form already captured above.
+          if (m.index > 0 && line[m.index - 1] === ')') continue;
+          pushTypeUse(m[1], isVarDecl ? 'variable' : 'param', i);
+        }
+        // Generic type arguments: `Foo<Bar, Baz>`.
+        GENERIC_ARG_PATTERN.lastIndex = 0;
+        while ((m = GENERIC_ARG_PATTERN.exec(line)) !== null) {
+          pushTypeUse(m[1], 'param', i);
+        }
+      }
+    }
+
     return {
       filePath,
       elements,
       content,
       calls: calls.length > 0 ? calls : undefined,
       typeRelations: typeRelations.length > 0 ? typeRelations : undefined,
+      typeUses: typeUses.length > 0 ? typeUses : undefined,
     };
   }
 
-  /**
-   * Find relevant code elements based on query terms
-   */
+  /** Find relevant code elements based on query terms. */
   static findRelevantElements(parsedFile: ParsedFile, query: string): CodeElement[] {
-    const relevantElements: CodeElement[] = [];
-    const queryTerms = query
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((term) => term.length > 2);
-
-    for (const element of parsedFile.elements) {
-      let score = 0;
-
-      // Check if element name matches query terms
-      for (const term of queryTerms) {
-        if (element.name.toLowerCase().includes(term)) {
-          score += 0.5;
-        }
-      }
-
-      // Check if element content matches query terms
-      for (const term of queryTerms) {
-        if (element.content.toLowerCase().includes(term)) {
-          score += 0.3;
-        }
-      }
-
-      // Boost based on element type
-      if (element.type === 'function' || element.type === 'method') {
-        score += 0.2;
-      } else if (element.type === 'class') {
-        score += 0.3;
-      }
-
-      if (score > 0.3) {
-        relevantElements.push({ ...element, relevanceScore: score });
-      }
-    }
-
-    // Sort by relevance score
-    relevantElements.sort((a, b) => b.relevanceScore - a.relevanceScore);
-    return relevantElements;
+    return findRelevantElements(parsedFile, query);
   }
 
-  /**
-   * Extract relevant portions of a file based on identified elements
-   */
+  /** Extract relevant portions of a file based on identified elements. */
   static extractRelevantContent(parsedFile: ParsedFile, relevantElements: CodeElement[]): string {
-    if (relevantElements.length === 0) {
-      const lines = parsedFile.content.split('\n');
-      return lines.slice(0, 20).join('\n') + (lines.length > 20 ? '\n...' : '');
-    }
-
-    const lines = parsedFile.content.split('\n');
-    const relevantLines = new Set<number>();
-
-    for (const element of relevantElements) {
-      // Include 1 line of context before the element and the full body
-      const start = Math.max(0, element.startLine - 1);
-      const end = Math.min(element.endLine + 1, lines.length - 1);
-      for (let i = start; i <= end; i++) {
-        relevantLines.add(i);
-      }
-    }
-
-    // Build output with `...` markers for skipped regions
-    const sorted = Array.from(relevantLines).sort((a, b) => a - b);
-    const parts: string[] = [];
-    let prev = -2; // sentinel so first region doesn't get a gap marker
-
-    for (const lineIdx of sorted) {
-      if (lineIdx > prev + 1) {
-        parts.push('...');
-      }
-      parts.push(lines[lineIdx]);
-      prev = lineIdx;
-    }
-
-    // Trailing indicator if we didn't reach the end
-    if (sorted[sorted.length - 1] < lines.length - 1) {
-      parts.push('...');
-    }
-
-    return parts.join('\n');
+    return extractRelevantContent(parsedFile, relevantElements);
   }
 }

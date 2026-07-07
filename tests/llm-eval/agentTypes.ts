@@ -99,6 +99,15 @@ export interface AgentEvalCase {
    * autoFix). Example: `{ criticEnabled: true }`.
    */
   configOverrides?: Partial<import('../../src/config/settings.js').SideCarConfig>;
+  /**
+   * Simulated user reply when the agent calls `ask_user`. The test plays a
+   * COOPERATIVE user: a clarifying question is a legitimate step, so the harness
+   * answers it and lets the agent continue to address the issue rather than
+   * treating the question as a dead-end. A string is returned verbatim; a
+   * function receives the model's question + offered options and returns the
+   * reply. Omit to use the harness default ("proceed, use your best judgment").
+   */
+  clarifyResponse?: string | ((question: string, options: string[]) => string);
 }
 
 /**
@@ -144,8 +153,15 @@ export interface AgentExpectations {
     /** File must not have been modified — its post-run content must equal the pre-run content from the workspace fixture. */
     notModified?: string[];
   };
-  /** Assistant final-text predicates (case-insensitive substring). */
-  finalTextContains?: string[];
+  /**
+   * Assistant final-text predicates (case-insensitive substring). Each element
+   * is required, EXCEPT an inner array which is an any-of synonym group — at
+   * least one of its members must appear. This keeps the assertion robust to
+   * paraphrase: `['clamp', ['utils.ts', 'utils']]` requires "clamp" and either
+   * "utils.ts" or "utils"; `[['greet', 'hello', 'welcome']]` accepts any of the
+   * three ways a model might describe a greeting function.
+   */
+  finalTextContains?: Array<string | string[]>;
   finalTextNotContains?: string[];
   /**
    * Regex patterns the final assistant text must match. Complements

@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { findTool, type ToolExecutorContext } from './tools.js';
+import { parseMangledToolName } from './loop/textParsing.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
 import { getConfig } from '../config/settings.js';
@@ -16,6 +17,7 @@ import { withFileLock } from './fileLock.js';
 import { detectIrrecoverable } from './executor/irrecoverableDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
+import { validateToolInput } from './executor/inputValidator.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
@@ -89,7 +91,30 @@ export async function executeTool(
   // Check the run-scoped ephemeral tools  before
   // the global registry. Facet RPC tools land here so cross-facet
   // calls resolve without polluting TOOL_REGISTRY across runs.
-  const tool = extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager);
+  let tool = extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager);
+
+  // Salvage a call-expression name like `read_file(path="x")` that some model
+  // runtimes (notably Ollama's native qwen3.5 tool parser) occasionally emit as
+  // the tool NAME with empty args, and that models sometimes produce by echoing
+  // the prompt's `read_file(path="…")` example syntax as a literal text call.
+  // Recover the base name + parenthesized arguments so the intent isn't lost to
+  // an opaque "Unknown tool".
+  if (!tool) {
+    const salvaged = parseMangledToolName(toolUse.name);
+    if (salvaged) {
+      const reTool =
+        extraTools?.find((t) => t.definition.name === salvaged.name) ?? findTool(salvaged.name, mcpManager);
+      if (reTool) {
+        const hasInput = toolUse.input && Object.keys(toolUse.input).length > 0;
+        const recoveredInput = hasInput ? toolUse.input : salvaged.input;
+        logger?.warn(
+          `Salvaged mangled tool call "${toolUse.name}" → ${salvaged.name}(${JSON.stringify(recoveredInput)})`,
+        );
+        toolUse = { ...toolUse, name: salvaged.name, input: recoveredInput };
+        tool = reTool;
+      }
+    }
+  }
 
   if (!tool) {
     return {
@@ -118,6 +143,21 @@ export async function executeTool(
         `Error: the JSON input for tool '${toolUse.name}' was malformed and could not be parsed. ` +
         `Please retry with valid JSON — double-check that strings are properly quoted, ` +
         `braces are balanced, and no characters were truncated.\n\nRaw input received:\n${truncated}`,
+      is_error: true,
+    };
+  }
+
+  // --- Validate input shape against the tool's declared schema ---
+  // Catches missing required params and string/array type mismatches before the
+  // executor runs, so the model gets a named error instead of an opaque
+  // downstream TypeError (e.g. `content: 123` → "argument must be of type string").
+  const schemaError = validateToolInput(toolUse.input, tool.definition.input_schema);
+  if (schemaError) {
+    logger?.warn(`Tool ${toolUse.name} input failed schema validation: ${schemaError}`);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. Retry with input matching the tool's parameters.`,
       is_error: true,
     };
   }
@@ -168,6 +208,7 @@ export async function executeTool(
     const trust = await checkWorkspaceConfigTrust(
       'toolPermissions',
       'SideCar: This workspace defines tool permission overrides (e.g. auto-allow write_file). Only trust these from repositories you control.',
+      { modal: true },
     );
     if (trust === 'blocked') {
       explicitPermission = undefined;
