@@ -501,8 +501,9 @@ export function getToolDefinitionsForTier(
  * Compact one-line stub for a tool whose full schema loads on demand: name +
  * first sentence + describe_tool pointer, empty input schema. The model calls
  * describe_tool(name) to get the full schema before using the tool.
+ * Exported so MCPManager can log the real catalog savings at connect time.
  */
-function toStubDefinition(def: ToolDefinition): ToolDefinition {
+export function toStubDefinition(def: ToolDefinition): ToolDefinition {
   const dotIdx = def.description.indexOf('. ');
   const firstSentence = dotIdx >= 0 ? def.description.slice(0, dotIdx + 1) : def.description;
   return {

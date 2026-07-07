@@ -233,12 +233,28 @@ export function recordToolCall(
   if (result.is_error) return;
   const resultText = typeof result.content === 'string' ? result.content : '';
 
+  // delegate_to_mcp — the delegation path calls a server tool via
+  // callServerTool, bypassing the mcp_* names tracked below, so a delegated
+  // task that writes to an external system would be invisible to the verify
+  // discipline. Delegated tasks are conservatively mutations (their whole
+  // point is to DO something). delegateToMcp reports every failure as plain
+  // content (never is_error), so success is detected by the <mcp_tool_output>
+  // boundary wrap — only a genuine server response carries it.
+  if (tu.name === 'delegate_to_mcp') {
+    const server = typeof tu.input.server === 'string' ? tu.input.server.trim() : '';
+    if (server && resultText.includes('<mcp_tool_output')) {
+      const mutations = (state.mcpUnverifiedMutations ??= new Map());
+      mutations.set(tu.id, { server, tool: 'delegate_to_mcp', inputSummary: summarizeMcpInput(tu.input) });
+    }
+    return;
+  }
+
   // MCP tools — mutation discipline bookkeeping. A successful call to a tool
-  // the server did NOT annotate readOnlyHint: true is an external write we
-  // can't see; it stays "unverified" until a later successful read-only call
-  // to the SAME server gives the model round-trip evidence. Calls are
-  // processed in issue order, so a read only verifies mutations recorded
-  // before it.
+  // classified as a mutation (readOnlyHint annotation / read-verb fallback)
+  // is an external write we can't see; it stays "unverified" until a later
+  // successful read-only call to the SAME server gives the model round-trip
+  // evidence. Calls are processed in issue order, so a read only verifies
+  // mutations recorded before it.
   if (tu.name.startsWith('mcp_') && mcpToolMeta) {
     const meta = mcpToolMeta(tu.name);
     if (meta) {

@@ -344,6 +344,51 @@ describe('completionGate — MCP mutation discipline', () => {
     expect(m.inputSummary.endsWith('…')).toBe(true);
   });
 
+  describe('delegate_to_mcp tracking', () => {
+    function wrappedResult(): ToolResultContentBlock {
+      return {
+        type: 'tool_result',
+        tool_use_id: 'id',
+        content: '<mcp_tool_output server="jira" tool="run_task" trust="untrusted">\ndone\n</mcp_tool_output>',
+      };
+    }
+
+    it('records a successful delegation as an unverified mutation to that server', () => {
+      const state = createGateState();
+      recordToolCall(
+        state,
+        mcpCall('delegate_to_mcp', { server: 'jira', task: 'close stale issues' }),
+        wrappedResult(),
+      );
+      expect(state.mcpUnverifiedMutations!.size).toBe(1);
+      const m = [...state.mcpUnverifiedMutations!.values()][0];
+      expect(m).toMatchObject({ server: 'jira', tool: 'delegate_to_mcp' });
+    });
+
+    it('ignores delegation failures reported as plain content (no boundary wrap)', () => {
+      const state = createGateState();
+      recordToolCall(state, mcpCall('delegate_to_mcp', { server: 'jira', task: 'x' }), {
+        type: 'tool_result',
+        tool_use_id: 'id',
+        content: 'Server "jira" is not connected. Connected servers: (none)',
+      });
+      expect(state.mcpUnverifiedMutations!.size).toBe(0);
+    });
+
+    it('a later read-only call to the delegated server verifies the delegation', () => {
+      const state = createGateState();
+      recordToolCall(state, mcpCall('delegate_to_mcp', { server: 'jira', task: 'x' }, 'a'), wrappedResult());
+      recordToolCall(state, mcpCall('mcp_jira_get_issue', { issue: 'X-1' }, 'b'), ok(), meta);
+      expect(state.mcpUnverifiedMutations!.size).toBe(0);
+    });
+
+    it('tracks without a meta lookup (delegation carries its own server attribution)', () => {
+      const state = createGateState();
+      recordToolCall(state, mcpCall('delegate_to_mcp', { server: 'jira', task: 'x' }), wrappedResult());
+      expect(state.mcpUnverifiedMutations!.size).toBe(1);
+    });
+  });
+
   describe('buildMcpMutationVerifyReprompt', () => {
     it('returns null when nothing is unverified', () => {
       expect(buildMcpMutationVerifyReprompt(createGateState())).toBeNull();

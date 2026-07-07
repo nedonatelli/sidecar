@@ -201,6 +201,54 @@ describe('MCPManager', () => {
     });
   });
 
+  describe('schema-on-error for lazy tools', () => {
+    it('appends the full input schema to a thrown error on a lazy server', async () => {
+      mockClient.callTool.mockRejectedValue(new Error('Invalid params'));
+      await manager.connect({ fs: { command: 'echo' } });
+
+      await expect(manager.getTool('mcp_fs_read')!.executor({ wrong: 'args' })).rejects.toThrow(
+        /Full input schema for mcp_fs_read .*lazy stub/,
+      );
+    });
+
+    it('appends the schema outside the boundary wrap on an in-band isError result', async () => {
+      mockClient.callTool.mockResolvedValue({
+        isError: true,
+        content: [{ type: 'text', text: 'Error: missing required parameter uri' }],
+      });
+      await manager.connect({ fs: { command: 'echo' } });
+
+      const out = await manager.getTool('mcp_fs_read')!.executor({});
+      const hintIdx = out.indexOf('Full input schema for mcp_fs_read');
+      expect(hintIdx).toBeGreaterThan(-1);
+      // First-party hint must sit OUTSIDE the untrusted-output fence.
+      expect(hintIdx).toBeGreaterThan(out.indexOf('</mcp_tool_output>'));
+    });
+
+    it('does not append the schema for alwaysLoad servers (full schema already in the catalog)', async () => {
+      mockClient.callTool.mockRejectedValue(new Error('Invalid params'));
+      await manager.connect({ pinned: { command: 'echo', alwaysLoad: true } });
+
+      await expect(manager.getTool('mcp_pinned_read')!.executor({})).rejects.toThrow(/Invalid params/);
+      await expect(manager.getTool('mcp_pinned_read')!.executor({})).rejects.not.toThrow(/Full input schema/);
+    });
+
+    it('does not append the schema to a successful result', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      const out = await manager.getTool('mcp_fs_read')!.executor({ uri: 'x' });
+      expect(out).not.toContain('Full input schema');
+    });
+  });
+
+  it('getServerStatus reports lazyToolSchemas per server', async () => {
+    await manager.connect({
+      fs: { command: 'echo' },
+      pinned: { command: 'echo', alwaysLoad: true },
+    });
+    const byName = Object.fromEntries(manager.getServerStatus().map((s) => [s.name, s.lazyToolSchemas]));
+    expect(byName).toEqual({ fs: true, pinned: false });
+  });
+
   it('returns undefined for unknown tool', async () => {
     await manager.connect({
       fs: { command: 'echo' },
