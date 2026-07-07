@@ -21,7 +21,7 @@ When you rename a parameter, add a new one, or drop one, the documentation aroun
 
 1. **Inside the function's JSDoc block** — `@param` tags that reference the old parameter names.
 2. **Inside the README's usage examples** — fenced code blocks that call the function with the old signature.
-3. **Inside external OpenAPI / Swagger specs** — out of scope for now, see the [roadmap](https://github.com/nedonatelli/sidecar/blob/main/ROADMAP.md#agent--workflow) for why.
+3. **Inside external OpenAPI / Swagger specs** — out of scope for now, see the [Roadmap section below](#roadmap) for why.
 
 Both JSDoc sync and README sync treat staleness as a warning diagnostic, with quick fixes that rewrite the documentation to match the current signature. Everything runs on-save/on-open with no disk I/O beyond reading the file itself, so there's no noticeable editor lag.
 
@@ -77,12 +77,12 @@ The analyzer is conservative by design:
 
 - **Class methods, interface methods, and object-literal methods are skipped.** These need a real AST to detect reliably, and the cost of misdiagnosing a method call as a function declaration was judged too high for an MVP.
 - **Functions with destructured or rest parameters are never flagged.** The tool can't confidently map `{ host, port }: Opts` or `...args: string[]` onto `@param` tags, so it leaves them alone rather than producing noise.
-- **Single-line JSDoc blocks (`/** short */`) are recognized but never produce findings.** They can't hold `@param` tags.
-- **Functions with a JSDoc block but no `@param` entries are never flagged.** Devs often write description-only JSDoc, and we don't want to pester them to add tags from scratch. Only *stale* tags get reported — you opt into the check by having at least one `@param` entry.
+- **Single-line JSDoc blocks (`/** short \*/`) are recognized but never produce findings.** They can't hold `@param` tags.
+- **Functions with a JSDoc block but no `@param` entries are never flagged.** Devs often write description-only JSDoc, and we don't want to pester them to add tags from scratch. Only _stale_ tags get reported — you opt into the check by having at least one `@param` entry.
 
 ### How the "is this a real @param tag" check works
 
-A common false-positive source: docstrings that *mention* the `@param` tag format as prose, like "inserts a new `@param NAME` line above the closing comment." The regex requires the tag to appear at the start of a JSDoc line after the `* ` prefix, so mid-sentence mentions in descriptive text are ignored.
+A common false-positive source: docstrings that _mention_ the `@param` tag format as prose, like "inserts a new `@param NAME` line above the closing comment." The regex requires the tag to appear at the start of a JSDoc line after the `* ` prefix, so mid-sentence mentions in descriptive text are ignored.
 
 ```typescript
 /**
@@ -94,7 +94,7 @@ A common false-positive source: docstrings that *mention* the `@param` tag forma
 
 ### Stale-edit resilience
 
-If the JSDoc block contains multiple findings and the user applies a quick fix to one of them, the subsequent finding's diagnostic range becomes stale (line numbers shift). The quick-fix builder resolves this by looking up the owning function by *name* — extracted from the diagnostic message — rather than by line number. The second fix still lands correctly.
+If the JSDoc block contains multiple findings and the user applies a quick fix to one of them, the subsequent finding's diagnostic range becomes stale (line numbers shift). The quick-fix builder resolves this by looking up the owning function by _name_ — extracted from the diagnostic message — rather than by line number. The second fix still lands correctly.
 
 ---
 
@@ -109,15 +109,15 @@ On save or open of `README.md` (at the workspace root — subdirectory `README.m
 
 Calls that fail the arity check surface as warnings.
 
-```markdown
+````markdown
 # Usage
 
 Here's how to call `add`:
 
-​```ts
+​`ts
 add(1);
-​```
-```
+​`
+````
 
 If `src/math.ts` has `export function add(a: number, b: number): number`, the above code block produces:
 
@@ -181,4 +181,4 @@ Both analyzers are pure string parsing with no AST, no network calls, and no dis
 
 ## Roadmap
 
-Swagger / OpenAPI sync was the third planned member of this feature family but is deferred. The roadmap's [Background doc sync](https://github.com/nedonatelli/sidecar/blob/main/ROADMAP.md#agent--workflow) line now notes 2/3 complete, with Swagger pending a real-world project using it as a test bed. The mapping from TypeScript function signatures to OpenAPI operations is fundamentally framework-specific (Express / Fastify / NestJS / tsoa / tRPC each express it differently), so a generic implementation is both harder to build and narrower in reach than JSDoc or README sync.
+Swagger / OpenAPI sync was the third planned member of this feature family but is deferred — 2/3 of the family is complete, with Swagger pending a real-world project using it as a test bed. The mapping from TypeScript function signatures to OpenAPI operations is fundamentally framework-specific (Express / Fastify / NestJS / tsoa / tRPC each express it differently), so a generic implementation is both harder to build and narrower in reach than JSDoc or README sync.
