@@ -137,7 +137,7 @@ describe('MCPManager', () => {
   });
 
   describe('getToolMeta (ToolAnnotations capture)', () => {
-    it('classifies readOnlyHint: true tools as readOnly and unannotated tools as mutations', async () => {
+    it('honors explicit readOnlyHint annotations in both directions', async () => {
       mockClient.listTools.mockResolvedValue({
         tools: [
           {
@@ -147,19 +147,44 @@ describe('MCPManager', () => {
             annotations: { readOnlyHint: true },
           },
           {
-            name: 'update_issue',
-            description: 'Update an issue',
+            // Explicit readOnlyHint: false wins over the read-verb heuristic.
+            name: 'get_and_lock_issue',
+            description: 'Read and lock an issue',
             inputSchema: { type: 'object', properties: {} },
-            annotations: { destructiveHint: true },
+            annotations: { readOnlyHint: false },
           },
-          { name: 'create_issue', description: 'Create an issue', inputSchema: { type: 'object', properties: {} } },
         ],
       });
       await manager.connect({ jira: { command: 'echo' } });
 
       expect(manager.getToolMeta('mcp_jira_get_issue')).toEqual({ server: 'jira', readOnly: true });
-      expect(manager.getToolMeta('mcp_jira_update_issue')).toEqual({ server: 'jira', readOnly: false });
-      expect(manager.getToolMeta('mcp_jira_create_issue')).toEqual({ server: 'jira', readOnly: false });
+      expect(manager.getToolMeta('mcp_jira_get_and_lock_issue')).toEqual({ server: 'jira', readOnly: false });
+    });
+
+    it('falls back to the read-verb name heuristic for unannotated tools', async () => {
+      // Mirrors @modelcontextprotocol/server-github, which ships zero
+      // annotations — without the fallback every read there would classify
+      // as a mutation and fire false verify reprompts.
+      mockClient.listTools.mockResolvedValue({
+        tools: [
+          { name: 'search_repositories', description: 'Search', inputSchema: { type: 'object', properties: {} } },
+          { name: 'list_issues', description: 'List', inputSchema: { type: 'object', properties: {} } },
+          { name: 'create_issue', description: 'Create', inputSchema: { type: 'object', properties: {} } },
+          { name: 'push_files', description: 'Push', inputSchema: { type: 'object', properties: {} } },
+          // No recognized read verb → conservatively a mutation.
+          { name: 'repo_overview', description: 'Overview', inputSchema: { type: 'object', properties: {} } },
+          // Verb must be a whole first segment: "getaway_car" is not a get.
+          { name: 'getaway_car', description: 'Drive', inputSchema: { type: 'object', properties: {} } },
+        ],
+      });
+      await manager.connect({ gh: { command: 'echo' } });
+
+      expect(manager.getToolMeta('mcp_gh_search_repositories')!.readOnly).toBe(true);
+      expect(manager.getToolMeta('mcp_gh_list_issues')!.readOnly).toBe(true);
+      expect(manager.getToolMeta('mcp_gh_create_issue')!.readOnly).toBe(false);
+      expect(manager.getToolMeta('mcp_gh_push_files')!.readOnly).toBe(false);
+      expect(manager.getToolMeta('mcp_gh_repo_overview')!.readOnly).toBe(false);
+      expect(manager.getToolMeta('mcp_gh_getaway_car')!.readOnly).toBe(false);
     });
 
     it('returns undefined for unknown and non-MCP tool names', async () => {

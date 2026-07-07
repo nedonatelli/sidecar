@@ -11,7 +11,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Added
 
-- **MCP mutation discipline.** MCP writes were fire-and-trust; now a successful call to any MCP tool not annotated `readOnlyHint: true` is tracked as an unverified external write, and the completion gate refuses to finish until a later read-only call to the same server gives round-trip evidence — one bounded reprompt lists the exact input fields to compare and instructs draft-on-mismatch instead of claiming success. Extends the v0.114 "evidence not exit codes" gate-hardening to MCP; rides `sidecar.completionGate.enabled`. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`, `src/agent/mcpManager.ts`)
+- **MCP mutation discipline.** MCP writes were fire-and-trust; now a successful call to any MCP tool classified as a mutation (`readOnlyHint` annotation when the server ships one, conservative read-verb name heuristic when it doesn't) is tracked as an unverified external write, and the completion gate refuses to finish until a later read-only call to the same server gives round-trip evidence — one bounded reprompt lists the exact input fields to compare and instructs draft-on-mismatch instead of claiming success. Extends the v0.114 "evidence not exit codes" gate-hardening to MCP; rides `sidecar.completionGate.enabled`. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`, `src/agent/mcpManager.ts`)
 
 ## [0.116.0] - 2026-07-04
 

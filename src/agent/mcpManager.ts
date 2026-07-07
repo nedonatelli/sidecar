@@ -124,8 +124,31 @@ interface MCPConnection {
 /** Server attribution + read/write classification for one connected MCP tool. */
 export interface MCPToolMeta {
   server: string;
-  /** True only when the server annotated the tool readOnlyHint: true. */
+  /** True when the tool is classified read-only — see classifyReadOnly(). */
   readOnly: boolean;
+}
+
+/**
+ * Read verbs for the annotation-less fallback below. Anchored at the start of
+ * the bare tool name; unknown verbs classify as mutations.
+ */
+const READ_ONLY_NAME_RE =
+  /^(get|list|search|read|find|query|fetch|describe|show|view|open|watch|count|check|browse|stat|head|cat|ls|grep|resolve|lookup|inspect|preview|download)([_-]|$)/i;
+
+/**
+ * Classify an MCP tool as read-only for the mutation-verify gate. The server's
+ * `readOnlyHint` annotation wins when present. Unannotated tools fall back to
+ * a read-verb name heuristic — measured against the reference servers, popular
+ * servers ship zero annotations (e.g. server-github), and without the fallback
+ * every read there would classify as a mutation and fire a false "verify your
+ * external write" reprompt after purely read-only workflows. Names with no
+ * recognized read verb classify as mutations, so ambiguity still errs toward
+ * asking for a read-back.
+ */
+function classifyReadOnly(mcpTool: { name: string; annotations?: { readOnlyHint?: boolean } }): boolean {
+  const hint = mcpTool.annotations?.readOnlyHint;
+  if (hint !== undefined) return hint === true;
+  return READ_ONLY_NAME_RE.test(mcpTool.name);
 }
 
 /**
@@ -266,7 +289,7 @@ export class MCPManager {
           return true;
         })
         .map((mcpTool) => {
-          conn.toolReadOnlyByName.set(`mcp_${name}_${mcpTool.name}`, mcpTool.annotations?.readOnlyHint === true);
+          conn.toolReadOnlyByName.set(`mcp_${name}_${mcpTool.name}`, classifyReadOnly(mcpTool));
           return {
             definition: {
               name: `mcp_${name}_${mcpTool.name}`,
@@ -522,11 +545,9 @@ export class MCPManager {
 
   /**
    * Server attribution + read/write classification for a connected MCP tool,
-   * from the server's ToolAnnotations at discovery. `readOnly` is true only
-   * for an explicit `readOnlyHint: true` — unannotated tools classify as
-   * mutations, so the mutation-verify gate errs toward asking for a read-back
-   * rather than trusting an unlabeled write. Undefined for non-MCP names and
-   * disconnected servers.
+   * resolved at discovery via classifyReadOnly() (readOnlyHint annotation,
+   * read-verb name fallback for unannotated servers). Undefined for non-MCP
+   * names and disconnected servers.
    */
   getToolMeta(name: string): MCPToolMeta | undefined {
     for (const conn of this.connections) {
