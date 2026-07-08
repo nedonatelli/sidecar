@@ -108,6 +108,14 @@ export interface AgentEvalCase {
    * reply. Omit to use the harness default ("proceed, use your best judgment").
    */
   clarifyResponse?: string | ((question: string, options: string[]) => string);
+  /**
+   * Live MCPManager for cases that exercise real MCP servers (lazy schema
+   * loading, describe_tool round-trips, the mutation-verify gate). The case
+   * owner connects/disconnects it — the harness only threads it into
+   * AgentOptions so MCP tools appear in the catalog and gate bookkeeping
+   * sees server attribution.
+   */
+  mcpManager?: import('../../src/agent/mcpManager.js').MCPManager;
 }
 
 /**

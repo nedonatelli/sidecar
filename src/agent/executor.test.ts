@@ -72,6 +72,31 @@ describe('executeTool', () => {
     expect(executor.mock.calls[0][0]).toMatchObject({ path: 'src/greeter.ts' });
   });
 
+  it('schema-validation errors include the full input schema (lazy-stub recovery)', async () => {
+    // Lazy-stubbed tools (MCP, extended built-ins) show an empty schema in
+    // the catalog, so on a validation failure the error itself must carry the
+    // real schema — otherwise the model blind-retries {} until cycle
+    // detection bails (observed in the v0.117 live MCP probe).
+    const schema = {
+      type: 'object' as const,
+      properties: { entities: { type: 'array', description: 'Entities to create' } },
+      required: ['entities'],
+    };
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'mcp_memory_create_entities', description: '', input_schema: schema },
+      executor: async () => 'ok',
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { mcp_memory_create_entities: 'allow' } });
+
+    const result = await executeTool(makeToolUse('mcp_memory_create_entities'));
+
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain("invalid input for tool 'mcp_memory_create_entities'");
+    expect(result.content).toContain('Retry with input matching this schema:');
+    expect(result.content).toContain('"required":["entities"]');
+  });
+
   it('returns error when tool permission is deny', async () => {
     mockedFindTool.mockReturnValue({
       definition: { name: 'read_file', description: '', input_schema: { type: 'object', properties: {} } },

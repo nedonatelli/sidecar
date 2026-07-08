@@ -151,13 +151,22 @@ export async function executeTool(
   // Catches missing required params and string/array type mismatches before the
   // executor runs, so the model gets a named error instead of an opaque
   // downstream TypeError (e.g. `content: 123` → "argument must be of type string").
+  // The error carries the tool's REAL schema: for lazy-stubbed tools (MCP, the
+  // extended built-in tier) the catalog entry has an empty schema, so "retry
+  // with matching input" alone sends the model into a blind-retry loop until
+  // cycle detection bails it (observed live: mcp_memory_create_entities({})
+  // × 4 → bail). The resolved definition here is always the full one.
   const schemaError = validateToolInput(toolUse.input, tool.definition.input_schema);
   if (schemaError) {
     logger?.warn(`Tool ${toolUse.name} input failed schema validation: ${schemaError}`);
+    const schemaJson = JSON.stringify(tool.definition.input_schema);
+    const capped = schemaJson.length > 2000 ? schemaJson.slice(0, 2000) + '…' : schemaJson;
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. Retry with input matching the tool's parameters.`,
+      content:
+        `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. ` +
+        `Retry with input matching this schema:\n${capped}`,
       is_error: true,
     };
   }
