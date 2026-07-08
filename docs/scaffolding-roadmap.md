@@ -90,7 +90,7 @@ but not yet scheduled. Ordered roughly by leverage.
 ### CONSTRAIN
 
 - **C1. On-demand capability database** _(L, vision — biggest lever)_ — generalize the Project Knowledge Index from code chunks to _all_ agent capabilities (tools, project conventions, few-shot trajectories), assembled per-query instead of injecting the full tool catalog every turn. A tiered always-resident core + working-set cache + faceted (grammar-constrainable) queries, where a facet is a pre-resolved capability query. Turns a fixed O(N-tools) context cost into O(core + k-retrieved). Supersedes ad-hoc tool-schema stubbing as the primary small-model context-budget lever.
-- **C2. Per-turn built-in-tool subsetting + schema compression** _(M)_ — gate the 80+ built-in tool schemas by task relevance and strip verbose descriptions/enums for weak models, beyond today's stub-the-extended-tools tiering. (MCP lazy schema loading is tracked separately in [ROADMAP.md](../ROADMAP.md).) Caveat: BFCL under-tests lost-in-the-middle at real full-catalog scale — measure at scale before trusting.
+- **C2. Per-turn built-in-tool subsetting + schema compression** _(M)_ — gate the 80+ built-in tool schemas by task relevance and strip verbose descriptions/enums for weak models, beyond today's stub-the-extended-tools tiering. (MCP lazy schema loading shipped in v0.117 — measured 46–60% per-server catalog cut; C2 extends the same move to the built-in catalog.) Caveat: BFCL under-tests lost-in-the-middle at real full-catalog scale — measure at scale before trusting.
 - **C3. Bash / command grammars** _(M)_ — evidence-driven grammars (Lark-style) for the shell tool, the highest-blast-radius surface, constraining generation to well-formed commands (grammar-constrained decoding).
 
 ### VERIFY

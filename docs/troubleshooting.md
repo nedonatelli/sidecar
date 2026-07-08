@@ -2,7 +2,7 @@
 title: Troubleshooting
 layout: docs
 nav_order: 2
-nav_section: "Help"
+nav_section: 'Help'
 ---
 
 # Troubleshooting
@@ -33,17 +33,18 @@ If you get a "model not found" error:
 
 ## Anthropic API errors
 
-| Error | Solution |
-|-------|----------|
-| 401 Unauthorized | Check your API key in `sidecar.apiKey` |
-| 403 Forbidden | Verify your API key has the correct permissions |
-| 404 Not Found | Check the model name (e.g., `claude-sonnet-4-6`, not `claude-3-sonnet`) |
+| Error            | Solution                                                                |
+| ---------------- | ----------------------------------------------------------------------- |
+| 401 Unauthorized | Check your API key in `sidecar.apiKey`                                  |
+| 403 Forbidden    | Verify your API key has the correct permissions                         |
+| 404 Not Found    | Check the model name (e.g., `claude-sonnet-4-6`, not `claude-3-sonnet`) |
 | 429 Rate Limited | SideCar retries automatically with backoff. Wait a moment and try again |
-| Base URL wrong | Set `sidecar.baseUrl` to exactly `https://api.anthropic.com` |
+| Base URL wrong   | Set `sidecar.baseUrl` to exactly `https://api.anthropic.com`            |
 
 ## Chat-only models
 
 Some models don't support function calling:
+
 - `gemma`, `gemma2`
 - `llama2`
 - `mistral`
@@ -164,16 +165,16 @@ SideCar's terminal error watcher uses VS Code's shell integration API. If the **
 
 SideCar classifies errors and shows actionable cards:
 
-| Error type | When you'll see it | Card action |
-|------------|--------------------|-------------|
-| Connection | `ECONNREFUSED`, `ENOTFOUND`, network failures | "Check Connection" — opens settings |
-| Auth | 401, 403, "Invalid API key" | "Check API Key" — opens settings (use `SideCar: Set API Key` to update via SecretStorage) |
-| Model | 404 with "model not found" | "Install Model" — opens model dropdown |
-| Rate limit | 429, "rate limit", "too many requests" | "Wait and Retry" |
-| Server error | 500, 502, 503, 504, "overloaded" | "Retry" |
-| Content policy | Anthropic safety violations, "flagged" | (no action — refine your prompt) |
-| Token limit | "token limit exceeded", "too long", "maximum tokens" | "Reduce Context" — try lowering `sidecar.maxFiles` or running `/compact` |
-| Timeout | Request didn't complete within `requestTimeout` | "Retry" — resends the last message |
+| Error type     | When you'll see it                                   | Card action                                                                               |
+| -------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Connection     | `ECONNREFUSED`, `ENOTFOUND`, network failures        | "Check Connection" — opens settings                                                       |
+| Auth           | 401, 403, "Invalid API key"                          | "Check API Key" — opens settings (use `SideCar: Set API Key` to update via SecretStorage) |
+| Model          | 404 with "model not found"                           | "Install Model" — opens model dropdown                                                    |
+| Rate limit     | 429, "rate limit", "too many requests"               | "Wait and Retry"                                                                          |
+| Server error   | 500, 502, 503, 504, "overloaded"                     | "Retry"                                                                                   |
+| Content policy | Anthropic safety violations, "flagged"               | (no action — refine your prompt)                                                          |
+| Token limit    | "token limit exceeded", "too long", "maximum tokens" | "Reduce Context" — try lowering `sidecar.maxFiles` or running `/compact`                  |
+| Timeout        | Request didn't complete within `requestTimeout`      | "Retry" — resends the last message                                                        |
 
 Click the action button on the error card to resolve common issues quickly.
 
@@ -188,7 +189,7 @@ Click the action button on the error card to resolve common issues quickly.
 If the model responds with nothing (empty content, `done` immediately):
 
 - **Context too large** — local models have a limited context window. SideCar caps local models at 8K tokens. Reduce `sidecar.maxFiles` or unpin large files
-- **Tool definitions overwhelm the model** — ~86 tool definitions add ~20K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
+- **Tool definitions overwhelm the model** — ~~86 tool definitions add ~20K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
 - **Wrong model format** — some models don't support the chat template or tool format. Try a different model
 
 ## Getting help
