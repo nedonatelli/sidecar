@@ -384,7 +384,10 @@ export class MCPManager {
                 );
               }
             },
-            requiresApproval: true, // MCP tools always require approval
+            // Prompts in cautious/manual modes; autonomous executes with an
+            // [AUTONOMOUS] audit line + mcp.jsonl record instead (per-tool
+            // 'ask' in toolPermissions forces a prompt there too).
+            requiresApproval: true,
           };
         });
 
@@ -750,24 +753,38 @@ export async function loadProjectMcpConfig(workspaceRoot: string): Promise<Recor
       const cfg = raw as Record<string, unknown>;
       const type = (cfg.type as string) || 'stdio';
 
+      // SideCar-specific options are valid in .mcp.json too — dropping them
+      // here silently downgraded every option (per-tool disable, allowlist,
+      // output cap, alwaysLoad) to its default for project-configured
+      // servers. Caught live: an alwaysLoad server reported "lazy" in /mcp.
+      const sidecarOpts: Pick<MCPServerConfig, 'tools' | 'toolAllowlist' | 'maxResultChars' | 'alwaysLoad'> = {
+        tools: cfg.tools as MCPServerConfig['tools'],
+        toolAllowlist: cfg.toolAllowlist as string[] | undefined,
+        maxResultChars: cfg.maxResultChars as number | undefined,
+        alwaysLoad: cfg.alwaysLoad as boolean | undefined,
+      };
+
       if (type === 'stdio') {
         result[name] = {
           type: 'stdio',
           command: cfg.command as string,
           args: cfg.args as string[] | undefined,
           env: cfg.env as Record<string, string> | undefined,
+          ...sidecarOpts,
         };
       } else if (type === 'http' || type === 'url') {
         result[name] = {
           type: 'http',
           url: cfg.url as string,
           headers: cfg.headers as Record<string, string> | undefined,
+          ...sidecarOpts,
         };
       } else if (type === 'sse') {
         result[name] = {
           type: 'sse',
           url: cfg.url as string,
           headers: cfg.headers as Record<string, string> | undefined,
+          ...sidecarOpts,
         };
       }
     }

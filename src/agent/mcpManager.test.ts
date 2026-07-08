@@ -507,6 +507,48 @@ describe('MCPManager', () => {
   });
 });
 
+describe('loadProjectMcpConfig', () => {
+  it('preserves SideCar-specific options from .mcp.json (alwaysLoad, toolAllowlist, tools, maxResultChars)', async () => {
+    // Regression: these were silently dropped for project-configured servers —
+    // caught live when an alwaysLoad server reported "lazy" in /mcp.
+    const { loadProjectMcpConfig } = await import('./mcpManager.js');
+    const vscode = await import('vscode');
+    const readFile = vi.spyOn(vscode.workspace.fs, 'readFile').mockResolvedValue(
+      Buffer.from(
+        JSON.stringify({
+          mcpServers: {
+            fs: {
+              command: 'npx',
+              args: ['-y', 'server-filesystem', '/tmp'],
+              alwaysLoad: true,
+              toolAllowlist: ['read_file'],
+              tools: { write_file: { enabled: false } },
+              maxResultChars: 20000,
+            },
+            api: {
+              type: 'http',
+              url: 'https://mcp.example.com',
+              alwaysLoad: true,
+            },
+          },
+        }),
+      ),
+    );
+
+    const configs = await loadProjectMcpConfig('/ws');
+    expect(configs.fs).toMatchObject({
+      type: 'stdio',
+      command: 'npx',
+      alwaysLoad: true,
+      toolAllowlist: ['read_file'],
+      tools: { write_file: { enabled: false } },
+      maxResultChars: 20000,
+    });
+    expect(configs.api).toMatchObject({ type: 'http', url: 'https://mcp.example.com', alwaysLoad: true });
+    readFile.mockRestore();
+  });
+});
+
 describe('mergeMcpConfigs', () => {
   it('merges configs from multiple sources', () => {
     const source1 = { a: { command: 'a' } };

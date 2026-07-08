@@ -219,7 +219,7 @@ MCP writes are fire-and-trust by default: the tool returns success, but nothing 
 - A successful mutation stays **unverified** until a later successful read-only call to the same server.
 - If the agent tries to finish with unverified mutations, the completion gate injects one bounded reprompt: read the resource back, compare every field you set, and on any mismatch report it and leave the resource in a draft/unpublished state instead of claiming success.
 
-This is a reliability discipline, not a security boundary — the read-back comes from the same server, so it verifies _transport and semantics_, not server honesty. The approval flow (every MCP call requires approval) remains the security control. Rides `sidecar.completionGate.enabled`.
+This is a reliability discipline, not a security boundary — the read-back comes from the same server, so it verifies _transport and semantics_, not server honesty. The security controls are the approval flow (cautious/manual modes prompt per call; autonomous audit-logs instead — see [How MCP tools work](#how-mcp-tools-work)) and workspace trust. Rides `sidecar.completionGate.enabled`.
 
 ## Server status
 
@@ -248,7 +248,7 @@ SideCar monitors MCP server health automatically:
 - Schemas load **lazily** by default — the catalog carries one-line stubs and the model fetches full schemas via `describe_tool` (see [Lazy tool schemas](#lazy-tool-schemas))
 - Tool calls go through the same **approval flow** (cautious/autonomous/manual/review)
 - **Tool permissions** (`sidecar.toolPermissions`) apply to MCP tools by their prefixed name
-- All MCP tools **require approval** regardless of approval mode
+- MCP tools **require approval in cautious and manual modes**. In **autonomous** mode they execute without a prompt (that is the mode's contract) and every call is audit-logged (`[AUTONOMOUS]` line + `.sidecar/logs/mcp.jsonl`); force a per-call prompt for specific tools with `sidecar.toolPermissions: { "mcp_<server>_<tool>": "ask" }`
 
 ## Building MCP servers
 

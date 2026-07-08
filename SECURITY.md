@@ -101,7 +101,7 @@ Every MCP tool response is wrapped in XML-style boundary markers (`<mcp_tool_out
 ### MCP transport trust
 
 - **stdio** transports (spawn a local process with the user's privileges) are hard-blocked in untrusted workspaces. A cloned repo's `.mcp.json` cannot spawn arbitrary binaries until the user explicitly trusts the workspace via VS Code's built-in workspace-trust mechanism.
-- **http** and **sse** transports connect out without spawning; allowed in untrusted workspaces but still subject to per-call approval.
+- **http** and **sse** transports connect out without spawning; allowed in untrusted workspaces and subject to the same per-call approval rules as all MCP tools (prompted in cautious/manual; audit-logged, not prompted, in autonomous — override per tool via `sidecar.toolPermissions`).
 
 ### Environment-variable expansion is scoped
 
