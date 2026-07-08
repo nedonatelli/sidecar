@@ -4,6 +4,39 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.117.0] - 2026-07-07
+
+Context economy, slice 1 — the first release under the depth-revectored roadmap. MCP tool schemas now load lazily (one-line stubs in the catalog, `describe_tool` on first use; measured 46–60% catalog cut on the reference servers, opt-out per server via `alwaysLoad`), and MCP writes graduate from fire-and-trust to a round-trip verify discipline: unverified external writes block completion until a read-back confirms them. Both features were dogfooded live — headless probes through the real agent loop against a real MCP server plus a VS Code host session on qwen2.5-coder:7b — which caught and fixed four real bugs (annotation-gap false positives, blind-retry on schema-validation errors, `.mcp.json` dropping SideCar options, and `internal/` docs shipping in the .vsix). Three Cycle-4 audit findings closed. Verified: full check (7750 tests), coverage 86.95/77.91/85.41/88.51, Stryker moat score 74.38% (up from 71.7%), packaging deny-list clean, T2 smoke on two models with zero infra errors.
+
+### Security
+
+- **MCP forensic log.** MCP lifecycle events now persist to `.sidecar/logs/mcp.jsonl` (always-on; previously only the ephemeral Output Channel): stdio spawn commands (secret-redacted), discovered tool lists, connect/reconnect/disconnect events, and injection-heuristic hits — so there is an on-disk record of what a `.mcp.json` server spawned and exposed. Closes two Cycle-4 audit findings. (`src/agent/mcpAuditLog.ts`)
+- **`SECRET_PATTERNS_VERSION` 2 → 3.** New base64 credential heuristics: `Basic <b64>` header values, and long (≥40 char) base64 after `Bearer ` / `token=` — closing the gap where an already-base64-encoded MCP `Authorization` header value matched no pattern in logged strings. (`src/agent/securityScanner.ts`)
+- **PKI poisoning screen.** Symbol bodies are checked against the deterministic prompt-injection heuristic before embedding; flagged bodies are skipped (warned once per symbol) so a cloned repo can't plant payloads that surface as top-K retrieval results disguised as project documentation. Closes a Cycle-4 HIGH finding. (`src/config/symbolEmbeddingIndex.ts`)
+
+### Changed
+
+- **Lazy MCP tool-schema loading.** MCP tool schemas no longer inject into the prompt upfront: the catalog carries a compact one-line stub per tool and the model fetches the full schema via `describe_tool` on first use — the same mechanism extended built-in tools already use. Measured against the reference servers, the catalog cut is 46–60% per server (56% aggregate over 49 tools: ~7.3K → ~3.2K estimated tokens for filesystem + github + memory) — fixed context cost that matters most on small local models. Per-server opt-out: `"alwaysLoad": true` in `sidecar.mcpServers` keeps full schemas upfront for servers whose tools are used on nearly every run. Dispatch is unaffected — calls always resolve against the full schema and executor. (`src/agent/mcpManager.ts`, `src/agent/tools.ts`)
+- **`describe_tool` now resolves MCP, custom, and SDK tools**, not just built-ins. (`src/agent/tools.ts`)
+
+### Added
+
+- **Schema-on-error recovery for lazy MCP tools.** When a lazy-loaded tool call fails (thrown protocol error or in-band `isError` result — the likely cause is arguments guessed against the empty stub schema), the full input schema is appended to the error so the model corrects and retries in one step instead of detouring via `describe_tool`. The hint sits outside the untrusted-output boundary wrap; `alwaysLoad` servers are exempt (their schema is already in the catalog). (`src/agent/mcpManager.ts`)
+- **MCP catalog observability.** Connect-time log line records each server's full vs prompt catalog size and lazy status (`[MCP] catalog server=… tools=… lazy=… fullChars=… promptChars=…`); `/mcp` and the MCP Servers tree view show each server's schema mode (lazy vs `alwaysLoad`). (`src/agent/mcpManager.ts`, `src/webview/handlers/infoHandlers.ts`, `src/views/mcpServersView.ts`)
+- **MCP mutation discipline.** MCP writes were fire-and-trust; now a successful call to any MCP tool classified as a mutation (`readOnlyHint` annotation when the server ships one, conservative read-verb name heuristic when it doesn't) is tracked as an unverified external write (including `delegate_to_mcp` delegations, attributed to their target server), and the completion gate refuses to finish until a later read-only call to the same server gives round-trip evidence — one bounded reprompt lists the exact input fields to compare and instructs draft-on-mismatch instead of claiming success. Extends the v0.114 "evidence not exit codes" gate-hardening to MCP; rides `sidecar.completionGate.enabled`. (`src/agent/completionGate.ts`, `src/agent/loop/gate.ts`, `src/agent/mcpManager.ts`)
+
+### Fixed
+
+- **`.mcp.json` preserves SideCar options.** `loadProjectMcpConfig` silently dropped every SideCar-specific option (`tools` per-tool disable, `toolAllowlist`, `maxResultChars`, `alwaysLoad`) for project-configured servers — they only worked via VS Code settings. Caught live in the host dogfood when an `alwaysLoad` server reported "lazy" in `/mcp`. (`src/agent/mcpManager.ts`)
+- **Schema-carrying validation errors.** Executor schema-validation failures now include the resolved tool's full input schema; for lazy-stubbed tools the old generic "retry with matching input" sent models into a blind `{}`-retry loop until cycle detection bailed (observed live). (`src/agent/executor.ts`)
+- **`internal/` excluded from the .vsix** + a deny-list check in `verify-package` (`internal/`, `.sidecar/`, `.env`) so private-content leaks fail the release gate. Prior published packages (≤ v0.116.0) included the internal working docs. (`.vscodeignore`, `scripts/verify-package.mjs`)
+- **Docs state real MCP approval semantics** — cautious/manual prompt per call; autonomous executes with an `[AUTONOMOUS]` audit line + `mcp.jsonl` record; per-tool `toolPermissions: "ask"` forces a prompt. Previous claim ("all MCP tools require approval regardless of mode") was wrong. Behavior unchanged. (`docs/mcp-servers.md`, `SECURITY.md`)
+
+### Stats
+
+- 7750 total tests (420 test files)
+- 86 built-in tools, 11 skills
+
 ## [0.116.0] - 2026-07-04
 
 A hardening and quality release on top of the 0.115.0 feature set: a full-codebase security audit closed six high-severity findings and a robustness cluster, the moat-critical gates were mutation-tested to prove their tests catch faults (not just pass), the largest source files were decomposed into focused modules with no behavior change, and the whole thing was put through a full verification pass — deterministic gate, mutation score, agent evals, and a tool-calling benchmark — before tagging.

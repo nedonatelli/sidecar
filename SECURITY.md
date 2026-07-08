@@ -34,8 +34,8 @@ Only the latest released version on the VS Code Marketplace receives security pa
 
 | Version           | Supported |
 | ----------------- | --------- |
-| 0.116.x (current) | ✅        |
-| < 0.116           | ❌        |
+| 0.117.x (current) | ✅        |
+| < 0.117           | ❌        |
 
 ## Threat model — what SideCar defends
 
@@ -55,7 +55,7 @@ The agent can call `write_file`, `edit_file`, and `delete_file`. Three tiers of 
 
 ### Secret detection and redaction
 
-[`src/agent/securityScanner.ts`](src/agent/securityScanner.ts) ships `SECRET_PATTERNS` — a catalog of regex patterns for common API keys, tokens, and connection strings. The catalog version is exposed as `SECRET_PATTERNS_VERSION` (currently **2**, introduced in v0.62.4, unchanged through v0.116.0).
+[`src/agent/securityScanner.ts`](src/agent/securityScanner.ts) ships `SECRET_PATTERNS` — a catalog of regex patterns for common API keys, tokens, and connection strings. The catalog version is exposed as `SECRET_PATTERNS_VERSION` (currently **3**, introduced in v0.117.0).
 
 Two entry points use it:
 
@@ -66,30 +66,31 @@ Two entry points use it:
   - Persisting agent memory entries to `.sidecar/memory/agent-memories.json` (entries derive from tool inputs/outputs).
 - **`scanContent(content, path)` / `scanFile(path)`** — surfaces matches as diagnostics the user sees in the Problems panel.
 
-**Pattern catalog** (v0.62.4):
+**Pattern catalog** (v3):
 
-| Provider    | Pattern name                                             |
-| ----------- | -------------------------------------------------------- |
-| AWS         | Access Key, Secret Key                                   |
-| GitHub      | Token (ghp/gho/ghu/ghs/ghr)                              |
-| Anthropic   | `sk-ant-...`                                             |
-| OpenRouter  | `sk-or-...`                                              |
-| OpenAI      | `sk-...` (catch-all after provider-specifics)            |
-| HuggingFace | `hf_...`                                                 |
-| Cohere      | `co-...`                                                 |
-| Replicate   | `r8_...`                                                 |
-| Stripe      | live secret, live publishable, live restricted           |
-| Twilio      | Account SID                                              |
-| SendGrid    | API key                                                  |
-| Mailgun     | API key                                                  |
-| Google      | API key (`AIza...`)                                      |
-| Azure       | Storage connection string                                |
-| npm         | Access token, legacy auth token                          |
-| PyPI        | Token                                                    |
-| Slack       | `xox[bprs]-...`                                          |
-| Generic     | `api_key=`, `secret=`, `password=`, `token=` heuristics  |
-| Crypto      | PEM private key header, JWT                              |
-| Network     | DB connection strings, HTTP URLs with inline credentials |
+| Provider    | Pattern name                                                |
+| ----------- | ----------------------------------------------------------- |
+| AWS         | Access Key, Secret Key                                      |
+| GitHub      | Token (ghp/gho/ghu/ghs/ghr)                                 |
+| Anthropic   | `sk-ant-...`                                                |
+| OpenRouter  | `sk-or-...`                                                 |
+| OpenAI      | `sk-...` (catch-all after provider-specifics)               |
+| HuggingFace | `hf_...`                                                    |
+| Cohere      | `co-...`                                                    |
+| Replicate   | `r8_...`                                                    |
+| Stripe      | live secret, live publishable, live restricted              |
+| Twilio      | Account SID                                                 |
+| SendGrid    | API key                                                     |
+| Mailgun     | API key                                                     |
+| Google      | API key (`AIza...`)                                         |
+| Azure       | Storage connection string                                   |
+| npm         | Access token, legacy auth token                             |
+| PyPI        | Token                                                       |
+| Slack       | `xox[bprs]-...`                                             |
+| Generic     | `api_key=`, `secret=`, `password=`, `token=` heuristics     |
+| Crypto      | PEM private key header, JWT                                 |
+| Base64 auth | `Basic <b64>`, long `Bearer <b64>`, long `token=<b64>` (v3) |
+| Network     | DB connection strings, HTTP URLs with inline credentials    |
 
 **If a pattern is missing**, please [open an issue](https://github.com/nedonatelli/sidecar/issues) or follow the vulnerability reporting path above. Pattern gaps are treated as low-severity security issues — a missing pattern means real user credentials land unredacted in attacker-reachable surfaces.
 
@@ -100,7 +101,7 @@ Every MCP tool response is wrapped in XML-style boundary markers (`<mcp_tool_out
 ### MCP transport trust
 
 - **stdio** transports (spawn a local process with the user's privileges) are hard-blocked in untrusted workspaces. A cloned repo's `.mcp.json` cannot spawn arbitrary binaries until the user explicitly trusts the workspace via VS Code's built-in workspace-trust mechanism.
-- **http** and **sse** transports connect out without spawning; allowed in untrusted workspaces but still subject to per-call approval.
+- **http** and **sse** transports connect out without spawning; allowed in untrusted workspaces and subject to the same per-call approval rules as all MCP tools (prompted in cautious/manual; audit-logged, not prompted, in autonomous — override per tool via `sidecar.toolPermissions`).
 
 ### Environment-variable expansion is scoped
 
@@ -143,8 +144,9 @@ Be honest about the scope. The following are out of scope for SideCar's current 
 
 ## Change history for this policy
 
-| Date       | Change                                                                                                                                                                                                                                   |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-07-07 | Refresh: supported version → 0.116.x; `SECRET_PATTERNS_VERSION` still 2 (unchanged through 0.116.0); `@xenova/transformers` → `@huggingface/transformers` (renamed v0.83). No policy or defense change.                                  |
-| 2026-04-17 | Initial SECURITY.md; `SECRET_PATTERNS_VERSION = 2` bundled with v0.62.4 (new patterns for Stripe/Twilio/SendGrid/Mailgun/Google/Azure/npm/PyPI/HuggingFace/Cohere/Replicate/OpenRouter); MCP output wrapping + injection detection added |
-| _prior_    | `SECRET_PATTERNS_VERSION = 1` (pre-v0.62.4): AWS/GitHub/Anthropic/OpenAI/Slack/JWT/PEM/connection-string/generic heuristics                                                                                                              |
+| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-07-07 | `SECRET_PATTERNS_VERSION = 3` (v0.117.0): base64 credential heuristics — `Basic <b64>`, long `Bearer <b64>`, long `token=<b64>` — closing the gap where an already-base64-encoded MCP `Authorization` header value matched no pattern in logged strings. Also: MCP forensic log `.sidecar/logs/mcp.jsonl` (spawn commands secret-redacted, discovered tool lists, connection events, injection signals) and injection screening of symbol bodies before PKI embedding. |
+| 2026-07-07 | Refresh: supported version → 0.116.x; `SECRET_PATTERNS_VERSION` still 2 (unchanged through 0.116.0); `@xenova/transformers` → `@huggingface/transformers` (renamed v0.83). No policy or defense change.                                                                                                                                                                                                                                                                |
+| 2026-04-17 | Initial SECURITY.md; `SECRET_PATTERNS_VERSION = 2` bundled with v0.62.4 (new patterns for Stripe/Twilio/SendGrid/Mailgun/Google/Azure/npm/PyPI/HuggingFace/Cohere/Replicate/OpenRouter); MCP output wrapping + injection detection added                                                                                                                                                                                                                               |
+| _prior_    | `SECRET_PATTERNS_VERSION = 1` (pre-v0.62.4): AWS/GitHub/Anthropic/OpenAI/Slack/JWT/PEM/connection-string/generic heuristics                                                                                                                                                                                                                                                                                                                                            |

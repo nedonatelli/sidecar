@@ -79,10 +79,13 @@ describe('initLoopState', () => {
     it('propagates logger + changelog + mcpManager references verbatim', () => {
       const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as AgentOptions['logger'];
       const changelog = {} as AgentOptions['changelog'];
-      // Minimal shape — getToolDefinitions is the only method initLoopState's
-      // default tool-resolution path reaches through mcpManager when
-      // toolOverride is not supplied.
-      const mcpManager = { getToolDefinitions: () => [] } as unknown as AgentOptions['mcpManager'];
+      // Minimal shape — getToolDefinitions + getLazyToolNames are the only
+      // methods initLoopState's default tool-resolution path reaches through
+      // mcpManager when toolOverride is not supplied.
+      const mcpManager = {
+        getToolDefinitions: () => [],
+        getLazyToolNames: () => new Set<string>(),
+      } as unknown as AgentOptions['mcpManager'];
       const state = initLoopState([], { logger, changelog, mcpManager });
       expect(state.logger).toBe(logger);
       expect(state.changelog).toBe(changelog);

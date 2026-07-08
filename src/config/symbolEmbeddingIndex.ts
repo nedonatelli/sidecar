@@ -20,6 +20,7 @@ import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
 import { hashLeaf, type MerkleTree } from './merkleTree.js';
 import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, LazyEmbedder } from './hfPipeline.js';
+import { detectInjection } from '../agent/injectionGuard.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const META_FILE = 'cache/symbol-embeddings-meta.json';
@@ -148,6 +149,10 @@ export class SymbolEmbeddingIndex implements Disposable {
    * most-recent input wins when a file is updated twice in quick
    * succession (save-after-save coalesces).
    */
+  /** Symbols skipped by the injection-poisoning screen, so the warning fires
+   *  once per symbol instead of on every re-scan of a poisoned file. */
+  private injectionSkipWarned = new Set<string>();
+
   private pendingQueue = new Map<string, SymbolEmbedInput>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private drainedListeners: Array<() => void> = [];
@@ -300,6 +305,27 @@ export class SymbolEmbeddingIndex implements Disposable {
    */
   async indexSymbol(input: SymbolEmbedInput): Promise<void> {
     const symbolId = makeSymbolId(input.filePath, input.qualifiedName);
+
+    // Poisoning screen: symbol bodies are indexed verbatim — comments and
+    // docstrings included — so a cloned repo can plant instruction-injection
+    // payloads that later surface as top-K retrieval hits looking like
+    // project documentation. Run the same deterministic heuristic used at
+    // the tool-result boundary and refuse to index flagged bodies. Warned
+    // once per symbol so a poisoned file doesn't spam the log on every save.
+    const injections = detectInjection(input.body);
+    if (injections.length > 0) {
+      if (!this.injectionSkipWarned.has(symbolId)) {
+        this.injectionSkipWarned.add(symbolId);
+        logger.warn(
+          `[PKI] skipped indexing${kv({
+            symbol: `${input.filePath}::${input.qualifiedName}`,
+            signals: injections.map((f) => f.category).join(','),
+          })} — body matches prompt-injection patterns; it will not surface in retrieval`,
+        );
+      }
+      return;
+    }
+
     const hash = hashBody(input.body);
     // v0.62 d.2: the Merkle leaf hash is derived from the full
     // canonical leaf shape so a symbol move (line range shift) or

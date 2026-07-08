@@ -238,7 +238,8 @@ export function handleMcpStatus(state: ChatState): void {
     const icon = statusIcon(server.status);
     const uptime = server.connectedSinceMs !== undefined ? ` (up ${Math.round(server.connectedSinceMs / 1000)}s)` : '';
     lines.push(`${icon} **${server.name}** — ${server.status}${uptime}`);
-    lines.push(`  Transport: ${server.transport} | Tools: ${server.toolCount}`);
+    const schemas = server.lazyToolSchemas ? 'lazy (describe_tool on first use)' : 'full (alwaysLoad)';
+    lines.push(`  Transport: ${server.transport} | Tools: ${server.toolCount} | Schemas: ${schemas}`);
     if (server.error) {
       lines.push(`  Error: ${server.error}`);
     }

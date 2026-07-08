@@ -47,6 +47,9 @@ class McpServerItem implements TreeItem {
       `Status: ${info.status}`,
       `Transport: ${info.transport}`,
       info.status === 'connected' ? `Tools: ${toolLabel}` : '',
+      info.status === 'connected'
+        ? `Schemas: ${info.lazyToolSchemas ? 'lazy (describe_tool on first use)' : 'full (alwaysLoad)'}`
+        : '',
       info.error ? `Error: ${info.error}` : '',
     ]
       .filter(Boolean)

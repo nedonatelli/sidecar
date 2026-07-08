@@ -280,6 +280,13 @@ v0.94+ `type: 'bitbucket'` provider. `fetchBitbucketPRs(config, fetchFn?)` — c
 - **Concurrent-connect serialization** — `connect()` delegates to `_connect()` via `connectChain = connectChain.then(...)`. Overlapping calls queue rather than race.
 - **Runtime health monitoring** — after a successful `client.connect()`, the manager sets `client.onclose` to detect unexpected drops and fire `scheduleReconnect()`. The hook guards on `conn.status !== 'connected'` so intentional `disconnect()` and `reconnectServer()` calls don't trigger spurious reconnects.
 
+**v0.117 context-economy layer:**
+
+- **Lazy tool schemas** — the prompt catalog stubs MCP tools to one line each (name + first sentence + `describe_tool` pointer, empty schema) unless the server config sets `alwaysLoad: true`. `getLazyToolNames()` feeds `getToolDefinitionsForTier` in `tools.ts`; dispatch always resolves the full definition via `getTool()`. Measured 46–60% per-server catalog cut on the reference servers. Failed calls on lazy tools get the real schema appended (both the MCP executor's thrown/`isError` paths and `executor.ts` schema-validation rejections), so a model that guessed args recovers in one step.
+- **Mutation discipline** — `getToolMeta(name)` classifies each connected tool read-only vs mutation (`readOnlyHint` annotation wins; read-verb name heuristic for unannotated servers — server-github ships zero annotations). `completionGate.ts` tracks successful mutations (and `delegate_to_mcp` delegations, detected by the `<mcp_tool_output>` wrap) as unverified until a later successful read-only call to the same server; a bounded completion-gate reprompt demands the round-trip with draft-on-mismatch instructions. Reliability discipline, not a security boundary.
+- **Forensic log** — `mcpAuditLog.ts` persists lifecycle events to `.sidecar/logs/mcp.jsonl` (always-on): stdio spawn commands (secret-redacted), discovered tool lists, connect/reconnect/disconnect, injection-signal hits. Wired via `setMcpAuditDir` in `servicesInit`.
+- **`.mcp.json` parity** — `loadProjectMcpConfig` carries SideCar options (`tools`, `toolAllowlist`, `maxResultChars`, `alwaysLoad`) through, not just transport fields.
+
 ### Agentic Task Delegation via MCP (`src/agent/tools/mcpDelegate.ts`, `src/mcpServer/agentServer.ts`)
 
 v0.95+ two-direction MCP delegation.

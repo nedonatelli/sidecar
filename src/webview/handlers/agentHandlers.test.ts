@@ -82,7 +82,7 @@ describe('handleMcpStatus', () => {
     expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
   });
 
-  it('lists connected servers with tool counts', () => {
+  it('lists connected servers with tool counts and schema mode', () => {
     const state = {
       mcpManager: {
         getServerStatus: () => [
@@ -91,10 +91,19 @@ describe('handleMcpStatus', () => {
             status: 'connected',
             transport: 'stdio',
             toolCount: 5,
+            lazyToolSchemas: true,
+            connectedSinceMs: 30000,
+          },
+          {
+            name: 'pinned-server',
+            status: 'connected',
+            transport: 'stdio',
+            toolCount: 2,
+            lazyToolSchemas: false,
             connectedSinceMs: 30000,
           },
         ],
-        getToolCount: () => 5,
+        getToolCount: () => 7,
       },
       postMessage: vi.fn(),
     };
@@ -107,6 +116,8 @@ describe('handleMcpStatus', () => {
     expect(content).toContain('test-server');
     expect(content).toContain('connected');
     expect(content).toContain('Tools: 5');
+    expect(content).toContain('Schemas: lazy (describe_tool on first use)');
+    expect(content).toContain('Schemas: full (alwaysLoad)');
     expect(content).toContain('Total tools');
   });
 

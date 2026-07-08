@@ -50,7 +50,13 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
   }),
 }));
 
+vi.mock('./mcpAuditLog.js', () => ({
+  logMcpEvent: vi.fn(),
+  setMcpAuditDir: vi.fn(),
+}));
+
 import { MCPManager, mergeMcpConfigs, wrapMcpOutput, detectInjectionSignals } from './mcpManager.js';
+import { logMcpEvent } from './mcpAuditLog.js';
 
 describe('MCPManager', () => {
   let manager: MCPManager;
@@ -103,6 +109,188 @@ describe('MCPManager', () => {
     const tool = manager.getTool('mcp_fs_read');
     expect(tool).toBeDefined();
     expect(tool?.definition.name).toBe('mcp_fs_read');
+  });
+
+  describe('lazy tool-schema loading (alwaysLoad)', () => {
+    it('reports every connected tool as lazy by default', async () => {
+      await manager.connect({
+        fs: { command: 'echo' },
+      });
+
+      expect([...manager.getLazyToolNames()].sort()).toEqual(['mcp_fs_read', 'mcp_fs_write']);
+    });
+
+    it('excludes tools from servers configured with alwaysLoad: true', async () => {
+      await manager.connect({
+        fs: { command: 'echo' },
+        pinned: { command: 'echo', alwaysLoad: true },
+      });
+
+      const lazy = manager.getLazyToolNames();
+      expect(lazy.has('mcp_fs_read')).toBe(true);
+      expect(lazy.has('mcp_fs_write')).toBe(true);
+      expect(lazy.has('mcp_pinned_read')).toBe(false);
+      expect(lazy.has('mcp_pinned_write')).toBe(false);
+      // Lazy loading only shapes the prompt catalog — dispatch still resolves
+      // the full tool either way.
+      expect(manager.getTool('mcp_fs_read')).toBeDefined();
+      expect(manager.getTool('mcp_pinned_read')).toBeDefined();
+    });
+
+    it('returns an empty set when no servers are connected', () => {
+      expect(manager.getLazyToolNames().size).toBe(0);
+    });
+  });
+
+  describe('getToolMeta (ToolAnnotations capture)', () => {
+    it('honors explicit readOnlyHint annotations in both directions', async () => {
+      mockClient.listTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'get_issue',
+            description: 'Read an issue',
+            inputSchema: { type: 'object', properties: {} },
+            annotations: { readOnlyHint: true },
+          },
+          {
+            // Explicit readOnlyHint: false wins over the read-verb heuristic.
+            name: 'get_and_lock_issue',
+            description: 'Read and lock an issue',
+            inputSchema: { type: 'object', properties: {} },
+            annotations: { readOnlyHint: false },
+          },
+        ],
+      });
+      await manager.connect({ jira: { command: 'echo' } });
+
+      expect(manager.getToolMeta('mcp_jira_get_issue')).toEqual({ server: 'jira', readOnly: true });
+      expect(manager.getToolMeta('mcp_jira_get_and_lock_issue')).toEqual({ server: 'jira', readOnly: false });
+    });
+
+    it('falls back to the read-verb name heuristic for unannotated tools', async () => {
+      // Mirrors @modelcontextprotocol/server-github, which ships zero
+      // annotations — without the fallback every read there would classify
+      // as a mutation and fire false verify reprompts.
+      mockClient.listTools.mockResolvedValue({
+        tools: [
+          { name: 'search_repositories', description: 'Search', inputSchema: { type: 'object', properties: {} } },
+          { name: 'list_issues', description: 'List', inputSchema: { type: 'object', properties: {} } },
+          { name: 'create_issue', description: 'Create', inputSchema: { type: 'object', properties: {} } },
+          { name: 'push_files', description: 'Push', inputSchema: { type: 'object', properties: {} } },
+          // No recognized read verb → conservatively a mutation.
+          { name: 'repo_overview', description: 'Overview', inputSchema: { type: 'object', properties: {} } },
+          // Verb must be a whole first segment: "getaway_car" is not a get.
+          { name: 'getaway_car', description: 'Drive', inputSchema: { type: 'object', properties: {} } },
+        ],
+      });
+      await manager.connect({ gh: { command: 'echo' } });
+
+      expect(manager.getToolMeta('mcp_gh_search_repositories')!.readOnly).toBe(true);
+      expect(manager.getToolMeta('mcp_gh_list_issues')!.readOnly).toBe(true);
+      expect(manager.getToolMeta('mcp_gh_create_issue')!.readOnly).toBe(false);
+      expect(manager.getToolMeta('mcp_gh_push_files')!.readOnly).toBe(false);
+      expect(manager.getToolMeta('mcp_gh_repo_overview')!.readOnly).toBe(false);
+      expect(manager.getToolMeta('mcp_gh_getaway_car')!.readOnly).toBe(false);
+    });
+
+    it('returns undefined for unknown and non-MCP tool names', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      expect(manager.getToolMeta('mcp_fs_nonexistent')).toBeUndefined();
+      expect(manager.getToolMeta('read_file')).toBeUndefined();
+    });
+
+    it('returns undefined after the owning server disconnects', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      expect(manager.getToolMeta('mcp_fs_read')).toBeDefined();
+      await manager.disconnect();
+      expect(manager.getToolMeta('mcp_fs_read')).toBeUndefined();
+    });
+  });
+
+  describe('schema-on-error for lazy tools', () => {
+    it('appends the full input schema to a thrown error on a lazy server', async () => {
+      mockClient.callTool.mockRejectedValue(new Error('Invalid params'));
+      await manager.connect({ fs: { command: 'echo' } });
+
+      await expect(manager.getTool('mcp_fs_read')!.executor({ wrong: 'args' })).rejects.toThrow(
+        /Full input schema for mcp_fs_read .*lazy stub/,
+      );
+    });
+
+    it('appends the schema outside the boundary wrap on an in-band isError result', async () => {
+      mockClient.callTool.mockResolvedValue({
+        isError: true,
+        content: [{ type: 'text', text: 'Error: missing required parameter uri' }],
+      });
+      await manager.connect({ fs: { command: 'echo' } });
+
+      const out = await manager.getTool('mcp_fs_read')!.executor({});
+      const hintIdx = out.indexOf('Full input schema for mcp_fs_read');
+      expect(hintIdx).toBeGreaterThan(-1);
+      // First-party hint must sit OUTSIDE the untrusted-output fence.
+      expect(hintIdx).toBeGreaterThan(out.indexOf('</mcp_tool_output>'));
+    });
+
+    it('does not append the schema for alwaysLoad servers (full schema already in the catalog)', async () => {
+      mockClient.callTool.mockRejectedValue(new Error('Invalid params'));
+      await manager.connect({ pinned: { command: 'echo', alwaysLoad: true } });
+
+      await expect(manager.getTool('mcp_pinned_read')!.executor({})).rejects.toThrow(/Invalid params/);
+      await expect(manager.getTool('mcp_pinned_read')!.executor({})).rejects.not.toThrow(/Full input schema/);
+    });
+
+    it('does not append the schema to a successful result', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      const out = await manager.getTool('mcp_fs_read')!.executor({ uri: 'x' });
+      expect(out).not.toContain('Full input schema');
+    });
+  });
+
+  describe('forensic audit events (mcp.jsonl)', () => {
+    it('logs spawn + connected on a successful stdio connect', async () => {
+      await manager.connect({ fs: { command: 'echo', args: ['hi'] } });
+
+      expect(logMcpEvent).toHaveBeenCalledWith({ event: 'spawn', server: 'fs', command: 'echo', args: ['hi'] });
+      expect(logMcpEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'connected',
+          server: 'fs',
+          transport: 'stdio',
+          toolCount: 2,
+          tools: ['mcp_fs_read', 'mcp_fs_write'],
+          lazy: true,
+        }),
+      );
+    });
+
+    it('logs connect-failed when the client cannot connect', async () => {
+      mockClient.connect.mockRejectedValueOnce(new Error('spawn ENOENT'));
+      await manager.connect({ broken: { command: 'nope' } });
+
+      expect(logMcpEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'connect-failed',
+          server: 'broken',
+          error: expect.stringContaining('ENOENT'),
+        }),
+      );
+    });
+
+    it('logs disconnected on teardown', async () => {
+      await manager.connect({ fs: { command: 'echo' } });
+      await manager.disconnect();
+
+      expect(logMcpEvent).toHaveBeenCalledWith({ event: 'disconnected', server: 'fs' });
+    });
+  });
+
+  it('getServerStatus reports lazyToolSchemas per server', async () => {
+    await manager.connect({
+      fs: { command: 'echo' },
+      pinned: { command: 'echo', alwaysLoad: true },
+    });
+    const byName = Object.fromEntries(manager.getServerStatus().map((s) => [s.name, s.lazyToolSchemas]));
+    expect(byName).toEqual({ fs: true, pinned: false });
   });
 
   it('returns undefined for unknown tool', async () => {
@@ -316,6 +504,48 @@ describe('MCPManager', () => {
       const status = manager.getServerStatus();
       expect(status).toEqual([]);
     });
+  });
+});
+
+describe('loadProjectMcpConfig', () => {
+  it('preserves SideCar-specific options from .mcp.json (alwaysLoad, toolAllowlist, tools, maxResultChars)', async () => {
+    // Regression: these were silently dropped for project-configured servers —
+    // caught live when an alwaysLoad server reported "lazy" in /mcp.
+    const { loadProjectMcpConfig } = await import('./mcpManager.js');
+    const vscode = await import('vscode');
+    const readFile = vi.spyOn(vscode.workspace.fs, 'readFile').mockResolvedValue(
+      Buffer.from(
+        JSON.stringify({
+          mcpServers: {
+            fs: {
+              command: 'npx',
+              args: ['-y', 'server-filesystem', '/tmp'],
+              alwaysLoad: true,
+              toolAllowlist: ['read_file'],
+              tools: { write_file: { enabled: false } },
+              maxResultChars: 20000,
+            },
+            api: {
+              type: 'http',
+              url: 'https://mcp.example.com',
+              alwaysLoad: true,
+            },
+          },
+        }),
+      ),
+    );
+
+    const configs = await loadProjectMcpConfig('/ws');
+    expect(configs.fs).toMatchObject({
+      type: 'stdio',
+      command: 'npx',
+      alwaysLoad: true,
+      toolAllowlist: ['read_file'],
+      tools: { write_file: { enabled: false } },
+      maxResultChars: 20000,
+    });
+    expect(configs.api).toMatchObject({ type: 'http', url: 'https://mcp.example.com', alwaysLoad: true });
+    readFile.mockRestore();
   });
 });
 

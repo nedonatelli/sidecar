@@ -298,6 +298,7 @@ export async function runAgentCase(
     approvalMode: evalCase.approvalMode || 'autonomous',
     maxIterations: evalCase.maxIterations || 8,
     toolRuntime,
+    ...(evalCase.mcpManager ? { mcpManager: evalCase.mcpManager } : {}),
     // Permissive confirmFn for the rare case an irrecoverable-gate
     // or alwaysRequireApproval tool fires under autonomous mode.
     confirmFn: async () => 'Allow',

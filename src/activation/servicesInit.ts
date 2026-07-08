@@ -9,6 +9,7 @@ import { SkillLoader } from '../agent/skillLoader.js';
 import { getProcessRegistry } from '../agent/processLifecycle.js';
 import { spendTracker } from '../ollama/spendTracker.js';
 import { setApiAuditDir } from '../agent/apiAuditLog.js';
+import { setMcpAuditDir } from '../agent/mcpAuditLog.js';
 
 const HOURLY_MS = 60 * 60 * 1000;
 const DAILY_MS = 24 * HOURLY_MS;
@@ -131,6 +132,7 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
   );
 
   setApiAuditDir(sidecarDir);
+  setMcpAuditDir(sidecarDir);
 
   const workspaceIndex = new WorkspaceIndex();
   workspaceIndex.setSidecarDir(sidecarDir);

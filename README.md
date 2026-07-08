@@ -72,7 +72,7 @@ These are all capable paid agents now — Copilot, Cursor, and Claude Code each 
 - **Hybrid cost-aware** — Anthropic prompt caching + 90%-reduction prompt pruner + `delegate_task` to a local Ollama worker + session spend tracker + daily/weekly budgets + architect/editor model split (`sidecar.editorModel`) that auto-routes execution turns to a faster/cheaper model.
 - **Security from the ground up** — OS keychain key storage, secrets detection, vuln scanning, path-traversal protection, workspace hook warnings, macOS Seatbelt sandbox for agent shell commands.
 - **Agentic across six modes** — cautious / autonomous / manual / plan / review / audit, with Copilot-style inline completions and MCP (client **and** server) on top.
-- **Extensible** — MCP (stdio / HTTP / SSE), custom skills via markdown, 11 built-in skills, NoSQL quick-install for MongoDB + Redis.
+- **Extensible** — MCP (stdio / HTTP / SSE) with lazy tool-schema loading (~50% less context per server) and round-trip write verification, custom skills via markdown, 11 built-in skills, NoSQL quick-install for MongoDB + Redis.
 
 ## Features
 
@@ -211,17 +211,17 @@ SideCar is verified against an agent smoke-eval suite (read / edit / write / run
 
 Every model below runs the agent smoke suite with **zero infrastructure errors**. Task-completion capability varies; the recommendations reflect both.
 
-| Model                    | Size   | Notes                                                                     |
-| ------------------------ | ------ | ------------------------------------------------------------------------- |
-| **gemma4:e4b** (default) | 9.6 GB | Strongest prompt-following of the local models; the shipped default       |
-| **ministral-3:latest**  | 6.0 GB | Lightest strong agent; recommended low-footprint default                  |
-| **qwen2.5-coder:7b**     | 4.7 GB | Reliable coding baseline — the most consistent tool-caller of the 7B tier |
-| **qwen3-coder:30b**      | 18 GB  | Best larger local coder (MoE, ~3.3B active); recommended if it fits       |
-| qwen3.5:latest           | 6.6 GB | Reliable as of v0.116 (earlier versions hit Ollama tool-parser issues)    |
-| deepseek-r1:8b / qwen3:8b | 5.2 GB | Reasoning models; answers surfaced correctly as of v0.116                |
-| granite4.1:3b            | 2.1 GB | Low-RAM option; punches above its weight                                  |
-| llama3.2:latest          | 2.0 GB | Low-RAM general model                                                     |
-| devstral:24b             | 14 GB  | SWE-tuned; supported as of v0.116 (`{tool, args}` text-call parsing fix)  |
+| Model                     | Size   | Notes                                                                     |
+| ------------------------- | ------ | ------------------------------------------------------------------------- |
+| **gemma4:e4b** (default)  | 9.6 GB | Strongest prompt-following of the local models; the shipped default       |
+| **ministral-3:latest**    | 6.0 GB | Lightest strong agent; recommended low-footprint default                  |
+| **qwen2.5-coder:7b**      | 4.7 GB | Reliable coding baseline — the most consistent tool-caller of the 7B tier |
+| **qwen3-coder:30b**       | 18 GB  | Best larger local coder (MoE, ~3.3B active); recommended if it fits       |
+| qwen3.5:latest            | 6.6 GB | Reliable as of v0.116 (earlier versions hit Ollama tool-parser issues)    |
+| deepseek-r1:8b / qwen3:8b | 5.2 GB | Reasoning models; answers surfaced correctly as of v0.116                 |
+| granite4.1:3b             | 2.1 GB | Low-RAM option; punches above its weight                                  |
+| llama3.2:latest           | 2.0 GB | Low-RAM general model                                                     |
+| devstral:24b              | 14 GB  | SWE-tuned; supported as of v0.116 (`{tool, args}` text-call parsing fix)  |
 
 **Memory guidance (36 GB).** Sub-10 GB models run comfortably alongside VS Code with headroom for the context cache. A 14B model at a large context window (e.g. `qwen2.5-coder:14b` with SideCar's full `num_ctx`) can exceed 36 GB of unified memory and thrash — lower `sidecar.ollama.numCtx`, or prefer the 7B coder. On more memory, the 24–30 GB-class models above have proportionally more room.
 

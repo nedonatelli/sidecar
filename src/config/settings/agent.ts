@@ -28,6 +28,8 @@ export interface MCPServerConfig {
   toolAllowlist?: string[];
   /** Maximum result size in characters (default 50000) */
   maxResultChars?: number;
+  /** Always inject this server's full tool schemas into the prompt. By default MCP tool schemas load lazily: the catalog carries a one-line stub per tool and the model fetches the full schema via describe_tool on first use. Set true for servers whose tools are used on nearly every run. */
+  alwaysLoad?: boolean;
 }
 
 export interface HookConfig {

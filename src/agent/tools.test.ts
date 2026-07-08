@@ -1423,6 +1423,44 @@ describe('getToolDefinitionsForTier', () => {
     }
   });
 
+  it("'full' tier stubs lazy MCP tools and keeps full schemas for alwaysLoad servers", () => {
+    const mcpDef = (name: string) => ({
+      name,
+      description: `[MCP: srv] Does a thing. Second sentence with parameter detail.`,
+      input_schema: { type: 'object' as const, properties: { uri: { type: 'string' } }, required: ['uri'] },
+      nondeterministicOutput: true,
+    });
+    const mockMcpManager = {
+      getToolDefinitions: () => [mcpDef('mcp_srv_read'), mcpDef('mcp_pinned_read')],
+      getLazyToolNames: () => new Set(['mcp_srv_read']),
+      getTool: vi.fn(),
+    } as any as MCPManager;
+
+    const full = getToolDefinitionsForTier('full', mockMcpManager);
+
+    const lazy = full.find((t) => t.name === 'mcp_srv_read');
+    expect(lazy).toBeDefined();
+    expect(lazy!.description).toContain('[MCP: srv] Does a thing.');
+    expect(lazy!.description).toContain("stub — call describe_tool('mcp_srv_read') for parameters]");
+    expect(Object.keys(lazy!.input_schema.properties ?? {})).toHaveLength(0);
+    // The dedup exemption must survive stubbing — MCP results are nondeterministic
+    expect(lazy!.nondeterministicOutput).toBe(true);
+
+    const pinned = full.find((t) => t.name === 'mcp_pinned_read');
+    expect(pinned).toBeDefined();
+    expect(pinned!.description).not.toContain('stub');
+    expect(Object.keys(pinned!.input_schema.properties ?? {})).toHaveLength(1);
+  });
+
+  it("'full' tier without an MCP manager stubs nothing beyond extended built-ins", () => {
+    const full = getToolDefinitionsForTier('full');
+    const stubs = full.filter((t) => t.description.includes('stub — call describe_tool('));
+    const builtInNames = new Set(TOOL_REGISTRY.map((t) => t.definition.name));
+    for (const stub of stubs) {
+      expect(builtInNames.has(stub.name)).toBe(true);
+    }
+  });
+
   it("'full' tier always includes describe_tool with its real schema (not stubbed)", () => {
     const full = getToolDefinitionsForTier('full');
     const dt = full.find((t) => t.name === 'describe_tool');
@@ -1490,5 +1528,32 @@ describe('describe_tool executor', () => {
     const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'describe_tool');
     const result = await tool!.executor({ name: 'describe_tool' });
     expect(result).toContain('## describe_tool');
+  });
+
+  it('resolves a lazy MCP tool via context.mcpManager', async () => {
+    const registered = {
+      definition: {
+        name: 'mcp_srv_read',
+        description: '[MCP: srv] Read a resource.',
+        input_schema: { type: 'object' as const, properties: { uri: { type: 'string' } }, required: ['uri'] },
+        nondeterministicOutput: true,
+      },
+      executor: async () => 'unused',
+      requiresApproval: false,
+    };
+    const mockMcpManager = {
+      getTool: (name: string) => (name === 'mcp_srv_read' ? registered : undefined),
+    } as any as MCPManager;
+
+    const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'describe_tool');
+    const result = await tool!.executor({ name: 'mcp_srv_read' }, { mcpManager: mockMcpManager } as never);
+    expect(result).toContain('## mcp_srv_read');
+    expect(result).toContain('"uri"');
+  });
+
+  it('still reports unknown for an MCP tool when no manager is in context', async () => {
+    const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'describe_tool');
+    const result = await tool!.executor({ name: 'mcp_srv_read' });
+    expect(result).toContain('Unknown tool');
   });
 });

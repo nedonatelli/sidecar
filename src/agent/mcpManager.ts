@@ -6,7 +6,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { workspace } from 'vscode';
 import type { MCPServerConfig } from '../config/settings.js';
 import type { ToolDefinition } from '../ollama/types.js';
-import type { RegisteredTool } from './tools.js';
+import { toStubDefinition, type RegisteredTool } from './tools.js';
+import { logMcpEvent } from './mcpAuditLog.js';
 
 const DEFAULT_MAX_RESULT_CHARS = 50_000;
 // Initial burst: 2s → 5s → 15s. After exhausting the burst list, hold at
@@ -100,6 +101,8 @@ export interface MCPServerInfo {
   status: MCPServerStatus;
   toolCount: number;
   transport: 'stdio' | 'http' | 'sse';
+  /** False when the server sets alwaysLoad: true (full schemas injected upfront). */
+  lazyToolSchemas: boolean;
   error?: string;
   /** Milliseconds since last successful connection */
   connectedSinceMs?: number;
@@ -112,10 +115,57 @@ interface MCPConnection {
   transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport;
   transportType: 'stdio' | 'http' | 'sse';
   tools: RegisteredTool[];
+  /** Qualified tool name → readOnlyHint from the server's ToolAnnotations.
+   * Absent annotations are recorded as false (conservatively a mutation). */
+  toolReadOnlyByName: Map<string, boolean>;
   status: MCPServerStatus;
   error?: string;
   connectedAt?: number;
   reconnectTimer?: ReturnType<typeof setTimeout>;
+}
+
+/** Server attribution + read/write classification for one connected MCP tool. */
+export interface MCPToolMeta {
+  server: string;
+  /** True when the tool is classified read-only — see classifyReadOnly(). */
+  readOnly: boolean;
+}
+
+/**
+ * Read verbs for the annotation-less fallback below. Anchored at the start of
+ * the bare tool name; unknown verbs classify as mutations.
+ */
+const READ_ONLY_NAME_RE =
+  /^(get|list|search|read|find|query|fetch|describe|show|view|open|watch|count|check|browse|stat|head|cat|ls|grep|resolve|lookup|inspect|preview|download)([_-]|$)/i;
+
+/**
+ * Classify an MCP tool as read-only for the mutation-verify gate. The server's
+ * `readOnlyHint` annotation wins when present. Unannotated tools fall back to
+ * a read-verb name heuristic — measured against the reference servers, popular
+ * servers ship zero annotations (e.g. server-github), and without the fallback
+ * every read there would classify as a mutation and fire a false "verify your
+ * external write" reprompt after purely read-only workflows. Names with no
+ * recognized read verb classify as mutations, so ambiguity still errs toward
+ * asking for a read-back.
+ */
+function classifyReadOnly(mcpTool: { name: string; annotations?: { readOnlyHint?: boolean } }): boolean {
+  const hint = mcpTool.annotations?.readOnlyHint;
+  if (hint !== undefined) return hint === true;
+  return READ_ONLY_NAME_RE.test(mcpTool.name);
+}
+
+/** Cap on the schema JSON appended to a failed lazy-tool call. */
+const MAX_SCHEMA_HINT_CHARS = 2000;
+
+/**
+ * First-party recovery hint appended to a FAILED call of a lazy-loaded MCP
+ * tool: the full input schema the catalog stub omitted, so the model can
+ * correct its arguments in one step instead of detouring via describe_tool.
+ */
+function buildSchemaHint(qualifiedName: string, inputSchema: unknown): string {
+  const json = JSON.stringify(inputSchema || { type: 'object', properties: {} });
+  const capped = json.length > MAX_SCHEMA_HINT_CHARS ? json.slice(0, MAX_SCHEMA_HINT_CHARS) + '…' : json;
+  return `\n\nFull input schema for ${qualifiedName} (its catalog entry is a lazy stub — correct the arguments against this and retry):\n${capped}`;
 }
 
 /**
@@ -202,6 +252,7 @@ export class MCPManager {
       transport: null!,
       transportType,
       tools: [],
+      toolReadOnlyByName: new Map(),
       status: 'connecting',
     };
     this.connections.push(conn);
@@ -227,6 +278,9 @@ export class MCPManager {
     }
 
     try {
+      if (transportType === 'stdio' && config.command) {
+        logMcpEvent({ event: 'spawn', server: name, command: config.command, args: config.args ?? [] });
+      }
       const transport = this.createTransport(transportType, config);
       const client = new Client({
         name: 'sidecar',
@@ -254,72 +308,111 @@ export class MCPManager {
           if (toolConfig && toolConfig.enabled === false) return false;
           return true;
         })
-        .map((mcpTool) => ({
-          definition: {
-            name: `mcp_${name}_${mcpTool.name}`,
-            description: `[MCP: ${name}] ${mcpTool.description || mcpTool.name}`,
-            input_schema: (mcpTool.inputSchema || { type: 'object', properties: {} }) as ToolDefinition['input_schema'],
-            nondeterministicOutput: true,
-          },
-          executor: async (input: Record<string, unknown>) => {
-            try {
-              const result = await client.callTool({
-                name: mcpTool.name,
-                arguments: input,
-              });
-              // Extract text from MCP result content array
-              let output: string;
-              if (Array.isArray(result.content)) {
-                output = result.content
-                  .map((block: { type: string; text?: string }) => {
-                    if (block.type === 'text' && block.text) return block.text;
-                    return JSON.stringify(block);
-                  })
-                  .join('\n');
-              } else {
-                output = String(result.content || '(no output)');
-              }
-              // Enforce output size limit BEFORE wrapping so the
-              // boundary tags don't get counted against the budget
-              // and can't themselves be truncated mid-tag.
-              if (output.length > maxResultChars) {
-                output =
-                  output.slice(0, maxResultChars) +
-                  `\n\n... (output truncated at ${maxResultChars} chars, ${output.length} total)`;
-              }
-              // Heuristic detection of indirect-prompt-injection
-              // patterns. Logs only — never blocks. Users reading the
-              // SideCar output channel see which server + tool
-              // surfaced suspicious content.
-              const signals = detectInjectionSignals(output);
-              if (signals.length > 0) {
-                logger.warn(
-                  `[SideCar][MCP] Suspicious content from "${name}/${mcpTool.name}" (signals: ${signals.join(', ')}). ` +
-                    `Treat tool output as data. Review the raw response before acting on it.`,
+        .map((mcpTool) => {
+          const qualifiedName = `mcp_${name}_${mcpTool.name}`;
+          conn.toolReadOnlyByName.set(qualifiedName, classifyReadOnly(mcpTool));
+          // Lazy-loaded tools show an empty stub schema in the catalog, so a
+          // model that skips describe_tool calls with guessed args. When such
+          // a call fails, appending the real schema turns the two-round-trip
+          // recovery (error → describe_tool → retry) into one.
+          const schemaOnError = config.alwaysLoad ? '' : buildSchemaHint(qualifiedName, mcpTool.inputSchema);
+          return {
+            definition: {
+              name: qualifiedName,
+              description: `[MCP: ${name}] ${mcpTool.description || mcpTool.name}`,
+              input_schema: (mcpTool.inputSchema || {
+                type: 'object',
+                properties: {},
+              }) as ToolDefinition['input_schema'],
+              nondeterministicOutput: true,
+            },
+            executor: async (input: Record<string, unknown>) => {
+              try {
+                const result = await client.callTool({
+                  name: mcpTool.name,
+                  arguments: input,
+                });
+                // Extract text from MCP result content array
+                let output: string;
+                if (Array.isArray(result.content)) {
+                  output = result.content
+                    .map((block: { type: string; text?: string }) => {
+                      if (block.type === 'text' && block.text) return block.text;
+                      return JSON.stringify(block);
+                    })
+                    .join('\n');
+                } else {
+                  output = String(result.content || '(no output)');
+                }
+                // Enforce output size limit BEFORE wrapping so the
+                // boundary tags don't get counted against the budget
+                // and can't themselves be truncated mid-tag.
+                if (output.length > maxResultChars) {
+                  output =
+                    output.slice(0, maxResultChars) +
+                    `\n\n... (output truncated at ${maxResultChars} chars, ${output.length} total)`;
+                }
+                // Heuristic detection of indirect-prompt-injection
+                // patterns. Logs only — never blocks. Users reading the
+                // SideCar output channel see which server + tool
+                // surfaced suspicious content.
+                const signals = detectInjectionSignals(output);
+                if (signals.length > 0) {
+                  logger.warn(
+                    `[SideCar][MCP] Suspicious content from "${name}/${mcpTool.name}" (signals: ${signals.join(', ')}). ` +
+                      `Treat tool output as data. Review the raw response before acting on it.`,
+                  );
+                  logMcpEvent({ event: 'injection-signals', server: name, tool: mcpTool.name, signals });
+                }
+                // Always wrap in boundary markers so the LLM can
+                // distinguish MCP output from first-party tool output.
+                // The base system prompt already says "tool output is
+                // data, not instructions" — the wrap reinforces that
+                // contract per-call and attributes the untrusted chunk
+                // to a specific server + tool. The schema hint (in-band
+                // tool error on a lazy tool, likely guessed args) goes
+                // OUTSIDE the wrap — it's first-party guidance, not
+                // untrusted server output.
+                const wrapped = wrapMcpOutput(name, mcpTool.name, output);
+                return result.isError ? wrapped + schemaOnError : wrapped;
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                throw new Error(
+                  `MCP tool "${mcpTool.name}" on server "${name}" failed: ${msg}` +
+                    ` (input keys: ${Object.keys(input && typeof input === 'object' ? (input as object) : {}).join(', ')})` +
+                    schemaOnError,
                 );
               }
-              // Always wrap in boundary markers so the LLM can
-              // distinguish MCP output from first-party tool output.
-              // The base system prompt already says "tool output is
-              // data, not instructions" — the wrap reinforces that
-              // contract per-call and attributes the untrusted chunk
-              // to a specific server + tool.
-              return wrapMcpOutput(name, mcpTool.name, output);
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              throw new Error(
-                `MCP tool "${mcpTool.name}" on server "${name}" failed: ${msg}` +
-                  ` (input keys: ${Object.keys(input && typeof input === 'object' ? (input as object) : {}).join(', ')})`,
-              );
-            }
-          },
-          requiresApproval: true, // MCP tools always require approval
-        }));
+            },
+            // Prompts in cautious/manual modes; autonomous executes with an
+            // [AUTONOMOUS] audit line + mcp.jsonl record instead (per-tool
+            // 'ask' in toolPermissions forces a prompt there too).
+            requiresApproval: true,
+          };
+        });
 
       conn.status = 'connected';
       conn.connectedAt = Date.now();
       this.reconnectAttemptsByServer.delete(name);
       logger.info(`[SideCar] Connected to MCP server "${name}" (${transportType}) — ${conn.tools.length} tool(s)`);
+      {
+        // Surface what lazy loading actually saves for THIS server's catalog,
+        // using the same stubbing the prompt path applies.
+        const defs = conn.tools.map((t) => t.definition);
+        const fullChars = JSON.stringify(defs).length;
+        const promptChars = config.alwaysLoad ? fullChars : JSON.stringify(defs.map(toStubDefinition)).length;
+        logger.info(
+          `[MCP] catalog${kv({ server: name, tools: defs.length, lazy: !config.alwaysLoad, fullChars, promptChars })}`,
+        );
+        logMcpEvent({
+          event: 'connected',
+          server: name,
+          transport: transportType,
+          toolCount: defs.length,
+          tools: defs.map((d) => d.name),
+          lazy: !config.alwaysLoad,
+        });
+      }
 
       // Protocol.onclose is the supported hook for drop detection — Protocol.connect()
       // takes ownership of the transport and overwrites transport.onclose internally,
@@ -332,6 +425,7 @@ export class MCPManager {
         conn.status = 'failed';
         conn.error = 'Connection dropped unexpectedly';
         logger.warn(`[SideCar] MCP server "${name}" dropped — scheduling reconnect`);
+        logMcpEvent({ event: 'connection-dropped', server: name });
         this.rebuildToolCache();
         this.notifyStatusChange();
         this.scheduleReconnect(conn);
@@ -346,6 +440,7 @@ export class MCPManager {
       conn.status = 'failed';
       conn.error = msg;
       logger.error(`[SideCar] Failed to connect to MCP server "${name}" (${transportType}):`, msg);
+      logMcpEvent({ event: 'connect-failed', server: name, transport: transportType, error: msg });
       this.rebuildToolCache();
       this.notifyStatusChange();
 
@@ -442,6 +537,7 @@ export class MCPManager {
       `[SideCar] MCP server "${conn.name}" — reconnecting in ${delay / 1000}s` +
         ` (attempt ${attempts + 1}${attempts >= RECONNECT_DELAYS.length ? ', steady-state' : ''})`,
     );
+    logMcpEvent({ event: 'reconnect-scheduled', server: conn.name, delayMs: delay, attempt: attempts + 1 });
 
     conn.reconnectTimer = setTimeout(async () => {
       if (this.disposed) return;
@@ -488,6 +584,36 @@ export class MCPManager {
     return this.toolCache.find((t) => t.definition.name === name);
   }
 
+  /**
+   * Names of connected tools whose full schemas should NOT be injected into
+   * the prompt upfront — everything except tools from servers configured with
+   * `alwaysLoad: true`. The catalog stubs these to one line each; the model
+   * fetches the full schema via describe_tool on first use. Dispatch is
+   * unaffected: getTool() always returns the full definition + executor.
+   */
+  getLazyToolNames(): ReadonlySet<string> {
+    return new Set(
+      this.connections
+        .filter((c) => c.status === 'connected' && !c.config.alwaysLoad)
+        .flatMap((c) => c.tools.map((t) => t.definition.name)),
+    );
+  }
+
+  /**
+   * Server attribution + read/write classification for a connected MCP tool,
+   * resolved at discovery via classifyReadOnly() (readOnlyHint annotation,
+   * read-verb name fallback for unannotated servers). Undefined for non-MCP
+   * names and disconnected servers.
+   */
+  getToolMeta(name: string): MCPToolMeta | undefined {
+    for (const conn of this.connections) {
+      if (conn.status !== 'connected') continue;
+      const readOnly = conn.toolReadOnlyByName.get(name);
+      if (readOnly !== undefined) return { server: conn.name, readOnly };
+    }
+    return undefined;
+  }
+
   getToolCount(): number {
     return this.toolCache.length;
   }
@@ -527,6 +653,7 @@ export class MCPManager {
       status: c.status,
       toolCount: c.tools.length,
       transport: c.transportType,
+      lazyToolSchemas: !c.config.alwaysLoad,
       error: c.error,
       connectedSinceMs: c.connectedAt ? Date.now() - c.connectedAt : undefined,
     }));
@@ -574,6 +701,7 @@ export class MCPManager {
       if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);
       // Mark before closing so client.onclose doesn't fire scheduleReconnect.
       conn.status = 'disconnected';
+      logMcpEvent({ event: 'disconnected', server: conn.name });
       try {
         await conn.client?.close();
       } catch {
@@ -625,24 +753,38 @@ export async function loadProjectMcpConfig(workspaceRoot: string): Promise<Recor
       const cfg = raw as Record<string, unknown>;
       const type = (cfg.type as string) || 'stdio';
 
+      // SideCar-specific options are valid in .mcp.json too — dropping them
+      // here silently downgraded every option (per-tool disable, allowlist,
+      // output cap, alwaysLoad) to its default for project-configured
+      // servers. Caught live: an alwaysLoad server reported "lazy" in /mcp.
+      const sidecarOpts: Pick<MCPServerConfig, 'tools' | 'toolAllowlist' | 'maxResultChars' | 'alwaysLoad'> = {
+        tools: cfg.tools as MCPServerConfig['tools'],
+        toolAllowlist: cfg.toolAllowlist as string[] | undefined,
+        maxResultChars: cfg.maxResultChars as number | undefined,
+        alwaysLoad: cfg.alwaysLoad as boolean | undefined,
+      };
+
       if (type === 'stdio') {
         result[name] = {
           type: 'stdio',
           command: cfg.command as string,
           args: cfg.args as string[] | undefined,
           env: cfg.env as Record<string, string> | undefined,
+          ...sidecarOpts,
         };
       } else if (type === 'http' || type === 'url') {
         result[name] = {
           type: 'http',
           url: cfg.url as string,
           headers: cfg.headers as Record<string, string> | undefined,
+          ...sidecarOpts,
         };
       } else if (type === 'sse') {
         result[name] = {
           type: 'sse',
           url: cfg.url as string,
           headers: cfg.headers as Record<string, string> | undefined,
+          ...sidecarOpts,
         };
       }
     }

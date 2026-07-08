@@ -2,7 +2,7 @@
 title: Security Scanning
 layout: docs
 nav_order: 7
-nav_section: "Agent"
+nav_section: 'Agent'
 ---
 
 # Security Scanning
@@ -20,6 +20,7 @@ SideCar detects the following secret patterns in code:
 - **JWTs** — JSON Web Tokens (`eyJ...`)
 - **Connection strings** — database connection URIs with credentials
 - **Anthropic/OpenAI keys** — `sk-ant-`, `sk-` prefixed keys
+- **Base64 auth credentials** — `Basic <base64>` header values, and long (≥40 char) base64 strings after `Bearer ` or `token=` (v3; catches already-encoded MCP `Authorization` header values in logs)
 
 When a secret is detected, SideCar flags it in the tool result and warns the agent, which can then redact or remove it.
 
@@ -27,13 +28,13 @@ When a secret is detected, SideCar flags it in the tool result and warns the age
 
 SideCar also flags common vulnerability patterns:
 
-| Pattern | Risk |
-|---------|------|
-| SQL string concatenation | SQL injection |
-| `child_process.exec` with variables | Command injection |
-| `innerHTML` assignment | Cross-site scripting (XSS) |
-| `eval()` usage | Code injection |
-| `http://` URLs (non-localhost) | Insecure transport |
+| Pattern                             | Risk                       |
+| ----------------------------------- | -------------------------- |
+| SQL string concatenation            | SQL injection              |
+| `child_process.exec` with variables | Command injection          |
+| `innerHTML` assignment              | Cross-site scripting (XSS) |
+| `eval()` usage                      | Code injection             |
+| `http://` URLs (non-localhost)      | Insecure transport         |
 
 ## Diagnostics integration
 
@@ -83,12 +84,12 @@ SideCar scans your manifest files for outdated dependencies and known vulnerabil
 
 ### What gets scanned
 
-| Manifest | Ecosystem |
-|----------|-----------|
-| `package.json` | npm |
-| `requirements*.txt` | PyPI |
-| `Cargo.toml` | crates.io |
-| `go.mod` | Go modules |
+| Manifest            | Ecosystem  |
+| ------------------- | ---------- |
+| `package.json`      | npm        |
+| `requirements*.txt` | PyPI       |
+| `Cargo.toml`        | crates.io  |
+| `go.mod`            | Go modules |
 
 ### How it works
 
@@ -108,10 +109,10 @@ SideCar scans your manifest files for outdated dependencies and known vulnerabil
 
 ### Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.deps.enabled` | `true` | Master toggle |
-| `sidecar.deps.checkVulnerabilities` | `true` | OSV API lookups (disable offline) |
+| Setting                             | Default | Description                       |
+| ----------------------------------- | ------- | --------------------------------- |
+| `sidecar.deps.enabled`              | `true`  | Master toggle                     |
+| `sidecar.deps.checkVulnerabilities` | `true`  | OSV API lookups (disable offline) |
 
 ## SVG sanitization
 

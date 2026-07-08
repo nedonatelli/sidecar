@@ -12,6 +12,7 @@ import {
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
   buildBehavioralVerificationReprompt,
+  buildMcpMutationVerifyReprompt,
   classifyTestResult,
   isAnalysisRequest,
   findColocatedTest,
@@ -276,6 +277,143 @@ describe('completionGate — recordToolCall', () => {
 // (`ok()`), so mutating any `if (passed)` branch never broke anything — the
 // state ended up the same either way. These pin the FAILING path: testsRun is
 // recorded either way, but passingTestFiles / projectTestsPassed must NOT be.
+describe('completionGate — MCP mutation discipline', () => {
+  const meta = (name: string) => {
+    if (name.startsWith('mcp_jira_')) return { server: 'jira', readOnly: name.includes('get') };
+    if (name.startsWith('mcp_gh_')) return { server: 'gh', readOnly: name.includes('get') };
+    return undefined;
+  };
+  function mcpCall(name: string, input: Record<string, unknown> = {}, id = 'id'): ToolUseContentBlock {
+    return { type: 'tool_use', id, name, input };
+  }
+
+  it('records a successful MCP mutation as unverified', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_jira_update_issue', { issue: 'X-1', status: 'Done' }), ok(), meta);
+    expect(state.mcpUnverifiedMutations!.size).toBe(1);
+    const m = [...state.mcpUnverifiedMutations!.values()][0];
+    expect(m.server).toBe('jira');
+    expect(m.tool).toBe('mcp_jira_update_issue');
+    expect(m.inputSummary).toContain('"status":"Done"');
+  });
+
+  it('a later read-only call to the same server verifies its mutations', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_jira_update_issue', { issue: 'X-1' }, 'a'), ok(), meta);
+    recordToolCall(state, mcpCall('mcp_jira_get_issue', { issue: 'X-1' }, 'b'), ok(), meta);
+    expect(state.mcpUnverifiedMutations!.size).toBe(0);
+  });
+
+  it('a read-only call to a DIFFERENT server does not verify', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_jira_update_issue', { issue: 'X-1' }, 'a'), ok(), meta);
+    recordToolCall(state, mcpCall('mcp_gh_get_issue', { number: 5 }, 'b'), ok(), meta);
+    expect(state.mcpUnverifiedMutations!.size).toBe(1);
+  });
+
+  it('an errored mutation is not tracked (the model already sees the failure)', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_jira_update_issue', { issue: 'X-1' }), err(), meta);
+    expect(state.mcpUnverifiedMutations!.size).toBe(0);
+  });
+
+  it('an errored read-back does NOT verify a prior mutation', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_jira_update_issue', { issue: 'X-1' }, 'a'), ok(), meta);
+    recordToolCall(state, mcpCall('mcp_jira_get_issue', { issue: 'X-1' }, 'b'), err(), meta);
+    expect(state.mcpUnverifiedMutations!.size).toBe(1);
+  });
+
+  it('MCP names without resolvable meta are ignored', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_unknown_write', {}), ok(), meta);
+    expect(state.mcpUnverifiedMutations!.size).toBe(0);
+  });
+
+  it('without a meta lookup (no manager) MCP calls are ignored entirely', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_jira_update_issue', { issue: 'X-1' }), ok());
+    expect(state.mcpUnverifiedMutations!.size).toBe(0);
+  });
+
+  it('truncates huge mutation inputs in the summary', () => {
+    const state = createGateState();
+    recordToolCall(state, mcpCall('mcp_jira_update_issue', { body: 'x'.repeat(5000) }), ok(), meta);
+    const m = [...state.mcpUnverifiedMutations!.values()][0];
+    expect(m.inputSummary.length).toBeLessThanOrEqual(301);
+    expect(m.inputSummary.endsWith('…')).toBe(true);
+  });
+
+  describe('delegate_to_mcp tracking', () => {
+    function wrappedResult(): ToolResultContentBlock {
+      return {
+        type: 'tool_result',
+        tool_use_id: 'id',
+        content: '<mcp_tool_output server="jira" tool="run_task" trust="untrusted">\ndone\n</mcp_tool_output>',
+      };
+    }
+
+    it('records a successful delegation as an unverified mutation to that server', () => {
+      const state = createGateState();
+      recordToolCall(
+        state,
+        mcpCall('delegate_to_mcp', { server: 'jira', task: 'close stale issues' }),
+        wrappedResult(),
+      );
+      expect(state.mcpUnverifiedMutations!.size).toBe(1);
+      const m = [...state.mcpUnverifiedMutations!.values()][0];
+      expect(m).toMatchObject({ server: 'jira', tool: 'delegate_to_mcp' });
+    });
+
+    it('ignores delegation failures reported as plain content (no boundary wrap)', () => {
+      const state = createGateState();
+      recordToolCall(state, mcpCall('delegate_to_mcp', { server: 'jira', task: 'x' }), {
+        type: 'tool_result',
+        tool_use_id: 'id',
+        content: 'Server "jira" is not connected. Connected servers: (none)',
+      });
+      expect(state.mcpUnverifiedMutations!.size).toBe(0);
+    });
+
+    it('a later read-only call to the delegated server verifies the delegation', () => {
+      const state = createGateState();
+      recordToolCall(state, mcpCall('delegate_to_mcp', { server: 'jira', task: 'x' }, 'a'), wrappedResult());
+      recordToolCall(state, mcpCall('mcp_jira_get_issue', { issue: 'X-1' }, 'b'), ok(), meta);
+      expect(state.mcpUnverifiedMutations!.size).toBe(0);
+    });
+
+    it('tracks without a meta lookup (delegation carries its own server attribution)', () => {
+      const state = createGateState();
+      recordToolCall(state, mcpCall('delegate_to_mcp', { server: 'jira', task: 'x' }), wrappedResult());
+      expect(state.mcpUnverifiedMutations!.size).toBe(1);
+    });
+  });
+
+  describe('buildMcpMutationVerifyReprompt', () => {
+    it('returns null when nothing is unverified', () => {
+      expect(buildMcpMutationVerifyReprompt(createGateState())).toBeNull();
+    });
+
+    it('returns null for a back-compat stub state without the map', () => {
+      const state = createGateState();
+      delete state.mcpUnverifiedMutations;
+      expect(buildMcpMutationVerifyReprompt(state)).toBeNull();
+    });
+
+    it('lists each unverified mutation with server and input, and the draft-on-mismatch rule', () => {
+      const state = createGateState();
+      recordToolCall(state, mcpCall('mcp_jira_update_issue', { issue: 'X-1', status: 'Done' }, 'a'), ok(), meta);
+      recordToolCall(state, mcpCall('mcp_gh_create_issue', { title: 'Bug' }, 'b'), ok(), meta);
+      const reprompt = buildMcpMutationVerifyReprompt(state)!;
+      expect(reprompt).toContain('mcp_jira_update_issue (server "jira")');
+      expect(reprompt).toContain('mcp_gh_create_issue (server "gh")');
+      expect(reprompt).toContain('"status":"Done"');
+      expect(reprompt).toContain('read tool from the same MCP server');
+      expect(reprompt).toContain('draft');
+    });
+  });
+});
+
 describe('completionGate — recordToolCall failing-result hardening', () => {
   it('run_tests with a file that FAILS: tracked as run, NOT as passing', () => {
     const state = createGateState();

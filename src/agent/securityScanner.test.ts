@@ -323,7 +323,42 @@ describe('expanded secret catalog', () => {
     // that pins it here means any bump is intentional (and the
     // downstream SECURITY.md changelog entry becomes required).
     expect(typeof SECRET_PATTERNS_VERSION).toBe('number');
-    expect(SECRET_PATTERNS_VERSION).toBeGreaterThanOrEqual(2);
+    expect(SECRET_PATTERNS_VERSION).toBeGreaterThanOrEqual(3);
     expect(Number.isInteger(SECRET_PATTERNS_VERSION)).toBe(true);
+  });
+
+  describe('base64 auth heuristics (v3 — audit cycle-4 forensic LOW)', () => {
+    // MCP HTTP/SSE transports resolve Authorization header values from env
+    // vars; an already-base64-encoded credential matched no v2 pattern when
+    // it appeared in logged strings.
+
+    it('redacts HTTP Basic auth base64 values', () => {
+      const b64 = Buffer.from('deploy-bot:hunter2secret').toString('base64');
+      const out = redactSecrets(`Authorization: Basic ${b64}`);
+      expect(out).not.toContain(b64);
+      expect(out).toContain('[REDACTED:HTTP Basic Auth (base64)]');
+    });
+
+    it('redacts long base64 Bearer tokens', () => {
+      const token = 'A'.repeat(20) + 'b'.repeat(20) + '0+/=';
+      const out = redactSecrets(`Authorization: Bearer ${token}`);
+      expect(out).not.toContain(token);
+    });
+
+    it('redacts long base64 token= parameters', () => {
+      const token = 'Zm9v'.repeat(12);
+      const out = redactSecrets(`https://api.example.com/hook?token=${token}`);
+      expect(out).not.toContain(token);
+    });
+
+    it('leaves short opaque Bearer values alone (below the 40-char bar)', () => {
+      const text = 'Authorization: Bearer abc123def456';
+      expect(redactSecrets(text)).toBe(text);
+    });
+
+    it('leaves prose containing the word Basic alone', () => {
+      const text = 'Basic usage: run the command';
+      expect(redactSecrets(text)).toBe(text);
+    });
   });
 });

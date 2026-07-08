@@ -25,7 +25,7 @@ export interface SecurityIssue {
 // agent-forwarded tool inputs all depend on this catalog staying
 // current.
 
-export const SECRET_PATTERNS_VERSION = 2;
+export const SECRET_PATTERNS_VERSION = 3;
 
 interface SecretPattern {
   name: string;
@@ -73,6 +73,21 @@ const SECRET_PATTERNS: SecretPattern[] = [
   { name: 'Generic Secret', pattern: /(?:secret|password|passwd|token)\s*[=:]\s*['"][^'"]{8,}['"]/i },
   { name: 'Private Key', pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/ },
   { name: 'JWT Token', pattern: /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}/ },
+  // Base64 credential heuristics (v3): MCP HTTP/SSE headers resolve
+  // `Authorization` values from env vars, and an already-base64-encoded
+  // credential matched none of the patterns above when it leaked into
+  // error logs. `Basic` is inherently a credential so the length bar is
+  // low; bare `Bearer`/`token=` values need ≥40 chars to avoid flagging
+  // short opaque ids. Ordered after 'JWT Token' so a JWT-shaped Bearer
+  // keeps its more specific name. The Basic pattern is standard-b64
+  // charset only (RFC 7617) and requires a digit or +/ so prose like
+  // "Basic internationalization" doesn't false-positive.
+  {
+    name: 'HTTP Basic Auth (base64)',
+    pattern: /\bBasic\s+(?=[A-Za-z0-9+/]*[0-9+/])[A-Za-z0-9+/]{16,}={0,2}(?![A-Za-z0-9+/=])/,
+  },
+  { name: 'Bearer Token (long base64)', pattern: /\bBearer\s+[A-Za-z0-9+/_.-]{40,}={0,2}(?![A-Za-z0-9+/=_-])/ },
+  { name: 'Token Parameter (long base64)', pattern: /\btoken=[A-Za-z0-9+/_-]{40,}={0,2}(?![A-Za-z0-9+/=_-])/ },
   { name: 'Connection String', pattern: /(?:mongodb|postgres|mysql|redis):\/\/[^\s'"]{10,}/i },
   { name: 'Hardcoded IP with credentials', pattern: /(?:https?:\/\/)[^:]+:[^@]+@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/ },
 ];
