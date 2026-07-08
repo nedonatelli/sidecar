@@ -53,14 +53,19 @@ fi
 echo "== [2/6] dataset ($DATASET, $N tasks) =="
 node bench/swe/cloud/fetch_dataset.mjs --dataset "$DATASET" --n "$N" --out "$SLICE"
 
-echo "== [3/6] generate predictions (both arms) =="
+# Arms: default two-arm on/off. Set ARMS=scaffold-off,scaffold-on,scaffold-on-ratchet
+# for the three-arm campaign (keep-best do-no-harm + over-engineering section).
+ARMS="${ARMS:-scaffold-off,scaffold-on}"
+
+echo "== [3/6] generate predictions (arms: $ARMS) =="
 SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_MODEL="$MODEL" \
   SIDECAR_SWE_OUT="$PRED" SIDECAR_SWE_MAX_ITERS="$MAX_ITERS" \
+  SIDECAR_SWE_ARMS="$ARMS" \
   SIDECAR_SWE_TASK_TIMEOUT=300000 SIDECAR_SWE_TIMEOUT=360000000 \
   npm run bench:swe:predict 2>&1 | tee "$WORK/predict.log"
 
 echo "== [4/6] official swebench scoring (Docker) — per arm =="
-for arm in scaffold-off scaffold-on; do
+for arm in ${ARMS//,/ }; do
   python -m swebench.harness.run_evaluation \
     --dataset_name "princeton-nlp/$DATASET" \
     --predictions_path "$PRED/preds.$arm.jsonl" \
@@ -73,9 +78,14 @@ for arm in scaffold-off scaffold-on; do
 done
 
 echo "== [5/6] ablation lift =="
+RATCHET_ARG=""
+if [ -f "$WORK/resolved.scaffold-on-ratchet.json" ]; then
+  RATCHET_ARG="$WORK/resolved.scaffold-on-ratchet.json"
+fi
 SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_PREDS="$PRED" \
   SIDECAR_SWE_RESOLVED_ON="$WORK/resolved.scaffold-on.json" \
   SIDECAR_SWE_RESOLVED_OFF="$WORK/resolved.scaffold-off.json" \
+  ${RATCHET_ARG:+SIDECAR_SWE_RESOLVED_RATCHET="$RATCHET_ARG"} \
   SIDECAR_SWE_MODEL="$MODEL" SIDECAR_SWE_OUT="$WORK" \
   npm run bench:swe:ablate 2>&1 | tee "$WORK/ablation.log"
 

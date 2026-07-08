@@ -152,6 +152,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // completion). Diagnostic: lets us see WHY a run ended (stuck / timeout /
   // incomplete / bad-reasoning) instead of inferring it from patch shape alone.
   let terminationBucket: import('../../src/agent/failureTaxonomy.js').FailureBucket | null = null;
+  // Did the keep-best ratchet revert scaffold-tail changes this run? Detected
+  // from the loop's ♻️ marker — the third-arm ablation's revert-rate signal.
+  let ratchetReverted = false;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -177,6 +180,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     const trajectory: string[] = [];
     const callbacks: AgentCallbacks = {
       onText: (t) => {
+        if (t.includes('Keep-best ratchet reverted')) ratchetReverted = true;
         if (t.trim()) trajectory.push(`  text: ${t.trim().slice(0, 200)}`);
       },
       onToolCall: (name, input) => {
@@ -219,7 +223,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     if (restoreMock) restoreMock();
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
-  return { instance_id: task.instance_id, arm, model_patch: patch, durationMs: Date.now() - start, terminationBucket };
+  return {
+    instance_id: task.instance_id,
+    arm,
+    model_patch: patch,
+    durationMs: Date.now() - start,
+    terminationBucket,
+    ratchetReverted,
+  };
 }
 
 function buildTaskPrompt(task: SweTask, retrievalContext: string): string {
@@ -295,7 +306,7 @@ describe('SWE-bench Verified — prediction generation', () => {
         fs.writeFileSync(path.join(OUT, `preds.${arm}.jsonl`), toPredictionsJsonl(predictions, MODEL, arm));
       }
       // eslint-disable-next-line no-console
-      console.info(`[swe] wrote predictions to ${OUT}/preds.{scaffold-on,scaffold-off}.jsonl (+ predictions.meta.jsonl)`);
+      console.info(`[swe] wrote predictions to ${OUT}/preds.{${ARMS.join(',')}}.jsonl (+ predictions.meta.jsonl)`);
       expect(predictions).toHaveLength(tasks.length * ARMS.length);
     },
     N * ARMS.length * PER_TASK_MS + 60_000,
