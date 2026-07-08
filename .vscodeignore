@@ -1,5 +1,9 @@
 .vscode/**
 .claude/**
+# Private working docs — gitignored, must NEVER ship in the .vsix
+# (verify-package.mjs hard-fails if any internal/ path is packaged).
+internal/**
+.sidecar/**
 src/**
 out/**
 node_modules/**

@@ -87,6 +87,28 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// Deny-list: content that must NEVER ship in a public .vsix. `internal/` is
+// the gitignored private-docs directory (strategy notes, dogfood plans) —
+// v0.116.0 shipped it because nothing gated on it; this check makes that
+// class of leak fail the release instead of passing the smoke check.
+const forbidden = [
+  ['internal/ private docs', /^internal[/\\]/],
+  ['.sidecar/ workspace state', /^\.sidecar[/\\]/],
+  ['.env files', /^\.env($|\.)/],
+];
+const leaked = forbidden
+  .map(([name, re]) => [name, files.filter((f) => re.test(f))])
+  .filter(([, hits]) => hits.length > 0);
+
+if (leaked.length > 0) {
+  console.error('✖ VSIX deny-list check FAILED — private content is packaged:');
+  for (const [name, hits] of leaked) {
+    console.error(`    - ${name}: ${hits.slice(0, 5).join(', ')}${hits.length > 5 ? ` (+${hits.length - 5} more)` : ''}`);
+  }
+  console.error('\nAdd the path to .vscodeignore and repackage.');
+  process.exit(1);
+}
+
 console.log(
   `✓ VSIX smoke check passed — all runtime dependencies present (platform: ${platform}, files: ${files.length}).`,
 );
