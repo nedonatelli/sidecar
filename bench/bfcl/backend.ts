@@ -19,6 +19,7 @@ import { normalizeSchema } from './schemaUtil.js';
 import { buildToolCallSchema, CONSTRAINED_SYSTEM_PROMPT, parseConstrainedContent } from './constrainedSchema.js';
 import { parseTextToolCalls } from '../../src/agent/loop/textParsing.js';
 import type { ToolDefinition } from '../../src/ollama/types.js';
+import { normalizeOllamaHost } from '../../src/ollama/hostUrl.js';
 
 // Re-export so existing importers (and tests) keep resolving normalizeSchema here.
 export { normalizeSchema } from './schemaUtil.js';
@@ -90,7 +91,7 @@ interface OllamaToolCall {
 }
 
 export function ollamaBackend(opts: BackendOptions): BfclBackend {
-  const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
+  const host = normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434';
   const doFetch = opts.fetchImpl ?? fetch;
   const temperature = opts.temperature ?? 0;
   return {

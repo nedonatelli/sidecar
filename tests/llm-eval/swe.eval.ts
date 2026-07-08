@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'node:child_process';
+import { normalizeOllamaHost } from '../../src/ollama/hostUrl.js';
 import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
 import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
@@ -162,7 +163,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // loops until cycle detection bails. This is the same hook installSandbox uses.
     restoreMock = mountWorkspaceRoot(dir);
     const toolRuntime = new ToolRuntime(dir);
-    const client = new SideCarClient(MODEL, process.env.OLLAMA_HOST || 'http://localhost:11434', 'ollama');
+    const client = new SideCarClient(MODEL, normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434', 'ollama');
     client.updateSystemPrompt(
       buildBaseSystemPrompt({
         isLocal: true,
@@ -217,7 +218,12 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     }
     patch = captureDiff(dir);
     fs.writeFileSync(path.join(OUT, `trajectory.${task.instance_id}.${arm}.log`), trajectory.join('\n') + '\n');
-  } catch {
+  } catch (err) {
+    // Surface the cause — a silently swallowed failure here turned a broken
+    // OLLAMA_HOST into 150 instant 'EMPTY' rows that looked like model
+    // behavior (observed live). The run still counts as unresolved.
+    // eslint-disable-next-line no-console -- eval diagnostics belong on stderr
+    console.error(`[swe] solve failed for ${task.instance_id} (${arm}):`, err instanceof Error ? err.message : err);
     patch = ''; // clone/agent failure = unresolved, not a lost run
   } finally {
     if (restoreMock) restoreMock();
@@ -257,7 +263,7 @@ describe('SWE-bench Verified — prediction generation', () => {
       const manifest = {
         model: MODEL,
         backend: 'ollama',
-        ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
+        ollamaHost: normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
         agentTemperature: getConfig().agentTemperature,
         agentSeed: seedEnv !== undefined && seedEnv !== '' ? Number(seedEnv) : (getConfig().agentSeed ?? null),
         dataset: path.basename(DATA as string),
