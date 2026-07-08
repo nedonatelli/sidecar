@@ -21,6 +21,27 @@ export interface AblationRun {
   caseId: string;
   passed: boolean;
   durationMs: number;
+  /**
+   * Graded per-run metrics (counts/rates), e.g. `unresolvedCitations`.
+   * Verify-layer scaffolds are invisible to binary pass/fail — a real review
+   * always cites at least one conventional non-source path, so a
+   * perfection-or-fail scorer fails BOTH arms and lift is uncomputable
+   * (M1/M2 finding). Comparing metric MEANS across arms reads the reduction
+   * directly (e.g. 2.1 → 0.4 avg fabrications per run).
+   */
+  metrics?: Record<string, number>;
+}
+
+/** Mean of one graded metric in each arm, and the with−without delta. */
+export interface MetricDelta {
+  metric: string;
+  meanWith: number;
+  meanWithout: number;
+  /** meanWith − meanWithout. For defect counts, negative = the scaffold reduced them. */
+  delta: number;
+  /** Runs contributing the metric in each arm (metric may be absent on some runs). */
+  withN: number;
+  withoutN: number;
 }
 
 /** Per-scaffold ablation result: lift and latency cost. */
@@ -39,6 +60,8 @@ export interface AblationSummary {
   latencyWithoutMs: number;
   /** latencyWithMs − latencyWithoutMs. Positive = the scaffold cost time. */
   latencyDeltaMs: number;
+  /** Graded-metric means per arm, one entry per metric name observed. */
+  metricDeltas: MetricDelta[];
 }
 
 function mean(ns: number[]): number {
@@ -77,10 +100,37 @@ export function summarizeAblation(runs: AblationRun[]): AblationSummary[] {
       latencyWithMs,
       latencyWithoutMs,
       latencyDeltaMs: latencyWithMs - latencyWithoutMs,
+      metricDeltas: summarizeMetrics(withRuns, withoutRuns),
     });
   }
 
   return summaries.sort((a, b) => b.lift - a.lift);
+}
+
+/** Per-metric means across arms. A metric contributes only from runs that
+ *  recorded it, so mixing metric-bearing and legacy runs doesn't skew means. */
+function summarizeMetrics(withRuns: AblationRun[], withoutRuns: AblationRun[]): MetricDelta[] {
+  const names = new Set<string>();
+  for (const r of [...withRuns, ...withoutRuns]) {
+    for (const name of Object.keys(r.metrics ?? {})) names.add(name);
+  }
+
+  const deltas: MetricDelta[] = [];
+  for (const metric of [...names].sort()) {
+    const withVals = withRuns.map((r) => r.metrics?.[metric]).filter((v): v is number => typeof v === 'number');
+    const withoutVals = withoutRuns.map((r) => r.metrics?.[metric]).filter((v): v is number => typeof v === 'number');
+    const meanWith = mean(withVals);
+    const meanWithout = mean(withoutVals);
+    deltas.push({
+      metric,
+      meanWith,
+      meanWithout,
+      delta: meanWith - meanWithout,
+      withN: withVals.length,
+      withoutN: withoutVals.length,
+    });
+  }
+  return deltas;
 }
 
 /** Render an ablation summary table for the eval report. */
@@ -99,6 +149,17 @@ export function formatAblationReport(summaries: AblationSummary[]): string {
         `lift ${sign}${liftPct}% (${(s.passRateWithout * 100).toFixed(0)}%→${(s.passRateWith * 100).toFixed(0)}%) ` +
         `latency ${latency}  [n=${s.withN}/${s.withoutN}]`,
     );
+    // Graded metrics: for defect counts the readable direction is
+    // without→with (the scaffold REDUCES the count when the arrow drops).
+    for (const m of s.metricDeltas) {
+      if (m.withN === 0 && m.withoutN === 0) continue;
+      const dir = m.delta < 0 ? 'REDUCES' : m.delta > 0 ? 'RAISES' : 'no effect';
+      lines.push(
+        `  ${''.padEnd(18)} ${dir.padEnd(9)} ` +
+          `${m.metric} ${m.meanWithout.toFixed(2)}→${m.meanWith.toFixed(2)} per run ` +
+          `(Δ ${m.delta >= 0 ? '+' : ''}${m.delta.toFixed(2)})  [n=${m.withN}/${m.withoutN}]`,
+      );
+    }
   }
   return lines.join('\n');
 }

@@ -241,6 +241,23 @@ function collectFailures(
   }
 }
 
+/**
+ * Count cited paths in the final answer that do NOT resolve against the
+ * workspace — the graded fabrication signal (scaffolding roadmap M1/M2
+ * finding). The boolean `citationsResolve` expectation is perfection-or-fail:
+ * a real review always name-drops at least one conventional non-source path
+ * (`dist/`, an inferred module), so it fails ~100% in BOTH ablation arms and
+ * the verify gate's lift is uncomputable. A count compared as means across
+ * arms can see a *reduction* (e.g. 2.1 → 0.4 avg fabrications per run).
+ */
+export function countUnresolvedCitations(finalText: string, fixture: WorkspaceFixture): number {
+  let unresolved = 0;
+  for (const cited of extractCitedPaths(finalText)) {
+    if (!pathVariants(cited).some((v) => v in fixture)) unresolved++;
+  }
+  return unresolved;
+}
+
 export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCaseResult {
   const failures: string[] = [];
   const softFailures: string[] = [];
@@ -253,6 +270,15 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     collectFailures(evalCase.softExpect, run, softFailures, workspaceBefore);
   }
 
+  // Graded metrics computed for EVERY run — not gated on an expectation —
+  // so the ablation harness can compare means across arms on any case.
+  const metrics: Record<string, number> = {
+    unresolvedCitations: countUnresolvedCitations(run.finalText, {
+      ...(workspaceBefore ?? {}),
+      ...run.workspaceAfter,
+    }),
+  };
+
   return {
     id: evalCase.id,
     description: evalCase.description,
@@ -264,6 +290,7 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     workspaceAfter: run.workspaceAfter,
     durationMs: run.durationMs,
     iterationsUsed: run.iterationsUsed,
+    metrics,
   };
 }
 

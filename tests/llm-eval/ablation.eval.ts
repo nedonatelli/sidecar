@@ -75,6 +75,7 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
               caseId: evalCase.id,
               passed: result.passed,
               durationMs: result.durationMs,
+              metrics: result.metrics,
             });
           });
         }
