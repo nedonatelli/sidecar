@@ -89,6 +89,7 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
               const fs = await import('node:fs');
               const os = await import('node:os');
               const dir = process.env.SIDECAR_EVAL_TRAJECTORY_DIR || os.tmpdir();
+              fs.mkdirSync(dir, { recursive: true });
               fs.writeFileSync(
                 `${dir}/ablation.${dim.scaffold}.${arm ? 'on' : 'off'}.${evalCase.id}.${rep}.json`,
                 JSON.stringify(result, null, 2),
