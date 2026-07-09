@@ -240,6 +240,12 @@ describe('compressMessages — semantic tiers', () => {
     expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(151);
   });
 
+  it('update_plan results shed like reads: the harness re-injects plan state, so in-history copies are redundant (S1+S2)', () => {
+    const msgs = buildMessages('update_plan', LONG, 6);
+    compressMessages(msgs);
+    expect(resultContent(msgs, 1).length).toBeLessThanOrEqual(151);
+  });
+
   it('read tier: compressed from distFromEnd = 1 (more aggressive than other tier)', () => {
     // read is compressed at distFromEnd=1; 'other' tier preserves at distFromEnd<2
     const readMsgs = buildMessages('web_search', LONG, 1);
@@ -489,6 +495,39 @@ describe('applyBudgetCompression', () => {
     expect(mockSummarize).toHaveBeenCalledOnce();
     expect(state.totalChars).toBe(200_000); // 300K - 100K freed
     expect(info).toHaveBeenCalled();
+  });
+
+  it("S2: passes the capability tier's compaction shape to the summarizer", async () => {
+    makeSummarizerMock({ freedChars: 100_000, turnsSummarized: 3, turnsCount: 5, messages: [] });
+    const state = stubLoopState({
+      maxTokens: 100_000,
+      totalChars: 300_000,
+      scaffoldingProfile: {
+        tier: 'weak',
+        burstCap: 12,
+        maxActionReprompts: 3,
+        maxGateInjections: 3,
+        runLlmCritic: false,
+        compressionThreshold: 0.6,
+        compactionKeepRecentTurns: 3,
+        compactionMaxSummaryChars: 500,
+      } as LoopState['scaffoldingProfile'],
+    });
+    await applyBudgetCompression({} as SideCarClient, state);
+    expect(mockSummarize).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ keepRecentTurns: 3, maxSummaryLength: 500 }),
+    );
+  });
+
+  it('S2: falls back to the historical shape (2 turns / 800 chars) when adaptive scaffolding is off', async () => {
+    makeSummarizerMock({ freedChars: 100_000, turnsSummarized: 3, turnsCount: 5, messages: [] });
+    const state = stubLoopState({ maxTokens: 100_000, totalChars: 300_000 });
+    await applyBudgetCompression({} as SideCarClient, state);
+    expect(mockSummarize).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ keepRecentTurns: 2, maxSummaryLength: 800 }),
+    );
   });
 
   it('returns "ok" even when episodic memory add() rejects (failure is swallowed, not propagated)', async () => {

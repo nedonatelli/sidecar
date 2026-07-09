@@ -44,6 +44,18 @@ export interface ScaffoldingProfile {
    * Medium == the historical CONTEXT_COMPRESSION_THRESHOLD (behavior-neutral).
    */
   compressionThreshold: number;
+  /**
+   * S2 — how many recent turns survive summarization untouched. Weak models
+   * hold less thread, so keeping more RAW turns beats a longer summary;
+   * strong models tolerate deeper summarization. Medium == the historical 2.
+   */
+  compactionKeepRecentTurns: number;
+  /**
+   * S2 — cap on the generated summary. Weak models drown in long summaries
+   * (the summary itself becomes noise), so theirs is tighter. Medium == the
+   * historical 800.
+   */
+  compactionMaxSummaryChars: number;
 }
 
 /**
@@ -59,6 +71,8 @@ export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
   maxGateInjections: 2,
   runLlmCritic: true,
   compressionThreshold: 0.7,
+  compactionKeepRecentTurns: 2,
+  compactionMaxSummaryChars: 800,
 };
 
 const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
@@ -69,6 +83,8 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     maxGateInjections: 1,
     runLlmCritic: true,
     compressionThreshold: 0.75,
+    compactionKeepRecentTurns: 3,
+    compactionMaxSummaryChars: 1000,
   },
   medium: { ...DEFAULT_SCAFFOLDING_PROFILE },
   weak: {
@@ -78,6 +94,8 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     maxGateInjections: 3,
     runLlmCritic: false,
     compressionThreshold: 0.6,
+    compactionKeepRecentTurns: 3,
+    compactionMaxSummaryChars: 500,
   },
 };
 

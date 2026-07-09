@@ -44,8 +44,12 @@ const WRITE_TOOL_NAMES = new Set([
   'db_migrate_up',
 ]);
 
-/** Tools that only read / search — compress aggressively. */
+/** Tools that only read / search — compress aggressively. Also includes
+ * `update_plan`: its results echo plan state the harness RE-INJECTS every
+ * turn (<plan_state>), so the in-history copies are pure redundant bytes —
+ * the plan is compaction-proof by re-injection, not by retention (S1+S2). */
 const READ_TOOL_NAMES = new Set([
+  'update_plan',
   'read_file',
   'list_directory',
   'search_files',
@@ -334,10 +338,15 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
   if (estimatedTokens > state.maxTokens * compressionThreshold) {
     // 1. Summarize old turns.
     const summarizer = new ConversationSummarizer(client);
+    // S2 — the compaction SHAPE follows the capability tier: weak models keep
+    // more raw turns and get a tighter summary (a long summary is itself
+    // noise to a small model); strong models tolerate deeper summarization.
+    // Defaults mirror the historical constants, so behavior is unchanged
+    // when adaptive scaffolding is off.
     const summarized = await summarizer.summarize(state.messages, {
-      keepRecentTurns: 2,
+      keepRecentTurns: state.scaffoldingProfile?.compactionKeepRecentTurns ?? 2,
       minCharsToSave: 2000,
-      maxSummaryLength: 800,
+      maxSummaryLength: state.scaffoldingProfile?.compactionMaxSummaryChars ?? 800,
       summaryTimeoutMs: 5000,
     });
     if (summarized.freedChars > 0) {

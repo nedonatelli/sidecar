@@ -20,6 +20,17 @@ describe('resolveScaffoldingProfile', () => {
     expect(p.burstCap).toBe(DEFAULT_SCAFFOLDING_PROFILE.burstCap);
   });
 
+  it('S2 compaction shape: medium mirrors the historical constants; weak keeps more raw turns with a tighter summary; strong summarizes deeper', () => {
+    const medium = resolveScaffoldingProfile('medium');
+    expect(medium.compactionKeepRecentTurns).toBe(2);
+    expect(medium.compactionMaxSummaryChars).toBe(800);
+    const weak = resolveScaffoldingProfile('weak');
+    expect(weak.compactionKeepRecentTurns).toBeGreaterThan(medium.compactionKeepRecentTurns);
+    expect(weak.compactionMaxSummaryChars).toBeLessThan(medium.compactionMaxSummaryChars);
+    const strong = resolveScaffoldingProfile('strong');
+    expect(strong.compactionMaxSummaryChars).toBeGreaterThanOrEqual(medium.compactionMaxSummaryChars);
+  });
+
   it('carries its tier and the tier-awareness knobs (D2/C4)', () => {
     expect(resolveScaffoldingProfile('weak').tier).toBe('weak');
     expect(resolveScaffoldingProfile('strong').tier).toBe('strong');
