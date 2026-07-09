@@ -60,6 +60,13 @@ export interface SwePrediction {
    * predictions.meta.jsonl files written before this field existed.
    */
   terminationBucket?: import('../../src/agent/failureTaxonomy.js').FailureBucket | null;
+  /**
+   * True when the keep-best ratchet reverted scaffold-tail changes in this
+   * run (detected from the ♻️ revert marker in the loop's output). Only
+   * meaningful on the `scaffold-on-ratchet` arm; undefined on meta files
+   * written before this field existed.
+   */
+  ratchetReverted?: boolean;
 }
 
 /** One line of the official `swebench` predictions JSONL. */

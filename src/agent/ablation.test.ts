@@ -49,6 +49,54 @@ describe('summarizeAblation', () => {
   });
 });
 
+describe('graded metrics (M1/M2 count/rate finding)', () => {
+  function mRun(present: boolean, unresolvedCitations: number, passed = false): AblationRun {
+    // passed=false in BOTH arms mirrors the real finding: the binary
+    // citationsResolve scorer fails 100% either way, so lift is 0 and only
+    // the graded metric can see the gate working.
+    return {
+      scaffold: 'citationGate',
+      present,
+      caseId: 'review',
+      passed,
+      durationMs: 1000,
+      metrics: { unresolvedCitations },
+    };
+  }
+
+  it('reports per-metric means across arms when binary lift is uncomputable', () => {
+    const runs = [mRun(true, 0), mRun(true, 1), mRun(false, 2), mRun(false, 2)];
+    const [s] = summarizeAblation(runs);
+    expect(s.lift).toBe(0); // binary is blind…
+    expect(s.metricDeltas).toEqual([
+      { metric: 'unresolvedCitations', meanWith: 0.5, meanWithout: 2, delta: -1.5, withN: 2, withoutN: 2 },
+    ]); // …the graded metric sees the reduction
+  });
+
+  it('ignores runs missing a metric instead of skewing the mean', () => {
+    const legacy: AblationRun = { scaffold: 'citationGate', present: true, caseId: 'c', passed: true, durationMs: 1 };
+    const runs = [mRun(true, 3), legacy, mRun(false, 3)];
+    const [s] = summarizeAblation(runs);
+    const d = s.metricDeltas[0];
+    expect(d.meanWith).toBe(3);
+    expect(d.withN).toBe(1);
+    expect(d.withoutN).toBe(1);
+  });
+
+  it('produces no metric rows when no run carries metrics', () => {
+    const runs = [run('completionGate', true, true, 1), run('completionGate', false, true, 1)];
+    expect(summarizeAblation(runs)[0].metricDeltas).toEqual([]);
+  });
+
+  it('renders the reduction as without→with in the report', () => {
+    const runs = [mRun(true, 0), mRun(true, 1), mRun(false, 2), mRun(false, 2)];
+    const report = formatAblationReport(summarizeAblation(runs));
+    expect(report).toContain('REDUCES');
+    expect(report).toContain('unresolvedCitations 2.00→0.50 per run');
+    expect(report).toContain('Δ -1.50');
+  });
+});
+
 describe('formatAblationReport', () => {
   it('renders a verdict per scaffold', () => {
     const report = formatAblationReport(

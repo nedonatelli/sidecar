@@ -92,3 +92,52 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
   }
   return lines.join('\n');
 }
+
+/**
+ * Render the third-arm section: scaffold-on-ratchet vs scaffold-on.
+ * Same honesty rules as the headline — resolve claims need McNemar; the
+ * over-engineering-rate drop is the behavioral signal that is measurable
+ * at small n (workstreams #0: patch minimality, not resolve harm rate).
+ */
+export function formatRatchetSection(cmp: import('./ablation.js').RatchetComparison): string {
+  const sg = cmp.significance;
+  const signedPct = (x: number): string => `${x >= 0 ? '+' : ''}${pct(x)}`;
+  const b = (n: number): string => `${Math.round(n)}b`;
+  const lines: string[] = [];
+  lines.push('## Third arm: keep-best ratchet (scaffold-on-ratchet vs scaffold-on)');
+  lines.push('');
+  lines.push('| Arm | Resolved | Rate | Mean patch | Mean patch (unresolved) | Mean latency |');
+  lines.push('| --- | --- | --- | --- | --- | --- |');
+  lines.push(
+    `| scaffold-on | ${cmp.on.resolved} / ${cmp.on.total} | ${pct(cmp.on.resolveRate)} | ` +
+      `${b(cmp.meanPatchBytesOn)} | ${b(cmp.meanUnresolvedPatchBytesOn)} | ${sec(cmp.on.meanDurationMs)} |`,
+  );
+  lines.push(
+    `| scaffold-on-ratchet | ${cmp.ratchet.resolved} / ${cmp.ratchet.total} | ${pct(cmp.ratchet.resolveRate)} | ` +
+      `${b(cmp.meanPatchBytesRatchet)} | ${b(cmp.meanUnresolvedPatchBytesRatchet)} | ${sec(cmp.ratchet.meanDurationMs)} |`,
+  );
+  lines.push('');
+  const oeDelta = cmp.meanUnresolvedPatchBytesRatchet - cmp.meanUnresolvedPatchBytesOn;
+  lines.push(
+    `**Over-engineering rate** (mean patch bytes with no pass-signal gain): ` +
+      `${b(cmp.meanUnresolvedPatchBytesOn)} → ${b(cmp.meanUnresolvedPatchBytesRatchet)} ` +
+      `(${oeDelta >= 0 ? '+' : ''}${b(oeDelta)}). Ratchet reverted in ${pct(cmp.revertRate)} of ratchet-arm runs.`,
+  );
+  lines.push('');
+  lines.push(
+    `Resolve delta (ratchet − scaffold-on): ${signedPct(cmp.resolveDeltaPct)}, ` +
+      `McNemar p = ${sg.pValue.toFixed(3)} — ${sg.significant ? '**significant**' : 'NOT significant'} ` +
+      `(${sg.rescued} rescued, ${sg.regressed} regressed).`,
+  );
+  if (cmp.regressedIds.length > 0) {
+    lines.push('');
+    lines.push(
+      `> ⚠️ **Do-no-harm check:** the ratchet un-resolved ${cmp.regressedIds.length} task(s) the scaffold ` +
+        `resolved: ${cmp.regressedIds.join(', ')}. ${sg.significant ? 'Significant — treat as a ratchet bug and read those trajectories before defaulting it on.' : 'Not statistically resolvable at this n, but read those trajectories anyway.'}`,
+    );
+  } else {
+    lines.push('');
+    lines.push('> ✓ Do-no-harm: the ratchet un-resolved nothing the scaffold had resolved.');
+  }
+  return lines.join('\n');
+}

@@ -243,4 +243,75 @@ describe('evaluateRatchetAtTermination', () => {
     expect(await fs.read('a.ts')).toBe('A');
     expect(onText).not.toHaveBeenCalled();
   });
+
+  // ---------------------------------------------------------------------
+  // Do-no-harm scenarios — the two SWE-campaign failures where the
+  // completion gate's verification push drove a weak 7B to make the patch
+  // WORSE, and the run ended via cycle-detection bail ('stuck'), not
+  // naturally. evaluateRatchetAtTermination is termination-agnostic by
+  // design (only user-abort skips it, in loop.ts) — these tests pin that a
+  // bail-terminated run still gets the revert, at the 2.0.1 default
+  // threshold (0 bytes: ANY unproven scaffold-tail growth reverts).
+  // ---------------------------------------------------------------------
+
+  it('django-14608 shape: small wrong tail edit to an UNRELATED file reverts on a stuck bail; the real fix stays', async () => {
+    const realFix = 'MINIMAL CORRECT FIX'.padEnd(568, ' ');
+    const fieldsOriginal = 'ORIGINAL AutoField'.padEnd(300, ' ');
+    const wrongEdit = fieldsOriginal + 'forces blank=True globally'.padEnd(236, ' ');
+    const fs = new FakeFs({ 'db/models.py': realFix, 'db/fields.py': wrongEdit });
+    const r = initRatchetRunState(true, 0);
+    // Armed when the gate's verification reprompt fired, right after the
+    // correct 568b fix — before the model started flailing.
+    r.boundaryCaptured = true;
+    r.preScaffoldFiles = new Set(['db/models.py']);
+    r.boundaryContent = new Map([['db/models.py', realFix]]);
+    r.boundarySignal = { projectTestsPassed: false, passingTestFiles: new Set(), patchBytes: 568 };
+    r.originals = new Map([
+      ['db/models.py', 'PRISTINE models.py'],
+      ['db/fields.py', fieldsOriginal], // pre-existed; the tail edited it
+    ]);
+    const state = fakeState(r, {
+      editedFiles: new Set(['db/models.py', 'db/fields.py']),
+      projectTestsPassed: false, // no test ever passed in either arm (no reachable runner)
+    });
+    (state as { termination?: string }).termination = 'stuck'; // cycle-detection bail, NOT natural
+
+    const onText = vi.fn();
+    await evaluateRatchetAtTermination(state, fs, noopCallbacks(onText));
+
+    // The 536b wrong edit — far under the old 4096 threshold — reverts.
+    expect(await fs.read('db/fields.py')).toBe(fieldsOriginal);
+    // The pre-scaffold correct fix is untouched.
+    expect(await fs.read('db/models.py')).toBe(realFix);
+    expect(onText).toHaveBeenCalledWith(expect.stringContaining('unproven scaffold-driven growth'));
+  });
+
+  it('sympy-11897 shape: broken pattern duplicated into a SECOND file reverts; the pre-scaffold edit is preserved as-is', async () => {
+    const garbled = 'GARBLED BUT PRE-SCAFFOLD latex() edit'.padEnd(512, ' ');
+    const duplicated = 'SAME BROKEN PATTERN copied into pretty() -> mutual recursion'.padEnd(615, ' ');
+    const fs = new FakeFs({ 'printing/latex.py': garbled, 'printing/pretty.py': duplicated });
+    const r = initRatchetRunState(true, 0);
+    r.boundaryCaptured = true;
+    r.preScaffoldFiles = new Set(['printing/latex.py']);
+    r.boundaryContent = new Map([['printing/latex.py', garbled]]);
+    r.boundarySignal = { projectTestsPassed: false, passingTestFiles: new Set(), patchBytes: 512 };
+    r.originals = new Map([
+      ['printing/latex.py', 'PRISTINE latex.py'],
+      ['printing/pretty.py', 'PRISTINE pretty.py'],
+    ]);
+    const state = fakeState(r, {
+      editedFiles: new Set(['printing/latex.py', 'printing/pretty.py']),
+      projectTestsPassed: false,
+    });
+    (state as { termination?: string }).termination = 'stuck';
+
+    await evaluateRatchetAtTermination(state, fs, noopCallbacks());
+
+    // The tail duplication (the mutual-recursion half) reverts…
+    expect(await fs.read('printing/pretty.py')).toBe('PRISTINE pretty.py');
+    // …but the pre-scaffold edit stays EVEN THOUGH it is itself imperfect:
+    // do-no-harm means the scaffold-on arm converges to the scaffold-off
+    // outcome, not that the ratchet fixes the model's own work.
+    expect(await fs.read('printing/latex.py')).toBe(garbled);
+  });
 });

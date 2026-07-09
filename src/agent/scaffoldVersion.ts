@@ -36,6 +36,13 @@
  *   scaffold-tail growth that didn't earn a proven test-signal improvement.
  *   PATCH-level: tunes a threshold within the existing ratchet, doesn't add,
  *   remove, or change which mechanisms run.
+ * - **2.1.0** (2026-07) — keep-best ratchet DEFAULT-ON. `scaffolding.keepBest`
+ *   flips to true: the default harness now snapshots at the scaffold boundary
+ *   and reverts unproven scaffold-tail changes at termination. MINOR: changes
+ *   which mechanisms run by default (evidence: 150-run 3-arm SWE campaign —
+ *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
+ *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
+ *   class — see Prove-or-Prune Ledger).
  * - **2.0.0** (2026-07) — verification-vertical + do-no-harm generation. Adds
  *   the keep-best ratchet (Pareto-safe scaffolding), mutation testing, the §5
  *   analytic-bound gate + property-based test synthesis, the prompt-injection
@@ -48,7 +55,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '2.0.1';
+export const SCAFFOLD_VERSION = '2.1.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

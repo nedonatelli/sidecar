@@ -240,6 +240,14 @@ export interface AgentCaseResult {
   durationMs: number;
   iterationsUsed: number;
   /**
+   * Graded per-run metrics (counts/rates), computed for every run regardless
+   * of expectations. Verify-layer scaffolds can't show lift on binary
+   * pass/fail (perfection-or-fail can't see a reduction — M1/M2 finding);
+   * the ablation harness compares these as means across arms instead.
+   * Currently: `unresolvedCitations` — cited paths that don't resolve.
+   */
+  metrics?: Record<string, number>;
+  /**
    * True when the case timed out with no model output whatsoever (no text,
    * tool calls, or tool results). Indicates an API availability problem
    * (hanging connection, rate-limit queue, server overload) — NOT a model

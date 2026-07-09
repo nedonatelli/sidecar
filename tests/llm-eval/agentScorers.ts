@@ -1,6 +1,6 @@
 import type { AgentEvalCase, AgentCaseResult, AgentExpectations, TrajectoryEvent } from './agentTypes.js';
 import type { WorkspaceFixture } from './workspaceSandbox.js';
-import { extractCitedPaths, pathVariants } from '../../src/agent/citationCheck.js';
+import { extractCitedPaths, resolvesAmong, citationMetricsForText } from '../../src/agent/citationCheck.js';
 
 // ---------------------------------------------------------------------------
 // Deterministic scorers for the agent-loop eval layer.
@@ -199,9 +199,9 @@ function collectFailures(
   // workspace (with NodeNext .js->.ts fallback). Measures the V1 gate's lift:
   // a fabricated citation that slips through shows up as a hard failure here.
   if (expect.citationsResolve) {
-    const fixture = { ...(workspaceBefore ?? {}), ...run.workspaceAfter };
+    const keys = Object.keys({ ...(workspaceBefore ?? {}), ...run.workspaceAfter });
     for (const cited of extractCitedPaths(run.finalText)) {
-      if (!pathVariants(cited).some((v) => v in fixture)) {
+      if (!resolvesAmong(cited, keys)) {
         out.push(`citationsResolve: cited path "${cited}" does not exist in the workspace`);
       }
     }
@@ -241,6 +241,22 @@ function collectFailures(
   }
 }
 
+/**
+ * Count cited paths in the final answer that do NOT resolve against the
+ * workspace — the graded fabrication signal (scaffolding roadmap M1/M2
+ * finding). The boolean `citationsResolve` expectation is perfection-or-fail:
+ * a real review always name-drops at least one conventional non-source path
+ * (`dist/`, an inferred module), so it fails ~100% in BOTH ablation arms and
+ * the verify gate's lift is uncomputable. A count compared as means across
+ * arms can see a *reduction* (e.g. 2.1 → 0.4 avg fabrications per run).
+ */
+/** Graded citation metrics against the fixture — the shared instrument in
+ * src/agent/citationCheck.ts (golden-fixture-tested there) applied to the
+ * eval workspace's key set. */
+export function citationMetrics(finalText: string, fixture: WorkspaceFixture) {
+  return citationMetricsForText(finalText, Object.keys(fixture));
+}
+
 export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCaseResult {
   const failures: string[] = [];
   const softFailures: string[] = [];
@@ -253,6 +269,12 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     collectFailures(evalCase.softExpect, run, softFailures, workspaceBefore);
   }
 
+  // Graded metrics computed for EVERY run — not gated on an expectation —
+  // so the ablation harness can compare means across arms on any case.
+  const metrics: Record<string, number> = {
+    ...citationMetrics(run.finalText, { ...(workspaceBefore ?? {}), ...run.workspaceAfter }),
+  };
+
   return {
     id: evalCase.id,
     description: evalCase.description,
@@ -264,6 +286,7 @@ export function scoreAgentCase(evalCase: AgentEvalCase, run: AgentRun): AgentCas
     workspaceAfter: run.workspaceAfter,
     durationMs: run.durationMs,
     iterationsUsed: run.iterationsUsed,
+    metrics,
   };
 }
 

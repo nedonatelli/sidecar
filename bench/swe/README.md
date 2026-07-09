@@ -52,6 +52,15 @@ npm run bench:swe:predict
 # → out/preds.scaffold-on.jsonl  +  out/preds.scaffold-off.jsonl
 ```
 
+For the **three-arm campaign** (adds the keep-best ratchet arm — the v0.118
+do-no-harm + over-engineering measurement), add:
+
+```bash
+SIDECAR_SWE_ARMS=scaffold-off,scaffold-on,scaffold-on-ratchet
+# → also writes out/preds.scaffold-on-ratchet.jsonl; predictions.meta.jsonl
+#   records ratchetReverted per ratchet-arm run (the ♻️ revert marker)
+```
+
 **3. Score each arm with the official harness** (Docker; on a Docker-capable
 machine):
 
@@ -62,6 +71,7 @@ python -m swebench.harness.run_evaluation \
   --predictions_path out/preds.scaffold-on.jsonl \
   --run_id sidecar-on --max_workers 4
 # repeat with preds.scaffold-off.jsonl → run_id sidecar-off
+# (three-arm: also preds.scaffold-on-ratchet.jsonl → run_id sidecar-ratchet)
 ```
 
 **4. Compute the ablation** from the two resolved reports the harness wrote:
@@ -74,6 +84,13 @@ SIDECAR_SWE_PREDS=out \
 npm run bench:swe:ablate
 # → the lift report (resolve% on/off, lift, rescued/regressed tasks, latency cost)
 ```
+
+Three-arm: add `SIDECAR_SWE_RESOLVED_RATCHET=ratchet.report.json` and the report
+gains a keep-best section — resolve delta with McNemar (do-no-harm: `regressed`
+must be empty/insignificant), the **over-engineering rate** (mean patch bytes on
+unresolved tasks, on vs ratchet — the behavioral signal that IS measurable at
+small n), and the ratchet's revert rate. This is the Prove-or-Prune evidence
+gate for defaulting `sidecar.scaffolding.keepBest` on.
 
 ## Reproducibility envelope
 

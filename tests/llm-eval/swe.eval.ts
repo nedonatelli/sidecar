@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'node:child_process';
+import { normalizeOllamaHost } from '../../src/ollama/hostUrl.js';
 import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
 import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
@@ -152,6 +153,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // completion). Diagnostic: lets us see WHY a run ended (stuck / timeout /
   // incomplete / bad-reasoning) instead of inferring it from patch shape alone.
   let terminationBucket: import('../../src/agent/failureTaxonomy.js').FailureBucket | null = null;
+  // Did the keep-best ratchet revert scaffold-tail changes this run? Detected
+  // from the loop's ♻️ marker — the third-arm ablation's revert-rate signal.
+  let ratchetReverted = false;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -159,7 +163,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // loops until cycle detection bails. This is the same hook installSandbox uses.
     restoreMock = mountWorkspaceRoot(dir);
     const toolRuntime = new ToolRuntime(dir);
-    const client = new SideCarClient(MODEL, process.env.OLLAMA_HOST || 'http://localhost:11434', 'ollama');
+    const client = new SideCarClient(MODEL, normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434', 'ollama');
     client.updateSystemPrompt(
       buildBaseSystemPrompt({
         isLocal: true,
@@ -177,6 +181,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     const trajectory: string[] = [];
     const callbacks: AgentCallbacks = {
       onText: (t) => {
+        if (t.includes('Keep-best ratchet reverted')) ratchetReverted = true;
         if (t.trim()) trajectory.push(`  text: ${t.trim().slice(0, 200)}`);
       },
       onToolCall: (name, input) => {
@@ -213,13 +218,25 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     }
     patch = captureDiff(dir);
     fs.writeFileSync(path.join(OUT, `trajectory.${task.instance_id}.${arm}.log`), trajectory.join('\n') + '\n');
-  } catch {
+  } catch (err) {
+    // Surface the cause — a silently swallowed failure here turned a broken
+    // OLLAMA_HOST into 150 instant 'EMPTY' rows that looked like model
+    // behavior (observed live). The run still counts as unresolved.
+    // eslint-disable-next-line no-console -- eval diagnostics belong on stderr
+    console.error(`[swe] solve failed for ${task.instance_id} (${arm}):`, err instanceof Error ? err.message : err);
     patch = ''; // clone/agent failure = unresolved, not a lost run
   } finally {
     if (restoreMock) restoreMock();
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
-  return { instance_id: task.instance_id, arm, model_patch: patch, durationMs: Date.now() - start, terminationBucket };
+  return {
+    instance_id: task.instance_id,
+    arm,
+    model_patch: patch,
+    durationMs: Date.now() - start,
+    terminationBucket,
+    ratchetReverted,
+  };
 }
 
 function buildTaskPrompt(task: SweTask, retrievalContext: string): string {
@@ -246,7 +263,7 @@ describe('SWE-bench Verified — prediction generation', () => {
       const manifest = {
         model: MODEL,
         backend: 'ollama',
-        ollamaHost: process.env.OLLAMA_HOST || 'http://localhost:11434',
+        ollamaHost: normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
         agentTemperature: getConfig().agentTemperature,
         agentSeed: seedEnv !== undefined && seedEnv !== '' ? Number(seedEnv) : (getConfig().agentSeed ?? null),
         dataset: path.basename(DATA as string),
@@ -295,7 +312,7 @@ describe('SWE-bench Verified — prediction generation', () => {
         fs.writeFileSync(path.join(OUT, `preds.${arm}.jsonl`), toPredictionsJsonl(predictions, MODEL, arm));
       }
       // eslint-disable-next-line no-console
-      console.info(`[swe] wrote predictions to ${OUT}/preds.{scaffold-on,scaffold-off}.jsonl (+ predictions.meta.jsonl)`);
+      console.info(`[swe] wrote predictions to ${OUT}/preds.{${ARMS.join(',')}}.jsonl (+ predictions.meta.jsonl)`);
       expect(predictions).toHaveLength(tasks.length * ARMS.length);
     },
     N * ARMS.length * PER_TASK_MS + 60_000,

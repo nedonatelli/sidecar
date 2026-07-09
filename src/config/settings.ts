@@ -528,7 +528,7 @@ function readConfig(): SideCarConfig {
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
-    keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', false),
+    keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', true),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
     // Provider-aware default: an empty `critic.model` historically meant
