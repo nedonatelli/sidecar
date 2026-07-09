@@ -1009,7 +1009,7 @@ Loop-safety scaffolding tuning. See also the scaffolding roadmap in `docs/`.
 | Setting                                         | Type    | Default | Description                                                                                                                                          |
 | ----------------------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sidecar.adaptiveScaffolding.enabled`           | boolean | `false` | Tune loop-safety scaffolding to the active model's capability tier — strong models relax (fewer reprompts, looser burst cap), weaker models tighten. |
-| `sidecar.scaffolding.keepBest`                  | boolean | `false` | Pareto-safe keep-best ratchet: snapshot files when scaffolding first drives extra work and revert if the extra work proved no test signal.           |
+| `sidecar.scaffolding.keepBest`                  | boolean | `true`  | Pareto-safe keep-best ratchet: snapshot files when scaffolding first drives extra work and revert if the extra work proved no test signal.           |
 | `sidecar.scaffolding.keepBestOverEngineerBytes` | number  | `0`     | Byte growth past which a scaffold-driven patch that improved no test signal is reverted as over-engineered. `0` = any unproven growth reverts.       |
 | `sidecar.scaffolding.cycleDetectionMinRepeats`  | number  | `10`    | Repeats of the same tool + file (content-aware) before the loop bails as a stuck cycle. Higher gives weak models more self-correction attempts.      |
 

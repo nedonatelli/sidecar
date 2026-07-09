@@ -468,8 +468,8 @@
           },
           "sidecar.scaffolding.keepBest": {
             "type": "boolean",
-            "default": false,
-            "description": "Pareto-safe scaffolding (keep-best ratchet). When on, the loop snapshots your files at the point scaffolding first drives extra work, then at the end reverts scaffold-driven changes that regressed a passing test OR grew the patch with no test-signal gain (over-engineering). By default ANY unproven growth reverts, not just large bloat — see keepBestOverEngineerBytes. Makes the completion gate / critic unable to turn a good run into a worse one. Disabled automatically in audit mode (writes are buffered, not on disk). Experimental."
+            "default": true,
+            "description": "Pareto-safe scaffolding (keep-best ratchet). The loop snapshots your files at the point scaffolding first drives extra work, then at the end reverts scaffold-driven changes that regressed a passing test OR grew the patch with no test-signal gain (over-engineering). By default ANY unproven growth reverts, not just large bloat — see keepBestOverEngineerBytes. Makes the completion gate / critic unable to turn a good run into a worse one. Every revert is surfaced with the file list. Disabled automatically in audit mode (writes are buffered, not on disk). Default-on since v0.118 (measured: over-engineering roughly halved on a 150-run SWE campaign with no possible resolve harm)."
           },
           "sidecar.scaffolding.keepBestOverEngineerBytes": {
             "type": "number",

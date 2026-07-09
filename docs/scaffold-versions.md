@@ -38,6 +38,18 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 2.1.0 — keep-best ratchet default-on (2026-07)
+
+MINOR. `sidecar.scaffolding.keepBest` defaults to **true**: every default-config
+run now arms the ratchet at the scaffold boundary and reverts unproven
+scaffold-tail changes at termination. Evidence (150-run 3-arm SWE campaign,
+qwen2.5-coder:7b, Verified N=50): over-engineering rate 36.6→29.6KB mean patch,
+6/50 live reverts, no possible resolve harm (0 resolves in all arms — the
+resolve non-regression is vacuous at this weight class and must be re-verified
+on a resolvable class; recorded in the ROADMAP Prove-or-Prune Ledger). The
+asymmetry that justified default-on: the completion gate (whose tail-pressure
+causes the damage) has always shipped default-on; its counterweight should too.
+
 ### 2.0.1 — keep-best ratchet threshold tightened (2026-07)
 
 PATCH. `DEFAULT_OVER_ENGINEER_BYTES` (in
