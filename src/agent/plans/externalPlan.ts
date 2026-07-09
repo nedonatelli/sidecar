@@ -86,3 +86,28 @@ export function renderPlanState(plan: ExternalPlan): string {
   lines.push('</plan_state>');
   return lines.join('\n');
 }
+
+/**
+ * Parse an ExternalPlan from plan-mode output — the plan text the USER
+ * approved, not arbitrary model prose. Extracts numbered ("1." / "1)") and
+ * bulleted ("- " / "* ") lines; returns null when fewer than 2 steps parse
+ * (a one-liner needs no external plan). This is the harness-seeded creation
+ * path: five model families produced zero voluntary update_plan calls, so
+ * plan creation cannot depend on model initiative.
+ */
+export function parsePlanFromText(text: string): ExternalPlan | null {
+  const steps: string[] = [];
+  for (const line of text.split('\n')) {
+    const m = /^\s*(?:\d{1,2}[.)]|[-*])\s+(.+\S)\s*$/.exec(line);
+    if (!m) continue;
+    // Strip markdown bold/checkbox noise from the step text.
+    const step = m[1]
+      .replace(/^\[[ x]\]\s*/i, '')
+      .replace(/\*\*/g, '')
+      .trim();
+    if (step) steps.push(step.slice(0, MAX_STEP_CHARS));
+    if (steps.length === MAX_PLAN_STEPS) break;
+  }
+  if (steps.length < 2) return null;
+  return { steps, current: 1 };
+}

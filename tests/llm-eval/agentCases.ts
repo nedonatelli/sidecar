@@ -1270,6 +1270,19 @@ export const AGENT_CASES: AgentEvalCase[] = [
     },
     maxTokens: 9000,
     maxIterations: 24,
+    // Harness-seeded plan (mirrors production plan-mode approval). Only
+    // active when the arm config enables planExternalizedEnabled.
+    seedPlanText:
+      '1. Create out/f1.md containing exactly "k4q9-alpha"\n' +
+      '2. Create out/f2.md containing exactly "zw31-tango"\n' +
+      '3. Create out/f3.md containing exactly "pb77-omega"\n' +
+      '4. Read data/big.log, count lines containing ERROR, write the number to out/errcount.md\n' +
+      '5. Create out/f4.md containing exactly "mm05-delta"\n' +
+      '6. Create out/f5.md containing exactly "rr82-sigma"\n' +
+      '7. Create out/f6.md containing exactly "hh19-kappa"\n' +
+      '8. Create out/f7.md containing exactly "vv63-lambda"\n' +
+      '9. Create out/f8.md containing exactly "cc48-theta"\n' +
+      '10. Create out/DONE.md containing exactly "sequence complete: jj90"',
     userMessage:
       'Read INSTRUCTIONS.md and complete every step in it, in order, one step at a time. Do not skip any step.',
     expect: {

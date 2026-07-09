@@ -1,4 +1,5 @@
 import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
+import { parsePlanFromText } from '../../src/agent/plans/externalPlan.js';
 import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
@@ -300,6 +301,10 @@ export async function runAgentCase(
     approvalMode: evalCase.approvalMode || 'autonomous',
     maxIterations: evalCase.maxIterations || 8,
     ...(evalCase.maxTokens ? { maxTokens: evalCase.maxTokens } : {}),
+    ...(evalCase.seedPlanText &&
+    (evalCase.configOverrides as { planExternalizedEnabled?: boolean } | undefined)?.planExternalizedEnabled
+      ? { initialPlan: parsePlanFromText(evalCase.seedPlanText) ?? undefined }
+      : {}),
     toolRuntime,
     ...(evalCase.mcpManager ? { mcpManager: evalCase.mcpManager } : {}),
     // Permissive confirmFn for the rare case an irrecoverable-gate

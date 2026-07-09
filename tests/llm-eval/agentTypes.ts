@@ -96,6 +96,13 @@ export interface AgentEvalCase {
   /** Token budget override — set LOW to force compression mid-run (long-horizon cases). */
   maxTokens?: number;
   /**
+   * Harness-seeded plan source (S1): parsed via parsePlanFromText and passed
+   * as AgentOptions.initialPlan — but only when the merged run config has
+   * planExternalizedEnabled, so the ablation dimension controls seeding.
+   * Mirrors production, where plan-mode approval seeds the plan.
+   */
+  seedPlanText?: string;
+  /**
    * Partial config overrides merged over the defaults for this run.
    * Use to opt-in to features that are off by default (critic,
    * autoFix). Example: `{ criticEnabled: true }`.

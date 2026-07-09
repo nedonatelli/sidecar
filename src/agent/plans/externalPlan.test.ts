@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyPlanUpdate, renderPlanState, MAX_PLAN_STEPS, MAX_STEP_CHARS } from './externalPlan.js';
+import { applyPlanUpdate, renderPlanState, parsePlanFromText, MAX_PLAN_STEPS, MAX_STEP_CHARS } from './externalPlan.js';
 
 describe('applyPlanUpdate', () => {
   it('accepts a full restatement with a current index', () => {
@@ -67,5 +67,33 @@ describe('renderPlanState', () => {
       current: 10,
     });
     expect(block.length).toBeLessThan(2048);
+  });
+});
+
+describe('parsePlanFromText (harness-seeded creation)', () => {
+  it('parses a numbered plan-mode plan', () => {
+    const text = '# Plan\n\n1. Reproduce the bug\n2. Locate the cause\n3) Fix it\n4. Re-run the tests\n\nRisks: none.';
+    expect(parsePlanFromText(text)).toEqual({
+      steps: ['Reproduce the bug', 'Locate the cause', 'Fix it', 'Re-run the tests'],
+      current: 1,
+    });
+  });
+
+  it('parses bulleted plans and strips bold/checkbox noise', () => {
+    const text = '- [ ] **Write the test**\n- Fix the parser\n* Verify';
+    expect(parsePlanFromText(text)).toEqual({
+      steps: ['Write the test', 'Fix the parser', 'Verify'],
+      current: 1,
+    });
+  });
+
+  it('returns null when fewer than 2 steps parse (prose, one-liners)', () => {
+    expect(parsePlanFromText('I will simply fix the bug directly.')).toBeNull();
+    expect(parsePlanFromText('1. Do the thing')).toBeNull();
+  });
+
+  it('caps at MAX_PLAN_STEPS', () => {
+    const text = Array.from({ length: 30 }, (_, i) => `${i + 1}. step ${i + 1}`).join('\n');
+    expect(parsePlanFromText(text)?.steps).toHaveLength(MAX_PLAN_STEPS);
   });
 });

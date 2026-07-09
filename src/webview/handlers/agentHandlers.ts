@@ -9,6 +9,7 @@ import { window, workspace, Uri, WorkspaceEdit, Range } from 'vscode';
 import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import { getConfig, resolveMode } from '../../config/settings.js';
+import { parsePlanFromText } from '../../agent/plans/externalPlan.js';
 import { handleUserMessage } from './chatHandlers.js';
 import { parseBatchInput, runBatch } from '../../agent/batch.js';
 import { generateSpec, saveSpec } from '../../agent/specDriven.js';
@@ -20,6 +21,14 @@ import { charsToTokens } from '../../config/tokenEstimation.js';
 
 export async function handleExecutePlan(state: ChatState): Promise<void> {
   if (!state.pendingPlan || state.pendingPlanMessages.length === 0) return;
+  // Harness-seeded externalized plan (S1): the approved plan is OUR OWN
+  // plan-mode output that the user just approved — parse its steps and seed
+  // the external plan so the execution run gets <plan_state> re-injection
+  // with zero model cooperation (five families produced zero voluntary
+  // update_plan calls). Rides the same one-shot channel as crash-resume.
+  if (getConfig().planExternalizedEnabled) {
+    state.pendingResumePlan = parsePlanFromText(state.pendingPlan);
+  }
   state.pendingPlanMessages.push({
     role: 'user',
     content: `Execute the following plan step by step:\n\n${state.pendingPlan}`,
