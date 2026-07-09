@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-_Last updated: 2026-07-07 (v0.117.0)_
+_Last updated: 2026-07-09 (v0.118.0)_
 
 This document is forward-looking only: what SideCar is building next and why. Completed work lives in the [CHANGELOG](CHANGELOG.md).
 
@@ -20,11 +20,10 @@ This document is forward-looking only: what SideCar is building next and why. Co
 | **4 · Measurement power**  | Powered, honest instruments: cost-adjusted headline metric, n large enough to detect real effects, cross-tier regression harness | M3; Wilson CI + McNemar stats layer already shipped                                                 |
 | **5 · Prove-or-prune**     | Every default-off feature gate earns a verdict: ablation/dogfood evidence → default-on, keep-gated, or **delete**                | ~20 features ship gated-off today; the critic ablation shows "shipped" ≠ "helps"                    |
 
-| Version | Headline (candidate, not committed)                                                                                                                                                                                                                                                                        |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v0.118  | **Verification depth** — unresolved-citation **count/rate** ablation metric (the open M1/M2 finding; graded, not binary) · keep-best third-arm SWE ablation (quantify the over-engineering-rate drop) · bail-early / do-no-harm investigation (scaffold turned `natural` completions into `bad-reasoning`) |
-| v0.119  | **Long-horizon state** — S1 plan externalization (per-turn step re-injection: `{current step, last result, remaining steps}`) + S2 capability-tiered compaction (keep plan + open contracts, shed resolved detail)                                                                                         |
-| v0.120  | **Prove-or-prune, round 1** — per-gate verdicts on the default-off feature set (see [Prove-or-Prune Ledger](#prove-or-prune-ledger)); default-on the ablation-proven winners, delete the losers                                                                                                            |
+| Version | Headline (candidate, not committed)                                                                                                                                                                                |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| v0.119  | **Long-horizon state** — S1 plan externalization (per-turn step re-injection: `{current step, last result, remaining steps}`) + S2 capability-tiered compaction (keep plan + open contracts, shed resolved detail) |
+| v0.120  | **Prove-or-prune, round 1** — per-gate verdicts on the default-off feature set (see [Prove-or-Prune Ledger](#prove-or-prune-ledger)); default-on the ablation-proven winners, delete the losers                    |
 
 ---
 
@@ -44,8 +43,6 @@ Re-tagged July 2026 by depth axis from the source-verified competitive gap analy
 
 **Axis 2 — Verification depth**
 
-- [ ] **Unresolved-citation count/rate metric** _(→ v0.118)_ — expose the citation gate's unresolved set as a numeric ablation metric; binary pass/fail provably cannot measure verify lift (M1/M2 finding).
-- [ ] **Bail-early / do-no-harm investigation** _(→ v0.118)_ — a scaffold turned clean `natural` completions into `bad-reasoning` on 2/4 SWE tasks; do-no-harm is a hard requirement for any default-on scaffold.
 - [ ] **Gate stands down when verification is impossible** — the SWE campaign's causal harm mechanism: the completion gate demands verification a weak model cannot perform (no reachable test runner), so it flails into unrelated edits until cycle bail; the ratchet treats the symptom. Deterministic precondition (has any verification command ever succeeded this run / does a runnable test setup exist?) → demand a read-back or nothing instead. Attacks the flailing at its source.
 - [ ] **Prompt-cache hygiene** — suspend (or warn on) format-on-save / background linters touching the agent's read-set mid-run; SideCar is uniquely exposed running in-editor + Anthropic caching.
 - [ ] **Proactive LSP-diagnostics push** — completes an existing stub (`DiagnosticSubscriber` reactive path; the `get_diagnostics` pull-tool already ships). Free grounding signal the harness currently ignores.
@@ -92,7 +89,7 @@ GPU-Native Hot-Swapping · GPU-Aware Load Balancing · Multi-repo cross-talk · 
 
 **Breadth items shelved by the July 2026 depth revector** (from the June 2026 competitive gap analysis; source-verified real gaps, deliberately deprioritized in favor of depth work): Multi-phase skills with idempotent resume · Per-skill self-updating "Lessons Learned" · Skill output-schema contract + negative "Rules" section · Batch clarify-Q&A (`ask_user` batch-emit + review-all + submit-together) · Global user-level guidance file (`~/.config/sidecar/SIDECAR.md`) · Markdown-authored slash commands unified with skills
 
-**Small-model scaffolding bets not yet scheduled** (grounded specs + priority in [docs/scaffolding-roadmap.md](docs/scaffolding-roadmap.md) → _Planned initiatives_; C1 slice 1 shipped in v0.117; S1/S2 and the graded verify metric are in the v0.118–0.119 release plan above): Full on-demand capability database (C1 beyond MCP lazy loading — query-assemble tools/conventions/trajectories) · Verification-triggered escalation (verifier-failure count escalates a subtask to a stronger model) · Shape/dtype/unit-constrained decoding for numerical code · Bash/command grammars · Gate→trajectory flywheel (LoRA on gate-passing runs).
+**Small-model scaffolding bets not yet scheduled** (grounded specs + priority in [docs/scaffolding-roadmap.md](docs/scaffolding-roadmap.md) → _Planned initiatives_; C1 slice 1 shipped in v0.117; S1/S2 are in the v0.119 release plan above; the graded verify metric shipped in v0.118): Full on-demand capability database (C1 beyond MCP lazy loading — query-assemble tools/conventions/trajectories) · Verification-triggered escalation (verifier-failure count escalates a subtask to a stronger model) · Shape/dtype/unit-constrained decoding for numerical code · Bash/command grammars · Gate→trajectory flywheel (LoRA on gate-passing runs).
 
 ---
 

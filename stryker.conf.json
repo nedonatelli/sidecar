@@ -1,8 +1,10 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "_comment": "Verify-the-verifier audit (§4): mutation-test SideCar's own moat-critical modules to confirm their tests catch faults, not just pass. One-time / on-demand — not CI (too slow). Scope via `mutate`.",
+  "_comment": "Verify-the-verifier audit (\u00a74): mutation-test SideCar's own moat-critical modules to confirm their tests catch faults, not just pass. One-time / on-demand \u2014 not CI (too slow). Scope via `mutate`.",
   "testRunner": "vitest",
-  "vitest": { "configFile": "vitest.config.ts" },
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
   "ignorePatterns": [
     ".vscode-test",
     ".vscode-test-web",
@@ -17,6 +19,7 @@
     "docs"
   ],
   "mutate": [
+    "src/agent/citationCheck.ts",
     "src/agent/completionGate.ts",
     "src/agent/completionGate/reprompts.ts",
     "src/agent/completionGate/behavioralReprompt.ts",
@@ -33,5 +36,9 @@
   "coverageAnalysis": "perTest",
   "concurrency": 4,
   "timeoutMS": 30000,
-  "thresholds": { "high": 90, "low": 70, "break": 0 }
+  "thresholds": {
+    "high": 90,
+    "low": 70,
+    "break": 0
+  }
 }
