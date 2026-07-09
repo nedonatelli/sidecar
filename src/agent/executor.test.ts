@@ -122,6 +122,29 @@ describe('executeTool', () => {
     expect(result.content).toContain('File written');
   });
 
+  it('edit_file validation failures point to write_file for creation', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'edit_file',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' }, search: { type: 'string' }, replace: { type: 'string' } },
+          required: ['path', 'search', 'replace'],
+        },
+      },
+      executor: async () => 'ok',
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { edit_file: 'allow' } });
+
+    const result = await executeTool(makeToolUse('edit_file', { path: 'out/f1.md', search: 'k4q9-alpha' }));
+
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain("missing required parameter 'replace'");
+    expect(result.content).toContain('use write_file(path="...", content="...") instead');
+  });
+
   it('returns error when tool permission is deny', async () => {
     mockedFindTool.mockReturnValue({
       definition: { name: 'read_file', description: '', input_schema: { type: 'object', properties: {} } },

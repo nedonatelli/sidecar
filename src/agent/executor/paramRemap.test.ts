@@ -49,15 +49,26 @@ describe('remapParamSynonyms', () => {
     expect(out.notes).toEqual([]);
   });
 
-  it('only fires for REQUIRED keys — optional canonical keys are left alone', () => {
+  it('fires for declared OPTIONAL keys too (ask_user q→question fallthrough)', () => {
     const schema = {
       type: 'object' as const,
-      properties: { path: { type: 'string' }, query: { type: 'string' } },
-      required: ['path'],
+      properties: { question: { type: 'string' }, options: { type: 'array' } },
+      required: [] as string[],
     };
-    const out = remapParamSynonyms({ path: 'a.ts', q: 'needle' }, schema);
-    expect(out.input).toEqual({ path: 'a.ts', q: 'needle' });
-    expect(out.notes).toEqual([]);
+    const out = remapParamSynonyms({ q: 'Which file did you mean?' }, schema);
+    expect(out.input).toEqual({ question: 'Which file did you mean?' });
+    expect(out.notes).toHaveLength(1);
+  });
+
+  it('a single synonym key is consumed once — required key wins over optional', () => {
+    const schema = {
+      type: 'object' as const,
+      properties: { query: { type: 'string' }, question: { type: 'string' } },
+      required: ['query'],
+    };
+    const out = remapParamSynonyms({ q: 'needle' }, schema);
+    expect(out.input).toEqual({ query: 'needle' });
+    expect(out.notes).toHaveLength(1);
   });
 
   it('ignores null/undefined synonym values and non-object input', () => {
@@ -67,11 +78,17 @@ describe('remapParamSynonyms', () => {
     expect(remapParamSynonyms([1, 2], WRITE_FILE_SCHEMA).notes).toEqual([]);
   });
 
-  it('no-ops on schema-less or required-less tools', () => {
+  it('no-ops on schema-less tools; fires on declared-but-optional keys', () => {
     expect(remapParamSynonyms({ file: 'a.ts' }, undefined).notes).toEqual([]);
-    expect(
-      remapParamSynonyms({ file: 'a.ts' }, { type: 'object', properties: { path: { type: 'string' } } }).notes,
-    ).toEqual([]);
+    const optionalOnly = remapParamSynonyms(
+      { file: 'a.ts' },
+      {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+      },
+    );
+    expect(optionalOnly.input).toEqual({ path: 'a.ts' });
+    expect(optionalOnly.notes).toHaveLength(1);
   });
 
   it('does not mutate the original input object', () => {

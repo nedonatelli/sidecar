@@ -175,12 +175,19 @@ export async function executeTool(
     logger?.warn(`Tool ${toolUse.name} input failed schema validation: ${schemaError}`);
     const schemaJson = JSON.stringify(tool.definition.input_schema);
     const capped = schemaJson.length > 2000 ? schemaJson.slice(0, 2000) + '…' : schemaJson;
+    // Small models loop the identical malformed edit_file call (observed:
+    // {path, search} with no replace, 4× to cycle-bail) — the schema alone
+    // doesn't reroute them, so name the creation tool explicitly.
+    const editFileAddendum =
+      toolUse.name === 'edit_file'
+        ? '\nIf you are trying to CREATE a new file, use write_file(path="...", content="...") instead — edit_file only modifies existing files.'
+        : '';
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
       content:
         `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. ` +
-        `Retry with input matching this schema:\n${capped}`,
+        `Retry with input matching this schema:\n${capped}${editFileAddendum}`,
       is_error: true,
     };
   }

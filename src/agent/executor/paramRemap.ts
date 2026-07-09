@@ -29,6 +29,9 @@ const SYNONYMS: Record<string, readonly string[]> = {
   replace: ['new_string', 'new_text', 'replacement'],
   query: ['q', 'search_query'],
   pattern: ['regex', 'glob'],
+  // ask_user: llama3.2 emits {'q': ...}; the executor's question fallback
+  // then silently substitutes a generic prompt and the model loops re-asking.
+  question: ['q'],
 };
 
 export interface ParamRemapOutcome {
@@ -40,26 +43,26 @@ export interface ParamRemapOutcome {
 
 export function remapParamSynonyms(input: unknown, schema: ToolInputSchema | undefined): ParamRemapOutcome {
   const obj = input as Record<string, unknown>;
-  if (
-    !schema ||
-    schema.type !== 'object' ||
-    !obj ||
-    typeof obj !== 'object' ||
-    Array.isArray(obj) ||
-    !schema.required?.length
-  ) {
+  if (!schema || schema.type !== 'object' || !obj || typeof obj !== 'object' || Array.isArray(obj)) {
     return { input: obj, notes: [] };
   }
 
   const declared = schema.properties ?? {};
+  // Required keys first (they'd fail validation outright), then remaining
+  // declared-but-absent optional keys — a synonym key is never a declared
+  // property, so it carries dead data wherever it sits; moving it onto a
+  // declared absent key can only help (observed: ask_user({'q': ...}) fell
+  // through to the generic-question fallback because 'question' is optional).
+  const required = schema.required ?? [];
+  const candidates = [...required, ...Object.keys(declared).filter((k) => !required.includes(k))];
   let out: Record<string, unknown> | null = null;
   const notes: string[] = [];
 
-  for (const key of schema.required) {
+  for (const key of candidates) {
     if (obj[key] !== undefined && obj[key] !== null) continue;
     for (const syn of SYNONYMS[key] ?? []) {
       if (syn in declared) continue;
-      const value = obj[syn];
+      const value = (out ?? obj)[syn];
       if (value === undefined || value === null) continue;
       out ??= { ...obj };
       out[key] = value;
