@@ -270,6 +270,7 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   public async resumeFromCheckpoint(checkpoint: PlanCheckpoint): Promise<void> {
     this._state.messages = [...checkpoint.messages];
+    this.state.pendingResumePlan = checkpoint.plan ?? null;
     this.postMessage({ command: 'init', messages: checkpoint.messages });
     if (this.webviewView) this.webviewView.show(true);
     const resumePrompt = '(Resuming previous task. Continue where you left off.)';

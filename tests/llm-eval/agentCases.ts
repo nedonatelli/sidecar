@@ -141,7 +141,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
 
   {
     id: 'observe-tool-error-no-fabrication',
-    description: 'Agent observes a read_file error on a nonexistent path, does not fabricate contents or write new files',
+    description:
+      'Agent observes a read_file error on a nonexistent path, does not fabricate contents or write new files',
     tags: ['read', 'trajectory', 'error-observation', 'regression'],
     workspace: {
       // Only one file exists. The user's message points at a wrong
@@ -153,8 +154,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // regression we actually care about is: (1) the error was
       // observable in the trajectory, and (2) the agent didn't
       // fabricate contents by writing a new file.
-      'src/utils.ts':
-        '// Adds two numbers.\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n',
+      'src/utils.ts': '// Adds two numbers.\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n',
     },
     userMessage: 'Read src/helpers.ts and tell me what it does.',
     expect: {
@@ -422,7 +422,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'README.md': '# Eval sandbox\n',
     },
     userMessage:
-      "What directories and top-level files exist in this project? Give me a brief overview of the layout. " +
+      'What directories and top-level files exist in this project? Give me a brief overview of the layout. ' +
       "Don't read every file — just list what's here.",
     expect: {
       // The agent should call list_directory (or search_files with a broad
@@ -467,8 +467,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
     workspace: {
       'README.md': '# Eval sandbox\n',
     },
-    userMessage:
-      'Run `node --version` and tell me which version of Node.js is installed on this machine.',
+    userMessage: 'Run `node --version` and tell me which version of Node.js is installed on this machine.',
     expect: {
       // run_command is the only tool that can execute a shell command.
       // node is guaranteed present since we run in a Node.js process.
@@ -697,8 +696,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
     workspace: {
       'README.md': '# Eval sandbox\n',
     },
-    userMessage:
-      'Create src/hello.ts with a single exported function `hello()` that returns the string "hello".',
+    userMessage: 'Create src/hello.ts with a single exported function `hello()` that returns the string "hello".',
     expect: {
       toolsCalled: ['write_file'],
       files: {
@@ -753,10 +751,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
         'Always add a JSDoc comment above any new exported function. ' +
         'The comment must include a `@param` line for each parameter and a `@returns` line.\n',
       'src/math.ts':
-        '// Math utilities\n\n' +
-        'export function add(a: number, b: number): number {\n' +
-        '  return a + b;\n' +
-        '}\n',
+        '// Math utilities\n\n' + 'export function add(a: number, b: number): number {\n' + '  return a + b;\n' + '}\n',
     },
     userMessage: 'Add a `multiply(a: number, b: number): number` function to `src/math.ts` that returns `a * b`.',
     expect: {
@@ -787,7 +782,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
 
   {
     id: 'ask-user-ambiguous-rename',
-    description: 'Agent identifies ambiguity when asked to rename "the function" and names both candidates without editing',
+    description:
+      'Agent identifies ambiguity when asked to rename "the function" and names both candidates without editing',
     tags: ['ask_user', 'rule9', 'ambiguity'],
     workspace: {
       'src/utils.ts':
@@ -818,7 +814,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
         'function processData(items) {\n' +
         '  return items.map(item => item.toUppercase()); // BUG: typo in method name\n' +
         '}\n\n' +
-        'const results = processData([\'hello\', \'world\']);\n' +
+        "const results = processData(['hello', 'world']);\n" +
         'console.log(results);\n',
     },
     userMessage: 'Run `node src/processor.js` and fix any errors you find.',
@@ -905,14 +901,14 @@ export const AGENT_CASES: AgentEvalCase[] = [
 
   {
     id: 'no-op-recognition',
-    description: "Agent reads a file, recognizes it already satisfies the request, and does not edit it",
+    description: 'Agent reads a file, recognizes it already satisfies the request, and does not edit it',
     tags: ['read', 'no-op', 'honesty', 'rule13'],
     workspace: {
       'src/greeter.ts':
-        "export function greet(name: string): string {\n" +
+        'export function greet(name: string): string {\n' +
         "  // Returns 'Hello, ' followed by the name\n" +
         "  return 'Hello, ' + name;\n" +
-        "}\n",
+        '}\n',
     },
     userMessage:
       "Update the `greet` function in `src/greeter.ts` so it returns the string `'Hello, '` followed by the name argument.",
@@ -922,7 +918,9 @@ export const AGENT_CASES: AgentEvalCase[] = [
       // The file already satisfies the requirement exactly; editing it is unnecessary churn
       toolsNotCalled: ['edit_file', 'write_file'],
       // Should communicate that no change was needed
-      finalTextMatchesRegex: [/already|no change|unchanged|nothing to change|up[- ]to[- ]date|already (does|returns|satisfies)/i],
+      finalTextMatchesRegex: [
+        /already|no change|unchanged|nothing to change|up[- ]to[- ]date|already (does|returns|satisfies)/i,
+      ],
     },
   },
 
@@ -957,9 +955,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
           },
         ],
         // Vitest exposes both test() and it() as aliases; accept either
-        matchesRegex: [
-          { path: 'src/clamp.test.ts', patterns: [/\b(test|it)\s*\(/] },
-        ],
+        matchesRegex: [{ path: 'src/clamp.test.ts', patterns: [/\b(test|it)\s*\(/] }],
       },
     },
     softExpect: {
@@ -978,16 +974,14 @@ export const AGENT_CASES: AgentEvalCase[] = [
     maxIterations: 12,
     workspace: {
       'src/dateUtils.ts':
-        'export function formatDate(d: Date): string {\n' +
-        '  return d.toISOString().slice(0, 10);\n' +
-        '}\n',
+        'export function formatDate(d: Date): string {\n' + '  return d.toISOString().slice(0, 10);\n' + '}\n',
       'src/report.ts':
-        'import { formatDate } from \'./dateUtils.js\';\n' +
+        "import { formatDate } from './dateUtils.js';\n" +
         'export function buildReport(date: Date): string {\n' +
         '  return `Report for ${formatDate(date)}`;\n' +
         '}\n',
       'src/invoice.ts':
-        'import { formatDate } from \'./dateUtils.js\';\n' +
+        "import { formatDate } from './dateUtils.js';\n" +
         'export function invoiceTitle(date: Date): string {\n' +
         '  return `Invoice — ${formatDate(date)}`;\n' +
         '}\n',
@@ -1027,7 +1021,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
     },
     userMessage:
       'The `sortNumbers` function in `src/sorter.ts` has a bug: ' +
-      'JavaScript\'s default `.sort()` compares numbers lexicographically, so `[10, 2, 1]` sorts as `[1, 10, 2]`. ' +
+      "JavaScript's default `.sort()` compares numbers lexicographically, so `[10, 2, 1]` sorts as `[1, 10, 2]`. " +
       'Fix the function to sort numerically, then run `get_diagnostics` to confirm there are no type errors.',
     expect: {
       toolsCalled: ['read_file', 'get_diagnostics'],
@@ -1083,8 +1077,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
     tags: ['edit', 'multi-file', 'trajectory'],
     workspace: {
       'src/utils/index.ts':
-        'export { formatCurrency } from \'./currency.js\';\n' +
-        'export { parseDate } from \'./date.js\';\n',
+        "export { formatCurrency } from './currency.js';\n" + "export { parseDate } from './date.js';\n",
       'src/utils/currency.ts': 'export function formatCurrency(n: number): string { return `$${n.toFixed(2)}`; }\n',
       'src/utils/date.ts': 'export function parseDate(s: string): Date { return new Date(s); }\n',
     },
@@ -1108,7 +1101,8 @@ export const AGENT_CASES: AgentEvalCase[] = [
 
   {
     id: 'run-tests-fail-fix-iterate',
-    description: 'Agent runs tests, fixes first failure, runs again, fixes second independent failure, confirms all pass',
+    description:
+      'Agent runs tests, fixes first failure, runs again, fixes second independent failure, confirms all pass',
     tags: ['shell', 'iteration', 'multi-bug', 'trajectory'],
     workspace: {
       // Two independent bugs so the first run reveals only the first failure.
@@ -1125,9 +1119,9 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'tests/math.test.js':
         "const { add, multiply } = require('../src/math.js');\n\n" +
         'const sum = add(3, 4);\n' +
-        "if (sum !== 7) throw new Error(`add(3, 4): expected 7, got ${sum}`);\n\n" +
+        'if (sum !== 7) throw new Error(`add(3, 4): expected 7, got ${sum}`);\n\n' +
         'const product = multiply(3, 4);\n' +
-        "if (product !== 12) throw new Error(`multiply(3, 4): expected 12, got ${product}`);\n\n" +
+        'if (product !== 12) throw new Error(`multiply(3, 4): expected 12, got ${product}`);\n\n' +
         "console.log('All tests passed.');\n",
     },
     userMessage: 'Run `node tests/math.test.js`. Fix all failures and re-run until all tests pass.',
@@ -1150,7 +1144,6 @@ export const AGENT_CASES: AgentEvalCase[] = [
     // Rule 9 Clarification: After every `run_command` that shows an error (e.g., test failures),
     // the agent must fix the error and re-run the command until all tests pass.
     // This ensures the agent iteratively resolves issues until the task is complete.
-
   },
 
   {
@@ -1180,7 +1173,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
         '# demo-agent\n\nA tiny agent. Entry point is `src/index.ts`, which wires the\n' +
         'config, the agent loop, and the tool registry together.\n',
       'src/index.ts':
-        "// Entry point: build config, start the loop.\n" +
+        '// Entry point: build config, start the loop.\n' +
         "import { getConfig } from './config/settings.js';\n" +
         "import { runAgentLoop } from './agent/loop.js';\n\n" +
         'export async function main() {\n  const cfg = getConfig();\n  await runAgentLoop(cfg);\n}\n',
@@ -1189,7 +1182,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
         'export interface Config {\n  model: string;\n  backend: string;\n}\n' +
         "export function getConfig(): Config {\n  return { model: 'llama3', backend: 'ollama' };\n}\n",
       'src/agent/loop.ts':
-        "// The core agent loop: streams a turn, runs tools, repeats.\n" +
+        '// The core agent loop: streams a turn, runs tools, repeats.\n' +
         "import { TOOL_REGISTRY } from './tools.js';\n" +
         "import { executeTool } from './executor.js';\n" +
         "import type { Config } from '../config/settings.js';\n\n" +
@@ -1200,14 +1193,14 @@ export const AGENT_CASES: AgentEvalCase[] = [
         'export const TOOL_REGISTRY: Record<string, { description: string }> = {\n' +
         "  read_file: { description: 'read a file' },\n  write_file: { description: 'write a file' },\n};\n",
       'src/agent/executor.ts':
-        "// Runs a single tool by name with a permission gate.\n" +
+        '// Runs a single tool by name with a permission gate.\n' +
         "import { TOOL_REGISTRY } from './tools.js';\n" +
         "import { logger } from '../utils/logger.js';\n\n" +
         'export async function executeTool(name: string, input: Record<string, unknown>) {\n' +
         '  if (!TOOL_REGISTRY[name]) throw new Error(`unknown tool: ${name}`);\n' +
         '  logger.info(`running ${name}`);\n  return { ok: true, input };\n}\n',
       'src/backends/ollama.ts':
-        "// Minimal Ollama chat backend.\n" +
+        '// Minimal Ollama chat backend.\n' +
         'export async function chat(model: string, prompt: string): Promise<string> {\n' +
         "  const res = await fetch('http://localhost:11434/api/chat', {\n" +
         "    method: 'POST',\n    body: JSON.stringify({ model, prompt }),\n  });\n" +
@@ -1241,6 +1234,56 @@ export const AGENT_CASES: AgentEvalCase[] = [
     // case still exercises the review flow without being a permanent red.
     softExpect: {
       citationsResolve: true,
+    },
+  },
+  {
+    id: 'multi-step-plan-survives-compression',
+    description:
+      'Long-horizon: a 4-step task with a tiny token budget — compression fires mid-run; the externalized plan (S1) must keep the model on track through all steps (V1 lift case for planExternalized)',
+    tags: ['plans', 'long-horizon'],
+    // NOT in smoke: needs many iterations + deliberately forces compression.
+    workspace: {
+      'README.md': '# steps demo\n\nSee INSTRUCTIONS.md for the task list.\n',
+      // The steps live in a FILE, not the user message: messages[0] is
+      // compression-immune, so instructions given inline can never be lost.
+      // A read result CAN be compressed away — that is the long-horizon
+      // failure the externalized plan exists to survive.
+      'INSTRUCTIONS.md':
+        '# Task list — do IN ORDER, one at a time\n\n' +
+        '1. Create notes/alpha.md containing exactly "alpha done"\n' +
+        '2. Create notes/beta.md containing exactly "beta done"\n' +
+        '3. Create notes/gamma.md containing exactly "gamma done"\n' +
+        '4. Create notes/delta.md containing exactly "delta done"\n' +
+        '5. Create notes/omega.md containing exactly "omega done"\n' +
+        '6. Create notes/DONE.md containing exactly "all steps complete"\n',
+    },
+    // Tight budget: with a ~5-6K-token system prompt + tool results, the 70%
+    // threshold trips after a few turns, so ConversationSummarizer compresses
+    // the early turns away — exactly the drift the <plan_state> re-injection
+    // exists to survive. The baseline arm (planExternalized off) loses the
+    // step list with those turns.
+    maxTokens: 9000,
+    maxIterations: 14,
+    userMessage:
+      'Read INSTRUCTIONS.md and complete every step in it, in order, one step at a time. ' + 'Do not skip any step.',
+    expect: {
+      files: {
+        exist: [
+          'notes/alpha.md',
+          'notes/beta.md',
+          'notes/gamma.md',
+          'notes/delta.md',
+          'notes/omega.md',
+          'notes/DONE.md',
+        ],
+        contain: [
+          { path: 'notes/omega.md', substrings: ['omega done'] },
+          { path: 'notes/DONE.md', substrings: ['all steps complete'] },
+        ],
+      },
+    },
+    softExpect: {
+      finalTextContains: [['complete', 'done', 'finished']],
     },
   },
 ];

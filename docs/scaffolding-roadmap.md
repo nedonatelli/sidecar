@@ -111,7 +111,7 @@ but not yet scheduled. Ordered roughly by leverage.
 
 ### STATE _(new tier — the one genuinely greenfield area)_
 
-- **S1. Plan externalization ("plan-in-the-harness")** _(L)_ — an externalized plan/todo store with per-turn step re-injection (the model sees `{current step, last result, remaining steps}`) and a durable working-memory scratchpad separate from chat history. Today the plan lives only in the drifting message window; externalizing it is the highest-leverage change for long-horizon local runs.
+- **S1. Plan externalization ("plan-in-the-harness")** _(L, mechanics shipped v0.119 — adoption evidence open)_ — `update_plan` tool + per-turn `<plan_state>` re-injection (`{current step, last result, remaining steps}`), compaction-proof by construction; plan persists into the crash-resume checkpoint; pre-plan nudge in the per-turn addon slot (cache-safe). Probing found + fixed a real pre-existing bug: the tool catalog and dispatch ignored per-run config overrides (injection-first violation), so config-gated tools were invisible to facet/eval runs. **Open before any Ledger promotion:** qwen2.5-coder:7b completes structured multi-step tasks directly and does not adopt the tool even when nudged, and single-message tasks are compression-immune (`messages[0]` is protected) so the current eval case cannot show lift — a discriminative long-horizon case (longer tasks, instructions-via-read under real compression pressure, stall-prone models) is the evidence gate. Feature ships default-off.
 - **S2. Small-model-aware compaction** _(M)_ — tune _what_ compaction drops by capability tier: keep the plan + open contracts, shed resolved detail. The tier signal (A1) exists but isn't wired to compaction yet.
 
 ### LEARN _(new tier)_

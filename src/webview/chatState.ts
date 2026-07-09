@@ -39,6 +39,8 @@ const MAX_HISTORY_CHARS = 2_000_000; // ~2MB
  * to operate on state without coupling to the provider class.
  */
 export class ChatState {
+  /** Externalized plan from a resumed checkpoint — consumed (and cleared) by the next agent run. */
+  pendingResumePlan: import('../agent/plans/externalPlan.js').ExternalPlan | null = null;
   client: SideCarClient;
   /**
    * Conversation history. Mutation invariant: mutations are safe from

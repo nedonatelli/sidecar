@@ -49,6 +49,17 @@ describe('PlanStore — save / load', () => {
     expect(loaded?.runId).toBe('run-abc-123');
   });
 
+  it('round-trips the externalized plan (S1) so resume restores step state', async () => {
+    const dir = makeSidecarDir();
+    const store = new PlanStore(dir as never);
+    await store.save({
+      ...makeCheckpoint(),
+      plan: { steps: ['locate', 'fix', 'verify'], current: 2, lastResult: 'found in auth.ts' },
+    });
+    const loaded = await store.load();
+    expect(loaded?.plan).toEqual({ steps: ['locate', 'fix', 'verify'], current: 2, lastResult: 'found in auth.ts' });
+  });
+
   it('returns null when no checkpoint has been written', async () => {
     const dir = makeSidecarDir(null);
     const store = new PlanStore(dir as never);

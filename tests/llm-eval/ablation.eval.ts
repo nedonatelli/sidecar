@@ -36,6 +36,13 @@ const ALL_DIMENSIONS: AblationDimension[] = [
   // so "present" measures whether turning it ON lifts pass-rate.
   { scaffold: 'critic', present: { criticEnabled: true }, absent: { criticEnabled: false } },
   { scaffold: 'autoFix', present: { autoFixOnFailure: true }, absent: { autoFixOnFailure: false } },
+  // S1: externalized plan + per-turn <plan_state> re-injection. Measure on
+  // long-horizon cases (tag: plans) where compression fires mid-run.
+  {
+    scaffold: 'planExternalized',
+    present: { planExternalizedEnabled: true },
+    absent: { planExternalizedEnabled: false },
+  },
 ];
 
 const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
@@ -77,12 +84,21 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
               durationMs: result.durationMs,
               metrics: result.metrics,
             });
+            if (process.env.SIDECAR_ABLATION_TRAJ === '1') {
+              const tools = result.trajectory
+                .filter((e) => e.type === 'tool_call')
+                .map((e) => (e as { name: string }).name);
+              // eslint-disable-next-line no-console -- eval diagnostics
+              console.info(`[ablation] ${dim.scaffold} ${arm ? 'on' : 'off'} ${evalCase.id} tools: ${tools.join(',')}`);
+            }
             if (!result.passed) {
               // Per-run failure reasons in the log — without these, a 0% arm
               // is uninterpretable (observed: could not tell "didn't ground"
               // from "cited a fake path" after the fact).
               // eslint-disable-next-line no-console -- eval diagnostics
-              console.info(`[ablation] ${dim.scaffold} ${arm ? 'on' : 'off'} ${evalCase.id} FAILED: ${result.failures.join(' | ')}`);
+              console.info(
+                `[ablation] ${dim.scaffold} ${arm ? 'on' : 'off'} ${evalCase.id} FAILED: ${result.failures.join(' | ')}`,
+              );
             }
           });
         }

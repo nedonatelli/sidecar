@@ -14,6 +14,8 @@ export interface PlanCheckpoint {
   createdAt: number;
   /** Unix epoch ms of the most recent checkpoint save. */
   updatedAt: number;
+  /** Externalized plan (S1) at checkpoint time, so resume restores step state, not just messages. */
+  plan?: import('./externalPlan.js').ExternalPlan | null;
 }
 
 const CHECKPOINT_PATH = 'plans/active.json';

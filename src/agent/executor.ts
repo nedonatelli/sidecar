@@ -91,7 +91,9 @@ export async function executeTool(
   // Check the run-scoped ephemeral tools  before
   // the global registry. Facet RPC tools land here so cross-facet
   // calls resolve without polluting TOOL_REGISTRY across runs.
-  let tool = extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager);
+  const runConfig = executorContext?.config ?? getConfig();
+  let tool =
+    extraTools?.find((t) => t.definition.name === toolUse.name) ?? findTool(toolUse.name, mcpManager, runConfig);
 
   // Salvage a call-expression name like `read_file(path="x")` that some model
   // runtimes (notably Ollama's native qwen3.5 tool parser) occasionally emit as
@@ -103,7 +105,7 @@ export async function executeTool(
     const salvaged = parseMangledToolName(toolUse.name);
     if (salvaged) {
       const reTool =
-        extraTools?.find((t) => t.definition.name === salvaged.name) ?? findTool(salvaged.name, mcpManager);
+        extraTools?.find((t) => t.definition.name === salvaged.name) ?? findTool(salvaged.name, mcpManager, runConfig);
       if (reTool) {
         const hasInput = toolUse.input && Object.keys(toolUse.input).length > 0;
         const recoveredInput = hasInput ? toolUse.input : salvaged.input;

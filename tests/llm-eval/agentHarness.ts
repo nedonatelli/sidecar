@@ -52,7 +52,9 @@ class OllamaAgentBackend implements AgentEvalBackend {
     // explicitly disabled". The actual connection error surfaces in
     // the first streamChat call with a clear message.
     const b = process.env.SIDECAR_EVAL_BACKEND;
-    return b !== 'anthropic' && b !== 'openai' && b !== 'groq' && b !== 'fireworks' && b !== 'openrouter' && b !== 'gemini';
+    return (
+      b !== 'anthropic' && b !== 'openai' && b !== 'groq' && b !== 'fireworks' && b !== 'openrouter' && b !== 'gemini'
+    );
   }
   baseUrl(): string {
     return process.env.SIDECAR_EVAL_BASE_URL || 'http://localhost:11434';
@@ -297,6 +299,7 @@ export async function runAgentCase(
   const options: AgentOptions = {
     approvalMode: evalCase.approvalMode || 'autonomous',
     maxIterations: evalCase.maxIterations || 8,
+    ...(evalCase.maxTokens ? { maxTokens: evalCase.maxTokens } : {}),
     toolRuntime,
     ...(evalCase.mcpManager ? { mcpManager: evalCase.mcpManager } : {}),
     // Permissive confirmFn for the rare case an irrecoverable-gate

@@ -146,12 +146,16 @@ export interface AgentCallbacks {
    * distribution that steers where scaffolding effort goes.
    */
   onOutcome?: (bucket: import('./failureTaxonomy.js').FailureBucket | null) => void;
+  /** Fired when update_plan changed the externalized plan (S1) — checkpointing hook. */
+  onPlanUpdate?: (plan: import('./plans/externalPlan.js').ExternalPlan) => void;
   onDone: () => void;
 }
 
 export interface AgentOptions {
   maxIterations?: number;
   maxTokens?: number;
+  /** Seed the externalized plan (S1) — used by crash-resume to restore step state. */
+  initialPlan?: import('./plans/externalPlan.js').ExternalPlan;
   approvalMode?: ApprovalMode;
   logger?: AgentLogger;
   changelog?: ChangeLog;

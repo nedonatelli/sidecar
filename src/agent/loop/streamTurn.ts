@@ -160,8 +160,17 @@ export async function streamOneTurn(
   const episodicAddon = await Promise.race([buildEpisodicAddon(client, state), abortedPromise(signal)]);
   // Externalized plan (S1): re-inject the current <plan_state> every turn so
   // the plan survives compression and long-horizon drift — the harness
-  // re-supplies what the message window can lose.
-  const planAddon = state.planRef.plan ? renderPlanState(state.planRef.plan) : undefined;
+  // re-supplies what the message window can lose. Before a plan exists, a
+  // small nudge stands in: a cold local model does not adopt a new planning
+  // tool from its description alone (probe: 0 update_plan calls without
+  // this). Lives in the per-turn addon slot, NOT the base prompt, so the
+  // cache-stable prefix is untouched and the nudge self-removes once the
+  // model creates a plan.
+  const planAddon = state.planRef.plan
+    ? renderPlanState(state.planRef.plan)
+    : state.config.planExternalizedEnabled && state.approvalMode !== 'plan'
+      ? '<plan_state>\nNo plan yet. If this task takes more than one step, call update_plan NOW with the full step list (steps=[...], current=1) before doing anything else.\n</plan_state>'
+      : undefined;
   const addons = [episodicAddon, planAddon].filter(Boolean).join('\n\n');
   const effectiveSystemPrompt = addons
     ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + addons

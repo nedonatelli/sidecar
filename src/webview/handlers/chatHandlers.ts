@@ -462,6 +462,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       }
     }
 
+    // One-shot: a resumed checkpoint's plan seeds exactly the next run.
+    const resumePlan = state.pendingResumePlan;
+    state.pendingResumePlan = null;
     const updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, state.abortController.signal, {
       logger: state.agentLogger,
       changelog: state.changelog,
@@ -470,6 +473,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       maxIterations: matchedSkill?.maxIterations ?? config.agentMaxIterations,
       maxTokens: effectiveMaxTokens,
       ...(skillToolOverride && { toolOverride: skillToolOverride }),
+      ...(resumePlan && { initialPlan: resumePlan }),
       ...(matchedSkill?.preferredModel && { modelOverride: matchedSkill.preferredModel }),
       confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
       diffPreviewFn: state.contentProvider

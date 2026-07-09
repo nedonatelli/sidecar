@@ -61,6 +61,7 @@ export function createAgentCallbacks(
   };
 
   let currentIteration = 0;
+  let latestPlan: import('../../agent/plans/externalPlan.js').ExternalPlan | null = null;
 
   const cancel = () => {
     cancelled = true;
@@ -142,6 +143,9 @@ export function createAgentCallbacks(
         state.postMessage({ command: 'toolOutput', content: chunk, toolName: name, toolCallId: id });
       }
     },
+    onPlanUpdate: (plan) => {
+      latestPlan = plan;
+    },
     onIterationStart: (info) => {
       currentIteration = info.iteration;
       state.metricsCollector.recordIteration();
@@ -154,6 +158,7 @@ export function createAgentCallbacks(
           runId,
           createdAt: runStartedAt,
           updatedAt: Date.now(),
+          plan: latestPlan,
         });
       }
       state.postMessage({

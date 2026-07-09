@@ -90,6 +90,10 @@ export async function executeToolUses(
     filesReadThisTurn: state.filesReadThisRun,
   };
 
+  // Snapshot the plan object identity so a successful update_plan in this
+  // batch can fire the checkpointing hook exactly once, post-dispatch.
+  const planBefore = state.planRef.plan;
+
   const executionPromises = pendingToolUses.map((toolUse) =>
     executeOne(ctx, toolUse).catch((err: unknown) => {
       batchAbort.abort();
@@ -98,6 +102,10 @@ export async function executeToolUses(
   );
 
   const settled = await Promise.allSettled(executionPromises);
+
+  if (state.planRef.plan && state.planRef.plan !== planBefore) {
+    callbacks.onPlanUpdate?.(state.planRef.plan);
+  }
   const toolResults: ToolResultContentBlock[] = [];
   for (let idx = 0; idx < settled.length; idx++) {
     const outcome = settled[idx];

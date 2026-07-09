@@ -251,6 +251,21 @@ describe('tools.ts', () => {
     });
   });
 
+  describe('per-run config gating (injection-first)', () => {
+    it('update_plan appears in the catalog when the RUN config enables it (not just global settings)', () => {
+      // Regression: state.ts built the catalog without injectedConfig, so a
+      // tool enabled via AgentOptions.config (facet/eval overrides) was
+      // invisible while the plan nudge told the model to call it.
+      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
+      const on = getToolDefinitions(undefined, { ...base, planExternalizedEnabled: true } as never).map((d) => d.name);
+      const off = getToolDefinitions(undefined, { ...base, planExternalizedEnabled: false } as never).map(
+        (d) => d.name,
+      );
+      expect(on).toContain('update_plan');
+      expect(off).not.toContain('update_plan');
+    });
+  });
+
   describe('getToolDefinitions', () => {
     it('should return built-in tool definitions without mcp manager', () => {
       const defs = getToolDefinitions();

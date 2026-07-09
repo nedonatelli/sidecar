@@ -253,3 +253,31 @@ describe('streamOneTurn <plan_state> injection (S1)', () => {
     expect(captured.prompt ?? '').not.toContain('<plan_state>');
   });
 });
+
+describe('plan nudge before a plan exists (S1 adoption)', () => {
+  function clientCapturing(captured: { prompt?: string }): any {
+    return {
+      getSystemPrompt: () => 'BASE',
+      async *streamChat(_m: unknown, _s: unknown, _t: unknown, systemPrompt?: string) {
+        captured.prompt = systemPrompt;
+        yield { type: 'stop', stopReason: 'end_turn' } as StreamEvent;
+      },
+    };
+  }
+
+  it('injects the call-update_plan nudge when the gate is on and no plan exists', async () => {
+    const captured: { prompt?: string } = {};
+    const state = makeState();
+    (state.config as { planExternalizedEnabled?: boolean }).planExternalizedEnabled = true;
+    await streamOneTurn(clientCapturing(captured), state, new AbortController().signal, makeCallbacks(), 0);
+    expect(captured.prompt).toContain('call update_plan NOW');
+  });
+
+  it('injects nothing when the gate is off', async () => {
+    const captured: { prompt?: string } = {};
+    const state = makeState();
+    (state.config as { planExternalizedEnabled?: boolean }).planExternalizedEnabled = false;
+    await streamOneTurn(clientCapturing(captured), state, new AbortController().signal, makeCallbacks(), 0);
+    expect(captured.prompt ?? '').not.toContain('plan_state');
+  });
+});

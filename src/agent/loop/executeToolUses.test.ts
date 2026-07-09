@@ -304,3 +304,47 @@ describe('executeToolUses — memory + chain recording', () => {
     expect(cb.onToolChainRecord).toHaveBeenCalledWith('edit_file', false);
   });
 });
+
+describe('onPlanUpdate checkpointing hook (S1)', () => {
+  it('fires once post-dispatch when update_plan changed the plan', async () => {
+    vi.mocked(executeTool).mockImplementationOnce(async (toolUse, _opts) => {
+      // Simulate the update_plan executor mutating the shared ref.
+      state.planRef.plan = { steps: ['a', 'b'], current: 1 };
+      return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Plan updated', is_error: false };
+    });
+    const state = stubLoopState();
+    const onPlanUpdate = vi.fn();
+    const cb = { ...stubCallbacks(), onPlanUpdate };
+    await executeToolUses(
+      state,
+      [use('update_plan', { steps: ['a', 'b'] })],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      new AbortController().signal,
+    );
+    expect(onPlanUpdate).toHaveBeenCalledTimes(1);
+    expect(onPlanUpdate).toHaveBeenCalledWith({ steps: ['a', 'b'], current: 1 });
+  });
+
+  it('does not fire when no tool touched the plan', async () => {
+    vi.mocked(executeTool).mockResolvedValueOnce({
+      type: 'tool_result',
+      tool_use_id: 'tu-read_file',
+      content: 'x',
+      is_error: false,
+    });
+    const state = stubLoopState();
+    const onPlanUpdate = vi.fn();
+    const cb = { ...stubCallbacks(), onPlanUpdate };
+    await executeToolUses(
+      state,
+      [use('read_file', { path: 'a.ts' })],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      new AbortController().signal,
+    );
+    expect(onPlanUpdate).not.toHaveBeenCalled();
+  });
+});

@@ -301,7 +301,12 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
     maxTokens: options.maxTokens || 100_000,
     approvalMode: options.approvalMode || 'cautious',
-    tools: options.toolOverride ?? getToolDefinitionsForTier(options.toolTier ?? 'full', options.mcpManager),
+    // injectedConfig: the catalog must gate on THIS run's config (facet/eval
+    // overrides), not global settings — otherwise a tool enabled per-run is
+    // invisible in the catalog while prompts reference it (found live: the
+    // update_plan nudge demanded a tool the catalog never carried).
+    tools:
+      options.toolOverride ?? getToolDefinitionsForTier(options.toolTier ?? 'full', options.mcpManager, options.config),
     logger: options.logger,
     changelog: options.changelog,
     mcpManager: options.mcpManager,
@@ -326,7 +331,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
     editFailureSignatures: new Map<string, string>(),
-    planRef: { plan: null },
+    planRef: { plan: options.initialPlan ?? null },
     escalatedRewriteByFile: new Set<string>(),
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
