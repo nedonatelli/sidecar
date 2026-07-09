@@ -1301,6 +1301,38 @@ describe('completionGate — buildUnverifiedClaimReprompt', () => {
     expect(await buildUnverifiedClaimReprompt(msgs, fileExists)).toBeNull();
   });
 
+  it('resolves bare-basename citations via the suffix probe (prose cites "loop.ts", not the full path)', async () => {
+    // Root-relative-only matching flagged every basename mention as a
+    // fabrication — measured 85% "unresolved" in BOTH ablation arms: pure
+    // noise that drowned the gate's real signal AND false-accused the model.
+    const suffixExists = async (s: string) => [...realFiles].some((k) => k === s || k.endsWith('/' + s));
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('The streaming logic in `loop.ts` is clean, and `messageBuild.ts` composes results.'),
+    ];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists, undefined, suffixExists)).toBeNull();
+  });
+
+  it('resolves partial-path citations ("agent/loop.ts") via the suffix probe', async () => {
+    const suffixExists = async (s: string) => [...realFiles].some((k) => k === s || k.endsWith('/' + s));
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('See `agent/loop.ts` for the orchestration.'),
+    ];
+    expect(await buildUnverifiedClaimReprompt(msgs, fileExists, undefined, suffixExists)).toBeNull();
+  });
+
+  it('still fires on a true fabrication even with the suffix probe active', async () => {
+    const suffixExists = async (s: string) => [...realFiles].some((k) => k === s || k.endsWith('/' + s));
+    const msgs = [
+      userMsg('Review the architecture of this project.'),
+      assistantMsg('The resolver in `src/context/resolveToolOutput.ts` handles this.'),
+    ];
+    const result = await buildUnverifiedClaimReprompt(msgs, fileExists, undefined, suffixExists);
+    expect(result).not.toBeNull();
+    expect(result).toContain('resolveToolOutput.ts');
+  });
+
   it('fires on a hedge phrase even when all paths resolve', async () => {
     const msgs = [
       userMsg('Audit the design of this codebase.'),

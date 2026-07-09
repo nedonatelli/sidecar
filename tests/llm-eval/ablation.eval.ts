@@ -77,6 +77,13 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
               durationMs: result.durationMs,
               metrics: result.metrics,
             });
+            if (!result.passed) {
+              // Per-run failure reasons in the log — without these, a 0% arm
+              // is uninterpretable (observed: could not tell "didn't ground"
+              // from "cited a fake path" after the fact).
+              // eslint-disable-next-line no-console -- eval diagnostics
+              console.info(`[ablation] ${dim.scaffold} ${arm ? 'on' : 'off'} ${evalCase.id} FAILED: ${result.failures.join(' | ')}`);
+            }
           });
         }
       }

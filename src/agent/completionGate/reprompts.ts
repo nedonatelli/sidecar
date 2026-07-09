@@ -299,6 +299,20 @@ async function defaultFileExists(relPath: string): Promise<boolean> {
 }
 
 /**
+ * Default suffix probe: does ANY workspace file end with this relative
+ * suffix? Resolves basename/partial-path citations ("loop.ts",
+ * "config/settings.ts") the way a reader would. Injectable for tests.
+ */
+async function defaultFileWithSuffixExists(relSuffix: string): Promise<boolean> {
+  try {
+    const hits = await workspace.findFiles(`**/${relSuffix}`, '**/node_modules/**', 1);
+    return hits.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Returns a reprompt when an analysis/review answer cites file paths that don't
  * resolve on disk, or contains hedge phrases admitting an unverified claim.
  * Returns null when the answer is clean (or the request wasn't an analysis).
@@ -308,6 +322,7 @@ export async function buildUnverifiedClaimReprompt(
   messages: ChatMessage[],
   fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
   requestText?: string,
+  fileWithSuffixExists: (relSuffix: string) => Promise<boolean> = defaultFileWithSuffixExists,
 ): Promise<string | null> {
   const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
@@ -324,7 +339,14 @@ export async function buildUnverifiedClaimReprompt(
     seen.add(rel);
     let resolved = false;
     for (const v of pathVariants(rel)) {
-      if (await fileExists(v)) {
+      // Direct root-relative hit, then suffix resolution: prose cites files
+      // by basename or partial path ("loop.ts", "config/settings.ts") far
+      // more often than by full workspace-relative path, and stat-at-root
+      // flagged every such legitimate reference as a fabrication (measured:
+      // 85% "unresolved" in BOTH ablation arms — pure basename noise, which
+      // also drowned the gate's real signal). A true fabrication resolves
+      // nowhere and is still flagged.
+      if ((await fileExists(v)) || (await fileWithSuffixExists(v))) {
         resolved = true;
         break;
       }
