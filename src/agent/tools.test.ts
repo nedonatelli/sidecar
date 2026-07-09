@@ -150,8 +150,8 @@ describe('tools.ts', () => {
       expect(TOOL_REGISTRY.length).toBeGreaterThan(0);
     });
 
-    it('ships exactly 86 distinct built-in tools (the published count)', () => {
-      // The headline "86 built-in tools" in README + docs is this number:
+    it('ships exactly 87 distinct built-in tools (the published count)', () => {
+      // The headline "87 built-in tools" in README + docs is this number:
       // every registry tool, plus the two definitions getToolDefinitions
       // appends outside the registry — spawn_agent (always advertised) and
       // delegate_task (cloud + opt-in). Pinned so the docs can't silently
@@ -160,12 +160,13 @@ describe('tools.ts', () => {
       // index.html, model-recommendations.md, guide-cost-optimization.md, CLAUDE.md).
       // v0.116: +mutation_test (verify-the-verifier), +synthesize_property_test (§5 pillar 3),
       // +query_code_graph (code-graph query interface).
+      // v0.119: +update_plan (S1 externalized planning).
       const builtInNames = new Set([
         ...TOOL_REGISTRY.map((t) => t.definition.name),
         SPAWN_AGENT_DEFINITION.name,
         DELEGATE_TASK_DEFINITION.name,
       ]);
-      expect(builtInNames.size).toBe(86);
+      expect(builtInNames.size).toBe(87);
     });
 
     it('every registry tool name is unique', () => {

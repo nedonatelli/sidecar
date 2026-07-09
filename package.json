@@ -466,6 +466,11 @@
             "default": false,
             "description": "Tune loop-safety scaffolding to the active model's capability tier (A2). Strong models relax (fewer reprompts, looser burst cap → less latency); weak models get a larger reprompt budget to recover. Behavior-neutral when off. Experimental — values are still being validated via the ablation harness (npm run eval:ablation)."
           },
+          "sidecar.plan.externalized": {
+            "type": "boolean",
+            "default": false,
+            "description": "Externalized planning (S1). Adds an update_plan tool the model calls to keep a step-by-step plan OUTSIDE the message window; the harness re-injects {current step, last result, remaining steps} every turn, so the plan survives context compression on long tasks. Experimental — pending ablation evidence (Prove-or-Prune Ledger)."
+          },
           "sidecar.scaffolding.keepBest": {
             "type": "boolean",
             "default": true,

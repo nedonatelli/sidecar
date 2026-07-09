@@ -7,7 +7,7 @@ nav_section: 'Agent'
 
 # Tools Reference
 
-SideCar ships **86 built-in tools** available to the agent loop. Most are always active; a subset requires an opt-in setting to appear in the catalog (gated tools). All tool calls stream output back to the chat panel in real time.
+SideCar ships **87 built-in tools** available to the agent loop. Most are always active; a subset requires an opt-in setting to appear in the catalog (gated tools). All tool calls stream output back to the chat panel in real time.
 
 ---
 

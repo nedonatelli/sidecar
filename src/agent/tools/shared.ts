@@ -165,6 +165,12 @@ export interface ToolExecutorContext {
    * time").
    */
   editFailureSignatures?: Map<string, string>;
+  /**
+   * Shared handle on the externalized plan (S1). The loop owns the ref and
+   * re-injects `<plan_state>` each turn; `update_plan` mutates `ref.plan`.
+   * Absent when `sidecar.plan.externalized` is off (the tool errors politely).
+   */
+  planRef?: { plan: import('../plans/externalPlan.js').ExternalPlan | null };
 }
 
 export interface ToolExecutor {

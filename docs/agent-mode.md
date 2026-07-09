@@ -2,7 +2,7 @@
 title: Agent Mode
 layout: docs
 nav_order: 1
-nav_section: "Agent"
+nav_section: 'Agent'
 ---
 
 # Agent Mode
@@ -25,14 +25,14 @@ The loop continues until the task is complete, the model returns a final respons
 
 Control how much autonomy SideCar has via the agent mode dropdown in the chat header, or the `sidecar.agentMode` setting:
 
-| Mode | Reads | Writes | Destructive |
-|------|-------|--------|-------------|
-| **Cautious** (default) | Auto-approve | Confirm | Confirm |
-| **Autonomous** | Auto-approve | Auto-approve | Confirm |
-| **Manual** | Confirm | Confirm | Confirm |
-| **Review** | Auto-approve | Buffered — see below | Confirm |
-| **Plan** | Auto-approve (read-only) | Blocked until you approve a plan | Blocked |
-| **Audit** | Auto-approve | Buffered in-memory (autonomous), reviewed on flush | Buffered |
+| Mode                   | Reads                    | Writes                                             | Destructive |
+| ---------------------- | ------------------------ | -------------------------------------------------- | ----------- |
+| **Cautious** (default) | Auto-approve             | Confirm                                            | Confirm     |
+| **Autonomous**         | Auto-approve             | Auto-approve                                       | Confirm     |
+| **Manual**             | Confirm                  | Confirm                                            | Confirm     |
+| **Review**             | Auto-approve             | Buffered — see below                               | Confirm     |
+| **Plan**               | Auto-approve (read-only) | Blocked until you approve a plan                   | Blocked     |
+| **Audit**              | Auto-approve             | Buffered in-memory (autonomous), reviewed on flush | Buffered    |
 
 All six are valid values for `sidecar.agentMode`. **Plan** runs a read-only planning phase first (see [Plan mode](#plan-mode) below); **Audit** is a lighter-weight alternative to Review that buffers file writes in memory and runs autonomously until you flush/review.
 
@@ -82,6 +82,7 @@ When an agent task touches 3 or more files (configurable via `sidecar.multiFileE
 ### Planned edits card
 
 A collapsible **Planned edits** card appears in chat before any writes begin. Each row shows:
+
 - Operation badge (`create` / `edit` / `delete`)
 - File path and rationale
 - Dependency references
@@ -93,6 +94,7 @@ Clicking a cancel button aborts that file's write mid-stream without affecting o
 ### Accepting or rejecting the batch
 
 After all files complete, use:
+
 - **Accept All** — applies every written file atomically
 - **Reject All** — discards all changes, leaving the workspace untouched
 
@@ -121,12 +123,12 @@ If placeholders are detected, SideCar reprompts the model to replace them with c
 
 ## Safety guardrails
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.agentMaxIterations` | `25` | Max loop iterations before auto-stop |
-| `sidecar.agentMaxTokens` | `200000` | Max total tokens before auto-stop |
-| `sidecar.agentTemperature` | `0.2` | Temperature for tool-calling requests (lower = more deterministic) |
-| `sidecar.requestTimeout` | `120` | Timeout per LLM request in seconds (0 to disable) |
+| Setting                      | Default  | Description                                                        |
+| ---------------------------- | -------- | ------------------------------------------------------------------ |
+| `sidecar.agentMaxIterations` | `25`     | Max loop iterations before auto-stop                               |
+| `sidecar.agentMaxTokens`     | `200000` | Max total tokens before auto-stop                                  |
+| `sidecar.agentTemperature`   | `0.2`    | Temperature for tool-calling requests (lower = more deterministic) |
+| `sidecar.requestTimeout`     | `120`    | Timeout per LLM request in seconds (0 to disable)                  |
 
 Additional safety mechanisms:
 
@@ -147,93 +149,93 @@ This lets you steer the agent mid-run without waiting for it to finish. The back
 
 ## Built-in tools
 
-SideCar ships with 86 built-in tools the agent can use. The table below covers the core agentic tools; additional specialized tools are available for databases, vision verification, PDF/Zotero research, notebook mode, dependency scanning, doc-to-test synthesis, CI failure analysis, research assistant, and monorepo analysis (some gated by feature flags). `delegate_task` is only exposed when the active backend is paid.
+SideCar ships with 87 built-in tools the agent can use. The table below covers the core agentic tools; additional specialized tools are available for databases, vision verification, PDF/Zotero research, notebook mode, dependency scanning, doc-to-test synthesis, CI failure analysis, research assistant, and monorepo analysis (some gated by feature flags). `delegate_task` is only exposed when the active backend is paid.
 
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read file contents |
-| `write_file` | Create or overwrite files |
-| `edit_file` | Search/replace edits in existing files |
-| `delete_file` | Delete a file |
-| `search_files` | Glob pattern file search |
-| `grep` | Content search with regex |
-| `find_references` | Find symbol references across the workspace |
-| `run_command` | Execute shell commands in a persistent session (env/cwd persist, background support) |
-| `run_tests` | Run test suites with auto-detection |
-| `list_directory` | List directory contents |
-| `get_diagnostics` | Read compiler errors, warnings, and security findings |
-| `web_search` | Search the web via DuckDuckGo / Tavily / Brave |
-| `project_knowledge_search` | Semantic search over workspace symbols via tree-sitter + MiniLM embeddings |
-| `system_monitor` | Report CPU, memory, and disk usage |
-| `get_setting` | Read a VS Code workspace or user setting |
-| `update_setting` | Write a VS Code workspace setting — requires approval |
-| `switch_backend` | Switch to a different LLM backend mid-session |
-| `display_diagram` | Extract and render Mermaid diagrams from markdown files |
-| `render_viz` | Render a Vega-Lite chart or Mermaid diagram inline |
-| `ask_user` | Ask the user a clarifying question with selectable options |
-| `describe_tool` | Return the full schema for any registered tool |
-| `spawn_agent` | Spawn parallel sub-agents for complex tasks (max depth: 3, max 15 iterations each) |
-| `delegate_task` *(paid backends only)* | Offload read-only research to a local Ollama worker — see below |
-| `git_status` | Show working tree status |
-| `git_stage` | Stage files for commit |
-| `git_commit` | Create a commit |
-| `git_log` | View commit history |
-| `git_diff` | Show file diffs |
-| `git_push` | Push to remote (requires approval) |
-| `git_pull` | Pull from remote |
-| `git_branch` | Create/switch/list branches |
-| `git_stash` | Stash/pop changes |
-| `git_search_history` | Search git history by keyword, author, or date range |
-| `create_pr_review` | Create a GitHub PR review with inline comments |
-| `reply_pr_comment` | Reply to a specific PR review thread |
-| `submit_pr_review` | Submit a pending GitHub PR review |
-| `mark_pr_ready` | Mark a draft PR as ready for review |
-| `check_pr_ci` | Check CI status for the current PR |
-| `db_list_connections` | List configured database connections |
-| `db_list_tables` | List tables in a connected database |
-| `db_describe_table` | Describe table schema, columns, and indexes |
-| `db_query` | Run a read-only SQL query |
-| `db_execute` | Execute a write SQL statement (requires approval) |
-| `db_migrate_up` | Apply pending database migrations |
-| `index_pdf` | Index a PDF for citation-aware Q&A |
-| `read_pdf` | Read and extract text from a PDF file |
-| `zotero_search` | Search a Zotero library by keyword |
-| `zotero_get_item` | Fetch a Zotero item by key |
-| `insert_citation` | Insert a formatted citation from a Zotero item |
-| `check_dependencies` *(gated)* | Scan package.json / requirements.txt / Cargo.toml / go.mod for outdated and vulnerable deps (OSV API) |
-| `analyze_ci_failure` *(gated)* | Parse and analyze a failing CI run log |
-| `profile_code` *(gated)* | Profile Node.js / Python / Go / Rust code for hotspots |
-| `latex_compile` *(gated)* | Compile a LaTeX document and return structured errors |
-| `delegate_to_mcp` *(gated)* | Delegate a sub-task to a configured MCP server |
-| `monorepo_packages` *(gated)* | Detect and list monorepo workspace packages (Nx / Turbo / pnpm / Lerna) |
-| `extract_constraints` *(gated)* | Extract testable constraints from documentation |
-| `synthesize_tests` *(gated)* | Generate tests from extracted constraints |
-| `classify_test_failure` *(gated)* | Classify a test failure as code bug vs. outdated test |
-| `ingest_source` *(gated)* | Index a URL or local file for Notebook Mode research |
-| `generate_briefing` *(gated)* | Generate a cited multi-section briefing from ingested sources |
-| `generate_study_guide` *(gated)* | Generate a progressive Q&A study guide |
-| `generate_faq` *(gated)* | Generate a cited FAQ from ingested sources |
-| `generate_timeline` *(gated)* | Extract a chronological timeline from ingested sources |
-| `generate_outline` *(gated)* | Generate a hierarchical outline from ingested sources |
-| `analyze_screenshot` *(gated)* | Analyze a screenshot or image with a vision model |
-| `screenshot_page` *(gated)* | Screenshot a URL via Playwright |
-| `run_playwright_code` *(gated)* | Run arbitrary Playwright automation code |
-| `open_in_browser` *(gated)* | Open a URL in the system default browser |
-| `research_create_project` *(gated)* | Create a structured research project |
-| `research_add_hypothesis` *(gated)* | Add a hypothesis to a research project |
-| `research_log_experiment` *(gated)* | Log an experiment result |
-| `research_add_observation` *(gated)* | Record a research observation |
-| `research_update_hypothesis_status` *(gated)* | Update hypothesis status (supported/refuted/pending) |
-| `research_set_project_status` *(gated)* | Set overall research project status |
-| `research_list_projects` *(gated)* | List all research projects |
-| `research_export_report` *(gated)* | Generate a Markdown report from a research project |
-| `kickstand_list_loras` *(Kickstand only)* | List LoRA adapters currently attached to a loaded Kickstand model |
-| `kickstand_attach_lora` *(Kickstand only)* | Attach a LoRA adapter to a loaded Kickstand model without reloading — requires approval |
-| `kickstand_detach_lora` *(Kickstand only)* | Detach a previously-attached LoRA adapter — requires approval |
+| Tool                                          | Description                                                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `read_file`                                   | Read file contents                                                                                    |
+| `write_file`                                  | Create or overwrite files                                                                             |
+| `edit_file`                                   | Search/replace edits in existing files                                                                |
+| `delete_file`                                 | Delete a file                                                                                         |
+| `search_files`                                | Glob pattern file search                                                                              |
+| `grep`                                        | Content search with regex                                                                             |
+| `find_references`                             | Find symbol references across the workspace                                                           |
+| `run_command`                                 | Execute shell commands in a persistent session (env/cwd persist, background support)                  |
+| `run_tests`                                   | Run test suites with auto-detection                                                                   |
+| `list_directory`                              | List directory contents                                                                               |
+| `get_diagnostics`                             | Read compiler errors, warnings, and security findings                                                 |
+| `web_search`                                  | Search the web via DuckDuckGo / Tavily / Brave                                                        |
+| `project_knowledge_search`                    | Semantic search over workspace symbols via tree-sitter + MiniLM embeddings                            |
+| `system_monitor`                              | Report CPU, memory, and disk usage                                                                    |
+| `get_setting`                                 | Read a VS Code workspace or user setting                                                              |
+| `update_setting`                              | Write a VS Code workspace setting — requires approval                                                 |
+| `switch_backend`                              | Switch to a different LLM backend mid-session                                                         |
+| `display_diagram`                             | Extract and render Mermaid diagrams from markdown files                                               |
+| `render_viz`                                  | Render a Vega-Lite chart or Mermaid diagram inline                                                    |
+| `ask_user`                                    | Ask the user a clarifying question with selectable options                                            |
+| `describe_tool`                               | Return the full schema for any registered tool                                                        |
+| `spawn_agent`                                 | Spawn parallel sub-agents for complex tasks (max depth: 3, max 15 iterations each)                    |
+| `delegate_task` _(paid backends only)_        | Offload read-only research to a local Ollama worker — see below                                       |
+| `git_status`                                  | Show working tree status                                                                              |
+| `git_stage`                                   | Stage files for commit                                                                                |
+| `git_commit`                                  | Create a commit                                                                                       |
+| `git_log`                                     | View commit history                                                                                   |
+| `git_diff`                                    | Show file diffs                                                                                       |
+| `git_push`                                    | Push to remote (requires approval)                                                                    |
+| `git_pull`                                    | Pull from remote                                                                                      |
+| `git_branch`                                  | Create/switch/list branches                                                                           |
+| `git_stash`                                   | Stash/pop changes                                                                                     |
+| `git_search_history`                          | Search git history by keyword, author, or date range                                                  |
+| `create_pr_review`                            | Create a GitHub PR review with inline comments                                                        |
+| `reply_pr_comment`                            | Reply to a specific PR review thread                                                                  |
+| `submit_pr_review`                            | Submit a pending GitHub PR review                                                                     |
+| `mark_pr_ready`                               | Mark a draft PR as ready for review                                                                   |
+| `check_pr_ci`                                 | Check CI status for the current PR                                                                    |
+| `db_list_connections`                         | List configured database connections                                                                  |
+| `db_list_tables`                              | List tables in a connected database                                                                   |
+| `db_describe_table`                           | Describe table schema, columns, and indexes                                                           |
+| `db_query`                                    | Run a read-only SQL query                                                                             |
+| `db_execute`                                  | Execute a write SQL statement (requires approval)                                                     |
+| `db_migrate_up`                               | Apply pending database migrations                                                                     |
+| `index_pdf`                                   | Index a PDF for citation-aware Q&A                                                                    |
+| `read_pdf`                                    | Read and extract text from a PDF file                                                                 |
+| `zotero_search`                               | Search a Zotero library by keyword                                                                    |
+| `zotero_get_item`                             | Fetch a Zotero item by key                                                                            |
+| `insert_citation`                             | Insert a formatted citation from a Zotero item                                                        |
+| `check_dependencies` _(gated)_                | Scan package.json / requirements.txt / Cargo.toml / go.mod for outdated and vulnerable deps (OSV API) |
+| `analyze_ci_failure` _(gated)_                | Parse and analyze a failing CI run log                                                                |
+| `profile_code` _(gated)_                      | Profile Node.js / Python / Go / Rust code for hotspots                                                |
+| `latex_compile` _(gated)_                     | Compile a LaTeX document and return structured errors                                                 |
+| `delegate_to_mcp` _(gated)_                   | Delegate a sub-task to a configured MCP server                                                        |
+| `monorepo_packages` _(gated)_                 | Detect and list monorepo workspace packages (Nx / Turbo / pnpm / Lerna)                               |
+| `extract_constraints` _(gated)_               | Extract testable constraints from documentation                                                       |
+| `synthesize_tests` _(gated)_                  | Generate tests from extracted constraints                                                             |
+| `classify_test_failure` _(gated)_             | Classify a test failure as code bug vs. outdated test                                                 |
+| `ingest_source` _(gated)_                     | Index a URL or local file for Notebook Mode research                                                  |
+| `generate_briefing` _(gated)_                 | Generate a cited multi-section briefing from ingested sources                                         |
+| `generate_study_guide` _(gated)_              | Generate a progressive Q&A study guide                                                                |
+| `generate_faq` _(gated)_                      | Generate a cited FAQ from ingested sources                                                            |
+| `generate_timeline` _(gated)_                 | Extract a chronological timeline from ingested sources                                                |
+| `generate_outline` _(gated)_                  | Generate a hierarchical outline from ingested sources                                                 |
+| `analyze_screenshot` _(gated)_                | Analyze a screenshot or image with a vision model                                                     |
+| `screenshot_page` _(gated)_                   | Screenshot a URL via Playwright                                                                       |
+| `run_playwright_code` _(gated)_               | Run arbitrary Playwright automation code                                                              |
+| `open_in_browser` _(gated)_                   | Open a URL in the system default browser                                                              |
+| `research_create_project` _(gated)_           | Create a structured research project                                                                  |
+| `research_add_hypothesis` _(gated)_           | Add a hypothesis to a research project                                                                |
+| `research_log_experiment` _(gated)_           | Log an experiment result                                                                              |
+| `research_add_observation` _(gated)_          | Record a research observation                                                                         |
+| `research_update_hypothesis_status` _(gated)_ | Update hypothesis status (supported/refuted/pending)                                                  |
+| `research_set_project_status` _(gated)_       | Set overall research project status                                                                   |
+| `research_list_projects` _(gated)_            | List all research projects                                                                            |
+| `research_export_report` _(gated)_            | Generate a Markdown report from a research project                                                    |
+| `kickstand_list_loras` _(Kickstand only)_     | List LoRA adapters currently attached to a loaded Kickstand model                                     |
+| `kickstand_attach_lora` _(Kickstand only)_    | Attach a LoRA adapter to a loaded Kickstand model without reloading — requires approval               |
+| `kickstand_detach_lora` _(Kickstand only)_    | Detach a previously-attached LoRA adapter — requires approval                                         |
 
-*(gated)* = off by default; enable via the corresponding `sidecar.*` feature flag. Additional tools can be added via [MCP servers](mcp-servers) and [custom tools](hooks-and-tasks#custom-tools).
+_(gated)_ = off by default; enable via the corresponding `sidecar.*` feature flag. Additional tools can be added via [MCP servers](mcp-servers) and [custom tools](hooks-and-tasks#custom-tools).
 
-### Kickstand LoRA tools *(new in v0.67.1)*
+### Kickstand LoRA tools _(new in v0.67.1)_
 
 When the active backend exposes a `loraAdapters` capability (Kickstand does; other backends don't), three agent tools are available for runtime LoRA management:
 
@@ -259,7 +261,7 @@ When the active backend is paid (Anthropic, OpenAI), SideCar exposes a `delegate
 
 **Design choices:**
 
-- **Read-only by design** — the worker cannot write files, run commands, or make changes. If the task asks for edits, the worker is instructed to describe what *should* change and leave the actual edits to the orchestrator.
+- **Read-only by design** — the worker cannot write files, run commands, or make changes. If the task asks for edits, the worker is instructed to describe what _should_ change and leave the actual edits to the orchestrator.
 - **Not exposed to the worker** — the worker doesn't know `delegate_task` or `spawn_agent` exist, so it can't recursively delegate or spiral.
 - **Hidden from local-only setups** — the tool definition is only added to `getToolDefinitions()` when the provider is `anthropic` or `openai`. Local Ollama users don't see a pointless option.
 - **Configurable worker** — `sidecar.delegateTask.workerModel` picks which Ollama model runs the worker (default: same as chat). A code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b` gives the best research results.
@@ -339,6 +341,7 @@ Define your own agent modes with dedicated system prompts and approval behavior 
 ```
 
 Each custom mode has:
+
 - **name** — identifier shown in the mode dropdown
 - **description** — tooltip text in the dropdown
 - **systemPrompt** — additional instructions injected into the system prompt when active
@@ -357,6 +360,7 @@ Run tasks in parallel without blocking your main conversation using `/bg <task>`
 ```
 
 Each background agent:
+
 - Gets its own independent client instance (no shared state with the main chat)
 - Runs in **autonomous mode** with a 15-iteration cap
 - Streams output in real-time to a collapsible dashboard panel below the header
@@ -368,20 +372,20 @@ The dashboard shows running, queued, completed, and failed agents with elapsed t
 
 When a background agent completes, a summary is posted to the main chat so you see the result without checking the dashboard.
 
-## Typed Sub-Agent Facets *(new in v0.66)*
+## Typed Sub-Agent Facets _(new in v0.66)_
 
-Facets are a step up from background agents: named specialists with their own tool allowlist, preferred model, and composed system prompt, dispatched in parallel through the Command Palette. Where `/bg` spawns a generic autonomous agent, `SideCar: Facets: Dispatch Specialists` dispatches a specific *role* — `security-reviewer`, `test-author`, `latex-writer`, etc. — against a task.
+Facets are a step up from background agents: named specialists with their own tool allowlist, preferred model, and composed system prompt, dispatched in parallel through the Command Palette. Where `/bg` spawns a generic autonomous agent, `SideCar: Facets: Dispatch Specialists` dispatches a specific _role_ — `security-reviewer`, `test-author`, `latex-writer`, etc. — against a task.
 
 Key differences from background agents:
 
-| | `/bg` background agent | Facets |
-| --- | --- | --- |
-| Tool surface | Full agent-loop tool registry | Per-facet allowlist (e.g. `test-author` only gets read + write + run_tests) |
-| Model choice | Global `sidecar.model` | Per-facet `preferredModel` (pinned for the run, restored after) |
-| System prompt | Standard agent prompt | Facet persona composed on top of orchestrator's rules |
-| Review | Per-agent accept/reject inline | Aggregated batch review with cross-facet file-overlap detection |
-| Sandboxing | Optional Shadow Workspace | Forced Shadow Workspace (`forceShadow: true, deferPrompt: true`) |
-| Inter-agent coordination | None | Typed RPC bus (`rpc.<peerId>.<method>` tools generated per-batch) |
+|                          | `/bg` background agent         | Facets                                                                      |
+| ------------------------ | ------------------------------ | --------------------------------------------------------------------------- |
+| Tool surface             | Full agent-loop tool registry  | Per-facet allowlist (e.g. `test-author` only gets read + write + run_tests) |
+| Model choice             | Global `sidecar.model`         | Per-facet `preferredModel` (pinned for the run, restored after)             |
+| System prompt            | Standard agent prompt          | Facet persona composed on top of orchestrator's rules                       |
+| Review                   | Per-agent accept/reject inline | Aggregated batch review with cross-facet file-overlap detection             |
+| Sandboxing               | Optional Shadow Workspace      | Forced Shadow Workspace (`forceShadow: true, deferPrompt: true`)            |
+| Inter-agent coordination | None                           | Typed RPC bus (`rpc.<peerId>.<method>` tools generated per-batch)           |
 
 Built-in facets: `general-coder` · `latex-writer` · `signal-processing` · `frontend` · `test-author` · `technical-writer` · `security-reviewer` · `data-engineer`. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via the `sidecar.facets.registry` setting.
 
@@ -414,7 +418,7 @@ Since v0.45.0, reasoning is rendered as a **numbered step timeline** rather than
 [5. 🧠 Reasoning — 0.9s]
 ```
 
-Each segment gets a numbered pill in the summary row (purple for reasoning, blue for tools) via a CSS counter on the messages container. Duration badges show elapsed wall-clock time — steps under 500ms hide the badge to reduce visual noise. The segmentation makes it easier to see *where* the agent spent its time and *which* reasoning led to *which* tool call.
+Each segment gets a numbered pill in the summary row (purple for reasoning, blue for tools) via a CSS counter on the messages container. Duration badges show elapsed wall-clock time — steps under 500ms hide the badge to reduce visual noise. The segmentation makes it easier to see _where_ the agent spent its time and _which_ reasoning led to _which_ tool call.
 
 The `sidecar.expandThinking` setting still controls whether reasoning segments are open or collapsed by default; it applies to every segment in the timeline.
 
@@ -431,6 +435,7 @@ Verbose output appears in yellow-bordered collapsible blocks. Use `/prompt` to i
 ## Progress indicators
 
 During agent runs, the UI shows:
+
 - **Step count** and **max iterations**
 - **Elapsed time**
 - **Token usage**

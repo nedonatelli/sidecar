@@ -162,6 +162,7 @@ export interface SideCarConfig {
   criticBlockOnHighSeverity: boolean;
   adaptiveScaffoldingEnabled: boolean;
   keepBestRatchetEnabled: boolean;
+  planExternalizedEnabled: boolean;
   keepBestOverEngineerBytes: number;
   /** Repeats of the same tool+file (normalized signature — content-aware,
    *  see cycleDetection.ts) before the loop bails as a stuck cycle. Also
@@ -529,6 +530,7 @@ function readConfig(): SideCarConfig {
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', true),
+    planExternalizedEnabled: cfg.get<boolean>('plan.externalized', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
     // Provider-aware default: an empty `critic.model` historically meant

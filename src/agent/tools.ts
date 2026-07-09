@@ -38,6 +38,7 @@ import { visionTools } from './tools/vision.js';
 import { docTestsTools } from './tools/docTests.js';
 import { notebookTools } from './tools/notebook.js';
 import { depsTools } from './tools/deps.js';
+import { planTools } from './tools/plan.js';
 import { profilingTools } from './tools/profiling.js';
 import { mutationTools } from './tools/mutationTest.js';
 import { latexTools } from './tools/latex.js';
@@ -102,6 +103,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
   ...docTestsTools,
   ...notebookTools,
   ...depsTools,
+  ...planTools,
   ...profilingTools,
   ...mutationTools,
   ...latexTools,
@@ -210,6 +212,7 @@ const GATED_TOOL_GROUPS: ReadonlyArray<{ names: ReadonlySet<string>; enabled: (c
   { names: namesOf(ciTools), enabled: (c) => c.ciAnalysisEnabled },
   { names: namesOf(researchTools), enabled: (c) => c.researchEnabled },
   { names: new Set([queryHistoryTool.definition.name]), enabled: (c) => c.evalHistoryEnabled },
+  { names: namesOf(planTools), enabled: (c) => c.planExternalizedEnabled },
 ];
 
 /**

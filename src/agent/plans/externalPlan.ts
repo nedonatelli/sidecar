@@ -1,0 +1,88 @@
+// ---------------------------------------------------------------------------
+// Externalized plan (scaffolding roadmap S1) — pure state + rendering.
+//
+// Long-horizon failure mode: the plan lives only in the drifting message
+// window, so once compression fires (or the model wanders) the original
+// decomposition is gone and the run devolves into local moves. S1 moves the
+// plan OUT of the window into loop state the model updates via one tool
+// (`update_plan`), and re-injects a compact `<plan_state>` block every turn:
+// {current step, last result, remaining steps}. Re-injection makes the plan
+// compaction-proof by construction — compression can never lose what the
+// harness re-supplies.
+//
+// Deliberately minimal for weak models: the tool RESTATES the whole plan as
+// strings plus a 1-based current index; statuses are DERIVED (before current
+// = done, current = active, after = pending) so there is no per-step
+// bookkeeping to get wrong. No VS Code imports — unit-testable and shared
+// with the eval harness.
+// ---------------------------------------------------------------------------
+
+/** Hard caps so a runaway model can't blow up the per-turn injection. */
+export const MAX_PLAN_STEPS = 20;
+export const MAX_STEP_CHARS = 200;
+export const MAX_RESULT_CHARS = 300;
+
+export interface ExternalPlan {
+  /** Ordered step descriptions, trimmed and capped. */
+  steps: string[];
+  /** 1-based index of the step currently being worked on. Clamped to steps. */
+  current: number;
+  /** One-line outcome of the most recently finished step, if reported. */
+  lastResult?: string;
+}
+
+/** Outcome of applying an `update_plan` tool call. */
+export type PlanUpdateOutcome = { ok: true; plan: ExternalPlan } | { ok: false; error: string };
+
+/**
+ * Validate and apply an `update_plan` tool input. Replaces the whole plan —
+ * a full restatement is the simplest contract for a small model, and the
+ * per-turn injection corrects any drift on the next turn anyway.
+ */
+export function applyPlanUpdate(input: Record<string, unknown>): PlanUpdateOutcome {
+  const rawSteps = input.steps;
+  if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+    return { ok: false, error: "update_plan requires 'steps': a non-empty array of step descriptions." };
+  }
+  if (rawSteps.length > MAX_PLAN_STEPS) {
+    return { ok: false, error: `update_plan supports at most ${MAX_PLAN_STEPS} steps — merge the small ones.` };
+  }
+  const steps: string[] = [];
+  for (const s of rawSteps) {
+    if (typeof s !== 'string' || s.trim() === '') {
+      return { ok: false, error: "update_plan 'steps' must all be non-empty strings." };
+    }
+    steps.push(s.trim().slice(0, MAX_STEP_CHARS));
+  }
+
+  const rawCurrent = input.current;
+  const current =
+    typeof rawCurrent === 'number' && Number.isFinite(rawCurrent)
+      ? Math.min(Math.max(Math.round(rawCurrent), 1), steps.length)
+      : 1;
+
+  const rawResult = input.last_result;
+  const lastResult =
+    typeof rawResult === 'string' && rawResult.trim() !== '' ? rawResult.trim().slice(0, MAX_RESULT_CHARS) : undefined;
+
+  return { ok: true, plan: { steps, current, ...(lastResult ? { lastResult } : {}) } };
+}
+
+/**
+ * Compact `<plan_state>` block appended to the system prompt each turn.
+ * Shape follows the roadmap spec: current step, last result, remaining steps
+ * — with done steps compressed to a single line so the injection stays small
+ * on long plans (context economy).
+ */
+export function renderPlanState(plan: ExternalPlan): string {
+  const lines: string[] = ['<plan_state>'];
+  lines.push(`Step ${plan.current}/${plan.steps.length} (current): ${plan.steps[plan.current - 1]}`);
+  if (plan.lastResult) lines.push(`Last result: ${plan.lastResult}`);
+  const remaining = plan.steps.slice(plan.current).map((s, i) => `${plan.current + 1 + i}. ${s}`);
+  if (remaining.length > 0) lines.push(`Remaining: ${remaining.join(' · ')}`);
+  const done = plan.steps.slice(0, plan.current - 1).map((s, i) => `${i + 1}. ${s} ✓`);
+  if (done.length > 0) lines.push(`Done: ${done.join(' · ')}`);
+  lines.push('Work the current step. When it is finished, call update_plan with the next current index.');
+  lines.push('</plan_state>');
+  return lines.join('\n');
+}

@@ -219,3 +219,37 @@ describe('streamOneTurn answer-in-thinking fallback', () => {
     expect(result.pendingToolUses).toHaveLength(1);
   });
 });
+
+describe('streamOneTurn <plan_state> injection (S1)', () => {
+  function clientCapturingPrompt(captured: { prompt?: string }): any {
+    return {
+      getSystemPrompt: () => 'BASE PROMPT',
+      async *streamChat(_msgs: unknown, _sig: unknown, _tools: unknown, systemPrompt?: string) {
+        captured.prompt = systemPrompt;
+        yield { type: 'stop', stopReason: 'end_turn' } as StreamEvent;
+      },
+    };
+  }
+
+  it('re-injects the current plan into the system prompt every turn', async () => {
+    const captured: { prompt?: string } = {};
+    const state = makeState();
+    state.planRef.plan = { steps: ['locate', 'fix', 'verify'], current: 2, lastResult: 'found it' };
+
+    await streamOneTurn(clientCapturingPrompt(captured), state, new AbortController().signal, makeCallbacks(), 0);
+
+    expect(captured.prompt).toContain('BASE PROMPT');
+    expect(captured.prompt).toContain('<plan_state>');
+    expect(captured.prompt).toContain('Step 2/3 (current): fix');
+    expect(captured.prompt).toContain('Last result: found it');
+  });
+
+  it('leaves the system prompt untouched when no plan exists', async () => {
+    const captured: { prompt?: string } = {};
+    const state = makeState();
+
+    await streamOneTurn(clientCapturingPrompt(captured), state, new AbortController().signal, makeCallbacks(), 0);
+
+    expect(captured.prompt ?? '').not.toContain('<plan_state>');
+  });
+});

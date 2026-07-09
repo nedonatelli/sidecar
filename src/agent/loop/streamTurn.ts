@@ -5,6 +5,7 @@ import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
+import { renderPlanState } from '../plans/externalPlan.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
 import { logApiCall } from '../apiAuditLog.js';
 // getConfig removed — thinkingMode now read from state.config (injected at loop entry)
@@ -157,8 +158,13 @@ export async function streamOneTurn(
   // episodic retrieval errors or returns nothing, the original prompt
   // (or override) is used unchanged.
   const episodicAddon = await Promise.race([buildEpisodicAddon(client, state), abortedPromise(signal)]);
-  const effectiveSystemPrompt = episodicAddon
-    ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + episodicAddon
+  // Externalized plan (S1): re-inject the current <plan_state> every turn so
+  // the plan survives compression and long-horizon drift — the harness
+  // re-supplies what the message window can lose.
+  const planAddon = state.planRef.plan ? renderPlanState(state.planRef.plan) : undefined;
+  const addons = [episodicAddon, planAddon].filter(Boolean).join('\n\n');
+  const effectiveSystemPrompt = addons
+    ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + addons
     : state.systemPromptOverride;
 
   // Per-turn AbortController for timeouts. Aborting this controller

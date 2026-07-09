@@ -173,6 +173,8 @@ export interface LoopState {
   // this to escalate the error message on a verbatim repeat rather than
   // showing the same hint again, and clears the entry on a successful edit.
   editFailureSignatures: Map<string, string>;
+  /** Externalized plan (S1): the loop re-injects <plan_state> each turn; update_plan mutates planRef.plan. */
+  planRef: { plan: import('../plans/externalPlan.js').ExternalPlan | null };
 
   // Most recent failing verification output (test failure / traceback /
   // diagnostics error), ANSI-stripped and truncated. Surfaced inline when the
@@ -324,6 +326,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
     editFailureSignatures: new Map<string, string>(),
+    planRef: { plan: null },
     escalatedRewriteByFile: new Set<string>(),
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
