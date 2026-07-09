@@ -4,6 +4,18 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Graded metrics in the ablation harness (M1/M2).** Every eval run records `citedPaths` / `unresolvedCitations` / `unresolvedCitationRate`; `AblationRun.metrics` flows into per-metric mean/delta rows in the ablation report. Binary pass/fail provably cannot measure verify-scaffold lift; the graded instrument produced V1's first honest number: **fabrication rate 1.00 → 0.76 (Δ −0.24, n=10/arm) at +9.8s**, with citation thoroughness UP (9.9 → 14.2 cited paths). (`src/agent/citationCheck.ts`, `src/agent/ablation.ts`, `tests/llm-eval/`)
+- **Third-arm SWE ablation (keep-best ratchet).** `SIDECAR_SWE_ARMS=scaffold-off,scaffold-on,scaffold-on-ratchet` + `ratchetReverted` capture per run + `computeRatchetComparison` (paired McNemar, over-engineering rate = mean patch bytes on unresolved tasks, revert rate) + a do-no-harm verdict section in the report. First 150-run campaign (qwen2.5-coder:7b, Verified N=50): scaffold over-engineering reproduces at scale (+13.2KB mean patch); **the ratchet reclaims ~7KB (36.6 → 29.6KB) with 6/50 live reverts**. (`bench/swe/`)
+- **Do-no-harm regression pins.** Both historical SWE campaign failures (django-14608's 536-byte wrong edit to an unrelated file; sympy-11897's duplicated broken pattern) are pinned as passing keep-best scenarios at bail terminations. (`src/agent/loop/keepBestRatchetWiring.test.ts`)
+
+### Fixed
+
+- **V1 citation gate stopped false-accusing the model.** Since v0.114 the unverified-claim gate resolved citations exact-at-root only, so legitimate prose references (`loop.ts`, `config/settings.ts`) were flagged as fabrications — measured at ~85% of all citations. Resolution is now suffix-aware in both the product gate and the eval scorer; true fabrications still fire. Also fixed in the shared extractor: brand tokens (`Node.js`, `Vue.js`) no longer count as citations, and dotted filenames (`vitest.config.ts`) match in full. The metric stack is golden-fixture tested. (`src/agent/citationCheck.ts`, `src/agent/completionGate/reprompts.ts`)
+- **Eval infra: schemeless `OLLAMA_HOST` normalized** (cloud GPU templates export `127.0.0.1:11434`; the CLI tolerates it, `fetch()` dies) and **solve errors are no longer swallowed** — a broken env var had produced 150 instant EMPTY rows indistinguishable from model behavior. (`src/ollama/hostUrl.ts`, `tests/llm-eval/swe.eval.ts`)
+
+
 ## [0.117.0] - 2026-07-07
 
 Context economy, slice 1 — the first release under the depth-revectored roadmap. MCP tool schemas now load lazily (one-line stubs in the catalog, `describe_tool` on first use; measured 46–60% catalog cut on the reference servers, opt-out per server via `alwaysLoad`), and MCP writes graduate from fire-and-trust to a round-trip verify discipline: unverified external writes block completion until a read-back confirms them. Both features were dogfooded live — headless probes through the real agent loop against a real MCP server plus a VS Code host session on qwen2.5-coder:7b — which caught and fixed four real bugs (annotation-gap false positives, blind-retry on schema-validation errors, `.mcp.json` dropping SideCar options, and `internal/` docs shipping in the .vsix). Three Cycle-4 audit findings closed. Verified: full check (7750 tests), coverage 86.95/77.91/85.41/88.51, Stryker moat score 74.38% (up from 71.7%), packaging deny-list clean, T2 smoke on two models with zero infra errors.

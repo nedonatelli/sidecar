@@ -65,14 +65,23 @@ SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_MODEL="$MODEL" \
   npm run bench:swe:predict 2>&1 | tee "$WORK/predict.log"
 
 echo "== [4/6] official swebench scoring (Docker) — per arm =="
+# MODAL=true scores serverless (no Docker-in-Docker needed on Vast-style
+# container hosts; needs `pip install modal` + `modal token set`). Transient
+# env-spec fetch flakes (ValueError: Could not find environment.yml — the
+# harness pulls it from GitHub at score time) abort a whole arm; retry once.
 for arm in ${ARMS//,/ }; do
-  python -m swebench.harness.run_evaluation \
-    --dataset_name "princeton-nlp/$DATASET" \
-    --predictions_path "$PRED/preds.$arm.jsonl" \
-    --run_id "sidecar-$arm" \
-    --max_workers "${SWE_WORKERS:-4}" 2>&1 | tee "$WORK/score.$arm.log"
+  for attempt in 1 2; do
+    python -m swebench.harness.run_evaluation \
+      --dataset_name "princeton-nlp/$DATASET" \
+      --predictions_path "$PRED/preds.$arm.jsonl" \
+      --run_id "sidecar-$arm-a$attempt" \
+      ${MODAL:+--modal true} \
+      --max_workers "${SWE_WORKERS:-4}" 2>&1 | tee "$WORK/score.$arm.log"
+    grep -q "Could not find environment.yml" "$WORK/score.$arm.log" || break
+    echo "!! transient env-spec fetch flake on $arm (attempt $attempt) — retrying"
+  done
   # The harness writes <model>.<run_id>.json with resolved_ids in CWD.
-  report=$(ls -t "${MODEL//[:\/]/__}__$arm".sidecar-"$arm".json 2>/dev/null | head -1 || true)
+  report=$(ls -t *sidecar-"$arm"-a*.json 2>/dev/null | head -1 || true)
   [ -z "$report" ] && report=$(ls -t *sidecar-"$arm"*.json 2>/dev/null | head -1 || true)
   cp "$report" "$WORK/resolved.$arm.json" 2>/dev/null || echo "!! locate the swebench report json for $arm and copy to $WORK/resolved.$arm.json"
 done

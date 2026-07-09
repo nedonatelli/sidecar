@@ -46,6 +46,7 @@ Re-tagged July 2026 by depth axis from the source-verified competitive gap analy
 
 - [ ] **Unresolved-citation count/rate metric** _(→ v0.118)_ — expose the citation gate's unresolved set as a numeric ablation metric; binary pass/fail provably cannot measure verify lift (M1/M2 finding).
 - [ ] **Bail-early / do-no-harm investigation** _(→ v0.118)_ — a scaffold turned clean `natural` completions into `bad-reasoning` on 2/4 SWE tasks; do-no-harm is a hard requirement for any default-on scaffold.
+- [ ] **Gate stands down when verification is impossible** — the SWE campaign's causal harm mechanism: the completion gate demands verification a weak model cannot perform (no reachable test runner), so it flails into unrelated edits until cycle bail; the ratchet treats the symptom. Deterministic precondition (has any verification command ever succeeded this run / does a runnable test setup exist?) → demand a read-back or nothing instead. Attacks the flailing at its source.
 - [ ] **Prompt-cache hygiene** — suspend (or warn on) format-on-save / background linters touching the agent's read-set mid-run; SideCar is uniquely exposed running in-editor + Anthropic caching.
 - [ ] **Proactive LSP-diagnostics push** — completes an existing stub (`DiagnosticSubscriber` reactive path; the `get_diagnostics` pull-tool already ships). Free grounding signal the harness currently ignores.
 
@@ -56,6 +57,7 @@ Re-tagged July 2026 by depth axis from the source-verified competitive gap analy
 
 **Axis 4 — Measurement power & runtime observability**
 
+- [ ] **Campaign weight-class fit** — 0/50 resolve in every arm (7B on SWE-Verified) means resolve can't measure anything at this class: use SWE-bench_Lite for 7B campaigns and/or run resolve-sensitive questions on a stronger tier (test-across-models applied to campaigns). Behavioral signals (patch bytes, revert rate, empty-patch rate) remain the small-n instruments.
 - [ ] **Powered-measurement program (M3)** — cost-adjusted headline metric over raw pass rate; diagnostic metrics; ≥30-task real-repo suite; cross-tier regression harness; powered n for SWE-bench.
 - [ ] **Ollama native response-metadata surfacing** — consume `load_duration`/`eval_count`/`eval_duration` for real tokens/sec + cold-start detection (dropped today at `ollamaBackend.ts:207`); feed status bar + arena.
 - [ ] **GPU-residency / silent-CPU-fallback detection** — `nvidia-smi` or Ollama `/api/ps` to warn when a model spills out of VRAM mid-session (KV-cache growth); size-vs-VRAM math misses this.
