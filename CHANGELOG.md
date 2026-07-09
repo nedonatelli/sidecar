@@ -4,6 +4,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.118.0] - 2026-07-09
+
+Verification depth — the release where the verify layer got measured instead of assumed. Graded citation metrics landed after a four-generation instrument cascade (each powered run exposed the next measurement bug), producing V1's first honest number: fabrication rate 1.00 → 0.76 (n=10/arm) at +9.8s with citation thoroughness UP. The same investigation found and fixed a false-accusation bug live in the shipped gate since v0.114. The do-no-harm net was verified at bail terminations, pinned against both historical SWE failures, and proven on a 150-run three-arm campaign (over-engineering −6,970 bytes, 12% revert rate, nothing un-resolved) — earning the Prove-or-Prune Ledger's first promotion: the keep-best ratchet is default-on as scaffold 2.1.0, with the resolve-non-regression caveat recorded. Verified: 7,781 tests, T2 smoke on two models with zero infra errors and zero false reverts, campaign artifacts archived with a full reproducibility manifest.
+
 ### Added
 
 - **Keep-best ratchet is now DEFAULT-ON** (`sidecar.scaffolding.keepBest`, scaffold version 2.1.0) — the first Prove-or-Prune Ledger promotion. Every default run now snapshots at the scaffold boundary and reverts scaffold-driven tail changes that regressed a passing test or grew the patch with no test-signal gain; reverts are surfaced with the file list. Evidence from the 150-run three-arm campaign below; recorded caveat: resolve non-regression is vacuous at 7B/Verified and gets re-verified on a resolvable class. (`package.json`, `src/config/settings.ts`, `src/agent/scaffoldVersion.ts`)
@@ -16,6 +20,10 @@ All notable changes to the SideCar extension will be documented in this file.
 - **V1 citation gate stopped false-accusing the model.** Since v0.114 the unverified-claim gate resolved citations exact-at-root only, so legitimate prose references (`loop.ts`, `config/settings.ts`) were flagged as fabrications — measured at ~85% of all citations. Resolution is now suffix-aware in both the product gate and the eval scorer; true fabrications still fire. Also fixed in the shared extractor: brand tokens (`Node.js`, `Vue.js`) no longer count as citations, and dotted filenames (`vitest.config.ts`) match in full. The metric stack is golden-fixture tested. (`src/agent/citationCheck.ts`, `src/agent/completionGate/reprompts.ts`)
 - **Eval infra: schemeless `OLLAMA_HOST` normalized** (cloud GPU templates export `127.0.0.1:11434`; the CLI tolerates it, `fetch()` dies) and **solve errors are no longer swallowed** — a broken env var had produced 150 instant EMPTY rows indistinguishable from model behavior. (`src/ollama/hostUrl.ts`, `tests/llm-eval/swe.eval.ts`)
 
+### Stats
+
+- 7781 total tests (421 test files)
+- 86 built-in tools, 11 skills
 
 ## [0.117.0] - 2026-07-07
 
