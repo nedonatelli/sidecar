@@ -84,7 +84,17 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
               durationMs: result.durationMs,
               metrics: result.metrics,
             });
-            if (process.env.SIDECAR_ABLATION_TRAJ === '1') {
+            if (process.env.SIDECAR_ABLATION_TRAJ === '2') {
+              // Full-forensics mode: dump the entire run result per arm/rep.
+              const fs = await import('node:fs');
+              const os = await import('node:os');
+              const dir = process.env.SIDECAR_EVAL_TRAJECTORY_DIR || os.tmpdir();
+              fs.writeFileSync(
+                `${dir}/ablation.${dim.scaffold}.${arm ? 'on' : 'off'}.${evalCase.id}.${rep}.json`,
+                JSON.stringify(result, null, 2),
+              );
+            }
+            if (process.env.SIDECAR_ABLATION_TRAJ === '1' || process.env.SIDECAR_ABLATION_TRAJ === '2') {
               const tools = result.trajectory
                 .filter((e) => e.type === 'tool_call')
                 .map((e) => (e as { name: string }).name);

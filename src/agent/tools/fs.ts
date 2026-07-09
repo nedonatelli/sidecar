@@ -680,7 +680,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       currentText = bufState.content ?? '';
     } else {
       const diskText = await readDiskViaWorkspace(context, filePath);
-      if (diskText === undefined) return `Error: File not found: ${filePath}`;
+      if (diskText === undefined) {
+        return (
+          `Error: ${filePath} does not exist, so it cannot be edited. ` +
+          `To CREATE a new file, call write_file(path="${filePath}", content="...") with the full desired content. ` +
+          `Use edit_file only to change files that already exist.`
+        );
+      }
       currentText = diskText;
     }
     if (!currentText.includes(search)) {
@@ -735,7 +741,23 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
-  const bytes = await workspace.fs.readFile(fileUri);
+  let bytes: Uint8Array;
+  try {
+    bytes = await workspace.fs.readFile(fileUri);
+  } catch (err: unknown) {
+    const isNotFound =
+      err instanceof Error && (err.message.includes('ENOENT') || (err as { code?: string }).code === 'FileNotFound');
+    if (!isNotFound) throw err;
+    // The #1 small-model failure on file CREATION: edit_file on a path that
+    // doesn't exist yet. The raw ENOENT gave no recovery route (observed
+    // live: llama3.2 looped edit→ENOENT→search for 24 iterations, never
+    // discovering write_file). Name the fix explicitly.
+    throw new Error(
+      `Error: ${filePath} does not exist, so it cannot be edited. ` +
+        `To CREATE a new file, call write_file(path="${filePath}", content="...") with the full desired content. ` +
+        `Use edit_file only to change files that already exist.`,
+    );
+  }
   const text = Buffer.from(bytes).toString('utf-8');
 
   // If the model is editing a file it hasn't explicitly read this turn,

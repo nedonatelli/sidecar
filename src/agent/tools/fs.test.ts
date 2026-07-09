@@ -169,12 +169,25 @@ describe('editFile audit mode', () => {
     expect(result).toContain('eslint'); // the grep found the real line
   });
 
-  it('returns error when disk file is missing and not buffered', async () => {
+  it('points to write_file when the target file does not exist (audit path)', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
     const result = await editFile({ path: 'src/missing.ts', search: 'something', replace: 'other' }, context);
-    expect(result).toContain('Error: File not found');
+    expect(result).toContain('src/missing.ts does not exist');
+    expect(result).toContain('write_file(path="src/missing.ts"');
+    expect(result).not.toContain('/var/folders'); // no leaked absolute paths
+    vi.restoreAllMocks();
+  });
+
+  it('points to write_file when the target file does not exist (non-audit path)', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(
+      new Error("ENOENT: no such file or directory, open '/var/folders/xy/out/f1.md'"),
+    );
+    await expect(editFile({ path: 'out/f1.md', search: 'k4q9-alpha', replace: '' })).rejects.toThrow(
+      /out\/f1\.md does not exist[\s\S]*write_file\(path="out\/f1\.md"/,
+    );
     vi.restoreAllMocks();
   });
 
