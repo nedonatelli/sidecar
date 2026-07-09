@@ -18,6 +18,7 @@ import { detectIrrecoverable } from './executor/irrecoverableDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
+import { remapParamSynonyms } from './executor/paramRemap.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
@@ -147,6 +148,17 @@ export async function executeTool(
         `braces are balanced, and no characters were truncated.\n\nRaw input received:\n${truncated}`,
       is_error: true,
     };
+  }
+
+  // --- Remap wrong-but-unambiguous parameter names before validation ---
+  // Small models emit the right value under a synonym key (write_file with
+  // 'file' instead of 'path') and repeat it even after schema-carrying
+  // errors. Remap deterministically and disclose in the result so the call
+  // succeeds AND the model sees the canonical name.
+  const remap = remapParamSynonyms(toolUse.input, tool.definition.input_schema);
+  if (remap.notes.length > 0) {
+    logger?.info(`Tool ${toolUse.name}: ${remap.notes.join('; ')}`);
+    toolUse.input = remap.input;
   }
 
   // --- Validate input shape against the tool's declared schema ---
@@ -497,7 +509,8 @@ export async function executeTool(
     // itself mid-turn — `read_file` returns pending content but grep
     // returns disk content for the same file. Only runs in review mode
     // (i.e., when the caller passed a PendingEditStore).
-    let finalContent = result + securityWarnings;
+    const remapDisclosure = remap.notes.length > 0 ? `[note: ${remap.notes.join('; ')}]\n` : '';
+    let finalContent = remapDisclosure + result + securityWarnings;
     if (pendingEdits && REVIEW_OVERLAY_TOOLS.has(toolUse.name)) {
       const overlay = computePendingOverlay(toolUse, pendingEdits);
       if (overlay) finalContent += overlay;

@@ -97,6 +97,31 @@ describe('executeTool', () => {
     expect(result.content).toContain('"required":["entities"]');
   });
 
+  it('remaps a synonym param onto the missing required key and discloses it (llama3.2 file→path)', async () => {
+    const executor = vi.fn().mockResolvedValue('File written');
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'write_file',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' }, content: { type: 'string' } },
+          required: ['path', 'content'],
+        },
+      },
+      executor,
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { write_file: 'allow' } });
+
+    const result = await executeTool(makeToolUse('write_file', { file: 'out/f1.md', content: 'k4q9-alpha' }));
+
+    expect(result.is_error).toBeFalsy();
+    expect(executor.mock.calls[0][0]).toEqual({ path: 'out/f1.md', content: 'k4q9-alpha' });
+    expect(result.content).toContain("interpreted as 'path'");
+    expect(result.content).toContain('File written');
+  });
+
   it('returns error when tool permission is deny', async () => {
     mockedFindTool.mockReturnValue({
       definition: { name: 'read_file', description: '', input_schema: { type: 'object', properties: {} } },
