@@ -1239,51 +1239,53 @@ export const AGENT_CASES: AgentEvalCase[] = [
   {
     id: 'multi-step-plan-survives-compression',
     description:
-      'Long-horizon: a 4-step task with a tiny token budget — compression fires mid-run; the externalized plan (S1) must keep the model on track through all steps (V1 lift case for planExternalized)',
+      'Long-horizon discriminator (S1/S2): 10 steps with NON-DERIVABLE contents delivered via a read, plus a big-noise step that forces compression — losing the instructions means unrecoverable wrong output unless the model re-reads or planned',
     tags: ['plans', 'long-horizon'],
-    // NOT in smoke: needs many iterations + deliberately forces compression.
     workspace: {
-      'README.md': '# steps demo\n\nSee INSTRUCTIONS.md for the task list.\n',
-      // The steps live in a FILE, not the user message: messages[0] is
-      // compression-immune, so instructions given inline can never be lost.
-      // A read result CAN be compressed away — that is the long-horizon
-      // failure the externalized plan exists to survive.
+      'README.md': '# codes demo\n\nSee INSTRUCTIONS.md for the task list.\n',
+      // Step contents are arbitrary codes: a model that loses the
+      // instructions to compression CANNOT reconstruct them by pattern.
+      // Legitimate recovery paths: re-read INSTRUCTIONS.md, or have
+      // captured the steps in the externalized plan.
       'INSTRUCTIONS.md':
-        '# Task list — do IN ORDER, one at a time\n\n' +
-        '1. Create notes/alpha.md containing exactly "alpha done"\n' +
-        '2. Create notes/beta.md containing exactly "beta done"\n' +
-        '3. Create notes/gamma.md containing exactly "gamma done"\n' +
-        '4. Create notes/delta.md containing exactly "delta done"\n' +
-        '5. Create notes/omega.md containing exactly "omega done"\n' +
-        '6. Create notes/DONE.md containing exactly "all steps complete"\n',
+        '# Task list — do IN ORDER\n\n' +
+        '1. Create out/f1.md containing exactly "k4q9-alpha"\n' +
+        '2. Create out/f2.md containing exactly "zw31-tango"\n' +
+        '3. Create out/f3.md containing exactly "pb77-omega"\n' +
+        '4. Read data/big.log and count the lines containing ERROR; write the number to out/errcount.md\n' +
+        '5. Create out/f4.md containing exactly "mm05-delta"\n' +
+        '6. Create out/f5.md containing exactly "rr82-sigma"\n' +
+        '7. Create out/f6.md containing exactly "hh19-kappa"\n' +
+        '8. Create out/f7.md containing exactly "vv63-lambda"\n' +
+        '9. Create out/f8.md containing exactly "cc48-theta"\n' +
+        '10. Create out/DONE.md containing exactly "sequence complete: jj90"\n',
+      // ~40KB of log noise; step 4 pulls it into context, forcing the
+      // summarizer to fire and eat the early turns (incl. the read of
+      // INSTRUCTIONS.md) on a tight budget.
+      'data/big.log': Array.from(
+        { length: 800 },
+        (_, i) =>
+          `2026-07-09T10:${String(i % 60).padStart(2, '0')} ${i % 7 === 3 ? 'ERROR' : 'INFO'} worker-${i} processed batch ${i} with payload ${'x'.repeat(20)}`,
+      ).join('\n'),
     },
-    // Tight budget: with a ~5-6K-token system prompt + tool results, the 70%
-    // threshold trips after a few turns, so ConversationSummarizer compresses
-    // the early turns away — exactly the drift the <plan_state> re-injection
-    // exists to survive. The baseline arm (planExternalized off) loses the
-    // step list with those turns.
     maxTokens: 9000,
-    maxIterations: 14,
+    maxIterations: 24,
     userMessage:
-      'Read INSTRUCTIONS.md and complete every step in it, in order, one step at a time. ' + 'Do not skip any step.',
+      'Read INSTRUCTIONS.md and complete every step in it, in order, one step at a time. Do not skip any step.',
     expect: {
       files: {
-        exist: [
-          'notes/alpha.md',
-          'notes/beta.md',
-          'notes/gamma.md',
-          'notes/delta.md',
-          'notes/omega.md',
-          'notes/DONE.md',
-        ],
+        // The back half is what compression endangers: these exist only if
+        // the model still knows the codes (or recovered them) post-noise.
+        exist: ['out/f4.md', 'out/f5.md', 'out/f6.md', 'out/f7.md', 'out/f8.md', 'out/DONE.md'],
         contain: [
-          { path: 'notes/omega.md', substrings: ['omega done'] },
-          { path: 'notes/DONE.md', substrings: ['all steps complete'] },
+          { path: 'out/f5.md', substrings: ['rr82-sigma'] },
+          { path: 'out/f7.md', substrings: ['vv63-lambda'] },
+          { path: 'out/DONE.md', substrings: ['sequence complete: jj90'] },
         ],
       },
     },
     softExpect: {
-      finalTextContains: [['complete', 'done', 'finished']],
+      files: { contain: [{ path: 'out/errcount.md', substrings: [] }] },
     },
   },
 ];
