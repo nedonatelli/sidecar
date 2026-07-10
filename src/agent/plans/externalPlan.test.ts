@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { applyPlanUpdate, renderPlanState, parsePlanFromText, MAX_PLAN_STEPS, MAX_STEP_CHARS } from './externalPlan.js';
+import {
+  applyPlanUpdate,
+  renderPlanState,
+  parsePlanFromText,
+  isPlanOnlyTurn,
+  MAX_PLAN_STEPS,
+  MAX_STEP_CHARS,
+} from './externalPlan.js';
 
 describe('applyPlanUpdate', () => {
   it('accepts a full restatement with a current index', () => {
@@ -67,6 +74,16 @@ describe('renderPlanState', () => {
       current: 10,
     });
     expect(block.length).toBeLessThan(2048);
+  });
+});
+
+describe('isPlanOnlyTurn (iteration refund)', () => {
+  it('is true only when every call in the turn is update_plan', () => {
+    expect(isPlanOnlyTurn([{ name: 'update_plan' }])).toBe(true);
+    expect(isPlanOnlyTurn([{ name: 'update_plan' }, { name: 'update_plan' }])).toBe(true);
+    expect(isPlanOnlyTurn([{ name: 'update_plan' }, { name: 'write_file' }])).toBe(false);
+    expect(isPlanOnlyTurn([{ name: 'write_file' }])).toBe(false);
+    expect(isPlanOnlyTurn([])).toBe(false);
   });
 });
 

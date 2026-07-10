@@ -27,6 +27,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     totalChars: 0,
     unrepairedMalformedCalls: 0,
     degenerateTurns: 0,
+    freePlanTurns: 0,
     recentToolCalls: [],
     episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],

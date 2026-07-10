@@ -94,6 +94,18 @@ export function renderPlanState(plan: ExternalPlan): string {
 }
 
 /**
+ * True when a turn's tool calls are ONLY update_plan — pure bookkeeping the
+ * harness itself demanded. The loop refunds such turns to the iteration
+ * budget (bounded by MAX_PLAN_STEPS refunds per run): measured on
+ * granite4.1:3b, a strictly one-call-per-turn model, 6 solo update_plan
+ * turns burned a quarter of the 24-iteration budget and the run died one
+ * file short at the cap.
+ */
+export function isPlanOnlyTurn(toolUses: ReadonlyArray<{ name: string }>): boolean {
+  return toolUses.length > 0 && toolUses.every((tu) => tu.name === 'update_plan');
+}
+
+/**
  * Parse an ExternalPlan from plan-mode output — the plan text the USER
  * approved, not arbitrary model prose. Extracts numbered ("1." / "1)") and
  * bulleted ("- " / "* ") lines; returns null when fewer than 2 steps parse

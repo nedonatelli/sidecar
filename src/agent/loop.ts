@@ -14,6 +14,7 @@ import { applyBudgetCompression, maybeCompressPostTool, clearCompressionCache } 
 import { initLoopState } from './loop/state.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { isDegenerateText } from './loop/textParsing.js';
+import { MAX_PLAN_STEPS, isPlanOnlyTurn } from './plans/externalPlan.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import {
@@ -660,6 +661,19 @@ export async function runAgentLoop(
       ) {
         state.termination = 'stuck';
         break;
+      }
+
+      // An update_plan-only turn is bookkeeping the harness itself demanded —
+      // it must not consume the iteration budget. Measured on granite4.1:3b
+      // (a strictly one-tool-call-per-turn model): 6 solo update_plan turns
+      // burned a quarter of the 24-iteration budget and the run died one file
+      // short at the cap; the "bundle with real work" instruction cannot land
+      // on models that never emit multi-call turns. Bounded by MAX_PLAN_STEPS
+      // free turns per run so an update_plan spam loop still terminates
+      // (cycle detection catches identical repeats well before that).
+      if (isPlanOnlyTurn(pendingToolUses) && state.freePlanTurns < MAX_PLAN_STEPS) {
+        state.freePlanTurns++;
+        state.iteration--;
       }
 
       // Append the assistant message to history.

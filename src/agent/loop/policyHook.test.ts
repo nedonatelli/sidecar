@@ -34,6 +34,7 @@ function makeState(logger?: AgentLogger): LoopState {
     totalChars: 0,
     unrepairedMalformedCalls: 0,
     degenerateTurns: 0,
+    freePlanTurns: 0,
     episodicMemory: {
       query: vi.fn().mockResolvedValue([]),
       add: vi.fn(),

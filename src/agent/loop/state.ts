@@ -93,6 +93,8 @@ export interface LoopState {
   unrepairedMalformedCalls: number;
   /** Turns whose text was discarded as degenerate (token salad). Bounded retry: 1 retry, then bail. */
   degenerateTurns: number;
+  /** update_plan-only turns refunded to the iteration budget (bookkeeping the harness demanded). Capped at MAX_PLAN_STEPS. */
+  freePlanTurns: number;
   /**
    * Actual input+output token count from the most recent API usage event.
    * When present, compression checks prefer this over the char-based estimate
@@ -318,6 +320,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     totalChars,
     unrepairedMalformedCalls: 0,
     degenerateTurns: 0,
+    freePlanTurns: 0,
     systemPromptOverride: options.systemPromptOverride,
     modelOverride: options.modelOverride,
 
