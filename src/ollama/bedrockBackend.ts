@@ -10,7 +10,7 @@ import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
 import { maxOutputTokensForModel, supportsTemperature } from './anthropicBackend.js';
 import { translateAnthropicStream } from './anthropicStreamTranslate.js';
-import { signRequest, canonicalizePath, type AwsCredentials } from './awsSigV4.js';
+import { signRequest, canonicalizePath, type AwsCredentials, canonicalizeQuery } from './awsSigV4.js';
 import { resolveAwsCredentials } from './awsCredentials.js';
 import { streamBedrockChunks } from './awsEventStream.js';
 
@@ -238,13 +238,26 @@ export class BedrockBackend implements ApiBackend {
   async listAnthropicModels(signal?: AbortSignal): Promise<string[]> {
     const ids = new Set<string>();
 
-    const profiles = (await this.controlGet('/inference-profiles', signal).catch(() => null)) as {
-      inferenceProfileSummaries?: { inferenceProfileId?: string }[];
-    } | null;
-    for (const p of profiles?.inferenceProfileSummaries ?? []) {
-      if (typeof p.inferenceProfileId === 'string' && /anthropic/i.test(p.inferenceProfileId)) {
-        ids.add(p.inferenceProfileId);
+    // ListInferenceProfiles is PAGINATED. Accounts carry dozens of
+    // system-defined profiles across all providers, so reading only the
+    // first page silently dropped every Anthropic profile past it (dogfood:
+    // "the Bedrock backend doesn't show all available models"). Follow
+    // nextToken to exhaustion, bounded to 10 pages of 1000 as a runaway stop.
+    let nextToken: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const query: Record<string, string> = { maxResults: '1000' };
+      if (nextToken) query.nextToken = nextToken;
+      const profiles = (await this.controlGet('/inference-profiles', signal, query).catch(() => null)) as {
+        inferenceProfileSummaries?: { inferenceProfileId?: string }[];
+        nextToken?: string;
+      } | null;
+      for (const p of profiles?.inferenceProfileSummaries ?? []) {
+        if (typeof p.inferenceProfileId === 'string' && /anthropic/i.test(p.inferenceProfileId)) {
+          ids.add(p.inferenceProfileId);
+        }
       }
+      nextToken = profiles?.nextToken;
+      if (!nextToken) break;
     }
 
     const fm = (await this.controlGet('/foundation-models', signal).catch(() => null)) as {
@@ -270,13 +283,14 @@ export class BedrockBackend implements ApiBackend {
   }
 
   /** Signed/bearer GET against the Bedrock control-plane endpoint. */
-  private async controlGet(rawPath: string, signal?: AbortSignal): Promise<unknown> {
+  private async controlGet(rawPath: string, signal?: AbortSignal, query?: Record<string, string>): Promise<unknown> {
     const origin = bedrockControlOrigin(this.region, this.useFips);
     const bearer = this.bearer();
     let url: string;
     let headers: Record<string, string>;
     if (bearer) {
-      url = `${origin}${canonicalizePath(rawPath)}`;
+      const qs = canonicalizeQuery(query);
+      url = `${origin}${canonicalizePath(rawPath)}${qs ? `?${qs}` : ''}`;
       headers = { Authorization: `Bearer ${bearer}` };
     } else {
       const signed = signRequest({
@@ -289,6 +303,7 @@ export class BedrockBackend implements ApiBackend {
         body: '',
         credentials: this.credentials(),
         date: new Date(),
+        query,
       });
       url = signed.url;
       headers = signed.headers;

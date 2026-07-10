@@ -24,6 +24,10 @@ export interface SignInput {
   credentials: AwsCredentials;
   /** Pass the request time for deterministic tests; defaults to now. */
   date: Date;
+  /** Optional query parameters — folded into BOTH the canonical query string
+   *  (SigV4) and the returned URL. Needed for paginated control-plane GETs
+   *  (ListInferenceProfiles: maxResults/nextToken). */
+  query?: Record<string, string>;
 }
 
 export interface SignedRequest {
@@ -41,6 +45,18 @@ function encodeSegment(segment: string): string {
  *  can reuse it to build an identically-encoded URL. */
 export function canonicalizePath(rawPath: string): string {
   return rawPath.split('/').map(encodeSegment).join('/');
+}
+
+/** SigV4 canonical query string: keys sorted after RFC 3986 encoding, each
+ *  `key=value` pair encoded with the same escape set as path segments. The
+ *  exact string is reused in the request URL so signature and wire match. */
+export function canonicalizeQuery(query: Record<string, string> | undefined): string {
+  if (!query) return '';
+  return Object.entries(query)
+    .map(([k, v]) => [encodeSegment(k), encodeSegment(v)] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('&');
 }
 
 function sha256Hex(data: string): string {
@@ -80,10 +96,11 @@ export function signRequest(input: SignInput): SignedRequest {
   const signedHeaders = sortedHeaderKeys.join(';');
 
   const payloadHash = sha256Hex(input.body);
+  const canonicalQuery = canonicalizeQuery(input.query);
   const canonicalRequest = [
     input.method.toUpperCase(),
     canonicalPath,
-    '', // canonical query string — none for Bedrock invoke
+    canonicalQuery,
     canonicalHeaders,
     signedHeaders,
     payloadHash,
@@ -110,5 +127,6 @@ export function signRequest(input: SignInput): SignedRequest {
   };
   if (input.credentials.sessionToken) outHeaders['X-Amz-Security-Token'] = input.credentials.sessionToken;
 
-  return { url: `${input.origin}${canonicalPath}`, headers: outHeaders };
+  const qs = canonicalQuery ? `?${canonicalQuery}` : '';
+  return { url: `${input.origin}${canonicalPath}${qs}`, headers: outHeaders };
 }

@@ -150,3 +150,78 @@ describe('BedrockBackend', () => {
     expect(events.some((e) => e.type === 'usage')).toBe(true);
   });
 });
+
+describe('listAnthropicModels — inference-profile pagination', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('follows nextToken across pages and keeps only Anthropic ids', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      calls.push(url);
+      if (url.includes('/inference-profiles')) {
+        if (!url.includes('nextToken')) {
+          return new Response(
+            JSON.stringify({
+              inferenceProfileSummaries: [
+                { inferenceProfileId: 'us.meta.llama3-2-90b-instruct-v1:0' },
+                { inferenceProfileId: 'us.anthropic.claude-sonnet-4-6-v1:0' },
+              ],
+              nextToken: 'PAGE2',
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            inferenceProfileSummaries: [{ inferenceProfileId: 'us.anthropic.claude-fable-5-v1:0' }],
+          }),
+          { status: 200 },
+        );
+      }
+      // foundation-models
+      return new Response(
+        JSON.stringify({
+          modelSummaries: [
+            {
+              modelId: 'anthropic.claude-3-haiku-20240307-v1:0',
+              providerName: 'Anthropic',
+              inferenceTypesSupported: ['ON_DEMAND'],
+              outputModalities: ['TEXT'],
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const backend = new BedrockBackend('us-east-1', { credentials: CREDS });
+    const models = await backend.listAnthropicModels();
+
+    expect(models).toEqual([
+      'anthropic.claude-3-haiku-20240307-v1:0',
+      'us.anthropic.claude-fable-5-v1:0',
+      'us.anthropic.claude-sonnet-4-6-v1:0',
+    ]);
+    // Page 2 requested with the token; both pages carried maxResults.
+    const profileCalls = calls.filter((u) => u.includes('/inference-profiles'));
+    expect(profileCalls).toHaveLength(2);
+    expect(profileCalls[0]).toContain('maxResults=1000');
+    expect(profileCalls[1]).toContain('nextToken=PAGE2');
+  });
+
+  it('stops cleanly when the first page has no nextToken', async () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/inference-profiles')) {
+        return new Response(
+          JSON.stringify({
+            inferenceProfileSummaries: [{ inferenceProfileId: 'eu.anthropic.claude-opus-4-8-v1:0' }],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ modelSummaries: [] }), { status: 200 });
+    });
+    const backend = new BedrockBackend('eu-central-1', { credentials: CREDS });
+    expect(await backend.listAnthropicModels()).toEqual(['eu.anthropic.claude-opus-4-8-v1:0']);
+  });
+});

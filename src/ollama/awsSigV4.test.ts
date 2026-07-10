@@ -70,3 +70,35 @@ describe('signRequest (SigV4)', () => {
     expect(headers['X-Amz-Security-Token']).toBe('TOKEN123');
   });
 });
+
+describe('signRequest — canonical query strings', () => {
+  const base = {
+    method: 'GET',
+    origin: 'https://bedrock.us-east-1.amazonaws.com',
+    rawPath: '/inference-profiles',
+    region: 'us-east-1',
+    service: 'bedrock',
+    headers: {},
+    body: '',
+    credentials: { accessKeyId: 'AKID', secretAccessKey: 'secret' },
+    date: new Date('2026-07-10T12:00:00Z'),
+  };
+
+  it('folds query params into the URL, sorted by encoded key', () => {
+    const { url } = signRequest({ ...base, query: { nextToken: 'abc/123', maxResults: '1000' } });
+    expect(url).toBe('https://bedrock.us-east-1.amazonaws.com/inference-profiles?maxResults=1000&nextToken=abc%2F123');
+  });
+
+  it('query participates in the signature (different query, different signature)', () => {
+    const a = signRequest({ ...base, query: { maxResults: '1000' } }).headers.Authorization;
+    const b = signRequest({ ...base, query: { maxResults: '999' } }).headers.Authorization;
+    const none = signRequest({ ...base }).headers.Authorization;
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(none);
+  });
+
+  it('no query keeps the historical signature path (empty canonical query)', () => {
+    const { url } = signRequest({ ...base });
+    expect(url).toBe('https://bedrock.us-east-1.amazonaws.com/inference-profiles');
+  });
+});
