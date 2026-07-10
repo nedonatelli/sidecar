@@ -3687,3 +3687,14 @@ body {
     transform: rotate(360deg);
   }
 }
+
+/* Backend submenu + menu overflow guard: the flat profile list previously
+   outgrew the panel and hid the Export item entirely. */
+#settings-menu {
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+}
+#backend-submenu-btn .backend-profile-desc,
+#backend-submenu-back {
+  color: var(--vscode-descriptionForeground);
+}

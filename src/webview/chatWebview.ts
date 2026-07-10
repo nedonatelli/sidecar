@@ -466,13 +466,22 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
       </div>
     </div>
     <div id="settings-menu" class="hidden" role="menu" aria-label="SideCar settings menu">
-      <div class="settings-menu-section">
+      <div id="settings-menu-main">
+        <div class="settings-menu-section">
+          <button id="backend-submenu-btn" class="settings-menu-item" role="menuitem" aria-haspopup="true">
+            <div class="backend-profile-name" id="backend-submenu-label">Backend</div>
+            <div class="backend-profile-desc">Switch provider profile &rsaquo;</div>
+          </button>
+        </div>
+        <div class="settings-menu-section">
+          <button class="settings-menu-item" data-action="exportChat" role="menuitem">Export chat as Markdown</button>
+          <button class="settings-menu-item" data-action="openSettings" role="menuitem">Open SideCar settings...</button>
+        </div>
+      </div>
+      <div id="settings-menu-backends" class="hidden">
+        <button id="backend-submenu-back" class="settings-menu-item" role="menuitem">&lsaquo; Back</button>
         <div class="settings-menu-label">Backend</div>
         <div id="backend-profile-list"></div>
-      </div>
-      <div class="settings-menu-section">
-        <button class="settings-menu-item" data-action="exportChat" role="menuitem">Export chat as Markdown</button>
-        <button class="settings-menu-item" data-action="openSettings" role="menuitem">Open SideCar settings...</button>
       </div>
     </div>
     <div id="activity-bar" class="hidden"></div>

@@ -997,6 +997,26 @@
   const settingsBtn = document.getElementById('settings-btn');
   const settingsMenu = document.getElementById('settings-menu');
   const backendProfileList = document.getElementById('backend-profile-list');
+  // Backend picker lives in a SUBMENU: ~10 profiles at two lines each grew
+  // the flat menu past the panel height and pushed "Export chat as
+  // Markdown" unreachable (v0.119 dogfood). Top level stays 3 items tall.
+  const settingsMenuMain = document.getElementById('settings-menu-main');
+  const settingsMenuBackends = document.getElementById('settings-menu-backends');
+  const backendSubmenuBtn = document.getElementById('backend-submenu-btn');
+  const backendSubmenuLabel = document.getElementById('backend-submenu-label');
+  const backendSubmenuBack = document.getElementById('backend-submenu-back');
+
+  function showSettingsView(view) {
+    if (!settingsMenuMain || !settingsMenuBackends) return;
+    settingsMenuMain.classList.toggle('hidden', view === 'backends');
+    settingsMenuBackends.classList.toggle('hidden', view !== 'backends');
+  }
+  if (backendSubmenuBtn) {
+    backendSubmenuBtn.addEventListener('click', () => showSettingsView('backends'));
+  }
+  if (backendSubmenuBack) {
+    backendSubmenuBack.addEventListener('click', () => showSettingsView('main'));
+  }
 
   function renderBackendProfiles() {
     backendProfileList.innerHTML = '';
@@ -1026,9 +1046,14 @@
       });
       backendProfileList.appendChild(btn);
     }
+    if (backendSubmenuLabel) {
+      const active = profiles.find((p) => p.id === activeId);
+      backendSubmenuLabel.textContent = active ? `Backend: ${active.name}` : 'Backend';
+    }
   }
 
   function openSettingsMenu() {
+    showSettingsView('main');
     renderBackendProfiles();
     settingsMenu.classList.remove('hidden');
     settingsBtn.setAttribute('aria-expanded', 'true');
