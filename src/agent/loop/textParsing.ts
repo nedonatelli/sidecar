@@ -1,4 +1,19 @@
 import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../ollama/types.js';
+import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
+
+/**
+ * A parsed name is dispatchable when it's in the catalog OR the executor's
+ * tool-name aliasing can resolve it (create_file → write_file). Observed
+ * live: llama3.2's final turn was a single bare-JSON `create_file` call —
+ * the parser matched it, then dropped it here on the exact-name check, and
+ * the run ended with the work undone. The alias name is preserved on the
+ * emitted block so the executor's disclosure still teaches the real name.
+ */
+function isDispatchableName(name: string, toolNames: Set<string>): boolean {
+  if (toolNames.has(name)) return true;
+  const canonical = resolveToolNameAlias(name);
+  return canonical !== null && toolNames.has(canonical);
+}
 
 // ---------------------------------------------------------------------------
 // Text-level parsing + cleanup helpers for runAgentLoop.
@@ -36,7 +51,7 @@ import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../oll
 /** Salvage a known tool name from a malformed tool-call blob, or null. */
 function salvageToolName(raw: string, toolNames: Set<string>): string | null {
   const m = raw.match(/"(?:name|function)"\s*:\s*"(\w+)"/);
-  return m && toolNames.has(m[1]) ? m[1] : null;
+  return m && isDispatchableName(m[1], toolNames) ? m[1] : null;
 }
 
 /** Split a comma-separated argument list at top level, respecting quotes and brackets. Exported for tests. */
@@ -151,7 +166,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       if (firstType === null) firstType = 'fn';
       if (firstType !== 'fn') continue;
       const name = match[1];
-      if (!toolNames.has(name)) continue;
+      if (!isDispatchableName(name, toolNames)) continue;
       const body = match[2];
       const input: Record<string, unknown> = {};
       const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
@@ -169,7 +184,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         const parsed = JSON.parse(match[3]);
         const name = parsed.name || parsed.tool || parsed.function?.name;
         const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || {};
-        if (name && toolNames.has(name)) {
+        if (name && isDispatchableName(name, toolNames)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
@@ -196,7 +211,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         const parsed = JSON.parse(match[4]);
         const name = parsed.name || parsed.tool || parsed.function;
         const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
-        if (name && typeof name === 'string' && toolNames.has(name)) {
+        if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
@@ -221,10 +236,21 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
   // (e.g. {"name":"x","arguments":{"key":"val"}}) are extracted correctly —
   // a lazy regex terminates at the first } and chops off the inner object.
   if (firstType === null) {
-    const lineStart = /(?:^|\n)(\{)/g;
+    // Seed starts from line-anchored `{`, then follow concatenated objects:
+    // models emit back-to-back calls with no separator (`…}}{"name":…`) and
+    // the second object never sits at a line start (observed live: llama3.2
+    // emitted run_command + create_file fused; only the first was found).
+    const starts: number[] = [];
+    const lineStart = /(?:^|\n)\{/g;
     let lsMatch;
     while ((lsMatch = lineStart.exec(text)) !== null) {
-      const start = lsMatch.index + lsMatch[0].length - 1; // position of opening {
+      starts.push(lsMatch.index + lsMatch[0].length - 1);
+    }
+    const seen = new Set<number>();
+    while (starts.length > 0) {
+      const start = starts.shift()!;
+      if (seen.has(start)) continue;
+      seen.add(start);
       let depth = 0;
       let end = -1;
       for (let i = start; i < text.length; i++) {
@@ -238,6 +264,8 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         }
       }
       if (end === -1) continue;
+      // Another object fused directly onto this one — scan it too.
+      if (text[end + 1] === '{') starts.push(end + 1);
       const candidate = text.slice(start, end + 1);
       // Must contain "name" key to avoid grabbing every JSON blob.
       if (!candidate.includes('"name"')) continue;
@@ -245,7 +273,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         const parsed = JSON.parse(candidate);
         const name = parsed.name;
         const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
-        if (name && typeof name === 'string' && toolNames.has(name)) {
+        if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
           firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });

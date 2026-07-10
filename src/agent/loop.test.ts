@@ -156,6 +156,41 @@ describe('parseTextToolCalls', () => {
     });
   });
 
+  describe('Pattern 4: bare JSON (llama3.2 live-failure regressions)', () => {
+    it('parses a bare-JSON call with "parameters" args at line start', () => {
+      const text =
+        'I will proceed with that task.\n\n{"name": "run_command", "parameters": {"command": "grep -c \\"ERROR\\" data/big.log"}}';
+      const results = parseTextToolCalls(text, MOCK_TOOLS);
+      expect(results).toHaveLength(1);
+      expect(results[0].name).toBe('run_command');
+      expect(results[0].input).toEqual({ command: 'grep -c "ERROR" data/big.log' });
+    });
+
+    it('parses concatenated back-to-back JSON calls (}}{" fusion)', () => {
+      const text =
+        'Proceeding.\n\n{"name": "run_command", "parameters": {"command": "wc -l data/big.log"}}{"name": "write_file", "parameters": {"path": "out/f4.md", "content": "mm05-delta"}}';
+      const results = parseTextToolCalls(text, MOCK_TOOLS);
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name)).toEqual(['run_command', 'write_file']);
+      expect(results[1].input).toEqual({ path: 'out/f4.md', content: 'mm05-delta' });
+    });
+
+    it('accepts a foreign-but-aliasable name (create_file) so the executor can alias it', () => {
+      // The exact final turn that ended a live run with the work undone.
+      const text = '{"name": "create_file", "parameters": {"content":"mm05-delta","path":"out/f4.md"}}';
+      const results = parseTextToolCalls(text, MOCK_TOOLS);
+      expect(results).toHaveLength(1);
+      // Alias name preserved — the executor resolves it and discloses the canonical name.
+      expect(results[0].name).toBe('create_file');
+      expect(results[0].input).toEqual({ content: 'mm05-delta', path: 'out/f4.md' });
+    });
+
+    it('still rejects unknown, non-aliasable names', () => {
+      const text = '{"name": "summon_daemon", "parameters": {"x": 1}}';
+      expect(parseTextToolCalls(text, MOCK_TOOLS)).toHaveLength(0);
+    });
+  });
+
   describe('edge cases', () => {
     it('returns empty array for plain text with no tool calls', () => {
       const text = 'This is just a normal response with no tool calls at all.';

@@ -563,7 +563,7 @@ export async function runAgentLoop(
           const looksLikeToolAttempt =
             fullText.includes('<function=') ||
             fullText.includes('<tool_call>') ||
-            (fullText.includes('"name"') && fullText.includes('"arguments"'));
+            (fullText.includes('"name"') && (fullText.includes('"arguments"') || fullText.includes('"parameters"')));
           if (looksLikeToolAttempt) {
             recordToolFailure(client.getModel());
           }
