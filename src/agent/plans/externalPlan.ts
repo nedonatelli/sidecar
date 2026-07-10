@@ -94,6 +94,33 @@ export function renderPlanState(plan: ExternalPlan): string {
 }
 
 /**
+ * Extract write-intent file paths from plan steps that were never actually
+ * written this run. A plan is a parseable spec: a step like "Create
+ * out/DONE.md containing X" names its own deliverable, and the gate already
+ * knows every path successfully written (editedFiles). A named deliverable
+ * with write intent that never appears there is a PROVABLE false-completion
+ * claim — no fs access, no prose judgment. (Observed live: granite advanced
+ * current to 10/10, wrote 9 files, skipped DONE.md, and declared victory —
+ * the current<steps.length check stands down at N/N by design.)
+ *
+ * Only steps with an explicit write verb count, so "Read data/big.log" never
+ * flags a pre-existing input file.
+ */
+export function planStepWriteTargetsNotWritten(plan: ExternalPlan, writtenFiles: ReadonlySet<string>): string[] {
+  const written = new Set<string>();
+  for (const f of writtenFiles) written.add(f.replace(/\\/g, '/'));
+  const missing: string[] = [];
+  for (const step of plan.steps) {
+    if (!/\b(creat\w*|writ\w*|sav\w*|generat\w*|add\w*)\b/i.test(step)) continue;
+    for (const m of step.matchAll(/(?<![\w.])((?:[\w-]+\/)+[\w-]+\.\w{1,8})(?![\w])/g)) {
+      const p = m[1].replace(/\\/g, '/');
+      if (!written.has(p) && !missing.includes(p)) missing.push(p);
+    }
+  }
+  return missing;
+}
+
+/**
  * True when a turn's tool calls are ONLY update_plan — pure bookkeeping the
  * harness itself demanded. The loop refunds such turns to the iteration
  * budget (bounded by MAX_PLAN_STEPS refunds per run): measured on

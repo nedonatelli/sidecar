@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyPlanUpdate,
+  planStepWriteTargetsNotWritten,
   renderPlanState,
   parsePlanFromText,
   isPlanOnlyTurn,
@@ -74,6 +75,34 @@ describe('renderPlanState', () => {
       current: 10,
     });
     expect(block.length).toBeLessThan(2048);
+  });
+});
+
+describe('planStepWriteTargetsNotWritten (last-step false completion)', () => {
+  const plan = {
+    steps: [
+      'Create out/f1.md containing exactly "k4q9-alpha"',
+      'Read data/big.log and count the lines containing ERROR',
+      'Create out/DONE.md containing exactly "sequence complete: jj90"',
+    ],
+    current: 3,
+  };
+
+  it('flags a write-intent deliverable that was never written', () => {
+    expect(planStepWriteTargetsNotWritten(plan, new Set(['out/f1.md']))).toEqual(['out/DONE.md']);
+  });
+
+  it('returns empty when every named deliverable was written', () => {
+    expect(planStepWriteTargetsNotWritten(plan, new Set(['out/f1.md', 'out/DONE.md']))).toEqual([]);
+  });
+
+  it('never flags read-only steps (input files are not deliverables)', () => {
+    const missing = planStepWriteTargetsNotWritten(plan, new Set(['out/f1.md', 'out/DONE.md']));
+    expect(missing).not.toContain('data/big.log');
+  });
+
+  it('normalizes windows separators in written paths', () => {
+    expect(planStepWriteTargetsNotWritten(plan, new Set(['out\\f1.md', 'out\\DONE.md']))).toEqual([]);
   });
 });
 

@@ -14,6 +14,7 @@ import {
   buildMcpMutationVerifyReprompt,
 } from '../completionGate.js';
 import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
+import { planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import { getRoot } from '../tools/shared.js';
 import { runVerificationCommand } from '../tools/shell.js';
 import { getDefaultToolRuntime } from '../tools/runtime.js';
@@ -342,29 +343,42 @@ export async function maybeInjectCompletionGate(
   if (config.completionGateEnabled !== false) {
     const plan = state.planRef?.plan;
     const fired = gateState.planIncompleteInjections ?? 0;
-    if (plan && plan.current < plan.steps.length && fired < 2) {
-      gateState.planIncompleteInjections = fired + 1;
-      gateState.lastInjectionWasPrimaryWork = true;
-      const remaining = plan.steps
-        .slice(plan.current - 1)
-        .map((s, i) => `${plan.current + i}. ${s}`)
-        .join('\n');
-      logger?.info(`Plan-incomplete gate fired — plan shows step ${plan.current}/${plan.steps.length}`);
-      callbacks.onText(`\n\n📋 Plan shows step ${plan.current}/${plan.steps.length} — continuing remaining steps...\n`);
-      state.messages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'text' as const,
-            text:
-              `Your plan is not complete: it shows step ${plan.current} of ${plan.steps.length}. ` +
-              `Do not finish yet. Work the remaining steps in order:\n${remaining}\n` +
-              `When a step is done, include an update_plan call with the next current index alongside your next tool call — do not spend a message on update_plan alone. ` +
-              `If the remaining steps are actually already finished, call update_plan with current=${plan.steps.length} before answering.`,
-          },
-        ],
-      });
-      return 'injected';
+    if (plan && fired < 2) {
+      const incomplete = plan.current < plan.steps.length;
+      // Even at current == steps.length, a step that NAMES its deliverable
+      // ("Create out/DONE.md …") which was never written is a provable
+      // false-completion claim — checked against editedFiles, no fs access.
+      const unwritten = incomplete ? [] : planStepWriteTargetsNotWritten(plan, gateState.editedFiles);
+      if (incomplete || unwritten.length > 0) {
+        gateState.planIncompleteInjections = fired + 1;
+        gateState.lastInjectionWasPrimaryWork = true;
+        const detail = incomplete
+          ? `it shows step ${plan.current} of ${plan.steps.length}. Do not finish yet. Work the remaining steps in order:\n` +
+            plan.steps
+              .slice(plan.current - 1)
+              .map((s, i) => `${plan.current + i}. ${s}`)
+              .join('\n') +
+            `\nWhen a step is done, include an update_plan call with the next current index alongside your next tool call — do not spend a message on update_plan alone. ` +
+            `If the remaining steps are actually already finished, call update_plan with current=${plan.steps.length} before answering.`
+          : `your plan says every step is done, but these files named in the plan were never written:\n` +
+            unwritten.map((p) => `  - ${p}`).join('\n') +
+            `\nCreate each with write_file(path, content) exactly as its plan step specifies, then answer.`;
+        logger?.info(
+          incomplete
+            ? `Plan-incomplete gate fired — plan shows step ${plan.current}/${plan.steps.length}`
+            : `Plan-incomplete gate fired — plan claims done but ${unwritten.length} named deliverable(s) unwritten`,
+        );
+        callbacks.onText(
+          incomplete
+            ? `\n\n📋 Plan shows step ${plan.current}/${plan.steps.length} — continuing remaining steps...\n`
+            : `\n\n📋 Plan claims done but ${unwritten.length} planned file(s) missing — finishing them...\n`,
+        );
+        state.messages.push({
+          role: 'user',
+          content: [{ type: 'text' as const, text: `Your plan is not complete: ${detail}` }],
+        });
+        return 'injected';
+      }
     }
   }
 
