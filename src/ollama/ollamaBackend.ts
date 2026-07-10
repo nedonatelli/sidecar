@@ -360,10 +360,14 @@ export class OllamaBackend implements ApiBackend {
       messages: toOllamaMessages(messages, systemPrompt),
       stream: true,
       options,
-      // Keep the model loaded in VRAM indefinitely between requests.
-      // Without this Ollama unloads after 5 min idle, causing a 10-60s
-      // cold-reload penalty on the next request.
-      keep_alive: -1,
+      // Keep the model warm between requests — every request refreshes the
+      // TTL, so an active session never pays the 10-60s cold-reload penalty
+      // (Ollama's default unload is only 5 min idle). BOUNDED, never -1:
+      // a permanent pin accumulates across model switches — observed live,
+      // a gemma4 → llama3.2 → gemma4 dogfood session pinned every model it
+      // touched (expires_at literally in year 2318) until the machine choked.
+      // 30 min idle is where a cold reload becomes acceptable.
+      keep_alive: '30m',
     };
 
     if (tools && tools.length > 0) {

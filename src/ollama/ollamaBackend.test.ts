@@ -103,6 +103,23 @@ describe('OllamaBackend', () => {
       expect(body.messages[0]).toEqual({ role: 'system', content: 'Be helpful' });
     });
 
+    it('keeps the model warm with a BOUNDED keep_alive — never a permanent pin', async () => {
+      // keep_alive: -1 pinned every model a session touched forever
+      // (expires_at year 2318); switching models accumulated pinned GBs
+      // until the host machine choked. Each request refreshes the TTL, so
+      // a bounded value costs nothing during active use.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([{ message: { content: 'hi' }, done: true }]),
+      });
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        /* drain */
+      }
+      const body = JSON.parse(mockFetch.mock.calls.at(-1)![1].body);
+      expect(body.keep_alive).toBe('30m');
+      expect(body.keep_alive).not.toBe(-1);
+    });
+
     it('sets options.seed from SIDECAR_AGENT_SEED for reproducible runs, absent otherwise', async () => {
       const respond = () =>
         mockFetch.mockResolvedValueOnce({
