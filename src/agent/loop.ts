@@ -619,7 +619,14 @@ export async function runAgentLoop(
           // A scaffold reprompt fired (completion gate). Arm the keep-best
           // ratchet at this boundary if it hasn't been — everything the model
           // does in response is scaffold-driven and subject to revert.
-          if (ratchetIo) await captureScaffoldBoundary(state, ratchetIo);
+          // EXCEPT the plan-incomplete reprompt: finishing the remaining plan
+          // steps is the user's PRIMARY work, not scaffold tail — arming there
+          // put a completed file-creation run's output under revert (observed
+          // live: granite finished all 10 steps post-reprompt and the ratchet
+          // deleted DONE.md as "unproven growth").
+          if (ratchetIo && !state.gateState.lastInjectionWasPrimaryWork) {
+            await captureScaffoldBoundary(state, ratchetIo);
+          }
           continue;
         }
 

@@ -119,6 +119,8 @@ async function signalFromGate(state: LoopState, io: SnapshotIo): Promise<Ratchet
     projectTestsPassed: state.gateState.projectTestsPassed,
     passingTestFiles: new Set(state.gateState.passingTestFiles),
     patchBytes: await patchBytes(state.gateState.editedFiles, io),
+    verificationAttempted:
+      state.gateState.projectTestsRan || state.gateState.testsRunForFiles.size > 0 || state.gateState.lintObserved,
   };
 }
 

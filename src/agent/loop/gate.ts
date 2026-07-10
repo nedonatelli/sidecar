@@ -326,6 +326,11 @@ export async function maybeInjectCompletionGate(
 
   if (signal.aborted || options.approvalMode === 'plan') return 'skip';
 
+  // Any injection below is scaffold-tail by default; the plan-incomplete
+  // branch overrides this to true (primary-work continuation — the keep-best
+  // ratchet must not arm on it; see completionGate.ts field doc).
+  gateState.lastInjectionWasPrimaryWork = false;
+
   // Check: the externalized plan says the run isn't done. This is the one
   // completion check with STRUCTURED evidence — no prose matching: if
   // planRef.plan exists and current < steps.length, "all steps completed"
@@ -339,6 +344,7 @@ export async function maybeInjectCompletionGate(
     const fired = gateState.planIncompleteInjections ?? 0;
     if (plan && plan.current < plan.steps.length && fired < 2) {
       gateState.planIncompleteInjections = fired + 1;
+      gateState.lastInjectionWasPrimaryWork = true;
       const remaining = plan.steps
         .slice(plan.current - 1)
         .map((s, i) => `${plan.current + i}. ${s}`)

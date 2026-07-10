@@ -46,6 +46,9 @@ function fakeState(ratchet: RatchetRunState, gate: Partial<LoopState['gateState'
       editedFiles: new Set<string>(),
       passingTestFiles: new Set<string>(),
       projectTestsPassed: false,
+      projectTestsRan: false,
+      testsRunForFiles: new Set<string>(),
+      lintObserved: false,
       ...gate,
     },
   } as unknown as LoopState;

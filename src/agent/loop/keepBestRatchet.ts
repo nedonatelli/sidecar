@@ -60,6 +60,14 @@ export interface RatchetSignal {
   /** Total bytes of the tracked edited files at snapshot time. The
    *  over-engineering guard compares this across before/after. */
   patchBytes: number;
+  /** Whether ANY verification activity (test run, lint) was observed in the
+   *  run by snapshot time. When false on both sides of the boundary, the
+   *  over-engineering guard stands down — "growth without test improvement"
+   *  is vacuous on a task where nothing test-like ever executed (create
+   *  files, write docs), and reverting there deletes the primary work.
+   *  Optional for back-compat; absent means unknown → treated as attempted
+   *  so the tightened SWE-rooted default keeps its bite. */
+  verificationAttempted?: boolean;
 }
 
 export type RatchetVerdict = 'keep' | 'revert-regression' | 'revert-overengineering';
@@ -116,6 +124,24 @@ export function decideRatchet(
         reason: `test ${f} was passing before the change and is no longer confirmed passing — reverting`,
       };
     }
+  }
+
+  // --- 1b. Stand down when verification is impossible: no test signal existed
+  // on EITHER side. "Didn't improve any test signal" is vacuous when there is
+  // no signal to improve — on test-less tasks (create files, write docs) the
+  // growth IS the work. Observed live: a plan-gate reprompt armed the boundary
+  // on a file-creation eval, the model finished the remaining steps, and the
+  // over-engineering guard reverted the completed work (incl. the DONE
+  // sentinel) for "growth without test improvement". Same principle as the
+  // v0.114 gate hardening: judge on evidence, stand down when none can exist. ---
+  const noSignalBefore = !before.projectTestsPassed && before.passingTestFiles.size === 0;
+  const noSignalAfter = !after.projectTestsPassed && after.passingTestFiles.size === 0;
+  const neverVerified = before.verificationAttempted === false && after.verificationAttempted === false;
+  if (noSignalBefore && noSignalAfter && neverVerified) {
+    return {
+      verdict: 'keep',
+      reason: 'no verification activity occurred anywhere in this run — growth cannot be judged, standing down',
+    };
   }
 
   // --- 2. Over-engineering: unproven growth with no pass-signal improvement.

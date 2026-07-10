@@ -53,6 +53,12 @@ export interface GateState {
    * a counter, not a one-shot, because "finish the remaining steps" legitimately
    * spans multiple reprompts on a long plan). Optional for back-compat with test stubs. */
   planIncompleteInjections?: number;
+  /** True when the most recent empty-response injection was the plan-incomplete
+   * reprompt — PRIMARY-task continuation, not scaffold tail. The keep-best
+   * ratchet must not arm its boundary on it: everything the model does in
+   * response is the user's original work, not gate-provoked verification churn.
+   * Reset by every other injection type. Optional for back-compat. */
+  lastInjectionWasPrimaryWork?: boolean;
   /** How many times the syntax gate has reprompted this run (bounded). Optional for back-compat with test stubs. */
   syntaxGateInjections?: number;
   /**

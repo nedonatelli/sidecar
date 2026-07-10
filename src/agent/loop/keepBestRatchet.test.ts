@@ -55,11 +55,38 @@ describe('decideRatchet — over-engineering (patch minimality)', () => {
     // Root-caused via a local SWE-bench repro: a 536-byte wrong edit to an
     // unrelated file slid under the old 4096-byte threshold untouched. The
     // default is now 0 — any unproven growth reverts, not just bloat.
-    const before = sig({ patchBytes: 500 });
-    const after = sig({ patchBytes: 501 });
+    // verificationAttempted: true — in the SWE context tests DO run; the
+    // no-verification stand-down (tested below) must not defang this.
+    const before = sig({ patchBytes: 500, verificationAttempted: true });
+    const after = sig({ patchBytes: 501, verificationAttempted: true });
     const d = decideRatchet(before, after);
     expect(d.verdict).toBe('revert-overengineering');
     expect(d.reason).toMatch(/without improving/i);
+  });
+
+  it('stands down on growth when NO verification activity occurred anywhere in the run', () => {
+    // Live failure: a plan-gate reprompt armed the boundary on a file-creation
+    // task (no tests exist), the model finished the remaining steps, and the
+    // guard reverted the completed work — including the DONE sentinel — for
+    // "growth without test improvement". Growth IS the work on such tasks.
+    const before = sig({ patchBytes: 100, verificationAttempted: false });
+    const after = sig({ patchBytes: 400, verificationAttempted: false });
+    const d = decideRatchet(before, after);
+    expect(d.verdict).toBe('keep');
+    expect(d.reason).toMatch(/standing down/i);
+  });
+
+  it('does NOT stand down when verification ran but produced no passing signal', () => {
+    // Tests ran and nothing passed — that is evidence, not absence of it.
+    const before = sig({ patchBytes: 100, verificationAttempted: true });
+    const after = sig({ patchBytes: 400, verificationAttempted: true });
+    expect(decideRatchet(before, after).verdict).toBe('revert-overengineering');
+  });
+
+  it('treats absent verificationAttempted as attempted (back-compat keeps the tightened bite)', () => {
+    const before = sig({ patchBytes: 100 });
+    const after = sig({ patchBytes: 400 });
+    expect(decideRatchet(before, after).verdict).toBe('revert-overengineering');
   });
 
   it('KEEPS a large patch when it turned project tests green', () => {
