@@ -341,7 +341,13 @@ export const editFileDef: ToolDefinition = {
           'If the replacement is very short and appears verbatim inside the search string, the call succeeds but appends a warning; call read_file to verify the result.',
       },
     },
-    required: ['path', 'search', 'replace'],
+    // Only `path` is structurally required. search/replace presence is
+    // enforced INSIDE the executor, where file existence is knowable: small
+    // models constantly call edit_file with one of them missing on a file
+    // that doesn't exist yet (creation intent — the content is in whichever
+    // field they filled). A dispatcher schema bounce dead-ends them
+    // (measured: 1 recovery in 41 bounces); the executor coerces instead.
+    required: ['path'],
   },
 };
 
@@ -581,8 +587,47 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   if (isSensitiveFile(filePath)) {
     return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to edit this file.`;
   }
-  const search = input.search as string;
-  const replace = input.replace as string;
+  const search = typeof input.search === 'string' ? (input.search as string) : undefined;
+  const replace = typeof input.replace === 'string' ? (input.replace as string) : undefined;
+
+  // Creation-intent coercion. Small models constantly call edit_file with
+  // one of search/replace missing on a file that doesn't exist yet — the
+  // content they want is sitting in whichever field they filled (observed
+  // live: edit_file({path: 'out/f1.md', search: 'k4q9-alpha'}) for the task
+  // "create f1 containing k4q9-alpha"). Teaching errors measured 1 recovery
+  // in 41 bounces, so on a NONEXISTENT file the call is executed as a
+  // write_file with a loud disclosure. On an existing file the missing
+  // field stays a hard error — there the intent really is ambiguous.
+  if (search === undefined || replace === undefined) {
+    if (search === undefined && replace === undefined) {
+      return (
+        `Error: edit_file requires 'search' (the current text in the file) and 'replace' (the new text). ` +
+        `To CREATE a new file, use write_file(path="${filePath}", content="...").`
+      );
+    }
+    let fileExists: boolean;
+    if (isAuditModeActive(context)) {
+      const bufState = getDefaultAuditBuffer().read(filePath);
+      fileExists = bufState.buffered
+        ? !bufState.deleted
+        : (await readDiskViaWorkspace(context, filePath)) !== undefined;
+    } else {
+      fileExists = (await readDiskViaWorkspace(context, filePath)) !== undefined;
+    }
+    if (!fileExists) {
+      const filled = replace !== undefined ? 'replace' : 'search';
+      const content = replace ?? search ?? '';
+      const note =
+        `[note: ${filePath} did not exist — edit_file cannot edit it, so the '${filled}' text was written as ` +
+        `the full content of a NEW file. To create files, call write_file(path, content) directly.]\n`;
+      return note + (await writeFile({ path: filePath, content }, context));
+    }
+    const missing = search === undefined ? 'search' : 'replace';
+    return (
+      `Error: edit_file on an existing file requires both 'search' (the current text) and 'replace' (the new text); ` +
+      `'${missing}' is missing. Call read_file(path="${filePath}") and copy the exact text you want to change into 'search'.`
+    );
+  }
 
   if (search === replace) {
     // The model wrote the desired new text in both fields instead of putting

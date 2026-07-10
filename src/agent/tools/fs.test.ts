@@ -169,6 +169,42 @@ describe('editFile audit mode', () => {
     expect(result).toContain('eslint'); // the grep found the real line
   });
 
+  it('coerces edit_file(path, search) on a nonexistent file into a create (llama3.2 shape 1)', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    const result = await editFile({ path: 'out/f1.md', search: 'k4q9-alpha' }, context);
+    expect(result).toContain('did not exist');
+    expect(result).toContain('write_file(path, content)');
+    expect(buf.read('out/f1.md').content).toBe('k4q9-alpha');
+  });
+
+  it('coerces edit_file(path, replace) on a nonexistent file into a create (shape 3, replace wins)', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    const result = await editFile({ path: 'out/f4.md', replace: 'mm05-delta' }, context);
+    expect(result).toContain("'replace' text was written");
+    expect(buf.read('out/f4.md').content).toBe('mm05-delta');
+  });
+
+  it('missing replace on an EXISTING file stays a hard error pointing at read_file', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('src/existing.ts', 'const x = 1;', async () => undefined);
+    const result = await editFile({ path: 'src/existing.ts', search: 'const x = 1;' }, context);
+    expect(result).toContain("'replace' is missing");
+    expect(result).toContain('read_file(path="src/existing.ts")');
+    expect(buf.read('src/existing.ts').content).toBe('const x = 1;'); // untouched
+  });
+
+  it('errors with a write_file pointer when both search and replace are missing', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    const result = await editFile({ path: 'out/f9.md' }, context);
+    expect(result).toContain("requires 'search'");
+    expect(result).toContain('write_file(path="out/f9.md"');
+    expect(buf.read('out/f9.md').buffered).toBe(false); // nothing created
+  });
+
   it('points to write_file when the target file does not exist (audit path)', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');

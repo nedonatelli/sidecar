@@ -552,10 +552,13 @@ describe('tools.ts', () => {
       expect(tool?.definition.input_schema.required).toContain('content');
     });
 
-    it('edit_file should require search and replace text', () => {
+    it('edit_file structurally requires only path — search/replace enforced in the executor', () => {
+      // Deliberate (v0.119): moving search/replace enforcement into editFile
+      // lets the executor coerce creation-intent calls (missing field on a
+      // nonexistent file) into a write_file instead of dead-ending them at
+      // the dispatcher schema bounce. See fs.ts editFile.
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'edit_file');
-      expect(tool?.definition.input_schema.required).toContain('search');
-      expect(tool?.definition.input_schema.required).toContain('replace');
+      expect(tool?.definition.input_schema.required).toEqual(['path']);
     });
 
     it('git_commit should require message', () => {
