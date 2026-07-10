@@ -169,7 +169,7 @@ export async function streamOneTurn(
   const planAddon = state.planRef.plan
     ? renderPlanState(state.planRef.plan)
     : state.config.planExternalizedEnabled && state.approvalMode !== 'plan'
-      ? '<plan_state>\nNo plan yet. If this task takes more than one step, call update_plan NOW with the full step list (steps=[...], current=1) before doing anything else.\n</plan_state>'
+      ? '<plan_state>\nNo plan yet. If this task takes more than one step, call update_plan with the full step list (steps=[...], current=1) in the SAME message as your first real tool call — planning must not cost an extra turn.\n</plan_state>'
       : undefined;
   const addons = [episodicAddon, planAddon].filter(Boolean).join('\n\n');
   const effectiveSystemPrompt = addons

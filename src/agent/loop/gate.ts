@@ -353,7 +353,7 @@ export async function maybeInjectCompletionGate(
             text:
               `Your plan is not complete: it shows step ${plan.current} of ${plan.steps.length}. ` +
               `Do not finish yet. Work the remaining steps in order:\n${remaining}\n` +
-              `When a step is done, call update_plan with the next current index. ` +
+              `When a step is done, include an update_plan call with the next current index alongside your next tool call — do not spend a message on update_plan alone. ` +
               `If the remaining steps are actually already finished, call update_plan with current=${plan.steps.length} before answering.`,
           },
         ],

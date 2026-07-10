@@ -82,7 +82,13 @@ export function renderPlanState(plan: ExternalPlan): string {
   if (remaining.length > 0) lines.push(`Remaining: ${remaining.join(' · ')}`);
   const done = plan.steps.slice(0, plan.current - 1).map((s, i) => `${i + 1}. ${s} ✓`);
   if (done.length > 0) lines.push(`Done: ${done.join(' · ')}`);
-  lines.push('Work the current step. When it is finished, call update_plan with the next current index.');
+  // "in the SAME message" is load-bearing: granite followed the previous
+  // wording ("when finished, call update_plan") to the letter and spent
+  // whole turns on bookkeeping alone — 6 update_plan-only turns burned a
+  // quarter of its iteration budget and it failed 9/10 at the cap.
+  lines.push(
+    'Work the current step. When you finish a step, include the update_plan call in the SAME message as your next real tool call — never spend a message on update_plan alone.',
+  );
   lines.push('</plan_state>');
   return lines.join('\n');
 }

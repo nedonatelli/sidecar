@@ -270,7 +270,8 @@ describe('plan nudge before a plan exists (S1 adoption)', () => {
     const state = makeState();
     (state.config as { planExternalizedEnabled?: boolean }).planExternalizedEnabled = true;
     await streamOneTurn(clientCapturing(captured), state, new AbortController().signal, makeCallbacks(), 0);
-    expect(captured.prompt).toContain('call update_plan NOW');
+    expect(captured.prompt).toContain('call update_plan with the full step list');
+    expect(captured.prompt).toContain('SAME message as your first real tool call');
   });
 
   it('injects nothing when the gate is off', async () => {
