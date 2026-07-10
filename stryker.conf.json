@@ -30,7 +30,10 @@
     "src/agent/loop/unappliedEdit.ts",
     "src/agent/analyticBounds.ts",
     "src/agent/injectionGuard.ts",
-    "src/agent/jsonRepair.ts"
+    "src/agent/jsonRepair.ts",
+    "src/agent/plans/externalPlan.ts",
+    "src/agent/executor/paramRemap.ts",
+    "src/agent/executor/toolNameAlias.ts"
   ],
   "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "perTest",

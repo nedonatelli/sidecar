@@ -91,6 +91,59 @@ describe('remapParamSynonyms', () => {
     expect(optionalOnly.notes).toHaveLength(1);
   });
 
+  it('remaps the COMPLETE synonym table (mutation-tested — every entry pinned)', () => {
+    const cases: Array<[string, string]> = [
+      ['file', 'path'],
+      ['filename', 'path'],
+      ['file_path', 'path'],
+      ['filepath', 'path'],
+      ['file_name', 'path'],
+      ['text', 'content'],
+      ['contents', 'content'],
+      ['body', 'content'],
+      ['file_content', 'content'],
+      ['new_content', 'content'],
+      ['cmd', 'command'],
+      ['shell_command', 'command'],
+      ['script', 'command'],
+      ['old_string', 'search'],
+      ['old_text', 'search'],
+      ['find', 'search'],
+      ['new_string', 'replace'],
+      ['new_text', 'replace'],
+      ['replacement', 'replace'],
+      ['q', 'query'],
+      ['search_query', 'query'],
+      ['regex', 'pattern'],
+      ['glob', 'pattern'],
+      ['q', 'question'],
+    ];
+    for (const [syn, canonical] of cases) {
+      const schema = {
+        type: 'object' as const,
+        properties: { [canonical]: { type: 'string' } },
+        required: [canonical],
+      };
+      const out = remapParamSynonyms({ [syn]: 'VALUE' }, schema);
+      expect(out.input, `${syn} → ${canonical}`).toEqual({ [canonical]: 'VALUE' });
+      expect(out.notes, `${syn} → ${canonical} note`).toHaveLength(1);
+    }
+  });
+
+  it('the disclosure note names both the wrong and the canonical key', () => {
+    const out = remapParamSynonyms(
+      { file: 'a.ts', content: 'x' },
+      {
+        type: 'object' as const,
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+        required: ['path', 'content'],
+      },
+    );
+    expect(out.notes[0]).toContain("'file' is not valid");
+    expect(out.notes[0]).toContain("interpreted as 'path'");
+    expect(out.notes[0]).toContain("use 'path' next time");
+  });
+
   it('does not mutate the original input object', () => {
     const input = { file: 'out/f1.md', content: 'x' };
     remapParamSynonyms(input, WRITE_FILE_SCHEMA);
