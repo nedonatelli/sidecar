@@ -121,6 +121,42 @@ export function planStepWriteTargetsNotWritten(plan: ExternalPlan, writtenFiles:
 }
 
 /**
+ * Advance the plan pointer past steps whose named deliverable was just
+ * written — evidence-driven plan maintenance. Root cause (granite, 4/4
+ * plan-arm reps): the model does the work WITHOUT calling update_plan, the
+ * injected <plan_state> goes stale at current=1..2, and the model then
+ * obediently REPLAYS finished steps from the stale pointer until the run
+ * dies. The protocol trusted model bookkeeping; models don't bookkeep.
+ * A successful write of a path that step K names IS proof step K happened —
+ * advance past it, no model cooperation required. update_plan still works
+ * (a full restatement replaces the whole plan, pointer included).
+ *
+ * Only fires forward (never rewinds) and only when the written path maps to
+ * exactly the step at-or-after `current` — an ambiguous path that appears in
+ * several pending steps advances conservatively to the FIRST match + 1.
+ */
+export function advancePlanPastWrite(plan: ExternalPlan, writtenPath: string): ExternalPlan {
+  const p = writtenPath.replace(/\\/g, '/');
+  let advanced = plan.current;
+  for (let k = plan.current - 1; k < plan.steps.length; k++) {
+    const step = plan.steps[k];
+    if (!/\b(creat\w*|writ\w*|sav\w*|generat\w*|add\w*)\b/i.test(step)) continue;
+    // The written path must be the step's LAST path token: mixed steps
+    // ("Read data/big.log … write the number to out/errcount.md") name their
+    // input first and their deliverable last — advancing on the input path
+    // would mark the step done before its output exists.
+    const paths = [...step.matchAll(/(?<![\w.])((?:[\w-]+\/)+[\w-]+\.\w{1,8})(?![\w])/g)].map((m) =>
+      m[1].replace(/\\/g, '/'),
+    );
+    if (paths.length === 0 || paths[paths.length - 1] !== p) continue;
+    advanced = Math.min(k + 2, plan.steps.length);
+    break;
+  }
+  if (advanced === plan.current) return plan;
+  return { ...plan, current: advanced };
+}
+
+/**
  * True when a turn's tool calls are ONLY update_plan — pure bookkeeping the
  * harness itself demanded. The loop refunds such turns to the iteration
  * budget (bounded by MAX_PLAN_STEPS refunds per run): measured on

@@ -2,6 +2,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import { executeTool } from '../executor.js';
+import { advancePlanPastWrite } from '../plans/externalPlan.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import type { LoopState } from './state.js';
@@ -102,6 +103,25 @@ export async function executeToolUses(
   );
 
   const settled = await Promise.allSettled(executionPromises);
+
+  // Evidence-driven plan advance: a successful write of a path a plan step
+  // names IS that step completing — advance the pointer without waiting for
+  // model bookkeeping. Root cause (granite 4/4): the model worked without
+  // calling update_plan, the injected plan went stale at current=1..2, and
+  // the model then REPLAYED finished steps from the stale pointer. Runs
+  // before the identity check below so an auto-advance also fires the
+  // checkpointing hook.
+  if (state.planRef.plan) {
+    for (let idx = 0; idx < settled.length; idx++) {
+      const s = settled[idx];
+      if (s.status !== 'fulfilled' || s.value.is_error) continue;
+      const use = pendingToolUses[idx];
+      if (use.name !== 'write_file' && use.name !== 'edit_file') continue;
+      const p = (use.input as { path?: unknown }).path;
+      if (typeof p !== 'string' || !state.planRef.plan) continue;
+      state.planRef.plan = advancePlanPastWrite(state.planRef.plan, p);
+    }
+  }
 
   if (state.planRef.plan && state.planRef.plan !== planBefore) {
     callbacks.onPlanUpdate?.(state.planRef.plan);

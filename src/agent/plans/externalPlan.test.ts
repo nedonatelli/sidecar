@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyPlanUpdate,
   planStepWriteTargetsNotWritten,
+  advancePlanPastWrite,
   renderPlanState,
   parsePlanFromText,
   isPlanOnlyTurn,
@@ -103,6 +104,40 @@ describe('planStepWriteTargetsNotWritten (last-step false completion)', () => {
 
   it('normalizes windows separators in written paths', () => {
     expect(planStepWriteTargetsNotWritten(plan, new Set(['out\\f1.md', 'out\\DONE.md']))).toEqual([]);
+  });
+});
+
+describe('advancePlanPastWrite (evidence-driven plan maintenance)', () => {
+  const plan = {
+    steps: [
+      'Create out/f1.md containing exactly "k4q9-alpha"',
+      'Create out/f2.md containing exactly "zw31-tango"',
+      'Read data/big.log and count ERROR lines; write the number to out/errcount.md',
+      'Create out/DONE.md containing exactly "sequence complete: jj90"',
+    ],
+    current: 1,
+  };
+
+  it('advances past the step whose deliverable was written', () => {
+    expect(advancePlanPastWrite(plan, 'out/f1.md').current).toBe(2);
+  });
+
+  it('jumps forward when a later pending step completes out of order', () => {
+    expect(advancePlanPastWrite(plan, 'out/errcount.md').current).toBe(4);
+  });
+
+  it('clamps at the last step and never rewinds', () => {
+    expect(advancePlanPastWrite({ ...plan, current: 4 }, 'out/DONE.md').current).toBe(4);
+    expect(advancePlanPastWrite({ ...plan, current: 3 }, 'out/f1.md').current).toBe(3);
+  });
+
+  it('ignores paths no write-verb step names', () => {
+    expect(advancePlanPastWrite(plan, 'data/big.log')).toBe(plan); // read-only mention
+    expect(advancePlanPastWrite(plan, 'src/other.ts')).toBe(plan);
+  });
+
+  it('normalizes windows separators', () => {
+    expect(advancePlanPastWrite(plan, 'out\\f2.md').current).toBe(3);
   });
 });
 
