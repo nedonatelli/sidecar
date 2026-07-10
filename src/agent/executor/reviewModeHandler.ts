@@ -69,7 +69,29 @@ export async function handleReviewModeTool(
     const relPath = toolUse.input.path as string | undefined;
     const search = toolUse.input.search as string | undefined;
     const replace = toolUse.input.replace as string | undefined;
-    if (!relPath || search === undefined || replace === undefined) return null;
+    if (!relPath) return null;
+    // Creation-intent coercion must be handled HERE, not by falling through:
+    // edit_file's executor coerces a missing-field call on a nonexistent file
+    // into a DIRECT writeFile() call, which would bypass the shadow store and
+    // hit real disk in review mode. Mirror the coercion into the store.
+    if (search === undefined || replace === undefined) {
+      const absPathC = Uri.joinPath(root, relPath).fsPath;
+      const pendingC = pendingEdits.get(absPathC);
+      const diskC = pendingC ? pendingC.newContent : await readDiskOrNull(root, relPath);
+      if (diskC !== null) return null; // file exists → executor's hard error (no write) is correct
+      const content = replace ?? search;
+      if (content === undefined) return null; // both missing → executor's error (no write)
+      pendingEdits.record(absPathC, null, content, 'write_file');
+      logger?.info(`[REVIEW] Coerced creation-intent edit_file into pending write for ${relPath}`);
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content:
+          `[note: ${relPath} did not exist — edit_file cannot edit it, so the '${replace !== undefined ? 'replace' : 'search'}' text was queued as ` +
+          `the full content of a NEW file, pending review. To create files, call write_file(path, content) directly.]\n` +
+          `Pending write queued for review: ${relPath}`,
+      };
+    }
     const absPath = Uri.joinPath(root, relPath).fsPath;
     const existing = pendingEdits.get(absPath);
     // Build the base text we're editing — pending version if we've already

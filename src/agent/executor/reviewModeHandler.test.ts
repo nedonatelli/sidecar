@@ -60,6 +60,48 @@ describe('handleReviewModeTool — read_file', () => {
   });
 });
 
+describe('handleReviewModeTool — edit_file creation-intent coercion (review-mode disk-write guard)', () => {
+  it('queues the coerced create into the pending store — NEVER falls through to a real disk write', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    const store = makePendingStore([]);
+    const result = await handleReviewModeTool(
+      makeToolUse('edit_file', { path: 'out/f1.md', search: 'k4q9-alpha' }),
+      store,
+    );
+    expect(result).not.toBeNull();
+    expect(result?.is_error).toBeFalsy();
+    expect(result?.content).toContain('did not exist');
+    expect(result?.content).toContain('Pending write queued for review');
+    expect(store.record).toHaveBeenCalledWith(`${ROOT}/out/f1.md`, null, 'k4q9-alpha', 'write_file');
+  });
+
+  it('prefers replace as the content when only search is missing', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    const store = makePendingStore([]);
+    await handleReviewModeTool(makeToolUse('edit_file', { path: 'out/f4.md', replace: 'mm05-delta' }), store);
+    expect(store.record).toHaveBeenCalledWith(`${ROOT}/out/f4.md`, null, 'mm05-delta', 'write_file');
+  });
+
+  it('falls through (null) when the file EXISTS — the executor hard-error writes nothing', async () => {
+    // Default mock: readFile resolves, so the file "exists".
+    const store = makePendingStore([]);
+    const result = await handleReviewModeTool(makeToolUse('edit_file', { path: 'src/a.ts', search: 'x' }), store);
+    expect(result).toBeNull();
+    expect(store.record).not.toHaveBeenCalled();
+  });
+
+  it('falls through (null) when both search and replace are missing', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    const store = makePendingStore([]);
+    const result = await handleReviewModeTool(makeToolUse('edit_file', { path: 'out/f9.md' }), store);
+    expect(result).toBeNull();
+    expect(store.record).not.toHaveBeenCalled();
+  });
+});
+
 describe('handleReviewModeTool — write_file', () => {
   it('records to the pending store and returns a queued message', async () => {
     const store = makePendingStore([]);
