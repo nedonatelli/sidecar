@@ -92,6 +92,42 @@ describe('chat webview message dispatcher', () => {
     expect(messagesEl.querySelectorAll('.next-step-btn')).toHaveLength(0);
   });
 
+  describe('indexingStatus banner (activation feedback)', () => {
+    it('shows the banner with the detail text while indexing', () => {
+      postToWebview({
+        command: 'indexingStatus',
+        indexingPhase: 'indexing',
+        indexingDetail: 'Indexing 5713 changed symbols…',
+      });
+      const banner = document.querySelector('#indexing-banner');
+      expect(banner).not.toBeNull();
+      expect(banner!.textContent).toContain('Indexing 5713 changed symbols…');
+    });
+
+    it('updates the detail in place on a second indexing message', () => {
+      postToWebview({ command: 'indexingStatus', indexingPhase: 'indexing', indexingDetail: 'Indexing workspace…' });
+      postToWebview({
+        command: 'indexingStatus',
+        indexingPhase: 'indexing',
+        indexingDetail: 'Indexing 42 changed symbols…',
+      });
+      const banners = document.querySelectorAll('#indexing-banner');
+      expect(banners).toHaveLength(1);
+      expect(banners[0].textContent).toContain('42 changed symbols');
+    });
+
+    it('removes the banner on ready', () => {
+      postToWebview({ command: 'indexingStatus', indexingPhase: 'indexing', indexingDetail: 'Indexing workspace…' });
+      postToWebview({ command: 'indexingStatus', indexingPhase: 'ready' });
+      expect(document.querySelector('#indexing-banner')).toBeNull();
+    });
+
+    it('falls back to a generic message with no detail', () => {
+      postToWebview({ command: 'indexingStatus', indexingPhase: 'indexing' });
+      expect(document.querySelector('#indexing-banner')!.textContent).toContain('indexing your workspace');
+    });
+  });
+
   // Regression: the webview stamps user bubbles with a local counter that the
   // extension trusts as a direct index into state.messages. A model turn appends
   // assistant + tool entries the webview never counts, so without the `done`

@@ -210,7 +210,11 @@ export interface ExtensionMessage {
     | 'fileCompletionList'
     | 'batchProgress'
     | 'regenSectionResult'
-    | 'voiceResult';
+    | 'voiceResult'
+    | 'indexingStatus';
+  /** indexingStatus: activation/indexing progress shown as a banner in the chat. */
+  indexingPhase?: 'indexing' | 'ready';
+  indexingDetail?: string;
   /** Selective regen result: the original selected text and the replacement. */
   originalText?: string;
   newText?: string;

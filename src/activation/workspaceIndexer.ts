@@ -19,6 +19,7 @@ export function initWorkspaceIndex(
   sidecarDir: SidecarDir,
   config: SideCarConfig,
   pkiProvider?: PkiTreeProvider,
+  onIndexingStatus?: (phase: 'indexing' | 'ready', detail?: string) => void,
 ): void {
   if (!workspace.workspaceFolders || workspace.workspaceFolders.length === 0) return;
 
@@ -26,6 +27,7 @@ export function initWorkspaceIndex(
   indexStatus.text = '$(sync~spin) SideCar: Indexing workspace...';
   indexStatus.show();
   context.subscriptions.push(indexStatus);
+  onIndexingStatus?.('indexing', 'Indexing workspace…');
 
   workspaceIndex
     .initialize(getFilePatterns())
@@ -68,6 +70,9 @@ export function initWorkspaceIndex(
       }
 
       // Project Knowledge Index — symbol-level semantic index
+      if (!config.projectKnowledgeEnabled) {
+        onIndexingStatus?.('ready');
+      }
       if (config.projectKnowledgeEnabled) {
         const { SymbolEmbeddingIndex } = await import('../config/symbolEmbeddingIndex.js');
         let pkiStore:
@@ -119,6 +124,7 @@ export function initWorkspaceIndex(
             context.subscriptions.push(pkiStatus);
 
             symbolEmbeddings.setOnDrained(() => {
+              onIndexingStatus?.('ready');
               const count = symbolEmbeddings.getCount();
               pkiStatus.text = `$(check) SideCar PKI: ${count} symbols`;
               pkiStatus.show();
@@ -155,13 +161,28 @@ export function initWorkspaceIndex(
             } else {
               logger.info(`[PKI] replay complete${replayFields}`);
             }
+            if (replay.queued > 0) {
+              // A warm-cache reload after heavy repo churn can queue thousands
+              // of re-embeds (dogfood: 5,713 after a day's branch work) — that
+              // was previously INVISIBLE because the spinner only showed on
+              // first run, and the chat showed nothing at all.
+              pkiStatus.text = `$(loading~spin) SideCar: Indexing ${replay.queued} changed symbols…`;
+              pkiStatus.show();
+              onIndexingStatus?.('indexing', `Indexing ${replay.queued} changed symbols…`);
+            } else {
+              onIndexingStatus?.('ready');
+            }
           })
-          .catch((err) => logger.warn('[SideCar] Symbol embedding index failed:', err?.message || err));
+          .catch((err) => {
+            logger.warn('[SideCar] Symbol embedding index failed:', err?.message || err);
+            onIndexingStatus?.('ready');
+          });
       }
     })
     .catch((err) => {
       logger.error('[SideCar] Workspace indexing failed:', err);
       indexStatus.text = '$(warning) SideCar: Indexing failed';
       setTimeout(() => indexStatus.dispose(), 5000);
+      onIndexingStatus?.('ready');
     });
 }

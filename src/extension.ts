@@ -93,7 +93,9 @@ export function activate(context: ExtensionContext) {
   });
   chatProvider = cp;
 
-  initWorkspaceIndex(context, workspaceIndex, symbolIndexer, sidecarDir, config, pkiProvider);
+  initWorkspaceIndex(context, workspaceIndex, symbolIndexer, sidecarDir, config, pkiProvider, (phase, detail) =>
+    chatProvider?.setIndexingStatus(phase, detail),
+  );
 
   registerSettingsCommands(context, {
     getChatProvider: () => chatProvider,

@@ -17,6 +17,39 @@
 
   const vscode = acquireVsCodeApi();
   const messagesContainer = document.getElementById('messages');
+
+  // Activation/indexing banner. During a heavy activation (cold index or a
+  // big post-churn reindex) the chat previously showed NOTHING for minutes —
+  // a user reasonably assumed the extension was broken (v0.119 dogfood).
+  let indexingBannerEl = null;
+  function renderIndexingBanner(phase, detail) {
+    if (phase !== 'indexing') {
+      if (indexingBannerEl) {
+        indexingBannerEl.remove();
+        indexingBannerEl = null;
+      }
+      return;
+    }
+    if (!indexingBannerEl) {
+      indexingBannerEl = document.createElement('div');
+      indexingBannerEl.id = 'indexing-banner';
+      indexingBannerEl.setAttribute('role', 'status');
+      const parent =
+        messagesContainer && messagesContainer.parentElement ? messagesContainer.parentElement : document.body;
+      if (messagesContainer && messagesContainer.parentElement === parent) {
+        parent.insertBefore(indexingBannerEl, messagesContainer);
+      } else {
+        parent.appendChild(indexingBannerEl);
+      }
+    }
+    indexingBannerEl.innerHTML = '';
+    const spinner = document.createElement('span');
+    spinner.className = 'indexing-banner-spinner';
+    const text = document.createElement('span');
+    text.textContent = detail || 'SideCar is indexing your workspace…';
+    indexingBannerEl.appendChild(spinner);
+    indexingBannerEl.appendChild(text);
+  }
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const attachBtn = document.getElementById('attach-btn');
@@ -4355,6 +4388,10 @@
         if (settingsMenu && !settingsMenu.classList.contains('hidden')) {
           renderBackendProfiles();
         }
+        break;
+
+      case 'indexingStatus':
+        renderIndexingBanner(event.data.indexingPhase, event.data.indexingDetail);
         break;
 
       case 'setLoading':

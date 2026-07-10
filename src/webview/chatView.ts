@@ -186,9 +186,27 @@ export class ChatViewProvider implements WebviewViewProvider {
    * restored conversation never renders. `init` is idempotent (the webview
    * clears before rebuilding), so the double-send can't duplicate messages.
    */
+  /** Last activation/indexing status — replayed to a webview that opens late,
+   *  so a user who opens the chat mid-activation still sees the banner
+   *  instead of assuming the extension is broken (dogfood finding: a
+   *  multi-minute post-churn reindex showed NOTHING in the chat). */
+  private lastIndexingStatus: { phase: 'indexing' | 'ready'; detail?: string } | null = null;
+
+  setIndexingStatus(phase: 'indexing' | 'ready', detail?: string): void {
+    this.lastIndexingStatus = { phase, detail };
+    this.postMessage({ command: 'indexingStatus', indexingPhase: phase, indexingDetail: detail });
+  }
+
   private pushInitialState(): void {
     if (this.state.messages.length === 0) this.state.messages = this.state.loadHistory();
     if (this.state.messages.length > 0) this.postMessage({ command: 'init', messages: this.state.messages });
+    if (this.lastIndexingStatus?.phase === 'indexing') {
+      this.postMessage({
+        command: 'indexingStatus',
+        indexingPhase: this.lastIndexingStatus.phase,
+        indexingDetail: this.lastIndexingStatus.detail,
+      });
+    }
 
     loadModels(this.state);
     const initConfig = getConfig();
