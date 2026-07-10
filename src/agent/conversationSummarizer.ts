@@ -58,18 +58,54 @@ function extractCodeChanges(turns: Array<ChatMessage[]>): string[] {
   return Array.from(lastToolByPath.entries()).map(([p, tool]) => `- \`${p}\` (${tool})`);
 }
 
+/** Cap on distinct error lines carried into the summary. */
+const MAX_ERROR_LINES = 5;
+
 /**
- * Assemble the structured Markdown summary from pre-computed fact lines and
- * detected code-change entries. Keeps both sections when non-empty; omits
- * sections that have no content so the summary never includes empty headers.
+ * Walk the old turns and pull one line per DISTINCT failed tool call
+ * (tool_result blocks with is_error). Errors are load-bearing across
+ * compaction: a model that forgets "edit_file failed: file does not exist —
+ * use write_file" re-walks the same dead end after the turns are shed.
+ * Dedups by (tool, first line of message); keeps the first occurrence.
  */
-function assembleStructuredSummary(factLines: string[], codeChanges: string[]): string {
+function extractErrors(turns: Array<ChatMessage[]>): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  const nameById = new Map<string, string>();
+  for (const turn of turns) {
+    for (const msg of turn) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        if (block.type === 'tool_use') nameById.set(block.id, block.name);
+        if (block.type !== 'tool_result' || !block.is_error) continue;
+        const text = typeof block.content === 'string' ? block.content : getContentText(block.content);
+        const firstLine = smartTruncate(text, 120);
+        const tool = nameById.get(block.tool_use_id) ?? 'tool';
+        const key = `${tool}:${firstLine}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (lines.length < MAX_ERROR_LINES) lines.push(`- ${tool}: ${firstLine}`);
+      }
+    }
+  }
+  return lines;
+}
+
+/**
+ * Assemble the structured Markdown summary from pre-computed fact lines,
+ * detected code-change entries, and distinct errors hit. Omits sections
+ * that have no content so the summary never includes empty headers.
+ */
+function assembleStructuredSummary(factLines: string[], codeChanges: string[], errors: string[] = []): string {
   const parts: string[] = [];
   if (factLines.length > 0) {
     parts.push('## Facts established\n' + factLines.map((l) => `- ${l}`).join('\n'));
   }
   if (codeChanges.length > 0) {
     parts.push('## Code changes\n' + codeChanges.join('\n'));
+  }
+  if (errors.length > 0) {
+    parts.push('## Errors hit\n' + errors.join('\n'));
   }
   return parts.join('\n\n');
 }
@@ -338,14 +374,15 @@ export class ConversationSummarizer {
       facts.push(turnSummary.length > maxCharsPerTurn ? turnSummary.slice(0, maxCharsPerTurn - 1) + '…' : turnSummary);
     }
 
-    // Extract code changes from tool_use blocks in the old turns. This is
-    // deterministic (pulled from structured tool-call data, not prose), so
-    // it survives the fast path and the LLM path identically.
+    // Extract code changes and distinct errors from structured tool-call
+    // data (not prose) — deterministic, so they survive the fast path and
+    // the LLM path identically.
     const codeChanges = extractCodeChanges(oldTurns);
+    const errors = extractErrors(oldTurns);
 
     // Fast path: if the structured assembly fits, return it as-is and skip
     // the LLM round-trip entirely.
-    const structured = assembleStructuredSummary(facts, codeChanges);
+    const structured = assembleStructuredSummary(facts, codeChanges, errors);
     if (structured.length <= maxLength) {
       return structured;
     }
@@ -353,23 +390,31 @@ export class ConversationSummarizer {
     // Slow path: ask the LLM to compress the fact lines into fewer, denser
     // bullets under the same `## Facts established` header. We pass the
     // detected code changes verbatim — the LLM shouldn't re-invent them.
-    const factBudget = Math.max(100, maxLength - (codeChanges.length > 0 ? 60 + codeChanges.join('\n').length : 0));
+    const verbatimTail = [
+      codeChanges.length > 0 ? 60 + codeChanges.join('\n').length : 0,
+      errors.length > 0 ? 60 + errors.join('\n').length : 0,
+    ].reduce((a, b) => a + b, 0);
+    const factBudget = Math.max(100, maxLength - verbatimTail);
     const prompt = `Compress the raw conversation turns below into a Markdown document with this exact structure:
 
 ## Facts established
 - <concise bullet — one finding, decision, or key insight per line>
 - ...
 
-${codeChanges.length > 0 ? '## Code changes\n(Use the code-change list provided below verbatim — do not regenerate or reformat.)\n\n' : ''}Constraints:
+${codeChanges.length > 0 ? '## Code changes\n(Use the code-change list provided below verbatim — do not regenerate or reformat.)\n\n' : ''}${errors.length > 0 ? '## Errors hit\n(Use the error list provided below verbatim — do not regenerate or reformat.)\n\n' : ''}## Pending work
+- <ONLY if the raw turns show an unfinished task list, numbered steps not yet done, or explicitly stated next steps — list them here. Omit this section entirely when there is no clearly pending work.>
+
+Constraints:
 - Keep the entire response under ${factBudget} characters.
 - Every fact bullet must be self-contained — no references to "turn N" or other bullets.
 - Prefer concrete nouns (file paths, function names, error messages) over vague prose.
 - Omit the "Code changes" section entirely if the list below is empty.
+- Never invent pending work — an empty "Pending work" section must be omitted, not filled.
 
 Raw turns:
 ${facts.join('\n')}
 
-${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n') + '\n\n' : ''}Structured summary:`;
+${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n') + '\n\n' : ''}${errors.length > 0 ? 'Errors hit (verbatim):\n' + errors.join('\n') + '\n\n' : ''}Structured summary:`;
 
     try {
       const summarizeMessages: ChatMessage[] = [{ role: 'user', content: prompt }];
@@ -410,7 +455,7 @@ ${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n')
             resolve(
               hasExpectedHeader
                 ? clean.slice(0, maxLength)
-                : assembleStructuredSummary(facts, codeChanges).slice(0, maxLength),
+                : assembleStructuredSummary(facts, codeChanges, errors).slice(0, maxLength),
             );
           })
           .catch(reject);
@@ -421,7 +466,7 @@ ${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n')
       // On LLM failure / timeout, return the deterministic structured form
       // clamped to the caller's budget. Worst case: a tail-truncated but
       // still structurally-valid summary.
-      return assembleStructuredSummary(facts, codeChanges).slice(0, maxLength);
+      return assembleStructuredSummary(facts, codeChanges, errors).slice(0, maxLength);
     }
   }
 }

@@ -588,4 +588,65 @@ describe('ConversationSummarizer', () => {
       expect(result.freedChars).toBeGreaterThan(100);
     });
   });
+
+  describe('errors-hit section', () => {
+    function turnsWithFailedTool(): ChatMessage[] {
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 8; i++) {
+        messages.push({
+          role: 'user',
+          content: `Step ${i}: do the next task with enough padding text ${'x'.repeat(200)}`,
+        });
+        messages.push({
+          role: 'assistant',
+          content: [
+            { type: 'text' as const, text: `Working on step ${i}` },
+            { type: 'tool_use' as const, id: `t-${i}`, name: 'edit_file', input: { path: 'out/f1.md' } },
+          ],
+        });
+        messages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result' as const,
+              tool_use_id: `t-${i}`,
+              content: 'Error: out/f1.md does not exist, so it cannot be edited. Use write_file to create it.',
+              is_error: true,
+            },
+          ],
+        });
+      }
+      return messages;
+    }
+
+    it('carries DISTINCT failed tool calls into the summary (deduplicated)', async () => {
+      const result = await summarizer.summarize(turnsWithFailedTool(), {
+        keepRecentTurns: 2,
+        minCharsToSave: 500,
+        maxSummaryLength: 2000,
+      });
+      const summaryMsg = result.messages[0];
+      const text = typeof summaryMsg.content === 'string' ? summaryMsg.content : '';
+      expect(text).toContain('## Errors hit');
+      expect(text).toContain('edit_file: Error: out/f1.md does not exist');
+      // Six identical failures → exactly one deduped line
+      expect(text.match(/edit_file: Error: out\/f1\.md/g)).toHaveLength(1);
+    });
+
+    it('omits the Errors hit section when no tool call failed', async () => {
+      const messages: ChatMessage[] = [];
+      for (let i = 0; i < 8; i++) {
+        messages.push({ role: 'user', content: `Step ${i} with padding ${'y'.repeat(200)}` });
+        messages.push({ role: 'assistant', content: `Done with step ${i}` });
+      }
+      const result = await summarizer.summarize(messages, {
+        keepRecentTurns: 2,
+        minCharsToSave: 500,
+        maxSummaryLength: 2000,
+      });
+      const summaryMsg = result.messages[0];
+      const text = typeof summaryMsg.content === 'string' ? summaryMsg.content : '';
+      expect(text).not.toContain('## Errors hit');
+    });
+  });
 });
