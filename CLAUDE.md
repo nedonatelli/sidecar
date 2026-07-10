@@ -96,13 +96,15 @@ SSE parsing for all OpenAI-compatible backends is shared in `openAiSseStream.ts`
 - `compression.ts` — context pruning between turns (triggered at `CONTEXT_COMPRESSION_THRESHOLD`); after `ConversationSummarizer` fires, the batch summary is embedded and stored in `EpisodicMemoryStore` so it can be retrieved in future turns
 - `cycleDetection.ts` — burst cap + two-tier repeated-action bail: **exact-match** ring buffer (fires at 4) plus a **normalized-signature** ring buffer (strips secondary args to `name:primaryResource`, fires at 3) that catches "same tool, same file, different edit content" loops the exact check misses
 - `criticHook.ts` — adversarial critic injection after edits
+- `../plans/externalPlan.ts` — S1 externalized plan (pure): `applyPlanUpdate` / `renderPlanState` (<plan_state> per-turn re-injection) / `parsePlanFromText` (harness-seeded from approved plan-mode output) / `advancePlanPastWrite` (evidence-driven pointer: writing a step's last-named path advances current) / `planStepWriteTargetsNotWritten` (missing-deliverable gate check) / `isPlanOnlyTurn` (update_plan-only turns are refunded to the iteration budget). Gated by `sidecar.plan.externalized`; the gate has plan-incomplete + missing-deliverable checks flagged as PRIMARY work so the keep-best ratchet never arms on them
+- `../executor/paramRemap.ts` + `../executor/toolNameAlias.ts` — deterministic recovery for wrong-but-unambiguous calls: parameter-synonym remap (`file`→`path`, `old_string`→`search`; required keys first, then declared optional keys) and foreign tool-name aliases (`create_file`→`write_file`, `bash`→`run_command`); both disclose the canonical name in the result, both resolved before approval gates, both mutation-tested moat modules
 - `policyHook.ts` — extensible pre/post-turn hooks (HookBus)
 - `builtInHooks.ts` — built-in policy hooks (stub check, auto-fix, critic, gate)
 - `postTurnPolicies.ts` — post-turn policy application pipeline
 - `gate.ts` — completion gate (refuse to finish without lint/test)
 - `stubCheck.ts` — detect placeholder code in agent output
 - `autoFix.ts` — post-edit auto-lint and auto-fix
-- `textParsing.ts` — parse tool calls from model text output (qwen3, Hermes)
+- `textParsing.ts` — parse tool calls from model text output (qwen3, Hermes, bare/fused JSON; alias-aware name acceptance) + `isDegenerateText` (token-salad detector: the loop discards a degenerate would-be-final turn, retries once, then bails 'stuck')
 - `routing.ts` — pre-turn role-based model routing hook
 - `messageBuild.ts` — construct tool-result messages before the next turn
 - `state.ts` — `LoopState` type shared across all submodules

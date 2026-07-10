@@ -59,7 +59,7 @@ Use the model dropdown at the top of the chat panel to browse and switch models.
 
 You can also install new models directly from the dropdown — SideCar will pull them from the Ollama registry.
 
-The default model is `gemma4:e4b` (~10 GB VRAM). For lighter hardware, try `ministral-3:latest` (6 GB), `gemma4:2b`, or `qwen2.5-coder:7b`.
+The default model is `gemma4:e4b` (~10 GB VRAM). For lighter hardware, try `ministral-3:latest` (6 GB), `gemma4:2b`, or `qwen2.5-coder:7b`. For measured agent ratings across local models — including which ones to avoid for agent mode — see [Model Compatibility](model-compatibility).
 
 ## Switching backends
 

@@ -90,6 +90,7 @@ SideCar is built as a VS Code extension with the following main components:
 - Default: `gemma4:e4b` (or other local models)
 - Works with any Ollama-compatible model
 - No internet required for operation
+- See **[Model Compatibility](model-compatibility)** for measured agent ratings, hardware guidance, and which models to avoid for agent mode
 
 ### Cloud APIs
 

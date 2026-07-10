@@ -4,6 +4,29 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.119.0] - 2026-07-10
+
+Long-horizon state + the local-model reliability layer. S1 externalized planning shipped and then earned its real design through forensics: five model families produced zero voluntary `update_plan` calls, so plans are harness-seeded (parsed from the plan-mode output the user approved) and harness-MAINTAINED — a successful write of a step's named deliverable advances the pointer, so the model owes no bookkeeping protocol at all. The same trajectory-level forensics (a new TRAJ=2 full-dump mode) turned llama3.2's "0% because it's weak" into a chain of ten deterministic harness fixes — every fix justified by a live trajectory, every one behavior-neutral for correct callers (verified: ministral/qwen3.5/granite pass the long-horizon discriminator both arms; gemma4:e4b smoke 8/8; qwen2.5-coder at its recorded baseline). The chase also caught a live default-on bug: the keep-best ratchet reverted completed primary work on test-less tasks. Meta-lesson, twice confirmed: "the model failed" was wrong in every forensic case until proven — read trajectories first.
+
+### Added
+
+- **Externalized planning (S1)** (`sidecar.plan.externalized`, default off) — `update_plan` tool + compaction-proof per-turn `<plan_state>` re-injection; plans are seeded from approved plan-mode output (`parsePlanFromText`) and maintained by evidence (`advancePlanPastWrite`: writing a step's named deliverable advances `current`; update_plan-only turns are refunded to the iteration budget). Two deterministic completion-gate checks: plan-incomplete (remaining steps restated) and missing-deliverable (plan-named write targets never written are listed by exact path). Plan survives the crash-resume checkpoint. (`src/agent/plans/externalPlan.ts`, `src/agent/tools/plan.ts`, `src/agent/loop/gate.ts`)
+- **Tier-shaped compaction (S2)** — compaction depth follows the model capability tier (`compactionKeepRecentTurns` / `compactionMaxSummaryChars` on the scaffolding profile); behavior-neutral when adaptive scaffolding is off. (`src/agent/scaffoldingProfile.ts`, `src/agent/loop/compression.ts`)
+- **Local-model reliability layer** — deterministic recovery for the malformed-call shapes small models actually emit, each verified against a live failing trajectory: parameter-synonym remap (`file`→`path`, `old_string`→`search`, …) with disclosure; foreign tool-name aliases (`create_file`→`write_file`, `bash`→`run_command`, …) resolved before approval gates; `edit_file` creation-intent coercion (missing search/replace on a nonexistent file executes as `write_file` — measured: teaching errors converted 1 of 41 bounces); bare-JSON text tool calls accept aliasable names and follow fused `}{"name":…` objects; `edit_file` not-found errors name `write_file` instead of leaking a raw ENOENT path. (`src/agent/executor/paramRemap.ts`, `src/agent/executor/toolNameAlias.ts`, `src/agent/tools/fs.ts`, `src/agent/loop/textParsing.ts`)
+- **Degenerate-output detector** — token salad (reserved-token literals, sampler loops) can no longer stand as a final answer: the turn is discarded, one bounded retry fires, and a recurrence terminates the run labeled `stuck`. (`src/agent/loop/textParsing.ts`, `src/agent/loop.ts`)
+- **Structured compaction summaries** — the conversation summary now carries `## Errors hit` (deduplicated from failed tool results, so recovery hints survive compaction) and `## Pending work` (LLM path, never-invent constraint). (`src/agent/conversationSummarizer.ts`)
+- **Model Compatibility docs page** — curated ratings for local models from the eval suite, hardware guidance, and what the recovery layers do; on the docs site under Get Started. (`docs/model-compatibility.md`)
+
+### Fixed
+
+- **Keep-best ratchet no longer reverts completed work on test-less tasks.** Live bug in the v0.118 default-on path: a completion-gate reprompt armed the boundary, the model finished the user's task, and the over-engineering guard reverted it as "growth without test improvement" — vacuous where nothing test-like ever ran. The ratchet now stands down when no verification activity occurred anywhere in the run, and plan-gate reprompts (primary-work continuation) never arm the boundary. SWE-rooted semantics preserved wherever tests actually run. (`src/agent/loop/keepBestRatchet.ts`, `src/agent/loop/gate.ts`)
+- **Tool catalog and dispatch honor per-run config overrides** — config-gated tools were invisible to facet/eval runs that passed `options.config` (pre-existing injection-first violation). (`src/agent/loop/state.ts`, `src/agent/executor.ts`)
+
+### Stats
+
+- 7864 total tests (426 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.118.0] - 2026-07-09
 
 Verification depth — the release where the verify layer got measured instead of assumed. Graded citation metrics landed after a four-generation instrument cascade (each powered run exposed the next measurement bug), producing V1's first honest number: fabrication rate 1.00 → 0.76 (n=10/arm) at +9.8s with citation thoroughness UP. The same investigation found and fixed a false-accusation bug live in the shipped gate since v0.114. The do-no-harm net was verified at bail terminations, pinned against both historical SWE failures, and proven on a 150-run three-arm campaign (over-engineering −6,970 bytes, 12% revert rate, nothing un-resolved) — earning the Prove-or-Prune Ledger's first promotion: the keep-best ratchet is default-on as scaffold 2.1.0, with the resolve-non-regression caveat recorded. Verified: 7,781 tests, T2 smoke on two models with zero infra errors and zero false reverts, campaign artifacts archived with a full reproducibility manifest.
