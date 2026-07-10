@@ -293,8 +293,8 @@ export class SymbolEmbeddingIndex implements Disposable {
    * when the model isn't available — callers treat this as "skip,
    * try again when ready" rather than an error.
    */
-  embed(text: string): Promise<Float32Array | null> {
-    return this.embedder.embed(text);
+  embed(text: string, opts?: { priority?: boolean }): Promise<Float32Array | null> {
+    return this.embedder.embed(text, opts);
   }
 
   /**
@@ -588,7 +588,9 @@ export class SymbolEmbeddingIndex implements Disposable {
    */
   async search(query: string, topK = 20, filters?: SymbolSearchFilters): Promise<SymbolSearchResult[]> {
     if (!this.isReady() || this.store.size() === 0) return [];
-    const queryVec = await this.embed(query);
+    // priority: a retrieval query must not wait behind the batch-index
+    // backlog (measured: 157s first-prompt stall mid-replay).
+    const queryVec = await this.embed(query, { priority: true });
     if (!queryVec) return [];
 
     const hasKindFilter = filters?.kindFilter && filters.kindFilter.length > 0;

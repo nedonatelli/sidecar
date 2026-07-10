@@ -111,3 +111,57 @@ describe('LazyEmbedder', () => {
     expect(await emb.embed('x')).toBeNull();
   });
 });
+
+describe('LazyEmbedder — priority lane (query embeds jump the batch backlog)', () => {
+  it('a batch embed started while a priority embed is pending waits for it', async () => {
+    const order: string[] = [];
+    let releaseSlow: (() => void) | null = null;
+    const pipe = vi.fn(async (inputs: string[]) => {
+      order.push(`start:${inputs[0]}`);
+      if (inputs[0] === 'QUERY') {
+        await new Promise<void>((r) => {
+          releaseSlow = r;
+        });
+      }
+      order.push(`end:${inputs[0]}`);
+      return { data: new Float32Array([1, 2, 3, 4]) };
+    }) as unknown as EmbeddingPipeline;
+    setLoaderForTests(async () => pipe);
+    const emb = new LazyEmbedder({ label: 'Test', modelId: 'm', dimension: 4 });
+    await emb.ensureReady();
+
+    const query = emb.embed('QUERY', { priority: true });
+    // Give the priority embed a tick to start.
+    await new Promise((r) => setTimeout(r, 0));
+    const batch = emb.embed('BATCH');
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Batch must not have started while the priority embed is in flight.
+    expect(order).toEqual(['start:QUERY']);
+    releaseSlow!();
+    await query;
+    await batch;
+    expect(order).toEqual(['start:QUERY', 'end:QUERY', 'start:BATCH', 'end:BATCH']);
+  });
+
+  it('waiters are released even when the priority embed throws', async () => {
+    let first = true;
+    const pipe = vi.fn(async (inputs: string[]) => {
+      if (first && inputs[0] === 'QUERY') {
+        first = false;
+        throw new Error('embed exploded');
+      }
+      return { data: new Float32Array([1, 2, 3, 4]) };
+    }) as unknown as EmbeddingPipeline;
+    setLoaderForTests(async () => pipe);
+    const emb = new LazyEmbedder({ label: 'Test', modelId: 'm', dimension: 4 });
+    await emb.ensureReady();
+
+    const query = emb.embed('QUERY', { priority: true });
+    await new Promise((r) => setTimeout(r, 0));
+    const batch = emb.embed('BATCH');
+
+    expect(await query).toBeNull(); // failed embed → null, never throws
+    expect(await batch).toEqual(new Float32Array([1, 2, 3, 4])); // lane released
+  });
+});

@@ -134,9 +134,43 @@ export class LazyEmbedder {
     return this.loading;
   }
 
-  /** Embed one string, or null when the model is unavailable / the call fails. */
-  async embed(text: string): Promise<Float32Array | null> {
+  /** Query embeds in flight — batch embeds yield to these between items. */
+  private pendingPriority = 0;
+  private priorityWaiters: Array<() => void> = [];
+
+  /**
+   * Embed one string, or null when the model is unavailable / the call fails.
+   *
+   * `priority: true` marks a latency-sensitive embed (a RETRIEVAL QUERY): it
+   * runs immediately, and non-priority (batch/index) embeds started while any
+   * priority embed is pending wait until the priority lane clears. Without
+   * this, the first prompt after a churn-heavy reload queued its query embed
+   * behind a ~6,000-symbol PKI replay on the shared single-threaded pipeline —
+   * measured live: a 157-second "Building context" stall (v0.119 dogfood).
+   */
+  async embed(text: string, opts?: { priority?: boolean }): Promise<Float32Array | null> {
     if (!(await this.ensureReady()) || !this.pipeline) return null;
+    if (opts?.priority) {
+      this.pendingPriority += 1;
+      try {
+        return await this.runEmbed(text);
+      } finally {
+        this.pendingPriority -= 1;
+        if (this.pendingPriority === 0) {
+          const waiters = this.priorityWaiters;
+          this.priorityWaiters = [];
+          for (const release of waiters) release();
+        }
+      }
+    }
+    while (this.pendingPriority > 0) {
+      await new Promise<void>((release) => this.priorityWaiters.push(release));
+    }
+    return this.runEmbed(text);
+  }
+
+  private async runEmbed(text: string): Promise<Float32Array | null> {
+    if (!this.pipeline) return null;
     try {
       const input = this.opts.maxChars ? text.slice(0, this.opts.maxChars) : text;
       const output = await this.pipeline([input], { pooling: 'mean', normalize: true });
