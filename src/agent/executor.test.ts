@@ -122,6 +122,44 @@ describe('executeTool', () => {
     expect(result.content).toContain('File written');
   });
 
+  it('aliases a foreign tool name onto the SideCar equivalent and discloses it', async () => {
+    // llama3.2 emitted create_file — a Claude Code / OpenHands catalog name —
+    // mid-run; the intent maps 1:1 onto write_file.
+    const executor = vi.fn().mockResolvedValue('File written');
+    mockedFindTool.mockImplementation((name: string) =>
+      name === 'write_file'
+        ? {
+            definition: {
+              name: 'write_file',
+              description: '',
+              input_schema: {
+                type: 'object' as const,
+                properties: { path: { type: 'string' }, content: { type: 'string' } },
+                required: ['path', 'content'],
+              },
+            },
+            executor,
+            requiresApproval: false,
+          }
+        : undefined,
+    );
+    mockConfig({ toolPermissions: { write_file: 'allow' } });
+
+    const result = await executeTool(makeToolUse('create_file', { path: 'out/f4.md', content: 'mm05-delta' }));
+
+    expect(result.is_error).toBeFalsy();
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(result.content).toContain("tool 'create_file' does not exist — ran 'write_file' instead");
+    expect(result.content).toContain('File written');
+  });
+
+  it('still reports truly unknown tools as errors', async () => {
+    mockedFindTool.mockReturnValue(undefined);
+    const result = await executeTool(makeToolUse('summon_daemon', {}));
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain('Unknown tool: summon_daemon');
+  });
+
   it('edit_file validation failures point to write_file for creation', async () => {
     mockedFindTool.mockReturnValue({
       definition: {

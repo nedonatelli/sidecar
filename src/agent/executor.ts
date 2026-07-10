@@ -19,6 +19,7 @@ import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from 
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
 import { remapParamSynonyms } from './executor/paramRemap.js';
+import { resolveToolNameAlias } from './executor/toolNameAlias.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
@@ -115,6 +116,25 @@ export async function executeTool(
         );
         toolUse = { ...toolUse, name: salvaged.name, input: recoveredInput };
         tool = reTool;
+      }
+    }
+  }
+
+  // Foreign tool name from another agent's catalog (create_file, bash, ls…) —
+  // resolve to the SideCar equivalent BEFORE the permission gates so the
+  // aliased call inherits the canonical tool's approval semantics. Disclosed
+  // in the result (below) so the model learns the real name.
+  let aliasNote = '';
+  if (!tool) {
+    const canonical = resolveToolNameAlias(toolUse.name);
+    if (canonical) {
+      const aliasTool =
+        extraTools?.find((t) => t.definition.name === canonical) ?? findTool(canonical, mcpManager, runConfig);
+      if (aliasTool) {
+        logger?.warn(`Aliased foreign tool name "${toolUse.name}" → ${canonical}`);
+        aliasNote = `tool '${toolUse.name}' does not exist — ran '${canonical}' instead; call '${canonical}' directly next time`;
+        toolUse = { ...toolUse, name: canonical };
+        tool = aliasTool;
       }
     }
   }
@@ -516,7 +536,8 @@ export async function executeTool(
     // itself mid-turn — `read_file` returns pending content but grep
     // returns disk content for the same file. Only runs in review mode
     // (i.e., when the caller passed a PendingEditStore).
-    const remapDisclosure = remap.notes.length > 0 ? `[note: ${remap.notes.join('; ')}]\n` : '';
+    const disclosureNotes = [...(aliasNote ? [aliasNote] : []), ...remap.notes];
+    const remapDisclosure = disclosureNotes.length > 0 ? `[note: ${disclosureNotes.join('; ')}]\n` : '';
     let finalContent = remapDisclosure + result + securityWarnings;
     if (pendingEdits && REVIEW_OVERLAY_TOOLS.has(toolUse.name)) {
       const overlay = computePendingOverlay(toolUse, pendingEdits);
