@@ -70,6 +70,18 @@ describe('renderPlanState', () => {
     expect(block).not.toContain('Last result:');
   });
 
+  it('renders the terminal footer when complete — never "work the current step" on a finished plan', () => {
+    const block = renderPlanState({ steps: ['create a.md', 'create b.md'], current: 2 }, { complete: true });
+    expect(block).toContain('All plan steps are complete');
+    expect(block).toContain('final answer');
+    expect(block).not.toContain('Work the current step');
+  });
+
+  it('keeps the working footer at current==len when NOT marked complete (last step still active)', () => {
+    const block = renderPlanState({ steps: ['create a.md', 'create b.md'], current: 2 });
+    expect(block).toContain('Work the current step');
+  });
+
   it('stays compact: a full 20-step plan renders under 2KB', () => {
     const block = renderPlanState({
       steps: Array.from({ length: 20 }, (_, i) => `step number ${i + 1} with some detail`),

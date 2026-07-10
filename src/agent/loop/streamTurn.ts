@@ -5,7 +5,7 @@ import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
-import { renderPlanState } from '../plans/externalPlan.js';
+import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
 import { logApiCall } from '../apiAuditLog.js';
 // getConfig removed — thinkingMode now read from state.config (injected at loop entry)
@@ -167,7 +167,11 @@ export async function streamOneTurn(
   // cache-stable prefix is untouched and the nudge self-removes once the
   // model creates a plan.
   const planAddon = state.planRef.plan
-    ? renderPlanState(state.planRef.plan)
+    ? renderPlanState(state.planRef.plan, {
+        complete:
+          state.planRef.plan.current === state.planRef.plan.steps.length &&
+          planStepWriteTargetsNotWritten(state.planRef.plan, state.gateState.editedFiles).length === 0,
+      })
     : state.config.planExternalizedEnabled && state.approvalMode !== 'plan'
       ? '<plan_state>\nNo plan yet. If this task takes more than one step, call update_plan with the full step list (steps=[...], current=1) in the SAME message as your first real tool call — planning must not cost an extra turn.\n</plan_state>'
       : undefined;

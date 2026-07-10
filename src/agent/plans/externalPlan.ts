@@ -74,7 +74,7 @@ export function applyPlanUpdate(input: Record<string, unknown>): PlanUpdateOutco
  * — with done steps compressed to a single line so the injection stays small
  * on long plans (context economy).
  */
-export function renderPlanState(plan: ExternalPlan): string {
+export function renderPlanState(plan: ExternalPlan, opts?: { complete?: boolean }): string {
   const lines: string[] = ['<plan_state>'];
   lines.push(`Step ${plan.current}/${plan.steps.length} (current): ${plan.steps[plan.current - 1]}`);
   if (plan.lastResult) lines.push(`Last result: ${plan.lastResult}`);
@@ -82,13 +82,23 @@ export function renderPlanState(plan: ExternalPlan): string {
   if (remaining.length > 0) lines.push(`Remaining: ${remaining.join(' · ')}`);
   const done = plan.steps.slice(0, plan.current - 1).map((s, i) => `${i + 1}. ${s} ✓`);
   if (done.length > 0) lines.push(`Done: ${done.join(' · ')}`);
-  // "in the SAME message" is load-bearing: granite followed the previous
-  // wording ("when finished, call update_plan") to the letter and spent
-  // whole turns on bookkeeping alone — 6 update_plan-only turns burned a
-  // quarter of its iteration budget and it failed 9/10 at the cap.
-  lines.push(
-    'Work the current step. When you finish a step, include the update_plan call in the SAME message as your next real tool call — never spend a message on update_plan alone.',
-  );
+  if (opts?.complete) {
+    // Terminal state. Without this the footer said "work the current step"
+    // FOREVER — a finished plan kept a literal-minded model re-verifying the
+    // last step in a tight loop until cycle detection bailed a SUCCESSFUL
+    // run with a scary "agent stopped" banner (v0.119 host dogfood, gemma4).
+    lines.push(
+      'All plan steps are complete. Do NOT repeat any step — give your final answer summarizing what was done.',
+    );
+  } else {
+    // "in the SAME message" is load-bearing: granite followed the previous
+    // wording ("when finished, call update_plan") to the letter and spent
+    // whole turns on bookkeeping alone — 6 update_plan-only turns burned a
+    // quarter of its iteration budget and it failed 9/10 at the cap.
+    lines.push(
+      'Work the current step. When you finish a step, include the update_plan call in the SAME message as your next real tool call — never spend a message on update_plan alone.',
+    );
+  }
   lines.push('</plan_state>');
   return lines.join('\n');
 }
