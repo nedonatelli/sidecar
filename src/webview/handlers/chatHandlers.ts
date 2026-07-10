@@ -19,6 +19,7 @@
 
 import type { ChatState } from '../chatState.js';
 import type { ChatMessage } from '../../ollama/types.js';
+import { logger } from '../../system/logger.js';
 import { getConfig, estimateCost, resolveMode } from '../../config/settings.js';
 import { parseModelSentinel } from '../../ollama/modelSentinels.js';
 import {
@@ -188,7 +189,9 @@ async function buildSystemPromptForRun(
 
   signal?.throwIfAborted();
   state.postMessage({ command: 'typingStatus', content: 'Building context...' });
+  const ctxT0 = Date.now();
   const rawContextLength = await state.client.getModelContextLength();
+  const modelInfoMs = Date.now() - ctxT0;
   signal?.throwIfAborted();
   const userContextLimit = getContextLimit();
   let contextLength: number | null;
@@ -217,6 +220,10 @@ async function buildSystemPromptForRun(
     isLocal,
     signal,
   );
+  const contextTotalMs = Date.now() - ctxT0;
+  if (contextTotalMs > 1000) {
+    logger.info(`[context] "Building context" total ${contextTotalMs}ms (model-info probe ${modelInfoMs}ms)`);
+  }
   return { systemPrompt: injectedPrompt, contextLength, matchedSkill };
 }
 

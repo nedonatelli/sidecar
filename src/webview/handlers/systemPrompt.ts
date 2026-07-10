@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { ChatState } from '../chatState.js';
 import { getConfig } from '../../config/settings.js';
+import { logger } from '../../system/logger.js';
 import { charsToTokens } from '../../config/tokenEstimation.js';
 import {
   getWorkspaceContext,
@@ -70,6 +71,12 @@ export async function injectSystemContext(
   let matchedSkill: Skill | null = null;
   const sizes: Record<string, number> = { 'Base prompt': systemPrompt.length };
   let prevLen = systemPrompt.length;
+  // Per-stage wall-clock, mirrored on the sizes bookkeeping. "Building
+  // context…" was reported slow twice in dogfood with zero visibility into
+  // WHICH stage — slow stages now log unconditionally (>250ms).
+  const timings: Record<string, number> = {};
+  const tStart = Date.now();
+  let prevT = tStart;
 
   // Workspace-sourced prompt injections (SIDECAR.md, project docs, agent
   // memory, workspace skills) are a prompt-injection vector in an
@@ -127,6 +134,8 @@ export async function injectSystemContext(
   }
   sizes['SIDECAR.md'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['SIDECAR.md'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // Per-directory SIDECAR.md — injected root-to-leaf so more-specific rules
   // follow more-general ones. Only fires when the active file is open and its
@@ -155,6 +164,8 @@ export async function injectSystemContext(
   }
   sizes['per-dir SIDECAR.md'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['per-dir SIDECAR.md'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // DESIGN.md — design system tokens + rationale, only in trusted workspaces.
   // Tokens block is always injected when present (compact, ~200 chars).
@@ -175,6 +186,8 @@ export async function injectSystemContext(
   }
   sizes['DESIGN.md'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['DESIGN.md'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // User system prompt — the user's own setting, safe in both trust states.
   // Call ensureBoundary before the budget check so `remaining` is computed
@@ -192,6 +205,8 @@ export async function injectSystemContext(
   }
   sizes['User instructions'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['User instructions'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // Pinned memory — always-include semantics. Each entry is injected whole
   // or skipped entirely (never mid-chopped). Entries are sorted by boost
@@ -220,6 +235,8 @@ export async function injectSystemContext(
   }
   sizes['Pinned memory'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['Pinned memory'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // Team memory — shared context from .sidecar/team-memory/*.md, committed to git.
   // Injected after personal pinned memory so personal overrides land first in
@@ -244,6 +261,8 @@ export async function injectSystemContext(
   }
   sizes['Team memory'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['Team memory'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // Visual verify guidance — tells the agent how to treat failures and caps attempts.
   if (config.visualVerifyEnabled) {
@@ -258,6 +277,8 @@ export async function injectSystemContext(
   }
   sizes['Visual verify guidance'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['Visual verify guidance'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // Skill injection — only in trusted workspaces because .sidecar/skills/
   // can ship with a cloned repo. When the matched skill came from a
@@ -280,6 +301,8 @@ export async function injectSystemContext(
   }
   sizes['Skills'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['Skills'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // Eval history schema — inject when history.db exists so the model knows
   // to use query_history() instead of grepping log files for pass rates.
@@ -297,6 +320,8 @@ export async function injectSystemContext(
   }
   sizes['Eval history'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['Eval history'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // Retriever fusion — docs, agent memory, and workspace semantic
   // search all run through a single reciprocal-rank fusion pass so
@@ -343,6 +368,8 @@ export async function injectSystemContext(
     }
     sizes['Pinned files'] = prompt.length - prevLen;
     prevLen = prompt.length;
+    timings['Pinned files'] = Date.now() - prevT;
+    prevT = Date.now();
   }
 
   const retrievalBudget = maxSystemChars - prompt.length;
@@ -431,6 +458,8 @@ export async function injectSystemContext(
   }
   sizes['RAG context'] = prompt.length - prevLen;
   prevLen = prompt.length;
+  timings['RAG context'] = Date.now() - prevT;
+  prevT = Date.now();
 
   // File dependencies + workspace tree. Pinned files were already injected
   // above (before RAG) to guarantee they always claim their full budget.
@@ -445,6 +474,8 @@ export async function injectSystemContext(
       }
       sizes['File dependencies'] = prompt.length - prevLen;
       prevLen = prompt.length;
+      timings['File dependencies'] = Date.now() - prevT;
+      prevT = Date.now();
 
       const treeBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
       const treeSection = state.workspaceIndex.getWorkspaceStructureSection(treeBudget);
@@ -453,6 +484,8 @@ export async function injectSystemContext(
       }
       sizes['Workspace tree'] = prompt.length - prevLen;
       prevLen = prompt.length;
+      timings['Workspace tree'] = Date.now() - prevT;
+      prevT = Date.now();
 
       const mentionedPaths = [...text.matchAll(/@file:([^\s]+)/g)].map((m) => m[1]);
       if (mentionedPaths.length > 0) {
@@ -469,6 +502,8 @@ export async function injectSystemContext(
       }
       sizes['Workspace context'] = prompt.length - prevLen;
       prevLen = prompt.length;
+      timings['Workspace context'] = Date.now() - prevT;
+      prevT = Date.now();
     }
   }
 
@@ -528,6 +563,15 @@ export async function injectSystemContext(
       content: `System prompt injection breakdown:\n${lines.join('\n')}`,
       verboseLabel: 'Context Budget',
     });
+  }
+
+  const totalMs = Date.now() - tStart;
+  const slow = Object.entries(timings)
+    .filter(([, ms]) => ms > 250)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, ms]) => `${label}=${ms}ms`);
+  if (totalMs > 1000 || slow.length > 0) {
+    logger.info(`[context] injection took ${totalMs}ms${slow.length ? ` — slow stages: ${slow.join(', ')}` : ''}`);
   }
 
   return { prompt, matchedSkill };

@@ -331,6 +331,14 @@ export async function runAgentLoop(
   // sync-around-helper-call dance.
   const state = initLoopState(messages, options);
 
+  // One line naming the run's model + mode. Every run's iterations, tool
+  // calls, and bail warnings were previously anonymous in the log — during
+  // dogfood, distinguishing "which model produced this trajectory" required
+  // asking the user (llama3.2 vs gemma4 behave nothing alike).
+  state.logger?.info(
+    `Agent run ${state.runId}: model=${state.modelOverride ?? client.getModel()} mode=${state.approvalMode} maxIterations=${state.maxIterations}`,
+  );
+
   // Capability-driven scaffolding intensity (A2). Only applied when the user
   // opts in; otherwise scaffoldingProfile stays undefined and the loop reads
   // the historical constants (behavior-neutral). Resolved once at loop start
