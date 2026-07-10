@@ -13,6 +13,7 @@ import type { MCPManager } from './mcpManager.js';
 import { applyBudgetCompression, maybeCompressPostTool, clearCompressionCache } from './loop/compression.js';
 import { initLoopState } from './loop/state.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
+import { isDegenerateText } from './loop/textParsing.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
 import {
@@ -550,6 +551,34 @@ export async function runAgentLoop(
       // reprompt. If the gate fires, continue the loop; otherwise
       // this is a natural termination.
       if (pendingToolUses.length === 0) {
+        // Degenerate output (token salad) must never stand as a final
+        // answer — observed live: a stream of reserved-token literals was
+        // accepted as 'done' at iteration 2. Discard the turn (the garbage
+        // never enters message history) and retry once with an explicit
+        // continue instruction; a second occurrence ends the run labeled
+        // 'stuck' instead of returning garbage to the user.
+        if (fullText && isDegenerateText(fullText)) {
+          state.degenerateTurns += 1;
+          if (state.degenerateTurns <= 1) {
+            state.logger?.warn('Degenerate model output discarded — retrying');
+            callbacks.onText('\n\n⚠️ Discarded corrupted model output — retrying.\n');
+            state.messages.push({
+              role: 'user',
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Your previous output was corrupted (repeated or invalid tokens) and has been discarded. Continue the task from the previous step.',
+                },
+              ],
+            });
+            continue;
+          }
+          state.logger?.warn('Degenerate model output recurred — terminating run');
+          callbacks.onText('\n\n⚠️ Model output degenerated twice — stopping.\n');
+          state.termination = 'stuck';
+          break;
+        }
+
         // ask_user is the only tool available in plan mode. A text-only
         // response — on any iteration — means the model has finished
         // asking questions and is presenting its plan.

@@ -238,6 +238,60 @@ describe('maybeInjectCompletionGate — injection path', () => {
   });
 });
 
+describe('maybeInjectCompletionGate — plan-incomplete gate', () => {
+  const signal = new AbortController().signal;
+
+  it('fires when the externalized plan shows remaining steps', async () => {
+    const state = stubLoopState({ gateState: stubGateState() });
+    state.planRef = { plan: { steps: ['create f1', 'create f2', 'create f3'], current: 2 } };
+    const cb = stubCallbacks();
+    const outcome = await maybeInjectCompletionGate(state, stubConfig(), {}, signal, cb);
+    expect(outcome).toBe('injected');
+    expect(state.messages).toHaveLength(1);
+    const text = JSON.stringify(state.messages[0].content);
+    expect(text).toContain('step 2 of 3');
+    expect(text).toContain('3. create f3');
+    expect(cb.texts.some((t) => t.includes('2/3'))).toBe(true);
+  });
+
+  it('stands down when there is no plan', async () => {
+    const state = stubLoopState({ gateState: stubGateState() });
+    state.planRef = { plan: null };
+    const outcome = await maybeInjectCompletionGate(state, stubConfig(), {}, signal, stubCallbacks());
+    expect(outcome).toBe('skip');
+  });
+
+  it('stands down on the final step (current == steps.length is not a contradiction)', async () => {
+    const state = stubLoopState({ gateState: stubGateState() });
+    state.planRef = { plan: { steps: ['a', 'b'], current: 2 } };
+    const outcome = await maybeInjectCompletionGate(state, stubConfig(), {}, signal, stubCallbacks());
+    expect(outcome).toBe('skip');
+  });
+
+  it('caps at two injections per run', async () => {
+    const state = stubLoopState({ gateState: stubGateState() });
+    state.planRef = { plan: { steps: ['a', 'b', 'c'], current: 1 } };
+    const cfg = stubConfig();
+    expect(await maybeInjectCompletionGate(state, cfg, {}, signal, stubCallbacks())).toBe('injected');
+    expect(await maybeInjectCompletionGate(state, cfg, {}, signal, stubCallbacks())).toBe('injected');
+    expect(await maybeInjectCompletionGate(state, cfg, {}, signal, stubCallbacks())).toBe('skip');
+    expect(state.messages).toHaveLength(2);
+  });
+
+  it('respects completionGateEnabled=false', async () => {
+    const state = stubLoopState({ gateState: stubGateState() });
+    state.planRef = { plan: { steps: ['a', 'b'], current: 1 } };
+    const outcome = await maybeInjectCompletionGate(
+      state,
+      stubConfig({ completionGateEnabled: false }),
+      {},
+      signal,
+      stubCallbacks(),
+    );
+    expect(outcome).toBe('skip');
+  });
+});
+
 describe('maybeInjectCompletionGate — change-impact gate', () => {
   const signal = new AbortController().signal;
 

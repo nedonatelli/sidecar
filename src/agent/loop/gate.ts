@@ -326,6 +326,42 @@ export async function maybeInjectCompletionGate(
 
   if (signal.aborted || options.approvalMode === 'plan') return 'skip';
 
+  // Check: the externalized plan says the run isn't done. This is the one
+  // completion check with STRUCTURED evidence — no prose matching: if
+  // planRef.plan exists and current < steps.length, "all steps completed"
+  // is a deterministic contradiction (observed live: llama3.2 declared
+  // completion at step 4/10 with 2 of 10 files written). Fires at most
+  // twice — a long plan legitimately needs more than one nudge, but an
+  // unbounded gate would loop a model that cannot comply. Stands down
+  // when there is no plan.
+  if (config.completionGateEnabled !== false) {
+    const plan = state.planRef?.plan;
+    const fired = gateState.planIncompleteInjections ?? 0;
+    if (plan && plan.current < plan.steps.length && fired < 2) {
+      gateState.planIncompleteInjections = fired + 1;
+      const remaining = plan.steps
+        .slice(plan.current - 1)
+        .map((s, i) => `${plan.current + i}. ${s}`)
+        .join('\n');
+      logger?.info(`Plan-incomplete gate fired — plan shows step ${plan.current}/${plan.steps.length}`);
+      callbacks.onText(`\n\n📋 Plan shows step ${plan.current}/${plan.steps.length} — continuing remaining steps...\n`);
+      state.messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              `Your plan is not complete: it shows step ${plan.current} of ${plan.steps.length}. ` +
+              `Do not finish yet. Work the remaining steps in order:\n${remaining}\n` +
+              `When a step is done, call update_plan with the next current index. ` +
+              `If the remaining steps are actually already finished, call update_plan with current=${plan.steps.length} before answering.`,
+          },
+        ],
+      });
+      return 'injected';
+    }
+  }
+
   // Check: file mentioned in user request but no read tool called for it yet.
   // Fires at most once per run to avoid looping on models that can't comply.
   if (!gateState.noReadRepromptFired && config.completionGateEnabled !== false) {

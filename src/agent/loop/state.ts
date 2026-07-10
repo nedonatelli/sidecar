@@ -91,6 +91,8 @@ export interface LoopState {
   //   stuck            — burst cap / repeated-action cycle bail
   termination?: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck';
   unrepairedMalformedCalls: number;
+  /** Turns whose text was discarded as degenerate (token salad). Bounded retry: 1 retry, then bail. */
+  degenerateTurns: number;
   /**
    * Actual input+output token count from the most recent API usage event.
    * When present, compression checks prefer this over the char-based estimate
@@ -315,6 +317,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     iteration: 0,
     totalChars,
     unrepairedMalformedCalls: 0,
+    degenerateTurns: 0,
     systemPromptOverride: options.systemPromptOverride,
     modelOverride: options.modelOverride,
 

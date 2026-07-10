@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runAgentLoop } from './loop.js';
-import { parseTextToolCalls, stripRepeatedContent } from './loop/textParsing.js';
+import { parseTextToolCalls, stripRepeatedContent, isDegenerateText } from './loop/textParsing.js';
 import { compressMessages } from './loop/compression.js';
 import type { ToolDefinition, ChatMessage, StreamEvent } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
@@ -188,6 +188,27 @@ describe('parseTextToolCalls', () => {
     it('still rejects unknown, non-aliasable names', () => {
       const text = '{"name": "summon_daemon", "parameters": {"x": 1}}';
       expect(parseTextToolCalls(text, MOCK_TOOLS)).toHaveLength(0);
+    });
+  });
+
+  describe('isDegenerateText', () => {
+    it('flags a stream of reserved special-token literals (llama3.2 live failure)', () => {
+      const text = Array.from({ length: 20 }, (_, i) => `<|reserved_special_token_${1043 + i}|>`).join('|');
+      expect(isDegenerateText(text)).toBe(true);
+    });
+
+    it('flags a consecutive substring loop', () => {
+      expect(isDegenerateText('answer: ' + 'k4q9alpha'.repeat(30))).toBe(true);
+    });
+
+    it('does not flag normal prose or answers mentioning one special token', () => {
+      expect(isDegenerateText('The file was created successfully with the code k4q9-alpha.')).toBe(false);
+      expect(isDegenerateText('Ollama uses <|endoftext|> as a stop token.')).toBe(false);
+    });
+
+    it('does not flag repetitive content inside code fences', () => {
+      const text = 'Here is the data file:\n```\n' + 'AAAAAAAAAA'.repeat(50) + '\n```\nDone.';
+      expect(isDegenerateText(text)).toBe(false);
     });
   });
 

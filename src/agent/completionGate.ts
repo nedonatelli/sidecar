@@ -49,6 +49,10 @@ export interface GateState {
   noGroundingRepromptFired: boolean;
   /** True once the unverified-claim reprompt has fired (fires at most once). */
   unverifiedClaimRepromptFired: boolean;
+  /** How many times the plan-incomplete reprompt has fired this run (bounded at 2 —
+   * a counter, not a one-shot, because "finish the remaining steps" legitimately
+   * spans multiple reprompts on a long plan). Optional for back-compat with test stubs. */
+  planIncompleteInjections?: number;
   /** How many times the syntax gate has reprompted this run (bounded). Optional for back-compat with test stubs. */
   syntaxGateInjections?: number;
   /**

@@ -142,6 +142,27 @@ export function parseMangledToolName(rawName: string): { name: string; input: Re
   return { name, input };
 }
 
+/**
+ * Detect degenerate model output — token salad that must never stand as a
+ * final answer (observed live: llama3.2 emitted a stream of
+ * `<|reserved_special_token_1043|>…` at iteration 2 and the run accepted it
+ * as done). Two conservative signatures, checked outside code fences:
+ *
+ *   1. ≥3 special-token literals (`<|…|>`) — real prose essentially never
+ *      contains reserved-token markers.
+ *   2. The same 8–64 char chunk repeated ≥10 times consecutively — a
+ *      sampler loop, not an answer.
+ *
+ * Input is capped at 20KB before the repetition scan so a pathological
+ * backreference can't stall the loop thread.
+ */
+export function isDegenerateText(text: string): boolean {
+  const stripped = text.replace(/```[\s\S]*?```/g, '').slice(0, 20_000);
+  const specialTokens = stripped.match(/<\|[^|<>]{1,60}\|>/g);
+  if (specialTokens && specialTokens.length >= 3) return true;
+  return /([^\s]{8,64}?)\1{9,}/.test(stripped);
+}
+
 export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
   const toolNames = new Set(tools.map((t) => t.name));
   const results: ToolUseContentBlock[] = [];
