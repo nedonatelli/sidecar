@@ -120,6 +120,39 @@ describe('OllamaBackend', () => {
       expect(body.keep_alive).not.toBe(-1);
     });
 
+    it('caps num_ctx per model: llama3.2 gets 64K even when it advertises 131K', async () => {
+      // llama3.2 attends globally on every layer — at the 131K default a
+      // "2GB" model allocated a 17.4GB llama-server (observed live). Seed the
+      // probe cache with the advertised 131K, then verify the per-model cap
+      // clamps the request to 64K (and gemma keeps the full window).
+      const probeShow = (_model: string) =>
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ capabilities: ['tools'], model_info: { 'llama.context_length': 131_072 } }),
+        });
+      const respond = () =>
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          body: ndjsonBody([{ message: { content: 'hi' }, done: true }]),
+        });
+
+      probeShow('llama3.2:latest');
+      await probeModelToolSupport('http://localhost:11434', 'llama3.2:latest');
+      respond();
+      for await (const _ of backend.streamChat('llama3.2:latest', '', [{ role: 'user', content: 'hi' }])) {
+        /* drain */
+      }
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_ctx).toBe(65_536);
+
+      probeShow('gemma4:e4b');
+      await probeModelToolSupport('http://localhost:11434', 'gemma4:e4b');
+      respond();
+      for await (const _ of backend.streamChat('gemma4:e4b', '', [{ role: 'user', content: 'hi' }])) {
+        /* drain */
+      }
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_ctx).toBe(131_072);
+    });
+
     it('sets options.seed from SIDECAR_AGENT_SEED for reproducible runs, absent otherwise', async () => {
       const respond = () =>
         mockFetch.mockResolvedValueOnce({

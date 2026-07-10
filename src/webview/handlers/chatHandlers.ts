@@ -23,7 +23,7 @@ import { getConfig, estimateCost, resolveMode } from '../../config/settings.js';
 import { parseModelSentinel } from '../../ollama/modelSentinels.js';
 import {
   DEFAULT_MAX_SYSTEM_CHARS,
-  LOCAL_CONTEXT_CAP,
+  contextCapForModel,
   LOCAL_MAX_SYSTEM_CHARS,
   INPUT_TOKEN_RATIO,
 } from '../../config/constants.js';
@@ -195,8 +195,8 @@ async function buildSystemPromptForRun(
   if (userContextLimit > 0) {
     contextLength = isLocal ? userContextLimit : (rawContextLength ?? userContextLimit);
   } else {
-    contextLength =
-      isLocal && rawContextLength && rawContextLength > LOCAL_CONTEXT_CAP ? LOCAL_CONTEXT_CAP : rawContextLength;
+    const modelCap = contextCapForModel(state.client.getModel());
+    contextLength = isLocal && rawContextLength && rawContextLength > modelCap ? modelCap : rawContextLength;
   }
   // Allow the system prompt to occupy up to 40% of the context window during
   // assembly. After injection the actual size is measured and used to set a

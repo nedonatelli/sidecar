@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lookupDraftModel, DRAFT_MODEL_MAP } from './constants.js';
+import { lookupDraftModel, DRAFT_MODEL_MAP, contextCapForModel } from './constants.js';
 
 describe('lookupDraftModel', () => {
   it('returns the draft for an exact match', () => {
@@ -29,5 +29,17 @@ describe('lookupDraftModel', () => {
   it('does not match a model that merely starts with the key base name without a separator', () => {
     // 'qwen2.5-coder:32b' should not match 'qwen2.5-coder:32bXXX' (no dash/underscore separator)
     expect(lookupDraftModel('qwen2.5-coder:32bXXX')).toBeUndefined();
+  });
+});
+
+describe('contextCapForModel (per-model KV-cache guard)', () => {
+  it('caps llama3.2 variants at 64K', () => {
+    expect(contextCapForModel('llama3.2:latest')).toBe(65_536);
+    expect(contextCapForModel('llama3.2:3b')).toBe(65_536);
+  });
+
+  it('leaves other models at the general 128K ceiling', () => {
+    expect(contextCapForModel('gemma4:e4b')).toBe(131_072);
+    expect(contextCapForModel('qwen2.5-coder:7b')).toBe(131_072);
   });
 });

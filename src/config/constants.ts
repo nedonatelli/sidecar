@@ -51,6 +51,27 @@ export const LOCAL_MAX_SYSTEM_CHARS = 52_000;
 export const LOCAL_CONTEXT_CAP = 131_072;
 
 /**
+ * Per-model context caps that override LOCAL_CONTEXT_CAP downward. KV-cache
+ * cost at a given window varies enormously by architecture: gemma4:e4b uses
+ * interleaved local attention and holds 131 K affordably (~12 GB total), but
+ * llama3.2 attends globally on every layer — at 131 K a "2 GB" model
+ * allocated a 17.4 GB llama-server (observed live; it took the host machine
+ * down). 64 K keeps llama3.2's KV within reason while leaving generous room
+ * for agent workloads. `sidecar.ollama.numCtx` still overrides everything.
+ */
+export const LOCAL_MODEL_CONTEXT_CAPS: ReadonlyArray<{ pattern: RegExp; cap: number }> = [
+  { pattern: /^llama3\.2/i, cap: 65_536 },
+];
+
+/** The context ceiling for a local model: its per-model cap, else LOCAL_CONTEXT_CAP. */
+export function contextCapForModel(model: string): number {
+  for (const { pattern, cap } of LOCAL_MODEL_CONTEXT_CAPS) {
+    if (pattern.test(model)) return cap;
+  }
+  return LOCAL_CONTEXT_CAP;
+}
+
+/**
  * Plan mode auto-detection thresholds.
  * Messages exceeding these are treated as complex multi-step tasks.
  */

@@ -3321,6 +3321,7 @@ function makeCatchBlockState(overrides: Record<string, unknown> = {}) {
       updateConnection: vi.fn(),
       updateModel: vi.fn(),
       getModelContextLength: vi.fn().mockResolvedValue(null),
+      getModel: vi.fn().mockReturnValue('gemma4:e4b'),
     },
     ...overrides,
   };

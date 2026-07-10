@@ -13,7 +13,7 @@ import {
   type TextToolCallState,
 } from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
-import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE, LOCAL_CONTEXT_CAP } from '../config/constants.js';
+import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE, contextCapForModel } from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
 // Tool support detection
@@ -329,10 +329,11 @@ export class OllamaBackend implements ApiBackend {
     const { agentTemperature, agentSeed, ollamaNumCtx, ollamaDisableThinking } = getConfig();
     const probedNumCtx = numCtxCache.get(model) ?? null;
     // Use the probed num_ctx, floored at 32 768 (models that report < 32 K still
-    // get a full 32 K window) and capped at LOCAL_CONTEXT_CAP (128 K by default).
-    // Users on low-VRAM machines running large models can reduce the KV-cache
-    // allocation by setting sidecar.ollama.numCtx explicitly (e.g. 32768).
-    const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), LOCAL_CONTEXT_CAP);
+    // get a full 32 K window) and capped per-model (contextCapForModel): the
+    // general ceiling is 128 K, but global-attention models get lower caps —
+    // llama3.2 at 131 K allocated a 17.4 GB KV for a 2 GB model (observed
+    // live). sidecar.ollama.numCtx overrides in both directions.
+    const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), contextCapForModel(model));
     // Neutralize presence/frequency penalties. Some models ship aggressive
     // penalty defaults in their Ollama Modelfile (e.g. qwen3.5's `presence_penalty
     // 1.5`), which sabotage structured tool-call generation: the XML tool format
