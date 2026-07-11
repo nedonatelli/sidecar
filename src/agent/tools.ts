@@ -136,7 +136,11 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
             description: 'Whether the user can type a custom response instead of picking an option. Default: true',
           },
         },
-        required: ['question', 'options'],
+        // options is NOT required: the executor defaults absent options to []
+        // (free-form question with a custom answer). Requiring it bounced
+        // every optionless clarify from small models (live: llama3.2 looped
+        // ask_user schema errors to a cycle bail instead of asking).
+        required: ['question'],
       },
     },
     // Executor is a placeholder — ask_user is handled specially in executor.ts

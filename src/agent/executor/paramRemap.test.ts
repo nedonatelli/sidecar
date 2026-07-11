@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { remapParamSynonyms } from './paramRemap.js';
+import { remapParamSynonyms, coerceParamTypes } from './paramRemap.js';
 
 const WRITE_FILE_SCHEMA = {
   type: 'object' as const,
@@ -148,5 +148,36 @@ describe('remapParamSynonyms', () => {
     const input = { file: 'out/f1.md', content: 'x' };
     remapParamSynonyms(input, WRITE_FILE_SCHEMA);
     expect(input).toEqual({ file: 'out/f1.md', content: 'x' });
+  });
+});
+
+describe('coerceParamTypes (string → array, the recurring ask_user bounce)', () => {
+  const ASK_SCHEMA = {
+    type: 'object' as const,
+    properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } },
+    required: ['question'],
+  };
+
+  it('wraps a bare string into a one-element array', () => {
+    const out = coerceParamTypes({ question: 'Proceed?', options: 'Yes' }, ASK_SCHEMA);
+    expect(out.input).toEqual({ question: 'Proceed?', options: ['Yes'] });
+    expect(out.notes).toHaveLength(1);
+  });
+
+  it('parses a stringified JSON array literal', () => {
+    const out = coerceParamTypes({ question: 'Which?', options: '["OAuth", "Password"]' }, ASK_SCHEMA);
+    expect(out.input.options).toEqual(['OAuth', 'Password']);
+  });
+
+  it('keeps the wrap when the bracketed string is not valid JSON', () => {
+    const out = coerceParamTypes({ question: 'Which?', options: '[not json' }, ASK_SCHEMA);
+    expect(out.input.options).toEqual(['[not json']);
+  });
+
+  it('never touches correctly-typed arrays or non-array params', () => {
+    const input = { question: 'x', options: ['a', 'b'] };
+    const out = coerceParamTypes(input, ASK_SCHEMA);
+    expect(out.input).toBe(input);
+    expect(out.notes).toEqual([]);
   });
 });

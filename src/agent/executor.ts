@@ -18,7 +18,7 @@ import { detectIrrecoverable } from './executor/irrecoverableDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
-import { remapParamSynonyms } from './executor/paramRemap.js';
+import { remapParamSynonyms, coerceParamTypes } from './executor/paramRemap.js';
 import { resolveToolNameAlias } from './executor/toolNameAlias.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
@@ -179,6 +179,12 @@ export async function executeTool(
   if (remap.notes.length > 0) {
     logger?.info(`Tool ${toolUse.name}: ${remap.notes.join('; ')}`);
     toolUse.input = remap.input;
+  }
+  const typeCoercion = coerceParamTypes(toolUse.input, tool.definition.input_schema);
+  if (typeCoercion.notes.length > 0) {
+    logger?.info(`Tool ${toolUse.name}: ${typeCoercion.notes.join('; ')}`);
+    toolUse.input = typeCoercion.input;
+    remap.notes.push(...typeCoercion.notes);
   }
 
   // --- Validate input shape against the tool's declared schema ---

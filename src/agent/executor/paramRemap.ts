@@ -31,7 +31,7 @@ const SYNONYMS: Record<string, readonly string[]> = {
   pattern: ['regex', 'glob'],
   // ask_user: llama3.2 emits {'q': ...}; the executor's question fallback
   // then silently substitutes a generic prompt and the model loops re-asking.
-  question: ['q'],
+  question: ['q', 'prompt', 'message'],
 };
 
 export interface ParamRemapOutcome {
@@ -39,6 +39,44 @@ export interface ParamRemapOutcome {
   input: Record<string, unknown>;
   /** One disclosure line per remap; empty when nothing fired. */
   notes: string[];
+}
+
+/**
+ * Coerce wrong-but-unambiguous TYPES for declared params: a string handed to
+ * an array-of-strings parameter becomes a one-element array (after trying a
+ * JSON array-literal parse for models that stringify: '["a","b"]'). Live
+ * recurrence (llama3.2, 3× in one dogfood session): ask_user(options="Yes")
+ * bounced on 'must be an array, got string' until the run cycle-bailed —
+ * the intent was never ambiguous.
+ */
+export function coerceParamTypes(input: unknown, schema: ToolInputSchema | undefined): ParamRemapOutcome {
+  const obj = input as Record<string, unknown>;
+  if (!schema || schema.type !== 'object' || !obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    return { input: obj, notes: [] };
+  }
+  let out: Record<string, unknown> | null = null;
+  const notes: string[] = [];
+  for (const [key, rawSpec] of Object.entries(schema.properties ?? {})) {
+    const declared = (rawSpec as { type?: string }).type;
+    const value = obj[key];
+    if (declared !== 'array' || typeof value !== 'string') continue;
+    let coerced: unknown[] = [value];
+    const trimmed = value.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) coerced = parsed;
+      } catch {
+        // not a JSON literal — keep the single-element wrap
+      }
+    }
+    out ??= { ...obj };
+    out[key] = coerced;
+    notes.push(
+      `parameter '${key}' expects an array — the string value was interpreted as ${coerced.length === 1 ? 'a one-element array' : 'a JSON array'}`,
+    );
+  }
+  return { input: out ?? obj, notes };
 }
 
 export function remapParamSynonyms(input: unknown, schema: ToolInputSchema | undefined): ParamRemapOutcome {
