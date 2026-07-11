@@ -65,6 +65,33 @@ describe('openDiffPreview', () => {
     session.dispose();
   });
 
+  it('suppresses the editor toast when the chat view is visible (double-prompt fix)', async () => {
+    const toastSpy = vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Accept' as never);
+    const provider = new ProposedContentProvider();
+    const confirmFn = vi.fn().mockResolvedValue('Accept');
+
+    const session = await openDiffPreview('app.ts', 'content', provider, confirmFn, () => true);
+    toastSpy.mockClear();
+    const result = await session.finalize();
+    expect(result).toBe('accept');
+    // Chat visible → the chat card is the ONLY approval surface.
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(confirmFn).toHaveBeenCalledTimes(1);
+    session.dispose();
+  });
+
+  it('keeps the toast fallback when the chat view is hidden', async () => {
+    const toastSpy = vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Accept' as never);
+    const provider = new ProposedContentProvider();
+    const confirmFn = vi.fn().mockReturnValue(new Promise(() => {}));
+
+    const session = await openDiffPreview('app.ts', 'content', provider, confirmFn, () => false);
+    const result = await session.finalize();
+    expect(result).toBe('accept');
+    expect(toastSpy).toHaveBeenCalled();
+    session.dispose();
+  });
+
   it('finalize returns reject when user rejects', async () => {
     vi.spyOn(window, 'showInformationMessage').mockResolvedValue('Reject' as never);
     const provider = new ProposedContentProvider();

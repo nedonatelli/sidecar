@@ -35,12 +35,18 @@ export interface DiffPreviewSession {
  * @param proposedContent - Initial proposed content
  * @param contentProvider - The VS Code content provider for the proposed:// scheme
  * @param confirmFn - Function to show accept/reject in the chat panel
+ * @param isChatVisible - When provided and true at finalize time, the
+ *   editor toast is suppressed: the chat card is the single approval
+ *   surface. The toast exists for users WITHOUT the chat open — racing
+ *   both when the chat is visible double-prompts, and the losing toast
+ *   lingers un-dismissable after the chat answer (dogfood finding).
  */
 export async function openDiffPreview(
   filePath: string,
   proposedContent: string,
   contentProvider: ProposedContentProvider,
   confirmFn: (message: string, actions: string[], diffBlock?: string) => Promise<string | undefined>,
+  isChatVisible?: () => boolean,
 ): Promise<DiffPreviewSession> {
   const workspaceFolders = workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -79,16 +85,24 @@ export async function openDiffPreview(
     },
 
     async finalize(): Promise<'accept' | 'reject'> {
-      // Race: VS Code notification (editor) vs chat confirmation (webview).
-      // The user clicks whichever is more convenient — first response wins.
+      const chatPromise = confirmFn(`Apply changes to **${filePath}**?`, ['Accept', 'Reject'], diffBlock || undefined);
+
+      // Chat visible → single surface, no toast. The toast is the fallback
+      // for users without the chat open; racing both while the chat is
+      // visible double-prompts for one decision.
+      if (isChatVisible?.()) {
+        const choice = await chatPromise;
+        return choice === 'Accept' ? 'accept' : 'reject';
+      }
+
+      // Chat hidden/closed → race the editor toast against the chat card so
+      // whichever surface the user finds first wins.
       const editorPromise = window.showInformationMessage(
         `SideCar: Apply changes to ${filePath}?`,
         { modal: false },
         'Accept',
         'Reject',
       );
-      const chatPromise = confirmFn(`Apply changes to **${filePath}**?`, ['Accept', 'Reject'], diffBlock || undefined);
-
       const result = await Promise.race([
         editorPromise.then((choice) => (choice === 'Accept' ? ('accept' as const) : ('reject' as const))),
         chatPromise.then((choice) => (choice === 'Accept' ? ('accept' as const) : ('reject' as const))),

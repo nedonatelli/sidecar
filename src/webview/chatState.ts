@@ -99,6 +99,11 @@ export class ChatState {
   notebookModeActive = false;
   notebookRequireCitations: 'strict' | 'advisory' | 'off' = 'strict';
   private pendingConfirms = new Map<string, (choice: string | undefined) => void>();
+
+  /** Live chat-view visibility, set by ChatViewProvider at resolve time.
+   *  Approval surfaces use it to suppress redundant editor toasts when the
+   *  chat card is already in front of the user. */
+  isChatViewVisible: (() => boolean) | undefined;
   private confirmCounter = 0;
   changelog = new ChangeLog();
   pendingEdits = new PendingEditStore();

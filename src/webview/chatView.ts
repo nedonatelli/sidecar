@@ -95,6 +95,9 @@ export class ChatViewProvider implements WebviewViewProvider {
     _token: CancellationToken,
   ): void | Thenable<void> {
     this.webviewView = webviewView;
+    // Live visibility for approval surfaces: chat visible → chat card is
+    // the single prompt; editor toasts only fire when the chat is hidden.
+    this.state.isChatViewVisible = () => this.webviewView?.visible ?? false;
 
     webviewView.webview.options = {
       enableScripts: true,

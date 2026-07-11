@@ -491,6 +491,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
               proposedContent,
               state.contentProvider!,
               (msg, actions, diffBlock) => state.requestConfirm(msg, actions, { diffBlock }),
+              () => state.isChatViewVisible?.() ?? false,
             );
             try {
               return await session.finalize();
