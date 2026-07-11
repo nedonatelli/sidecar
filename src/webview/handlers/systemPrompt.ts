@@ -431,9 +431,43 @@ export async function injectSystemContext(
           (sys, msgs, model, max, sig) => state.client.completeWithOverrides(sys, msgs, model, max, sig ?? signal)
         : undefined;
       abortIf();
+      // Sub-stage forensics: the RAG stage has stalled at a CONSTANT ~157s
+      // across three builds — two queue-lane fixes moved it by nothing, so
+      // the mechanism is a timeout somewhere inside, not a drain. Name the
+      // culprit: time the rewrite, each retriever (cumulative across
+      // queries), and the fusion overhead separately.
+      const ragT: Record<string, number> = {};
+      const tRewrite = Date.now();
       const retrievalQueries = await rewriteQuery(text, config.retrievalQueryRewrite, completeFn);
+      ragT['rewrite'] = Date.now() - tRewrite;
       abortIf();
-      const fused = await fuseRetrieversMultiQuery(retrievers, retrievalQueries, topK, topK);
+      const timedRetrievers = retrievers.map((r) => {
+        const name = r.constructor?.name ?? 'retriever';
+        return new Proxy(r, {
+          get(target, prop, receiver) {
+            const v = Reflect.get(target, prop, receiver);
+            if (prop !== 'retrieve' || typeof v !== 'function') return typeof v === 'function' ? v.bind(target) : v;
+            return async (...args: unknown[]) => {
+              const s0 = Date.now();
+              try {
+                return await v.apply(target, args);
+              } finally {
+                ragT[name] = (ragT[name] ?? 0) + (Date.now() - s0);
+              }
+            };
+          },
+        });
+      });
+      const tFusion = Date.now();
+      const fused = await fuseRetrieversMultiQuery(timedRetrievers, retrievalQueries, topK, topK);
+      ragT['fusion-total'] = Date.now() - tFusion;
+      {
+        const parts = Object.entries(ragT)
+          .filter(([, ms]) => ms > 100)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, ms]) => `${k}=${ms}ms`);
+        if (parts.length > 0) logger.info(`[context] RAG sub-stages: ${parts.join(', ')}`);
+      }
       abortIf();
       const filtered =
         config.zenModeEnabled && config.zenModeMinScore > 0
