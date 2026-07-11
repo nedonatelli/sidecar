@@ -19,6 +19,18 @@ const DIMENSION = 384;
  * files, chunks them, and prunes on a per-file hash, which is a materially
  * different sync shape.
  */
+/** Max time a single retrieve() will wait for corpus sync. The in-memory
+ *  stores die on every extension-host reload, and syncing inline re-embedded
+ *  the FULL corpus on the first query — measured 52s (6,778 doc entries) and
+ *  158s (prose chunks) of "Building context…" on this repo. Sync now runs in
+ *  the background; the first query searches whatever is embedded within this
+ *  budget and the keyword fallback covers the rest of the window. */
+export const RETRIEVER_SYNC_BUDGET_MS = 1_500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export abstract class EmbeddedEntryRetriever<TEntry> implements Retriever {
   abstract name: string;
 
@@ -45,11 +57,21 @@ export abstract class EmbeddedEntryRetriever<TEntry> implements Retriever {
   /** Keyword fallback used when the embedding model isn't ready. */
   protected abstract fallbackSearch(query: string, k: number): RetrievalHit[];
 
+  private syncPromise: Promise<void> | null = null;
+
   async retrieve(query: string, k: number): Promise<RetrievalHit[]> {
     if (!this.isReady()) return [];
 
     if (this.embeddingIndex?.isReady()) {
-      await this.syncIndex();
+      // Kick (or join) the background sync, but never block the query on a
+      // full corpus re-embed — wait at most the budget, then search what's
+      // available. Subsequent queries see progressively more of the corpus.
+      this.syncPromise ??= this.syncIndex()
+        .catch(() => undefined)
+        .finally(() => {
+          this.syncPromise = null;
+        });
+      await Promise.race([this.syncPromise, sleep(RETRIEVER_SYNC_BUDGET_MS)]);
       if (this.store.size() > 0) {
         const queryVec = await this.embeddingIndex.embed(query);
         if (queryVec) {

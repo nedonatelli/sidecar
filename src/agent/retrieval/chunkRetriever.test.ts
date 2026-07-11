@@ -29,6 +29,30 @@ describe('ChunkRetriever', () => {
     vi.restoreAllMocks();
   });
 
+  it('a slow corpus sync cannot block retrieve() past the budget (157s stall regression)', async () => {
+    // The in-memory store dies on reload, and retrieve() previously awaited a
+    // FULL corpus re-embed inline — 158s measured on this repo. Corpus embeds
+    // that never resolve must not hang the query past the sync budget.
+    vi.useFakeTimers();
+    try {
+      const ei = {
+        isReady: vi.fn().mockReturnValue(true),
+        // Corpus embed hangs forever — simulates thousands of pending chunks.
+        embed: vi.fn().mockImplementation(() => new Promise<never>(() => undefined)),
+      };
+      vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/README.md')] as never);
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('# Title\n\nprose body') as never);
+
+      const retriever = new ChunkRetriever(ei as never);
+      const result = retriever.retrieve('query', 5);
+      // Budget elapses → retrieve resolves with what's available (nothing).
+      await vi.advanceTimersByTimeAsync(2_000);
+      await expect(result).resolves.toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('name is "chunks"', () => {
     expect(new ChunkRetriever(null).name).toBe('chunks');
   });

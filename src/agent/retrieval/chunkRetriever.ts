@@ -4,6 +4,11 @@ import type { EmbeddingIndex } from '../../config/embeddingIndex.js';
 import { FlatVectorStore } from '../../config/vectorStore.js';
 import type { Retriever, RetrievalHit } from './retriever.js';
 import { chunkText, type TextChunk } from './textChunker.js';
+import { RETRIEVER_SYNC_BUDGET_MS } from './embeddedEntryRetriever.js';
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 type ChunkMeta = { chunkId: string; filePath: string };
 
@@ -51,10 +56,22 @@ export class ChunkRetriever implements Retriever {
     return this.embeddingIndex?.isReady() ?? false;
   }
 
+  private syncPromise: Promise<void> | null = null;
+
   async retrieve(query: string, k: number): Promise<RetrievalHit[]> {
     if (!this.isReady()) return [];
 
-    await this.syncIndex();
+    // Background sync with a bounded wait — syncing inline re-embedded the
+    // whole prose corpus on the first query after every reload (measured
+    // 158s on this repo; the store is in-memory and reloads wipe it). The
+    // first query searches whatever embedded within the budget; DocRetriever's
+    // keyword fallback covers prose during the fill window.
+    this.syncPromise ??= this.syncIndex()
+      .catch(() => undefined)
+      .finally(() => {
+        this.syncPromise = null;
+      });
+    await Promise.race([this.syncPromise, sleepMs(RETRIEVER_SYNC_BUDGET_MS)]);
     if (this.store.size() === 0) return [];
 
     const queryVec = await this.embeddingIndex!.embed(query);
