@@ -22,6 +22,18 @@ function hasPrewrittenList(text: string): boolean {
 export function shouldAutoEnablePlanMode(text: string, conversationLength: number): boolean {
   if (!text) return false;
 
+  // Explicit request beats every heuristic below, including the
+  // prewritten-list suppression: a message that literally opens with
+  // "Plan:" (or asks to "plan first") is the user invoking plan mode by
+  // name — dogfood found it did nothing, which reads as broken.
+  if (/^\s*plan\s*[:\-–—]/i.test(text)) return true;
+  if (
+    /\b(plan (this|it|that) (first|out)|plan first|make a plan|plan before (you|doing|starting))\b/i.test(
+      text.toLowerCase(),
+    )
+  )
+    return true;
+
   // If the message already contains a list the user has done their own planning —
   // no need to enter plan mode on their behalf.
   if (hasPrewrittenList(text)) return false;

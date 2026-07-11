@@ -460,6 +460,23 @@ describe('shouldAutoEnablePlanMode', () => {
     expect(shouldAutoEnablePlanMode('', 0)).toBe(false);
   });
 
+  it('an explicit "Plan:" prefix always triggers — beats every heuristic (dogfood)', () => {
+    expect(shouldAutoEnablePlanMode("Plan: create scratch/p1.md with 'one', p2.md with 'two'", 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('plan - add a settings page', 0)).toBe(true);
+    // Explicit prefix wins even when the message contains a prewritten list.
+    expect(shouldAutoEnablePlanMode('Plan:\n1. do x\n2. do y', 0)).toBe(true);
+  });
+
+  it('explicit plan-first phrases trigger', () => {
+    expect(shouldAutoEnablePlanMode('plan this out before touching code', 0)).toBe(true);
+    expect(shouldAutoEnablePlanMode('make a plan for the login flow', 0)).toBe(true);
+  });
+
+  it('the word "plan" alone does not trigger (no colon, no phrase)', () => {
+    expect(shouldAutoEnablePlanMode('add the plan document to git', 0)).toBe(false);
+    expect(shouldAutoEnablePlanMode('what is the floor plan', 0)).toBe(false);
+  });
+
   it('returns false for short simple requests', () => {
     expect(shouldAutoEnablePlanMode('fix the bug in login.ts', 0)).toBe(false);
   });
