@@ -92,7 +92,7 @@ export class EpisodicMemoryStore {
    */
   async query(text: string, k: number = DEFAULT_K): Promise<EpisodicHit[]> {
     if (this.isEmpty()) return [];
-    const vec = await this.embed(text);
+    const vec = await this.embed(text, { priority: true });
     if (!vec) return [];
     const hits = await this.store.search(vec, k);
     return hits
@@ -122,8 +122,8 @@ export class EpisodicMemoryStore {
     );
   }
 
-  private embed(text: string): Promise<Float32Array | null> {
-    return this.embedder.embed(text);
+  private embed(text: string, opts?: { priority?: boolean }): Promise<Float32Array | null> {
+    return this.embedder.embed(text, opts);
   }
 
   /** Test-only: inject a pre-built pipeline (or null to simulate load failure). */

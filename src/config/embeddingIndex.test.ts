@@ -125,3 +125,35 @@ describe('EmbeddingIndex', () => {
     expect(index.getCount()).toBe(0);
   });
 });
+
+describe('search() query embeds carry priority (157s-stall regression)', () => {
+  it('passes priority:true through embed() to the LazyEmbedder', async () => {
+    // Two identical live stalls proved the file-level query embed queued
+    // FIFO behind the batch backlogs on the shared pipeline. Pin the flag
+    // so it cannot silently regress.
+    const { EmbeddingIndex } = await import('./embeddingIndex.js');
+    const idx = new EmbeddingIndex(null as never);
+    const calls: Array<{ text: string; opts?: { priority?: boolean } }> = [];
+    (idx as unknown as { embedder: { embed: unknown; ensureReady: () => Promise<boolean>; ready: boolean } }).embedder =
+      {
+        ready: true,
+        ensureReady: async () => true,
+        embed: async (text: string, opts?: { priority?: boolean }) => {
+          calls.push({ text, opts });
+          return new Float32Array(384);
+        },
+      };
+    // Seed one entry so search doesn't early-return on an empty index.
+    (idx as unknown as { meta: { count: number; entries: Record<string, { offset: number; hash: string }> } }).meta = {
+      count: 1,
+      entries: { 'a.ts': { offset: 0, hash: 'h' } },
+    };
+    (idx as unknown as { vectors: Float32Array }).vectors = new Float32Array(384);
+    (idx as unknown as { ready: boolean }).ready = true;
+
+    await idx.search('where is auth handled?');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts).toEqual({ priority: true });
+  });
+});

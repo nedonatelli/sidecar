@@ -96,8 +96,8 @@ export class EmbeddingIndex implements Disposable {
    * Compute embedding for a text string.
    * Returns a Float32Array of length DIMENSION, or null if model unavailable.
    */
-  embed(text: string): Promise<Float32Array | null> {
-    return this.embedder.embed(text);
+  embed(text: string, opts?: { priority?: boolean }): Promise<Float32Array | null> {
+    return this.embedder.embed(text, opts);
   }
 
   /**
@@ -216,7 +216,10 @@ export class EmbeddingIndex implements Disposable {
   async search(query: string, topK = 20): Promise<EmbeddingSearchResult[]> {
     if (!this.isReady() || this.meta.count === 0) return [];
 
-    const queryVec = await this.embed(query);
+    // Query embeds are latency-sensitive: without priority they queue FIFO
+    // behind the file/symbol batch backlogs on the SHARED pipeline — measured
+    // live twice as a deterministic 157s "Building context" stall.
+    const queryVec = await this.embed(query, { priority: true });
     if (!queryVec) return [];
 
     const results: EmbeddingSearchResult[] = [];

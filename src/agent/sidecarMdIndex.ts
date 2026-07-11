@@ -101,7 +101,7 @@ export class SidecarMdIndex {
    */
   async search(query: string, k: number, minScore: number): Promise<RetrievalHit[]> {
     if (this.store.size() === 0) return [];
-    const vec = await this.embed(query);
+    const vec = await this.embed(query, { priority: true });
     if (!vec) return [];
     const hits = await this.store.search(vec, k);
     return hits
@@ -123,8 +123,8 @@ export class SidecarMdIndex {
     await this.store.restore();
   }
 
-  private embed(text: string): Promise<Float32Array | null> {
-    return this.embedder.embed(text);
+  private embed(text: string, opts?: { priority?: boolean }): Promise<Float32Array | null> {
+    return this.embedder.embed(text, opts);
   }
 
   /** Test-only: inject a pre-built pipeline (or null to simulate load failure). */
