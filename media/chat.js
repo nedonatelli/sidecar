@@ -17,6 +17,10 @@
 
   const vscode = acquireVsCodeApi();
   const messagesContainer = document.getElementById('messages');
+  // Platform-appropriate keyboard hints: mac uses compact symbols (⌘⇧I),
+  // everything else uses plus-joined names (Ctrl+Shift+I). A hardcoded ⌘
+  // leaked to Windows users (dogfood).
+  const IS_MAC = navigator.platform.toLowerCase().includes('mac');
 
   // Activation/indexing banner. During a heavy activation (cold index or a
   // big post-churn reindex) the chat previously showed NOTHING for minutes —
@@ -3463,13 +3467,17 @@
     hintsTitle.textContent = 'Shortcuts';
     card.appendChild(hintsTitle);
 
-    const isMac = navigator.platform.toLowerCase().includes('mac');
-    const mod = isMac ? '⌘' : 'Ctrl';
-    const hints = [
-      [mod + '⇧I', 'Toggle SideCar chat'],
-      [mod + 'I', 'Inline chat in the editor'],
-      [mod + '⇧P', 'Command palette — type "SideCar:"'],
-    ];
+    const hints = IS_MAC
+      ? [
+          ['⌘⇧I', 'Toggle SideCar chat'],
+          ['⌘I', 'Inline chat in the editor'],
+          ['⌘⇧P', 'Command palette — type "SideCar:"'],
+        ]
+      : [
+          ['Ctrl+Shift+I', 'Toggle SideCar chat'],
+          ['Ctrl+I', 'Inline chat in the editor'],
+          ['Ctrl+Shift+P', 'Command palette — type "SideCar:"'],
+        ];
     const hintList = document.createElement('dl');
     hintList.className = 'empty-state-hints';
     for (const [keys, desc] of hints) {
@@ -3981,7 +3989,7 @@
 
   function updateInputPlaceholder() {
     if (steerEnabled) {
-      input.placeholder = 'Steer the agent… Enter to nudge, ⌘+Enter to interrupt';
+      input.placeholder = 'Steer the agent… Enter to nudge, ' + (IS_MAC ? '⌘' : 'Ctrl') + '+Enter to interrupt';
     } else {
       input.placeholder = 'Ask SideCar…';
     }
