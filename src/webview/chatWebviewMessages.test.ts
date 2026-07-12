@@ -92,6 +92,14 @@ describe('chat webview message dispatcher', () => {
     expect(messagesEl.querySelectorAll('.next-step-btn')).toHaveLength(0);
   });
 
+  describe('one-shot assistant notices (post-run caret regression)', () => {
+    it('a notice arriving while NOT loading renders finished — no blinking streaming caret', () => {
+      postToWebview({ command: 'assistantMessage', content: '\n\n✓ All changes accepted' });
+      expect(document.querySelector('.streaming-text')).toBeNull();
+      expect(messagesEl.textContent).toContain('All changes accepted');
+    });
+  });
+
   describe('indexingStatus banner (activation feedback)', () => {
     it('shows the banner with the detail text while indexing', () => {
       postToWebview({

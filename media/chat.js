@@ -4480,6 +4480,14 @@
           startAssistantMessage();
         }
         appendToAssistantMessage(content || '');
+        // One-shot notice outside an active run ("✓ All changes accepted",
+        // undo confirmations): nothing will ever finalize it, so the
+        // streaming caret would blink forever and a FINISHED run looks
+        // alive (dogfood: user asked "did sidecar finish?"). Not loading →
+        // the chunk is complete → finish it immediately, no caret.
+        if (!isLoading) {
+          finishAssistantMessage();
+        }
         streamCharCount += (content || '').length;
         {
           const elapsed = (Date.now() - streamStartTime) / 1000;
