@@ -151,7 +151,14 @@ export async function streamOneTurn(
   // committing to an approach. All file-system and execution tools are
   // blocked across every plan-mode iteration — the model only gets them
   // after the user approves the plan and the loop re-runs in normal mode.
-  const iterTools = state.approvalMode === 'plan' ? state.tools.filter((t) => t.name === 'ask_user') : state.tools;
+  // Weak-tier models get ZERO tools in plan mode: ask_user as the only
+  // catalog entry is an attractor they cannot resist (3/3 redundant
+  // questions in dogfood), and the plan-approval step already gives the
+  // user a correction point. Gated on the adaptive-scaffolding profile —
+  // behavior-neutral when A2 is off.
+  const planTools =
+    state.scaffoldingProfile?.planModeAskUser === false ? [] : state.tools.filter((t) => t.name === 'ask_user');
+  const iterTools = state.approvalMode === 'plan' ? planTools : state.tools;
 
   // Augment the system prompt with retrieved episodic context when the
   // store has relevant prior summaries. Falls back gracefully — if
