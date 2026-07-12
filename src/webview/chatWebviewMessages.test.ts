@@ -92,6 +92,32 @@ describe('chat webview message dispatcher', () => {
     expect(messagesEl.querySelectorAll('.next-step-btn')).toHaveLength(0);
   });
 
+  describe('setAgentMode dropdown rebuild (audit/review deletion regression)', () => {
+    it('keeps ALL six built-in modes — review and audit survive the rebuild', () => {
+      const select = document.createElement('select');
+      for (const v of ['cautious', 'autonomous', 'manual', 'plan', 'review', 'audit']) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        select.appendChild(opt);
+      }
+      select.id = 'agent-mode-select';
+      document.getElementById as unknown as { cache?: unknown }; // harness auto-cache
+      (function registerSelect() {
+        const orig = document.getElementById.bind(document);
+        document.getElementById = ((id: string) =>
+          id === 'agent-mode-select' ? select : orig(id)) as typeof document.getElementById;
+      })();
+
+      postToWebview({ command: 'setAgentMode', agentMode: 'cautious', customModes: [] });
+
+      const values = Array.from(select.options).map((o) => o.value);
+      expect(values).toContain('audit');
+      expect(values).toContain('review');
+      expect(values).toHaveLength(6);
+    });
+  });
+
   describe('one-shot assistant notices (post-run caret regression)', () => {
     it('a notice arriving while NOT loading renders finished — no blinking streaming caret', () => {
       postToWebview({ command: 'assistantMessage', content: '\n\n✓ All changes accepted' });

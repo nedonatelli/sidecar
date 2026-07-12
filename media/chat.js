@@ -5405,8 +5405,12 @@
         const mode = event.data.agentMode || 'cautious';
         const customModes = event.data.customModes || [];
         if (select) {
-          // Rebuild options: keep built-in modes, add/update custom modes
-          const builtIns = ['cautious', 'autonomous', 'manual', 'plan'];
+          // Rebuild options: keep built-in modes, add/update custom modes.
+          // ALL six built-ins — this list previously omitted 'review' and
+          // 'audit', so the first mode-sync DELETED those options from the
+          // dropdown and both modes were unreachable from the UI entirely
+          // (dogfood: "there's not an audit mode in the mode drop-down").
+          const builtIns = ['cautious', 'autonomous', 'manual', 'plan', 'review', 'audit'];
           // Remove old custom options
           for (const opt of [...select.options]) {
             if (!builtIns.includes(opt.value)) opt.remove();
