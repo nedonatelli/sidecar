@@ -163,7 +163,42 @@ export function isDegenerateText(text: string): boolean {
   return /([^\s]{8,64}?)\1{9,}/.test(stripped);
 }
 
+/**
+ * Span-aware variant: returns the parsed calls PLUS the text with every
+ * accepted call's source span excised. The raw JSON/XML of a dispatched
+ * text-form call must not remain in the assistant text — live it rendered
+ * as stray JSON next to the real tool cards, and in RESTORED history
+ * (text-only rehydration) the JSON stubs were most of what the user saw
+ * ("outputs don't seem to be stored" — they were, drowned in call syntax).
+ */
+export function parseTextToolCallsCleaned(
+  text: string,
+  tools: ToolDefinition[],
+): { calls: ToolUseContentBlock[]; cleanedText: string } {
+  const spans: Array<[number, number]> = [];
+  const calls = parseTextToolCallsInternal(text, tools, spans);
+  if (spans.length === 0) return { calls, cleanedText: text };
+  spans.sort((a, b) => a[0] - b[0]);
+  let cleaned = '';
+  let cursor = 0;
+  for (const [start, end] of spans) {
+    if (start < cursor) continue; // overlapping span already excised
+    cleaned += text.slice(cursor, start);
+    cursor = end;
+  }
+  cleaned += text.slice(cursor);
+  return { calls, cleanedText: cleaned.replace(/\n{3,}/g, '\n\n').trim() };
+}
+
 export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
+  return parseTextToolCallsInternal(text, tools);
+}
+
+function parseTextToolCallsInternal(
+  text: string,
+  tools: ToolDefinition[],
+  spans?: Array<[number, number]>,
+): ToolUseContentBlock[] {
   const toolNames = new Set(tools.map((t) => t.name));
   const results: ToolUseContentBlock[] = [];
   let idCounter = 0;
@@ -195,6 +230,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
       while ((pm = paramPattern.exec(body)) !== null) {
         input[pm[1]] = pm[2].trim();
       }
+      spans?.push([match.index, match.index + match[0].length]);
       results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
     }
     // Pattern 2: <tool_call>JSON</tool_call>
@@ -207,6 +243,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || {};
         if (name && isDispatchableName(name, toolNames)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
+          spans?.push([match.index, match.index + match[0].length]);
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
@@ -234,6 +271,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
+          spans?.push([match.index, match.index + match[0].length]);
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
@@ -297,6 +335,7 @@ export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolU
         if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
           firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;
+          spans?.push([start, end + 1]);
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {

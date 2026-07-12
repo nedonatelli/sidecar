@@ -4,7 +4,7 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
-import { parseTextToolCalls, stripRepeatedContent } from './textParsing.js';
+import { parseTextToolCallsCleaned, stripRepeatedContent } from './textParsing.js';
 import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
 import { logApiCall } from '../apiAuditLog.js';
@@ -380,7 +380,11 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
   let stopReason = turn.stopReason;
 
   if (pendingToolUses.length === 0 && fullText) {
-    const parsed = parseTextToolCalls(fullText, state.tools);
+    // Span-aware parse: dispatched text-form calls are EXCISED from the
+    // text — the raw JSON/XML must not survive into the assistant message
+    // (it rendered as stray call syntax live and dominated restored
+    // history, reading as "outputs weren't stored").
+    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, state.tools);
     for (const tu of parsed) {
       pendingToolUses.push(tu);
       state.logger?.logToolCall(tu.name, tu.input);
@@ -388,6 +392,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     }
     if (parsed.length > 0) {
       stopReason = 'tool_use';
+      fullText = cleanedText;
     }
   }
 

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runAgentLoop } from './loop.js';
-import { parseTextToolCalls, stripRepeatedContent, isDegenerateText } from './loop/textParsing.js';
+import {
+  parseTextToolCalls,
+  parseTextToolCallsCleaned,
+  stripRepeatedContent,
+  isDegenerateText,
+} from './loop/textParsing.js';
 import { compressMessages } from './loop/compression.js';
 import type { ToolDefinition, ChatMessage, StreamEvent } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
@@ -188,6 +193,33 @@ describe('parseTextToolCalls', () => {
     it('still rejects unknown, non-aliasable names', () => {
       const text = '{"name": "summon_daemon", "parameters": {"x": 1}}';
       expect(parseTextToolCalls(text, MOCK_TOOLS)).toHaveLength(0);
+    });
+  });
+
+  describe('parseTextToolCallsCleaned (call syntax excised from stored text)', () => {
+    it('removes the dispatched bare-JSON call from the text', () => {
+      const text =
+        'I will use list_directory to find the paths.\n{"name": "list_directory", "parameters": {"path": "scratch"}}';
+      const { calls, cleanedText } = parseTextToolCallsCleaned(text, MOCK_TOOLS);
+      expect(calls.map((c) => c.name)).toEqual([]);
+      // list_directory is not in MOCK_TOOLS — nothing dispatched, text untouched.
+      expect(cleanedText).toBe(text);
+    });
+
+    it('excises dispatched calls (incl. fused) and keeps surrounding prose', () => {
+      const text =
+        'Creating files now.\n\n{"name": "run_command", "parameters": {"command": "ls"}}{"name": "write_file", "parameters": {"path": "a.md", "content": "x"}}\n\nDone soon.';
+      const { calls, cleanedText } = parseTextToolCallsCleaned(text, MOCK_TOOLS);
+      expect(calls.map((c) => c.name)).toEqual(['run_command', 'write_file']);
+      expect(cleanedText).toContain('Creating files now.');
+      expect(cleanedText).toContain('Done soon.');
+      expect(cleanedText).not.toContain('"name"');
+    });
+
+    it('keeps malformed-call text intact for the repair layer to see', () => {
+      const text = '<tool_call>\n{"name": "grep", broken json\n</tool_call>';
+      const { cleanedText } = parseTextToolCallsCleaned(text, MOCK_TOOLS);
+      expect(cleanedText).toContain('broken json');
     });
   });
 
