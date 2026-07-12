@@ -38,6 +38,15 @@ export interface ScaffoldingProfile {
    */
   runLlmCritic: boolean;
   /**
+   * Whether plan mode offers the ask_user tool. In plan mode it is the ONLY
+   * tool in the catalog, and weak models treat a lone tool as an attractor:
+   * llama3.2 asked a redundant clarifying question on 3/3 plan-mode dogfood
+   * runs whose prompts were fully explicit. Weak tier plans directly from
+   * the prompt — the plan-approval step IS the clarification opportunity.
+   * Capable tiers keep the tool for genuine ambiguity.
+   */
+  planModeAskUser: boolean;
+  /**
    * C4 — fraction of the token budget at which context compaction fires.
    * Weak models have less effective context and stall sooner, so they compact
    * earlier; strong models hold more before paying the summarization cost.
@@ -70,6 +79,7 @@ export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
   maxActionReprompts: 2,
   maxGateInjections: 2,
   runLlmCritic: true,
+  planModeAskUser: true,
   compressionThreshold: 0.7,
   compactionKeepRecentTurns: 2,
   compactionMaxSummaryChars: 800,
@@ -82,6 +92,7 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     maxActionReprompts: 1,
     maxGateInjections: 1,
     runLlmCritic: true,
+    planModeAskUser: true,
     compressionThreshold: 0.75,
     compactionKeepRecentTurns: 3,
     compactionMaxSummaryChars: 1000,
@@ -93,6 +104,7 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     maxActionReprompts: 3,
     maxGateInjections: 3,
     runLlmCritic: false,
+    planModeAskUser: false,
     compressionThreshold: 0.6,
     compactionKeepRecentTurns: 3,
     compactionMaxSummaryChars: 500,

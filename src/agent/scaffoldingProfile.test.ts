@@ -50,3 +50,15 @@ describe('resolveScaffoldingProfile', () => {
     expect(DEFAULT_SCAFFOLDING_PROFILE.compressionThreshold).toBe(0.7);
   });
 });
+
+describe('planModeAskUser (weak-tier plan-mode tool attractor)', () => {
+  it('weak tier plans without ask_user; medium/strong keep it', () => {
+    expect(resolveScaffoldingProfile('weak').planModeAskUser).toBe(false);
+    expect(resolveScaffoldingProfile('medium').planModeAskUser).toBe(true);
+    expect(resolveScaffoldingProfile('strong').planModeAskUser).toBe(true);
+  });
+
+  it('the behavior-neutral default (adaptive scaffolding off) keeps ask_user', () => {
+    expect(DEFAULT_SCAFFOLDING_PROFILE.planModeAskUser).toBe(true);
+  });
+});
