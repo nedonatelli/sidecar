@@ -190,23 +190,47 @@ export function isContinuationRequest(text: string): boolean {
 // carrying an actual task ("hi, rename greet to welcome") falls through to
 // the model.
 
+// Deliberately EXCLUDED despite looking like small talk: bare acknowledgements
+// ("ok", "okay", "cool", "got it", "sounds good", "👍") frequently mean
+// "proceed with what you proposed" mid-conversation, and "lgtm" / "looks good"
+// belong to the commit-request and plan-approval flows. Swallowing any of
+// those with a canned reply would silently drop real intent.
+
 const GREETING_PATTERNS: RegExp[] = [
-  /^(hi|hii+|hello|hey|heya|yo|sup|howdy|hiya)( there)?( sidecar)?[!.\s]*$/i,
-  /^good (morning|afternoon|evening)[!.\s]*$/i,
-  /^(hi|hello|hey),? (sidecar|there)[!.\s]*$/i,
+  /^(hi|hii+|hello+|hey+|heya|yo|sup|howdy|hiya|hai|hola|aloha|greetings|ahoy)( there)?( sidecar)?[!.\s]*$/i,
+  /^good (morning|afternoon|evening|day)[!.\s]*$/i,
+  /^(morning|afternoon|evening|gm)[!.\s]*$/i,
+  /^(hi|hello|hey),? (sidecar|there|again)[!.\s]*$/i,
+  /^(hey hey|hi hi|hello hello)[!.\s]*$/i,
+  /^(what'?s up|wassup|whats up)\??[!.\s]*$/i,
+  /^👋+$/,
 ];
 
 const GRATITUDE_PATTERNS: RegExp[] = [
-  /^(thanks|thank you|thankyou|thx|ty|cheers)[!.\s]*$/i,
-  /^(thanks|thank you),? (a lot|so much|again|man)[!.\s]*$/i,
-  /^(great|nice|good|awesome|excellent|amazing) (work|job)[!.\s]*$/i,
-  /^(thanks|thank you|thx),? (great|nice|good|awesome) (work|job)[!.\s]*$/i,
-  /^(perfect|awesome|great|nice|excellent)(,? thanks( a lot)?| thank you)?[!.\s]*$/i,
-  /^(that('s| is|s) )?(perfect|great|awesome|exactly what i (wanted|needed))[!.\s]*$/i,
-  /^you('re| are) (the best|awesome|great)[!.\s]*$/i,
+  /^(thanks|thank you|thank u|thankyou|thx|ty|tysm|tyvm|cheers|danke|gracias|merci)[!.\s]*$/i,
+  /^(thanks|thank you|thank u),? (a lot|a bunch|a ton|a million|so much|very much|again|man|dude|buddy)[!.\s]*$/i,
+  /^(many|much) thanks[!.\s]*$/i,
+  /^(much )?appreciated[!.\s]*$/i,
+  /^(i )?appreciate (it|this|that|you)[!.\s]*$/i,
+  /^(great|nice|good|awesome|excellent|amazing|fantastic|solid|beautiful|wonderful) (work|job|stuff|one)[!.\s]*$/i,
+  /^well done[!.\s]*$/i,
+  /^(thanks|thank you|thx|ty),? (great|nice|good|awesome|excellent|amazing) (work|job|stuff)[!.\s]*$/i,
+  /^(perfect|awesome|great|nice|excellent|amazing|fantastic|brilliant|superb|love it|loved it)(,? thanks( a lot| so much)?|,? thank you)?[!.\s]*$/i,
+  /^(that('s| is|s) )?(perfect|great|awesome|amazing|brilliant|exactly what i (wanted|needed|was looking for))[!.\s]*$/i,
+  /^you('re| are) (the best|awesome|great|amazing|a lifesaver)[!.\s]*$/i,
+  /^(thanks|thank you|thx),? (that('s| is) )?(perfect|exactly (it|right|what i (wanted|needed)))[!.\s]*$/i,
+  /^🙏+$/,
 ];
 
-export type SmallTalkKind = 'greeting' | 'gratitude';
+const FAREWELL_PATTERNS: RegExp[] = [
+  /^(bye|byebye|bye bye|goodbye|good bye|farewell|cya|ciao|adios|ttyl|later|laters|catch you later)[!.\s]*$/i,
+  /^see (you|ya|u)( later| soon| tomorrow| around)?[!.\s]*$/i,
+  /^(good ?night|gn|gnight|have a good (one|day|night|evening|weekend)|take care)[!.\s]*$/i,
+  /^(thanks|thank you|thx),? (bye|goodbye|see (you|ya)|good ?night)[!.\s]*$/i,
+  /^(i'?m )?(off|heading out|done for (today|the day|tonight))( now)?[!.\s]*$/i,
+];
+
+export type SmallTalkKind = 'greeting' | 'gratitude' | 'farewell';
 
 /**
  * Classify a message as pure small talk, or null when it (possibly also)
@@ -220,6 +244,8 @@ export function classifySmallTalk(text: string): SmallTalkKind | null {
   if (trimmed.length === 0 || trimmed.length > 40) return null;
   if (trimmed.startsWith('/') || trimmed.startsWith('@')) return null;
   if (GREETING_PATTERNS.some((re) => re.test(trimmed))) return 'greeting';
+  // Farewell before gratitude: "thanks, bye" is a goodbye, not a thank-you.
+  if (FAREWELL_PATTERNS.some((re) => re.test(trimmed))) return 'farewell';
   if (GRATITUDE_PATTERNS.some((re) => re.test(trimmed))) return 'gratitude';
   return null;
 }

@@ -673,6 +673,41 @@ describe('classifySmallTalk', () => {
     expect(classifySmallTalk('great job')).toBe('gratitude');
     expect(classifySmallTalk('perfect, thanks')).toBe('gratitude');
     expect(classifySmallTalk("that's exactly what I wanted")).toBe('gratitude');
+    expect(classifySmallTalk('much appreciated')).toBe('gratitude');
+    expect(classifySmallTalk('appreciate it!')).toBe('gratitude');
+    expect(classifySmallTalk('tysm')).toBe('gratitude');
+    expect(classifySmallTalk('thanks a million')).toBe('gratitude');
+    expect(classifySmallTalk('well done')).toBe('gratitude');
+    expect(classifySmallTalk('love it')).toBe('gratitude');
+    expect(classifySmallTalk('🙏')).toBe('gratitude');
+  });
+
+  it('recognises greeting synonyms', () => {
+    expect(classifySmallTalk('gm')).toBe('greeting');
+    expect(classifySmallTalk('morning!')).toBe('greeting');
+    expect(classifySmallTalk("what's up?")).toBe('greeting');
+    expect(classifySmallTalk('hola')).toBe('greeting');
+    expect(classifySmallTalk('greetings')).toBe('greeting');
+    expect(classifySmallTalk('👋')).toBe('greeting');
+  });
+
+  it('recognises farewells, including thanks-and-bye combos', () => {
+    expect(classifySmallTalk('bye')).toBe('farewell');
+    expect(classifySmallTalk('see you later')).toBe('farewell');
+    expect(classifySmallTalk('goodnight')).toBe('farewell');
+    expect(classifySmallTalk('thanks, bye!')).toBe('farewell');
+    expect(classifySmallTalk("i'm done for today")).toBe('farewell');
+    expect(classifySmallTalk('take care')).toBe('farewell');
+  });
+
+  it('never treats acknowledgements as small talk — they can mean "proceed"', () => {
+    expect(classifySmallTalk('ok')).toBeNull();
+    expect(classifySmallTalk('okay')).toBeNull();
+    expect(classifySmallTalk('cool')).toBeNull();
+    expect(classifySmallTalk('got it')).toBeNull();
+    expect(classifySmallTalk('sounds good')).toBeNull();
+    expect(classifySmallTalk('👍')).toBeNull();
+    expect(classifySmallTalk('looks good')).toBeNull();
   });
 
   it('NEVER matches messages that carry a task — false positives swallow work', () => {

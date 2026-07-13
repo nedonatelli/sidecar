@@ -272,13 +272,13 @@ export function buildDispatchHandlers(
       if (!state.pendingPlan) {
         const smallTalk = classifySmallTalk(text);
         if (smallTalk) {
-          state.postMessage({
-            command: 'assistantMessage',
-            content:
-              smallTalk === 'greeting'
-                ? "Hi! Tell me what you'd like to do — explain a file, make an edit, run tests, or ask anything about this codebase."
-                : "You're welcome! Anything else you'd like me to do?",
-          });
+          const replies: Record<typeof smallTalk, string> = {
+            greeting:
+              "Hi! Tell me what you'd like to do — explain a file, make an edit, run tests, or ask anything about this codebase.",
+            gratitude: 'Glad to help! Anything else you’d like me to do?',
+            farewell: 'See you later — I’ll be right here when you need anything.',
+          };
+          state.postMessage({ command: 'assistantMessage', content: replies[smallTalk] });
           state.postMessage({ command: 'done' });
           return;
         }
