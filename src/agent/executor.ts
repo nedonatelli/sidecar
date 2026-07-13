@@ -435,12 +435,14 @@ export async function executeTool(
         .join(', ');
 
       const confirm = confirmFn || (async (_msg: string, _actions: string[]) => 'Deny');
-      const isDestructive = NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name);
-      // Destructive tools get a native blocking modal so the user can't
-      // miss the prompt while scrolled away from the chat view. The
-      // message is intentionally short (fits the toast title line);
-      // the full input summary goes in the modal detail.
-      const choice = isDestructive
+      // Escalate to a native modal ONLY when the inline card would go unseen
+      // (chat view hidden). With the chat open, approve in-chat — a native
+      // pop-up per command steals editor focus and reads as spam. Destructive
+      // operations are gated separately by detectIrrecoverable's type-to-CONFIRM
+      // step, which runs regardless of this branch.
+      const chatVisible = executorContext?.isChatVisible?.() ?? false;
+      const useModal = NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name) && !chatVisible;
+      const choice = useModal
         ? await confirm(`Allow SideCar to run ${toolUse.name}?`, ['Allow', 'Deny'], {
             modal: true,
             detail: inputSummary,

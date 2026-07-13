@@ -484,6 +484,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       ...(resumePlan && { initialPlan: resumePlan }),
       ...(matchedSkill?.preferredModel && { modelOverride: matchedSkill.preferredModel }),
       confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
+      isChatVisible: () => state.isChatViewVisible?.() ?? false,
       diffPreviewFn: state.contentProvider
         ? async (filePath: string, proposedContent: string) => {
             const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');

@@ -18,16 +18,26 @@ export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan' | 'revi
 export const WRITE_TOOLS = new Set(['write_file', 'edit_file']);
 
 /**
- * Tools whose approval prompts are escalated to a native VS Code modal
- * (`showWarningMessage` with `modal: true`) rather than an inline chat
- * card. Matches the user's mental model: "if it could break something,
- * block the editor until I decide." Write tools are not in this set
- * because they go through the diff-preview path, which is already a
- * native-feeling confirmation surface.
+ * Tools whose approval MAY be escalated to a native VS Code modal
+ * (`showWarningMessage` with `modal: true`) instead of the inline chat card.
+ *
+ * Escalation is conditional, not automatic: the modal fires only when the
+ * chat view is NOT visible, i.e. when an inline card would go unseen. With
+ * the chat open — the normal agent-driving posture — these approve inline
+ * (v0.119 dogfood: a run producing several commands threw a native pop-up per
+ * call, each stealing editor focus, for operations that are not destructive).
+ *
+ * This is not the destructive-operation defence: `rm -rf`, `git push --force`,
+ * `git reset --hard` and friends are caught by `detectIrrecoverable`, which
+ * runs its own escalated type-to-CONFIRM gate in every mode regardless of
+ * this set. Write tools are absent because they go through the diff-preview
+ * path, which is already a visible confirmation surface.
+ *
+ * `run_tests` is deliberately NOT here — it runs the project's own test
+ * command and cannot damage the tree.
  */
 export const NATIVE_MODAL_APPROVAL_TOOLS = new Set([
   'run_command',
-  'run_tests',
   'git_stage',
   'git_commit',
   'git_push',

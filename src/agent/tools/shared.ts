@@ -174,6 +174,14 @@ export interface ToolExecutorContext {
    */
   bounceCounts?: Map<string, number>;
   /**
+   * Whether the chat view is currently visible. Approval prompts escalate to
+   * a native blocking modal only when it is NOT — an inline card the user
+   * cannot see is no gate at all, but a modal per command when the chat is
+   * open is pop-up spam. Absent (non-chat hosts) reads as "not visible", so
+   * approvals keep their pre-v0.119 modal behavior there.
+   */
+  isChatVisible?: () => boolean;
+  /**
    * Shared handle on the externalized plan (S1). The loop owns the ref and
    * re-injects `<plan_state>` each turn; `update_plan` mutates `ref.plan`.
    * Absent when `sidecar.plan.externalized` is off (the tool errors politely).

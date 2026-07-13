@@ -167,6 +167,11 @@ export interface AgentOptions {
   inlineEditFn?: InlineEditFn;
   streamingDiffPreviewFn?: StreamingDiffPreviewFn;
   clarifyFn?: ClarifyFn;
+  /**
+   * Whether the chat view is visible. Approval prompts escalate to a native
+   * blocking modal only when it is not — see NATIVE_MODAL_APPROVAL_TOOLS.
+   */
+  isChatVisible?: () => boolean;
   /** Current sub-agent nesting depth (0 = top-level). Used to enforce MAX_AGENT_DEPTH. */
   depth?: number;
   /** Per-tool permission overrides from the active custom mode. */

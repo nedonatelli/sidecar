@@ -225,6 +225,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       onOutput: (chunk) => callbacks.onToolOutput?.(toolUse.name, chunk, toolUse.id),
       signal,
       clarifyFn: options.clarifyFn,
+      isChatVisible: options.isChatVisible,
       modeToolPermissions: options.modeToolPermissions,
       toolRuntime: options.toolRuntime,
       client: ctx.client,

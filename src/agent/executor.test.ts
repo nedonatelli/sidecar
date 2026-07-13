@@ -221,6 +221,54 @@ describe('executeTool', () => {
     });
   });
 
+  describe('approval prompts only go native-modal when the chat is hidden', () => {
+    const cmdTool = {
+      definition: {
+        name: 'run_command',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      },
+      executor: vi.fn().mockResolvedValue('ok'),
+      requiresApproval: true,
+    };
+
+    it('uses the inline chat card when the chat view is visible', async () => {
+      // v0.119 dogfood: a run producing several commands threw one native
+      // pop-up per call, each stealing editor focus, for non-destructive work.
+      mockedFindTool.mockReturnValue({ ...cmdTool, executor: vi.fn().mockResolvedValue('ok') });
+      mockConfig({ toolPermissions: {} });
+      const confirmFn = vi.fn().mockResolvedValue('Allow');
+
+      await executeTool(makeToolUse('run_command', { command: 'npm run lint' }), {
+        approvalMode: 'cautious',
+        confirmFn,
+        executorContext: { isChatVisible: () => true } as never,
+      });
+
+      const [, , options] = confirmFn.mock.calls[0];
+      expect(options?.modal).toBeFalsy();
+    });
+
+    it('escalates to a native modal when the chat view is hidden', async () => {
+      mockedFindTool.mockReturnValue({ ...cmdTool, executor: vi.fn().mockResolvedValue('ok') });
+      mockConfig({ toolPermissions: {} });
+      const confirmFn = vi.fn().mockResolvedValue('Allow');
+
+      await executeTool(makeToolUse('run_command', { command: 'npm run lint' }), {
+        approvalMode: 'cautious',
+        confirmFn,
+        executorContext: { isChatVisible: () => false } as never,
+      });
+
+      const [, , options] = confirmFn.mock.calls[0];
+      expect(options?.modal).toBe(true);
+    });
+  });
+
   it('normalizes a generic ask_user question to the canned clarification card', async () => {
     mockedFindTool.mockReturnValue({
       definition: {
