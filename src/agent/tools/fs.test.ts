@@ -12,6 +12,14 @@ import { workspace } from 'vscode';
  */
 const editMsg = async (...args: Parameters<typeof editFile>): Promise<string> =>
   editFile(...args).catch((e: Error) => e.message);
+/**
+ * write_file THROWS on a refusal (clobber guard, unverified-rewrite guard,
+ * sensitive path) — returned "NOT applied" strings were recorded by the
+ * executor as is_error=false, so a refused write looked like a success to the
+ * loop's error accounting. Capture either outcome for assertions.
+ */
+const writeMsg = async (...args: Parameters<typeof writeFile>): Promise<string> =>
+  writeFile(...args).catch((e: Error) => e.message);
 
 describe('writeFile audit mode', () => {
   let buf: AuditBuffer;
@@ -31,7 +39,7 @@ describe('writeFile audit mode', () => {
   it('buffers write to AuditBuffer when agentMode is audit', async () => {
     getConfigSpy.mockReturnValue({ agentMode: 'audit' } as never);
     const context = { config: { agentMode: 'audit' } as never };
-    const result = await writeFile({ path: 'src/app.ts', content: 'const x = 1;' }, context);
+    const result = await writeMsg({ path: 'src/app.ts', content: 'const x = 1;' }, context);
     expect(result).toContain('buffered for audit review');
     expect(buf.read('src/app.ts').buffered).toBe(true);
   });
@@ -482,8 +490,9 @@ describe('isSensitiveFile guard', () => {
   describe('writeFile rejects sensitive paths', () => {
     for (const name of sensitiveNames) {
       it(`blocks write to ${name}`, async () => {
-        const result = await writeFile({ path: name, content: 'data' });
-        expect(result).toMatch(/Error.*secrets or credentials.*not permitted to write/i);
+        await expect(writeFile({ path: name, content: 'data' })).rejects.toThrow(
+          /secrets or credentials.*not permitted to write/i,
+        );
       });
     }
 
@@ -491,7 +500,7 @@ describe('isSensitiveFile guard', () => {
       const { workspace } = await import('vscode');
       vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined as never);
       vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValueOnce(undefined as never);
-      const result = await writeFile({ path: safeName, content: 'export {}' });
+      const result = await writeMsg({ path: safeName, content: 'export {}' });
       expect(result).toContain('File written');
       vi.restoreAllMocks();
     });
@@ -630,11 +639,13 @@ describe('writeFile circular-rewrite block', () => {
 describe('writeFile enforce-edit-over-rewrite block', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  // The write guards THROW now (a refused write must not read as a success to
+  // the loop's error accounting). Capture either outcome for assertions.
   async function mockedWrite(input: Record<string, unknown>, context: Record<string, unknown>) {
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
     vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
-    return writeFile(input, context);
+    return writeFile(input, context).catch((e: Error) => e.message);
   }
 
   it('soft-blocks a full write_file once the file has been edited via edit_file', async () => {
@@ -675,7 +686,8 @@ describe('writeFile verify-before-rewrite block', () => {
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
     vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
-    return writeFile(input, context);
+    // Refusals throw — capture the message so assertions read the same either way.
+    return writeFile(input, context).catch((e: Error) => e.message);
   }
 
   it('allows the create + 2 rewrites, then soft-blocks the 4th unverified rewrite', async () => {
@@ -761,7 +773,7 @@ describe('streaming diff via onOutput', () => {
 
     const chunks: string[] = [];
     const context = { onOutput: (c: string) => chunks.push(c) };
-    const result = await writeFile({ path: 'src/bar.ts', content: newContent }, context);
+    const result = await writeMsg({ path: 'src/bar.ts', content: newContent }, context);
 
     expect(result).toBe('File written: src/bar.ts');
     expect(chunks).toHaveLength(1);
@@ -1015,5 +1027,30 @@ describe('success messages never carry retry guidance', () => {
     expect(result).toContain('File edited');
     expect(result).not.toContain('You have not read');
     expect(result).not.toMatch(/use the exact text|search string/i);
+  });
+});
+
+describe('shape-validation refusals are ERRORS, not successes', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('edit_file with a missing search on an existing file throws (live v0.119 JSDoc bug)', async () => {
+    // The follow-up task ("add a JSDoc comment") failed silently: the model
+    // sent edit_file with only `replace`, and the shape-validation refusal was
+    // RETURNED as a normal string — outcome ok. The loop believed the edit had
+    // landed, no bounce counter fired, the JSDoc was never written, and the run
+    // thrashed to a cycle bail. A refusal that leaves the file unchanged must
+    // surface as is_error=true.
+    const original = 'export function welcome(name: string): string {\n  return `hi`;\n}\n';
+    const { workspace } = await import('vscode');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear();
+
+    await expect(
+      editFile({ path: 'src/greeter.ts', replace: '/** Welcomes someone. */\nexport function welcome' }),
+    ).rejects.toThrow(/requires both 'search'.*'replace'|'search' is missing/i);
+
+    expect(writeSpy).not.toHaveBeenCalled();
   });
 });

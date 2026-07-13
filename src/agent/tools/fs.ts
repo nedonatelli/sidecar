@@ -494,7 +494,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
     const bufState = getDefaultAuditBuffer().read(filePath);
     if (bufState.buffered) {
       if (bufState.deleted) {
-        return `Error: File not found (${filePath}) — deleted in Audit Buffer pending review.`;
+        throw new Error(`Error: File not found (${filePath}) — deleted in Audit Buffer pending review.`);
       }
       const text = bufState.content ?? '';
       if (mode === 'compact') return compactSourceFile(text);
@@ -567,7 +567,9 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   if (isSensitiveFile(filePath)) {
-    return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to write to this file.`;
+    throw new Error(
+      `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to write to this file.`,
+    );
   }
   const content = input.content as string;
 
@@ -578,12 +580,12 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // re-introduces the bug the edit just fixed (dogfooding caught exactly that
   // write→edit→write→edit loop on a recurring syntax error). Force edit_file.
   if (context?.filesEditedViaEditTool && pathInSetByBasename(filePath, context.filesEditedViaEditTool)) {
-    return (
+    throw new Error(
       `write_file to \`${filePath}\` was NOT applied. You've been making targeted edits to this file, and a full ` +
-      `rewrite would clobber them — regenerating the whole file keeps re-introducing the bug you just fixed with ` +
-      `edit_file. Make this change with edit_file instead: put the exact current lines in \`search\` and the new ` +
-      `lines in \`replace\`. To replace a whole section, pass that entire block as \`search\` and the new block as ` +
-      `\`replace\`. Read the file first if you're unsure of the current text.`
+        `rewrite would clobber them — regenerating the whole file keeps re-introducing the bug you just fixed with ` +
+        `edit_file. Make this change with edit_file instead: put the exact current lines in \`search\` and the new ` +
+        `lines in \`replace\`. To replace a whole section, pass that entire block as \`search\` and the new block as ` +
+        `\`replace\`. Read the file first if you're unsure of the current text.`,
     );
   }
 
@@ -612,12 +614,12 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     const n = (context.writesSinceVerifyByFile.get(filePath) ?? 0) + 1;
     context.writesSinceVerifyByFile.set(filePath, n);
     if (n > MAX_UNVERIFIED_REWRITES) {
-      return (
+      throw new Error(
         `This write was NOT applied. You've rewritten \`${filePath}\` ${n} times without running or checking it ` +
-        `once — rewriting blind doesn't surface bugs (a NameError, a wrong result, a dead button only appear when ` +
-        `the code RUNS). Verify the current file before rewriting again: call get_diagnostics, or run it / a test ` +
-        `that imports it. Then fix exactly what the output reports with edit_file — change only the broken lines, ` +
-        `do not regenerate the whole file.`
+          `once — rewriting blind doesn't surface bugs (a NameError, a wrong result, a dead button only appear when ` +
+          `the code RUNS). Verify the current file before rewriting again: call get_diagnostics, or run it / a test ` +
+          `that imports it. Then fix exactly what the output reports with edit_file — change only the broken lines, ` +
+          `do not regenerate the whole file.`,
       );
     }
   }
@@ -674,7 +676,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   if (isSensitiveFile(filePath)) {
-    return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to edit this file.`;
+    throw new Error(
+      `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to edit this file.`,
+    );
   }
   const search = typeof input.search === 'string' ? (input.search as string) : undefined;
   const replace = typeof input.replace === 'string' ? (input.replace as string) : undefined;
@@ -689,9 +693,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // field stays a hard error — there the intent really is ambiguous.
   if (search === undefined || replace === undefined) {
     if (search === undefined && replace === undefined) {
-      return (
+      throw new Error(
         `Error: edit_file requires 'search' (the current text in the file) and 'replace' (the new text). ` +
-        `To CREATE a new file, use write_file(path="${filePath}", content="...").`
+          `To CREATE a new file, use write_file(path="${filePath}", content="...").`,
       );
     }
     let fileExists: boolean;
@@ -712,9 +716,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       return note + (await writeFile({ path: filePath, content }, context));
     }
     const missing = search === undefined ? 'search' : 'replace';
-    return (
+    throw new Error(
       `Error: edit_file on an existing file requires both 'search' (the current text) and 'replace' (the new text); ` +
-      `'${missing}' is missing. Call read_file(path="${filePath}") and copy the exact text you want to change into 'search'.`
+        `'${missing}' is missing. Call read_file(path="${filePath}") and copy the exact text you want to change into 'search'.`,
     );
   }
 
@@ -812,7 +816,8 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     const bufState = buf.read(filePath);
     let currentText: string;
     if (bufState.buffered) {
-      if (bufState.deleted) return `Error: File not found in buffer (${filePath}) — was deleted earlier this session.`;
+      if (bufState.deleted)
+        throw new Error(`Error: File not found in buffer (${filePath}) — was deleted earlier this session.`);
       // In the buffered + not-deleted branch, `content` is always a
       // string (AuditBuffer only emits `content: undefined` for the
       // deleted op), but the type system can't infer that from the
@@ -821,10 +826,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     } else {
       const diskText = await readDiskViaWorkspace(context, filePath);
       if (diskText === undefined) {
-        return (
+        throw new Error(
           `Error: ${filePath} does not exist, so it cannot be edited. ` +
-          `To CREATE a new file, call write_file(path="${filePath}", content="...") with the full desired content. ` +
-          `Use edit_file only to change files that already exist.`
+            `To CREATE a new file, call write_file(path="${filePath}", content="...") with the full desired content. ` +
+            `Use edit_file only to change files that already exist.`,
         );
       }
       currentText = diskText;
@@ -1111,7 +1116,9 @@ export async function deleteFile(input: Record<string, unknown>, context?: ToolE
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   if (isSensitiveFile(filePath)) {
-    return `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to delete this file.`;
+    throw new Error(
+      `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to delete this file.`,
+    );
   }
 
   if (isAuditModeActive(context)) {
