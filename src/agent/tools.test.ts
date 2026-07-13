@@ -960,12 +960,12 @@ describe('tools.ts', () => {
       const { workspace } = await import('vscode');
       vi.mocked(workspace.fs.readFile).mockResolvedValue(Buffer.from('content'));
 
-      const result = await tool!.executor({
-        path: 'test.txt',
-        search: 'nonexistent',
-        replace: 'text',
-      });
-      expect(result).toContain('not found');
+      // edit_file now THROWS on failure so the executor records is_error=true —
+      // returned "Error: …" strings were logged as successes (v0.119 dogfood:
+      // 10 failed/corrupting edits all reported ok, so no gate ever fired).
+      await expect(tool!.executor({ path: 'test.txt', search: 'nonexistent', replace: 'text' })).rejects.toThrow(
+        /not found/,
+      );
     });
   });
 

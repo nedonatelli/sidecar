@@ -4,6 +4,15 @@ import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuff
 import * as settings from '../../config/settings.js';
 import { workspace } from 'vscode';
 
+/**
+ * editFile THROWS on failure (v0.119: returned "Error: …" strings were recorded
+ * by the executor as is_error=false, so failed edits looked like successes to
+ * bounce escalation, cycle detection, and the completion gate). These tests
+ * assert on the message either way, so capture both outcomes uniformly.
+ */
+const editMsg = async (...args: Parameters<typeof editFile>): Promise<string> =>
+  editFile(...args).catch((e: Error) => e.message);
+
 describe('writeFile audit mode', () => {
   let buf: AuditBuffer;
   let getConfigSpy: ReturnType<typeof vi.spyOn>;
@@ -65,7 +74,7 @@ describe('editFile audit mode', () => {
     // First write a file to the buffer
     await buf.write('src/edit.ts', 'const old = 1;\nconst keep = 2;', async () => undefined);
     // Then edit it
-    const result = await editFile(
+    const result = await editMsg(
       { path: 'src/edit.ts', search: 'const old = 1;', replace: 'const new_ = 99;' },
       context,
     );
@@ -77,16 +86,20 @@ describe('editFile audit mode', () => {
   it('returns error when search text not found in buffered content', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     await buf.write('src/edit2.ts', 'const keep = 1;', async () => undefined);
-    const result = await editFile({ path: 'src/edit2.ts', search: 'NOT_IN_FILE', replace: 'replacement' }, context);
-    expect(result).toContain('edit_file failed');
+    const err = await editMsg({ path: 'src/edit2.ts', search: 'NOT_IN_FILE', replace: 'replacement' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(err).toContain('edit_file failed');
   });
 
   it('returns error when search string appears multiple times in buffered content', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     await buf.write('src/multi.ts', 'const x = 1;\nconst x = 1;\n', async () => undefined);
-    const result = await editFile({ path: 'src/multi.ts', search: 'const x = 1;', replace: 'const y = 2;' }, context);
-    expect(result).toContain('appears 2 times');
-    expect(result).toContain('NOT modified');
+    const err = await editMsg({ path: 'src/multi.ts', search: 'const x = 1;', replace: 'const y = 2;' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(err).toContain('appears 2 times');
+    expect(err).toContain('NOT modified');
     // File must be unchanged
     expect(buf.read('src/multi.ts').content).toBe('const x = 1;\nconst x = 1;\n');
   });
@@ -94,8 +107,10 @@ describe('editFile audit mode', () => {
   it('returns error when search and replace are identical (no-op guard)', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     await buf.write('src/noop.ts', 'const x = 1;', async () => undefined);
-    const result = await editFile({ path: 'src/noop.ts', search: 'const x = 1;', replace: 'const x = 1;' }, context);
-    expect(result).toContain('identical');
+    const err = await editMsg({ path: 'src/noop.ts', search: 'const x = 1;', replace: 'const x = 1;' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(err).toContain('identical');
     // File must be unchanged
     const state = buf.read('src/noop.ts');
     expect(state.content).toBe('const x = 1;');
@@ -109,7 +124,7 @@ describe('editFile audit mode', () => {
     // replace: "string" (6 chars) — IS a substring of search → warning fires
     const fullSig = 'export function getAnswer(): string {';
     await buf.write('src/partial.ts', `${fullSig}\n  return 42;\n}\n`, async () => undefined);
-    const result = await editFile({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context);
+    const result = await editMsg({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context);
     expect(result).toContain('File edited');
     expect(result).toContain('Warning');
     expect(result).toContain('substring');
@@ -119,7 +134,7 @@ describe('editFile audit mode', () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('disk content here') as never);
-    const result = await editFile(
+    const result = await editMsg(
       { path: 'src/fresh.ts', search: 'disk content', replace: 'replaced content' },
       context,
     );
@@ -141,7 +156,7 @@ describe('editFile audit mode', () => {
     ].join('\n');
     await buf.write('src/gate.ts', fileContent, async () => undefined);
     const newText = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
-    const result = await editFile({ path: 'src/gate.ts', search: newText, replace: newText }, context);
+    const result = await editMsg({ path: 'src/gate.ts', search: newText, replace: newText }, context);
     // Should succeed by applying the edit, not fail with an error
     expect(result).toContain('Applied inferred edit');
     expect(result).toContain('eslint / tsc'); // shows what was replaced
@@ -163,7 +178,7 @@ describe('editFile audit mode', () => {
     await buf.write('src/gate.ts', fileContent, async () => undefined);
     const search = '// Direct invocations of various linters (eslint, tsc, pylint)';
     const replace = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
-    const result = await editFile({ path: 'src/gate.ts', search, replace }, context);
+    const result = await editMsg({ path: 'src/gate.ts', search, replace }, context);
     expect(result).toContain('search string not found');
     // Grep hint shows exact line numbers and read_file suggestion
     expect(result).toMatch(/line \d+:|Grep for|read_file/);
@@ -174,7 +189,7 @@ describe('editFile audit mode', () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
-    const result = await editFile({ path: 'out/f1.md', search: 'k4q9-alpha' }, context);
+    const result = await editMsg({ path: 'out/f1.md', search: 'k4q9-alpha' }, context);
     expect(result).toContain('did not exist');
     expect(result).toContain('write_file(path, content)');
     expect(buf.read('out/f1.md').content).toBe('k4q9-alpha');
@@ -184,7 +199,7 @@ describe('editFile audit mode', () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
-    const result = await editFile({ path: 'out/f4.md', replace: 'mm05-delta' }, context);
+    const result = await editMsg({ path: 'out/f4.md', replace: 'mm05-delta' }, context);
     expect(result).toContain("'replace' text was written");
     expect(buf.read('out/f4.md').content).toBe('mm05-delta');
   });
@@ -192,7 +207,7 @@ describe('editFile audit mode', () => {
   it('missing replace on an EXISTING file stays a hard error pointing at read_file', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     await buf.write('src/existing.ts', 'const x = 1;', async () => undefined);
-    const result = await editFile({ path: 'src/existing.ts', search: 'const x = 1;' }, context);
+    const result = await editMsg({ path: 'src/existing.ts', search: 'const x = 1;' }, context);
     expect(result).toContain("'replace' is missing");
     expect(result).toContain('read_file(path="src/existing.ts")');
     expect(buf.read('src/existing.ts').content).toBe('const x = 1;'); // untouched
@@ -200,7 +215,7 @@ describe('editFile audit mode', () => {
 
   it('errors with a write_file pointer when both search and replace are missing', async () => {
     const context = { config: { agentMode: 'audit' } as never };
-    const result = await editFile({ path: 'out/f9.md' }, context);
+    const result = await editMsg({ path: 'out/f9.md' }, context);
     expect(result).toContain("requires 'search'");
     expect(result).toContain('write_file(path="out/f9.md"');
     expect(buf.read('out/f9.md').buffered).toBe(false); // nothing created
@@ -210,7 +225,7 @@ describe('editFile audit mode', () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
-    const result = await editFile({ path: 'src/missing.ts', search: 'something', replace: 'other' }, context);
+    const result = await editMsg({ path: 'src/missing.ts', search: 'something', replace: 'other' }, context);
     expect(result).toContain('src/missing.ts does not exist');
     expect(result).toContain('write_file(path="src/missing.ts"');
     expect(result).not.toContain('/var/folders'); // no leaked absolute paths
@@ -233,7 +248,7 @@ describe('editFile audit mode', () => {
     // Write then delete to mark as deleted in buffer
     await buf.write('src/deleted.ts', 'original content', async () => undefined);
     await buf.deleteFile('src/deleted.ts', async () => 'original content');
-    const result = await editFile({ path: 'src/deleted.ts', search: 'anything', replace: 'other' }, context);
+    const result = await editMsg({ path: 'src/deleted.ts', search: 'anything', replace: 'other' }, context);
     expect(result).toContain('Error');
     expect(result).toContain('deleted');
   });
@@ -271,11 +286,11 @@ describe('editFile repeated-failure escalation', () => {
     await buf.write('src/dup.ts', 'const line = 1;\nconst other = 2;\n', async () => undefined);
     const call = { path: 'src/dup.ts', search: 'const line = 1;', replace: 'const line = 1;' };
 
-    const first = await editFile(call, context);
+    const first = await editMsg(call, context);
     expect(first).toContain('identical');
     expect(first).not.toContain('AGAIN');
 
-    const second = await editFile(call, context);
+    const second = await editMsg(call, context);
     expect(second).toContain('AGAIN');
     expect(second).toContain('read_file');
   });
@@ -283,8 +298,8 @@ describe('editFile repeated-failure escalation', () => {
   it('a DIFFERENT search/replace pair after a failure does not escalate', async () => {
     const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
     await buf.write('src/dup2.ts', 'const line = 1;\nconst other = 2;\n', async () => undefined);
-    await editFile({ path: 'src/dup2.ts', search: 'const line = 1;', replace: 'const line = 1;' }, context);
-    const different = await editFile(
+    await editMsg({ path: 'src/dup2.ts', search: 'const line = 1;', replace: 'const line = 1;' }, context);
+    const different = await editMsg(
       { path: 'src/dup2.ts', search: 'const other = 2;', replace: 'const other = 2;' },
       context,
     );
@@ -297,11 +312,11 @@ describe('editFile repeated-failure escalation', () => {
     await buf.write('src/notfound.ts', 'const keep = 1;\n', async () => undefined);
     const call = { path: 'src/notfound.ts', search: 'totally missing text', replace: 'new text' };
 
-    const first = await editFile(call, context);
+    const first = await editMsg(call, context);
     expect(first).toContain('search string not found');
     expect(first).not.toContain('AGAIN');
 
-    const second = await editFile(call, context);
+    const second = await editMsg(call, context);
     expect(second).toContain('AGAIN');
   });
 
@@ -310,10 +325,10 @@ describe('editFile repeated-failure escalation', () => {
     await buf.write('src/clear.ts', 'const a = 1;\nconst b = 2;\n', async () => undefined);
     const badCall = { path: 'src/clear.ts', search: 'const a = 1;', replace: 'const a = 1;' };
 
-    await editFile(badCall, context); // fails, records the signature
-    await editFile({ path: 'src/clear.ts', search: 'const b = 2;', replace: 'const b = 99;' }, context); // succeeds, clears it
+    await editMsg(badCall, context); // fails, records the signature
+    await editMsg({ path: 'src/clear.ts', search: 'const b = 2;', replace: 'const b = 99;' }, context); // succeeds, clears it
 
-    const repeatBad = await editFile(badCall, context);
+    const repeatBad = await editMsg(badCall, context);
     expect(repeatBad).toContain('identical');
     expect(repeatBad).not.toContain('AGAIN');
   });
@@ -322,8 +337,8 @@ describe('editFile repeated-failure escalation', () => {
     const context = { config: { agentMode: 'audit' } as never }; // no editFailureSignatures
     await buf.write('src/notracker.ts', 'const line = 1;\n', async () => undefined);
     const call = { path: 'src/notracker.ts', search: 'const line = 1;', replace: 'const line = 1;' };
-    const first = await editFile(call, context);
-    const second = await editFile(call, context);
+    const first = await editMsg(call, context);
+    const second = await editMsg(call, context);
     expect(first).not.toContain('AGAIN');
     expect(second).not.toContain('AGAIN');
   });
@@ -334,11 +349,11 @@ describe('editFile repeated-failure escalation', () => {
     const context = { editFailureSignatures: new Map<string, string>() };
     const call = { path: 'src/disk-notfound.ts', search: 'totally missing text', replace: 'new text' };
 
-    const first = await editFile(call, context);
+    const first = await editMsg(call, context);
     expect(first).toContain('search string not found');
     expect(first).not.toContain('AGAIN');
 
-    const second = await editFile(call, context);
+    const second = await editMsg(call, context);
     expect(second).toContain('AGAIN');
     vi.restoreAllMocks();
   });
@@ -353,15 +368,15 @@ describe('editFile repeated-failure escalation', () => {
     await buf.write('src/loose.ts', fileContent, async () => undefined);
     const call = { path: 'src/loose.ts', search: 'totally missing text', replace: 'alpha beta gamma delta epsilon' };
 
-    const first = await editFile(call, context);
+    const first = await editMsg(call, context);
     expect(first).toContain('search string not found');
     expect(first).not.toContain('AGAIN');
 
-    const second = await editFile(call, context);
+    const second = await editMsg(call, context);
     expect(second).toContain('AGAIN');
     expect(second).not.toContain('Auto-repaired');
 
-    const third = await editFile(call, context);
+    const third = await editMsg(call, context);
     expect(third).toContain('Auto-repaired');
     expect(third).toContain('3 identical failed attempts');
     expect(third).toContain('VERIFY');
@@ -382,9 +397,9 @@ describe('editFile repeated-failure escalation', () => {
       replace: 'alpha beta gamma delta epsilon',
     };
 
-    await editFile(call, context); // 1st
-    await editFile(call, context); // 2nd (AGAIN)
-    const third = await editFile(call, context); // 3rd (auto-repair)
+    await editMsg(call, context); // 1st
+    await editMsg(call, context); // 2nd (AGAIN)
+    const third = await editMsg(call, context); // 3rd (auto-repair)
     expect(third).toContain('Auto-repaired');
     expect(writeSpy).toHaveBeenCalledTimes(1);
     const written = Buffer.from(writeSpy.mock.calls[0][1] as Uint8Array).toString('utf-8');
@@ -406,8 +421,8 @@ describe('editFile repeated-failure escalation', () => {
       replace: 'const distinctiveMarker = 1;',
     };
 
-    await editFile(call, context); // 1st: normal hint
-    const second = await editFile(call, context); // 2nd: escalated, grep-preferred hint
+    await editMsg(call, context); // 1st: normal hint
+    const second = await editMsg(call, context); // 2nd: escalated, grep-preferred hint
     expect(second).toContain('AGAIN');
     expect(second).toContain('Grep for');
     expect(second).toMatch(/line \d+:/);
@@ -485,7 +500,7 @@ describe('isSensitiveFile guard', () => {
   describe('editFile rejects sensitive paths', () => {
     for (const name of sensitiveNames) {
       it(`blocks edit of ${name}`, async () => {
-        const result = await editFile({ path: name, search: 'x', replace: 'y' });
+        const result = await editMsg({ path: name, search: 'x', replace: 'y' });
         expect(result).toMatch(/Error.*secrets or credentials.*not permitted to edit/i);
       });
     }
@@ -715,7 +730,7 @@ describe('streaming diff via onOutput', () => {
 
     const chunks: string[] = [];
     const context = { onOutput: (c: string) => chunks.push(c) };
-    const result = await editFile({ path: 'src/foo.ts', search: 'const y = 2;', replace: 'const y = 99;' }, context);
+    const result = await editMsg({ path: 'src/foo.ts', search: 'const y = 2;', replace: 'const y = 99;' }, context);
 
     expect(result).toBe('File edited: src/foo.ts');
     expect(chunks).toHaveLength(1);
@@ -731,7 +746,7 @@ describe('streaming diff via onOutput', () => {
   it('editFile emits no diff when search === replace (error path, no write)', async () => {
     const chunks: string[] = [];
     const context = { onOutput: (c: string) => chunks.push(c) };
-    const result = await editFile({ path: 'src/foo.ts', search: 'same', replace: 'same' }, context);
+    const result = await editMsg({ path: 'src/foo.ts', search: 'same', replace: 'same' }, context);
     expect(result).toContain('Error');
     expect(chunks).toHaveLength(0);
   });
@@ -777,7 +792,7 @@ describe('streaming diff via onOutput', () => {
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValueOnce(Buffer.from('old') as never);
     vi.spyOn(workspace.fs, 'writeFile').mockResolvedValueOnce(undefined as never);
     // No onOutput in context — should not throw
-    const result = await editFile({ path: 'src/x.ts', search: 'old', replace: 'new' }, {});
+    const result = await editMsg({ path: 'src/x.ts', search: 'old', replace: 'new' }, {});
     expect(result).toBe('File edited: src/x.ts');
     vi.restoreAllMocks();
   });
@@ -844,7 +859,7 @@ describe('inferred-edit structural guard (no silent file corruption)', () => {
       written = Buffer.from(content as Uint8Array).toString('utf-8');
     });
 
-    const result = await editFile({
+    const result = await editMsg({
       path: 'src/greeter.ts',
       search: '  return `Hello, ${name}!`;', // exact-match path
       replace: '  return `Hi, ${name}!`;',
@@ -857,5 +872,54 @@ describe('inferred-edit structural guard (no silent file corruption)', () => {
     const opens = (written.match(/\{/g) || []).length;
     const closes = (written.match(/\}/g) || []).length;
     expect(opens).toBe(closes);
+  });
+});
+
+describe('exact-match token-boundary guard (no mid-token splicing)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const original =
+    '// Says hello to the given name.\n' +
+    'export function greet(name: string): string {\n' +
+    '  return `Hello, ${name}!`;\n' +
+    '}\n';
+
+  beforeEach(async () => {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+  });
+
+  it('refuses a search string that ends mid-identifier (live corruption repro)', async () => {
+    // llama3.2 searched `greet(name: string): s` — ending inside `string` — and
+    // replaced it with `welcome(name: string)`, producing the corrupted
+    // `export function welcome(name: string)tring): string {`. Bracket balance
+    // was preserved, so only a lexical guard catches this.
+    const { workspace } = await import('vscode');
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear(); // earlier suites spy on writeFile without restoring; drop their history
+
+    await expect(
+      editFile({ path: 'src/greeter.ts', search: 'greet(name: string): s', replace: 'welcome(name: string)' }),
+    ).rejects.toThrow(/middle of a word/i);
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('still applies a clean token-aligned edit', async () => {
+    const { workspace } = await import('vscode');
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written = Buffer.from(content as Uint8Array).toString('utf-8');
+    });
+
+    const result = await editFile({
+      path: 'src/greeter.ts',
+      search: 'export function greet(name: string): string {',
+      replace: 'export function welcome(name: string): string {',
+    });
+
+    expect(result).toContain('File edited');
+    expect(written).toContain('export function welcome(name: string): string {');
+    expect(written).toContain('return `Hello, ${name}!`;');
+    expect((written.match(/\{/g) || []).length).toBe((written.match(/\}/g) || []).length);
   });
 });

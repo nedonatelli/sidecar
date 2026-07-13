@@ -749,16 +749,18 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       // grep hit over the fuzzy nearest-match block, since the model has
       // already ignored the fuzzy block once (or twice).
       const preciseHint = currentContent ? buildGrepHint(currentContent, search) : null;
-      return (
+      throw new Error(
         `Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace text as your ` +
-        `last call to ${filePath}, which failed for the same reason${failureCount > 2 ? ` (attempt ${failureCount})` : ''}. ` +
-        `Repeating an identical call will never work. You MUST change your approach: (1) call read_file on ` +
-        `${filePath} right now, (2) copy the CURRENT text you want to change into search VERBATIM, and ` +
-        `(3) write your DIFFERENT intended new text into replace. search and replace must not be the same string.` +
-        `\n${preciseHint ?? hint}`
+          `last call to ${filePath}, which failed for the same reason${failureCount > 2 ? ` (attempt ${failureCount})` : ''}. ` +
+          `Repeating an identical call will never work. You MUST change your approach: (1) call read_file on ` +
+          `${filePath} right now, (2) copy the CURRENT text you want to change into search VERBATIM, and ` +
+          `(3) write your DIFFERENT intended new text into replace. search and replace must not be the same string.` +
+          `\n${preciseHint ?? hint}`,
       );
     }
-    return `Error: edit_file failed — search and replace text are identical; no change would be made.\n${hint}`;
+    throw new Error(
+      `Error: edit_file failed — search and replace text are identical; no change would be made.\n${hint}`,
+    );
   }
 
   // If the replacement is a short substring of the search string the edit
@@ -827,17 +829,21 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
           ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
           : '\n\nCall read_file to see the exact current content.';
       if (failureCount >= 2) {
-        return (
+        throw new Error(
           `Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace text as your ` +
-          `last call to ${filePath}, which failed for the same reason. Repeating an identical call will never ` +
-          `work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM into search.${hint}`
+            `last call to ${filePath}, which failed for the same reason. Repeating an identical call will never ` +
+            `work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM into search.${hint}`,
         );
       }
-      return `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
+      throw new Error(
+        `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
+      );
     }
     const matchCount = currentText.split(search).length - 1;
     if (matchCount > 1) {
-      return `Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`;
+      throw new Error(
+        `Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`,
+      );
     }
     const newText = currentText.replace(search, () => replace);
     await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
@@ -959,19 +965,51 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
         : '\n\nCall read_file to see the exact current content.';
     if (failureCount >= 2) {
-      return (
+      throw new Error(
         `${unreadPrefix}Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace ` +
-        `text as your last call to ${filePath}, which failed for the same reason. Repeating an identical call ` +
-        `will never work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM ` +
-        `into search.${hint}`
+          `text as your last call to ${filePath}, which failed for the same reason. Repeating an identical call ` +
+          `will never work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM ` +
+          `into search.${hint}`,
       );
     }
-    return `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`;
+    throw new Error(
+      `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
+    );
   }
   const matchCount = text.split(search).length - 1;
   if (matchCount > 1) {
-    return `${unreadPrefix}Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`;
+    throw new Error(
+      `${unreadPrefix}Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`,
+    );
   }
+
+  // Token-boundary guard. An exact substring match still corrupts the file when
+  // the search string starts or ends in the MIDDLE of an identifier, because
+  // the splice cuts a token in half. Live v0.119 dogfood corruption: the model
+  // searched `greet(name: string): s` (ending inside `string`) and replaced it
+  // with `welcome(name: string)`, leaving `export function welcome(name: string)tring): string {`.
+  // Bracket balance was preserved, so the structural guard could not see it —
+  // the defect is lexical, not structural. Requiring the match to align with
+  // token boundaries also blocks the classic rename hazard (search `greet`
+  // silently mangling `greeting`).
+  const isWordChar = (c: string | undefined) => c !== undefined && /\w/.test(c);
+  const matchStart = text.indexOf(search);
+  const matchEnd = matchStart + search.length;
+  const splitsStart = isWordChar(text[matchStart - 1]) && isWordChar(search[0]);
+  const splitsEnd = isWordChar(search[search.length - 1]) && isWordChar(text[matchEnd]);
+  if (splitsStart || splitsEnd) {
+    recordEditFailure(context, filePath, search, replace);
+    const edge = splitsStart && splitsEnd ? 'starts and ends' : splitsStart ? 'starts' : 'ends';
+    const context40 = text.slice(Math.max(0, matchStart - 20), Math.min(text.length, matchEnd + 20));
+    throw new Error(
+      `Error: edit_file refused this edit to ${filePath} — the search string ${edge} in the middle of a ` +
+        `word, so replacing it would splice into a token and corrupt the file. The file was NOT modified.\n\n` +
+        `Your search matched here:\n\`\`\`\n${context40}\n\`\`\`\n\n` +
+        `Extend your search string to whole tokens (start and end at a word boundary — include the complete ` +
+        `identifier, and ideally the full line or block you intend to change), then retry.`,
+    );
+  }
+
   const newText = text.replace(search, () => replace);
 
   if (context?.onOutput) {
