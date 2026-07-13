@@ -87,6 +87,14 @@ export interface AgentEvalCase {
    */
   setupMessages?: import('../../src/ollama/types.js').ChatMessage[];
   /**
+   * Keep `setupMessages` even for cold-start models (which normally drop
+   * them — prior context flips those models out of tool-use mode). Set on
+   * cases where the seeded history IS the thing under test (multi-turn
+   * latch cases): dropping it there silently converts the case into a
+   * trivial single-turn pass.
+   */
+  setupMessagesRequired?: boolean;
+  /**
    * Agent loop options. Defaults: approvalMode='autonomous',
    * maxIterations=8 (eval cases should be focused — runaway loops
    * almost always mean the case is wrong or the model regressed).
@@ -149,6 +157,15 @@ export interface AgentExpectations {
    * key/value in the expected object, but may have additional keys.
    */
   toolCallMatches?: Array<{ name: string; inputPartial: Record<string, unknown> }>;
+  /**
+   * Tool-call+input pairs that must NOT appear. Same partial/substring
+   * matching as `toolCallMatches`; omit `name` to forbid the input shape on
+   * any tool. Built for multi-turn latch cases — "no call whose path
+   * references the PREVIOUS task's file" is not expressible with
+   * `toolsNotCalled` (the tool itself is legitimate, the argument is the
+   * perseveration signal).
+   */
+  toolCallNotMatches?: Array<{ name?: string; inputPartial: Record<string, unknown> }>;
   /**
    * Post-run workspace state assertions, evaluated after the agent
    * loop finishes. The sandbox.snapshot() result is passed to each

@@ -164,8 +164,16 @@ describe('isExampleReplay', () => {
   });
 
   it('does not flag a superset of the example arguments', () => {
-    const desc = 'Example: `read_file(path="src/utils.ts")`';
-    expect(isExampleReplay('read_file', { path: 'src/utils.ts', offset: 10 }, desc)).toBe(false);
+    const desc = 'Example: `edit_file(path="src/utils.ts", search="a")`';
+    expect(isExampleReplay('edit_file', { path: 'src/utils.ts', search: 'a', replace: 'b' }, desc)).toBe(false);
+  });
+
+  it('never guards single-argument examples — real workspaces collide with them', () => {
+    // An eval fixture independently chose src/utils.ts, the exact path in
+    // read_file's description example: a legitimate single-key call can
+    // match a single-arg example by coincidence, so those are unguarded.
+    const desc = 'Read a file. Example: `read_file(path="src/utils.ts")`.';
+    expect(isExampleReplay('read_file', { path: 'src/utils.ts' }, desc)).toBe(false);
   });
 
   it('never flags empty input, non-object input, or tools without a guardable example', () => {
@@ -179,11 +187,11 @@ describe('isExampleReplay', () => {
 
   it('re-extracts when a cached tool name reappears with a changed description (MCP reconnect)', () => {
     const name = 'mcp_srv_search';
-    const descV1 = 'Example: `mcp_srv_search(query="alpha")`';
-    const descV2 = 'Example: `mcp_srv_search(query="beta")`';
-    expect(isExampleReplay(name, { query: 'alpha' }, descV1)).toBe(true);
-    expect(isExampleReplay(name, { query: 'alpha' }, descV2)).toBe(false);
-    expect(isExampleReplay(name, { query: 'beta' }, descV2)).toBe(true);
+    const descV1 = 'Example: `mcp_srv_search(query="alpha", limit=5)`';
+    const descV2 = 'Example: `mcp_srv_search(query="beta", limit=5)`';
+    expect(isExampleReplay(name, { query: 'alpha', limit: 5 }, descV1)).toBe(true);
+    expect(isExampleReplay(name, { query: 'alpha', limit: 5 }, descV2)).toBe(false);
+    expect(isExampleReplay(name, { query: 'beta', limit: 5 }, descV2)).toBe(true);
   });
 });
 

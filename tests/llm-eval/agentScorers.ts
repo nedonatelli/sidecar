@@ -86,6 +86,19 @@ function collectFailures(
     }
   }
 
+  // --- trajectory: forbidden tool-call + partial-input matches ---
+  if (expect.toolCallNotMatches) {
+    for (const match of expect.toolCallNotMatches) {
+      const found = findToolCallWithPartialInput(run.trajectory, match.name, match.inputPartial);
+      if (found && found.type === 'tool_call') {
+        out.push(
+          `toolCallNotMatches: forbidden call ${found.name}(${JSON.stringify(found.input).slice(0, 120)}) ` +
+            `matched ${JSON.stringify(match.inputPartial)}`,
+        );
+      }
+    }
+  }
+
   // --- files: existence ---
   if (expect.files?.exist) {
     for (const p of expect.files.exist) {
@@ -319,12 +332,12 @@ function firstToolCallIndex(trajectory: TrajectoryEvent[], name: string): number
 
 function findToolCallWithPartialInput(
   trajectory: TrajectoryEvent[],
-  name: string,
+  name: string | undefined,
   inputPartial: Record<string, unknown>,
 ): TrajectoryEvent | undefined {
   return trajectory.find((e) => {
     if (e.type !== 'tool_call') return false;
-    if (e.name !== name) return false;
+    if (name !== undefined && e.name !== name) return false;
     for (const [k, v] of Object.entries(inputPartial)) {
       const actual = e.input[k];
       if (typeof v === 'string' && typeof actual === 'string') {

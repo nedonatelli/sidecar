@@ -221,6 +221,41 @@ describe('parseTextToolCalls', () => {
       expect(result[0].name).toBe('grep');
     });
 
+    it('parses the OpenAI function-call shape with nested name/parameters (llama3.2 live)', () => {
+      const input =
+        'I will read the config file.\n' +
+        '{"type":"function","function":{"name":"read_file","parameters":{"path":"config/app.json"}}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('read_file');
+      expect(result[0].input).toEqual({ path: 'config/app.json' });
+    });
+
+    it('parses the OpenAI function-call shape with nested arguments', () => {
+      const input = '{"type":"function","function":{"name":"grep","arguments":{"pattern":"port","path":"config"}}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('grep');
+      expect(result[0].input).toEqual({ pattern: 'port', path: 'config' });
+    });
+
+    it('salvages a truncated bare JSON call missing its closing brace (llama3.2 live)', () => {
+      // Observed live in the latch-stale-fact eval: the emission ended one
+      // brace short, so the depth scan never closed and the call was
+      // silently dropped — the model looked like it "chose" not to read.
+      const input = '{"type":"function","function":{"name":"read_file","parameters":{"path":"config.json"}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('read_file');
+      expect(result[0]._malformedInputRaw).toBeDefined();
+    });
+
+    it('does not salvage truncated JSON without a known tool name', () => {
+      const input = '{"type":"function","function":{"name":"not_a_tool","parameters":{"x":1}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(0);
+    });
+
     it('parses multiple bare JSON lines in the same turn', () => {
       const input =
         'First call:\n{"name": "read_file", "parameters": {"path": "a.ts"}}\n' +

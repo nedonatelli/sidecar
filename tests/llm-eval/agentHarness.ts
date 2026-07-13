@@ -395,8 +395,9 @@ export async function runAgentCase(
   // Models like gemma4:e4b perform WORSE with setup messages — prior context
   // switches them from tool-use mode to chat-response mode.
   const coldStart = needsColdStart(model);
+  const keepSetup = evalCase.setupMessages && (!coldStart || evalCase.setupMessagesRequired);
   const initialMessages: ChatMessage[] = [
-    ...(!coldStart && evalCase.setupMessages ? evalCase.setupMessages : []),
+    ...(keepSetup ? evalCase.setupMessages! : []),
     { role: 'user', content: evalCase.userMessage },
   ];
 

@@ -322,7 +322,27 @@ function parseTextToolCallsInternal(
           }
         }
       }
-      if (end === -1) continue;
+      if (end === -1) {
+        // Truncated emission — the object never closes (observed live:
+        // llama3.2 emitted an OpenAI-function-shaped call missing its final
+        // brace). Don't silently drop it: salvage the tool name and emit the
+        // malformed-input marker so constrained repair gets a shot.
+        const truncated = text.slice(start);
+        if (truncated.includes('"name"')) {
+          const name = salvageToolName(truncated, toolNames);
+          if (name) {
+            firstType = 'bare';
+            results.push({
+              type: 'tool_use',
+              id: `text_tc_${idCounter++}`,
+              name,
+              input: {},
+              _malformedInputRaw: truncated,
+            });
+          }
+        }
+        continue;
+      }
       // Another object fused directly onto this one — scan it too.
       if (text[end + 1] === '{') starts.push(end + 1);
       const candidate = text.slice(start, end + 1);
@@ -330,8 +350,17 @@ function parseTextToolCallsInternal(
       if (!candidate.includes('"name"')) continue;
       try {
         const parsed = JSON.parse(candidate);
-        const name = parsed.name;
-        const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
+        // OpenAI function-call shape nests both fields one level down:
+        // {"type":"function","function":{"name":"…","parameters":{…}}}
+        const name = parsed.name || parsed.function?.name;
+        const args =
+          parsed.arguments ||
+          parsed.args ||
+          parsed.parameters ||
+          parsed.input ||
+          parsed.function?.arguments ||
+          parsed.function?.parameters ||
+          {};
         if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
           firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;

@@ -12,10 +12,15 @@
 // is never prompted to approve a parroted call.
 //
 // Deliberately conservative: fires only on a FULL exact match (same keys,
-// same values) against a successfully parsed example with at least one
-// argument. Zero-arg examples (`check_pr_ci()`) and unparseable placeholders
-// (`constraints=<JSON string>`) are never guarded. A persistent replayer is
-// backstopped by cycle detection like any other repeated call.
+// same values) against a successfully parsed example with AT LEAST TWO
+// arguments. Single-arg examples (`read_file(path="src/utils.ts")`) are
+// never guarded — a real workspace plausibly contains that exact file, so a
+// legitimate single-key call can collide with the example by coincidence
+// (nearly happened live: an eval fixture independently chose src/utils.ts).
+// Both observed true replays were 3-arg calls; multi-arg coincidence is
+// effectively impossible. Zero-arg examples and unparseable placeholders
+// (`constraints=<JSON string>`) are likewise never guarded. A persistent
+// replayer is backstopped by cycle detection like any other repeated call.
 
 const EXAMPLE_RE = /Example: `([A-Za-z_][\w.]*)\(([\s\S]*?)\)`/;
 
@@ -179,7 +184,8 @@ export function isExampleReplay(toolName: string, input: unknown, description: s
   let cached = exampleCache.get(toolName);
   if (!cached || cached.description !== description) {
     const args = extractExampleArgs(description);
-    cached = { description, canonical: args ? stableStringify(args) : null };
+    const guardable = args !== null && Object.keys(args).length >= 2;
+    cached = { description, canonical: guardable ? stableStringify(args) : null };
     exampleCache.set(toolName, cached);
   }
   if (cached.canonical === null) return false;

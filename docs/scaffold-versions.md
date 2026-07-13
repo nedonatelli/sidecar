@@ -44,10 +44,13 @@ MAJOR. Three shared-path changes, each verified against a live trajectory:
 
 - **Example-replay guard** (always on, no flag): the executor bounces any tool
   call whose arguments verbatim-match the example embedded in that tool's own
-  description. Evidence: llama3.2 replayed the `ask_user` auth-flow example on
-  a bare "hi" (live chat) and the `edit_file` example on "thanks, great work!"
-  (guard-probe sweep, 5 models × 4 config arms — the only replay signature that
-  fired in 100 probe cases).
+  description — restricted to examples with ≥2 arguments, because a legitimate
+  single-key call can collide with a single-arg example by coincidence (an
+  eval fixture independently chose `src/utils.ts`, the exact path in
+  `read_file`'s example). Evidence: llama3.2 replayed the `ask_user` auth-flow
+  example (3 args) on a bare "hi" (live chat) and the `edit_file` example
+  (3 args) on "thanks, great work!" (guard-probe sweep, 5 models × 4 config
+  arms — the only replay signature that fired in 100 probe cases).
 - **Escalating dispatch bounces**: schema / malformed-JSON / example-replay /
   unknown-tool bounce messages escalate on consecutive identical repeats
   (2nd: do-not-resubmit; 3rd+: stop-retrying-change-approach) and reset on any

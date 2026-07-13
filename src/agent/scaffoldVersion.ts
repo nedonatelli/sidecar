@@ -30,7 +30,9 @@
  * - **3.0.0** (2026-07) — always-on dispatch guards + text-repair expansion.
  *   Adds the example-replay guard (executor bounces tool calls whose arguments
  *   verbatim-match the example in that tool's own description — no flag,
- *   always on) and escalating dispatch-bounce messages (2nd consecutive
+ *   always on, restricted to examples with ≥2 arguments so legitimate
+ *   single-key calls can't collide by coincidence) and escalating
+ *   dispatch-bounce messages (2nd consecutive
  *   identical bounce: "do not resubmit"; 3rd+: "stop retrying, change
  *   approach"; streaks reset on any successful call). textParsing's bare-JSON
  *   path now recognizes the OpenAI function-call shape
