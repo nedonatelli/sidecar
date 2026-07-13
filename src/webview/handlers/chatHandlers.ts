@@ -47,6 +47,7 @@ export {
   isUndoRequest,
   isCommitRequest,
   isShowDiffRequest,
+  classifySmallTalk,
   isDeferredAnswer,
   shouldAutoEnablePlanMode,
   resolveToolTier,

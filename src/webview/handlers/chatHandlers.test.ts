@@ -9,6 +9,7 @@ import {
   isPlanRejection,
   isUndoRequest,
   isCommitRequest,
+  classifySmallTalk,
   isShowDiffRequest,
   isDeferredAnswer,
   isContinuationRequest,
@@ -656,6 +657,48 @@ describe('isUndoRequest', () => {
 // ---------------------------------------------------------------------------
 // isCommitRequest
 // ---------------------------------------------------------------------------
+describe('classifySmallTalk', () => {
+  it('recognises pure greetings', () => {
+    expect(classifySmallTalk('hi')).toBe('greeting');
+    expect(classifySmallTalk('Hello!')).toBe('greeting');
+    expect(classifySmallTalk('hey there')).toBe('greeting');
+    expect(classifySmallTalk('good morning')).toBe('greeting');
+    expect(classifySmallTalk('Hi, SideCar!')).toBe('greeting');
+  });
+
+  it('recognises pure gratitude', () => {
+    expect(classifySmallTalk('thanks')).toBe('gratitude');
+    expect(classifySmallTalk('thank you so much')).toBe('gratitude');
+    expect(classifySmallTalk('thanks, great work!')).toBe('gratitude');
+    expect(classifySmallTalk('great job')).toBe('gratitude');
+    expect(classifySmallTalk('perfect, thanks')).toBe('gratitude');
+    expect(classifySmallTalk("that's exactly what I wanted")).toBe('gratitude');
+  });
+
+  it('NEVER matches messages that carry a task — false positives swallow work', () => {
+    expect(classifySmallTalk('hi, rename greet to welcome')).toBeNull();
+    expect(classifySmallTalk('thanks, now run the tests')).toBeNull();
+    expect(classifySmallTalk('hello world program in src/hello.ts please')).toBeNull();
+    expect(classifySmallTalk('great work, but the clamp function has a bug')).toBeNull();
+    expect(classifySmallTalk('hey can you explain src/greeter.ts')).toBeNull();
+    expect(classifySmallTalk('thank you for the diff, apply it')).toBeNull();
+  });
+
+  it('rejects slash commands, mentions, and long messages', () => {
+    expect(classifySmallTalk('/help')).toBeNull();
+    expect(classifySmallTalk('@gemma4:e4b hi')).toBeNull();
+    expect(classifySmallTalk('hi '.repeat(30))).toBeNull();
+    expect(classifySmallTalk('')).toBeNull();
+  });
+
+  it('does not treat approvals or continuations as small talk', () => {
+    expect(classifySmallTalk('yes')).toBeNull();
+    expect(classifySmallTalk('go ahead')).toBeNull();
+    expect(classifySmallTalk('continue')).toBeNull();
+    expect(classifySmallTalk('lgtm')).toBeNull();
+  });
+});
+
 describe('isCommitRequest', () => {
   it('recognises bare commit', () => {
     expect(isCommitRequest('commit')).toBe(true);

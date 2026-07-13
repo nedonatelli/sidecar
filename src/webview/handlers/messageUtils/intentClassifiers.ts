@@ -179,3 +179,47 @@ export function isContinuationRequest(text: string): boolean {
   if (trimmed.startsWith('/')) return false;
   return CONTINUATION_PATTERNS.some((re) => re.test(trimmed));
 }
+
+// --- Small talk (greeting / gratitude) ---------------------------------------
+// A pure greeting or thanks carries no task, but weak local models treat ANY
+// turn as a work order: a bare "hi" produced a 10-iteration exploration run
+// and "thanks, great work!" made llama3.2 redo the previous edit (latch eval:
+// 0/3). Intercepting small talk with a canned reply BEFORE the agent loop is
+// the deterministic fix — zero tokens, zero variance, and nothing for the
+// model to latch onto. Patterns are strict full-string matches so any message
+// carrying an actual task ("hi, rename greet to welcome") falls through to
+// the model.
+
+const GREETING_PATTERNS: RegExp[] = [
+  /^(hi|hii+|hello|hey|heya|yo|sup|howdy|hiya)( there)?( sidecar)?[!.\s]*$/i,
+  /^good (morning|afternoon|evening)[!.\s]*$/i,
+  /^(hi|hello|hey),? (sidecar|there)[!.\s]*$/i,
+];
+
+const GRATITUDE_PATTERNS: RegExp[] = [
+  /^(thanks|thank you|thankyou|thx|ty|cheers)[!.\s]*$/i,
+  /^(thanks|thank you),? (a lot|so much|again|man)[!.\s]*$/i,
+  /^(great|nice|good|awesome|excellent|amazing) (work|job)[!.\s]*$/i,
+  /^(thanks|thank you|thx),? (great|nice|good|awesome) (work|job)[!.\s]*$/i,
+  /^(perfect|awesome|great|nice|excellent)(,? thanks( a lot)?| thank you)?[!.\s]*$/i,
+  /^(that('s| is|s) )?(perfect|great|awesome|exactly what i (wanted|needed))[!.\s]*$/i,
+  /^you('re| are) (the best|awesome|great)[!.\s]*$/i,
+];
+
+export type SmallTalkKind = 'greeting' | 'gratitude';
+
+/**
+ * Classify a message as pure small talk, or null when it (possibly also)
+ * carries a task. Strict by design: full-string anchored patterns with a
+ * short length cap — a false positive here swallows real work, while a false
+ * negative merely costs one model round-trip.
+ */
+export function classifySmallTalk(text: string): SmallTalkKind | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (trimmed.length === 0 || trimmed.length > 40) return null;
+  if (trimmed.startsWith('/') || trimmed.startsWith('@')) return null;
+  if (GREETING_PATTERNS.some((re) => re.test(trimmed))) return 'greeting';
+  if (GRATITUDE_PATTERNS.some((re) => re.test(trimmed))) return 'gratitude';
+  return null;
+}

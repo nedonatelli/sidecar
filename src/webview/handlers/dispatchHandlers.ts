@@ -39,6 +39,7 @@ import {
   isUndoRequest,
   isCommitRequest,
   isShowDiffRequest,
+  classifySmallTalk,
 } from './chatHandlers.js';
 import {
   classifyReviewFacets,
@@ -260,6 +261,27 @@ export function buildDispatchHandlers(
       if (/^\/guards$/i.test(text)) {
         await handleGuardsStatus(state);
         return;
+      }
+
+      // Pure small talk never reaches the model: a bare "hi" sent llama3.2 on
+      // a 10-iteration exploration run, and "thanks!" after a task made it
+      // redo the previous edit (latch eval 0/3). A canned reply is instant,
+      // free, and leaves nothing in the transcript for a weak model to latch
+      // onto. Guarded on !pendingPlan so plan approval/rejection flow always
+      // wins — "perfect!" while a plan is pending means "approve", not chat.
+      if (!state.pendingPlan) {
+        const smallTalk = classifySmallTalk(text);
+        if (smallTalk) {
+          state.postMessage({
+            command: 'assistantMessage',
+            content:
+              smallTalk === 'greeting'
+                ? "Hi! Tell me what you'd like to do — explain a file, make an edit, run tests, or ask anything about this codebase."
+                : "You're welcome! Anything else you'd like me to do?",
+          });
+          state.postMessage({ command: 'done' });
+          return;
+        }
       }
 
       if (state.pendingPlan) {

@@ -30,6 +30,7 @@ vi.mock('./chatHandlers.js', () => ({
   isUndoRequest: vi.fn().mockReturnValue(false),
   isCommitRequest: vi.fn().mockReturnValue(false),
   isShowDiffRequest: vi.fn().mockReturnValue(false),
+  classifySmallTalk: vi.fn().mockReturnValue(null),
   handleShowSystemPrompt: vi.fn(),
   handleReconnect: vi.fn(),
 }));
@@ -794,6 +795,30 @@ describe('buildDispatchHandlers', () => {
     vi.mocked(isCommitRequest).mockReturnValueOnce(true);
     await invoke(handlers, 'userMessage', { text: 'commit' });
     expect(handleGenerateCommit).toHaveBeenCalledWith(state);
+  });
+
+  it('userMessage that is pure small talk gets a canned reply and never reaches the agent loop', async () => {
+    const { classifySmallTalk, handleUserMessage } = await import('./chatHandlers.js');
+    vi.mocked(classifySmallTalk).mockReturnValueOnce('greeting');
+    await invoke(handlers, 'userMessage', { text: 'hi' });
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('Hi!') }),
+    );
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    expect(handleUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('small-talk intercept stands down while a plan is pending — approval flow wins', async () => {
+    const { classifySmallTalk, isPlanApproval } = await import('./chatHandlers.js');
+    const { handleExecutePlan } = await import('./agentHandlers.js');
+    state.pendingPlan = { text: 'a plan' } as never;
+    vi.mocked(isPlanApproval).mockReturnValueOnce(true);
+    await invoke(handlers, 'userMessage', { text: 'perfect!' });
+    // The classifier is never even consulted while a plan is pending —
+    // "perfect!" must mean "approve", not chat.
+    expect(vi.mocked(classifySmallTalk)).not.toHaveBeenCalled();
+    expect(handleExecutePlan).toHaveBeenCalled();
+    state.pendingPlan = null;
   });
 
   it('userMessage with isShowDiffRequest and no changelog changes posts no-changes message', async () => {
