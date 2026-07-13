@@ -685,7 +685,7 @@ export class SideCarClient {
     return this.systemPrompt;
   }
 
-  async getModelContextLength(): Promise<number | null> {
+  async getModelContextLength(signal?: AbortSignal): Promise<number | null> {
     const provider = this.getProviderType();
 
     if (provider === 'copilot') {
@@ -697,7 +697,10 @@ export class SideCarClient {
       // (post-v0.6 patch). Query /v1/models, find our model, return
       // context_length. Returns null for models not currently loaded.
       try {
-        const response = await fetch(`${this.baseUrl}/v1/models`);
+        const kickstandTimeout = AbortSignal.timeout(10_000);
+        const response = await fetch(`${this.baseUrl}/v1/models`, {
+          signal: signal ? AbortSignal.any([signal, kickstandTimeout]) : kickstandTimeout,
+        });
         if (!response.ok) return MODEL_CONTEXT_LENGTHS[this.model] ?? null;
         const data = (await response.json()) as {
           data?: { id: string; context_length?: number | null }[];
@@ -723,10 +726,18 @@ export class SideCarClient {
       return known ?? null;
     }
     try {
+      // Hard-capped and abortable: this runs BEFORE the agent loop's first
+      // iteration, so an unsignalled hang here wedges the whole run with the
+      // spinner up and Stop dead (observed live in the v0.119 dogfood pass —
+      // a rename run hung 9+ minutes pre-iteration and abort had no effect).
+      // A stale probe is harmless (we fall back to 32K); a hung probe is not.
+      const timeout = AbortSignal.timeout(10_000);
+      const composed = signal ? AbortSignal.any([signal, timeout]) : timeout;
       const response = await fetch(`${this.baseUrl}/api/show`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: this.model }),
+        signal: composed,
       });
       if (!response.ok) return 32_768;
       const data = (await response.json()) as Record<string, unknown>;

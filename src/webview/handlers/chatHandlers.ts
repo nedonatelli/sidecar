@@ -191,7 +191,7 @@ async function buildSystemPromptForRun(
   signal?.throwIfAborted();
   state.postMessage({ command: 'typingStatus', content: 'Building context...' });
   const ctxT0 = Date.now();
-  const rawContextLength = await state.client.getModelContextLength();
+  const rawContextLength = await state.client.getModelContextLength(signal);
   const modelInfoMs = Date.now() - ctxT0;
   signal?.throwIfAborted();
   const userContextLimit = getContextLimit();
