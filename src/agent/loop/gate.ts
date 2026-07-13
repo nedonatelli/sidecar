@@ -527,11 +527,24 @@ export async function maybeInjectCompletionGate(
         // Resolve to absolute paths so the check is cwd-independent.
         const toCheck = editedList.map((f) => (root && !path.isAbsolute(f) ? path.join(root, f) : f));
         logger?.info(`Syntax gate: checking ${toCheck.length} file(s) — ${toCheck.join(', ')}`);
-        const failures = await runSyntaxGate(toCheck, async (cmd) => {
-          const r = await runVerificationCommand(cmd, 15_000, signal);
-          if (r.timedOut) logger?.warn(`Syntax gate: parse-check timed out (15s) — ${cmd}`);
-          return { exitCode: r.exitCode, output: r.output };
-        });
+        const failures = await runSyntaxGate(
+          toCheck,
+          async (cmd) => {
+            const r = await runVerificationCommand(cmd, 15_000, signal);
+            if (r.timedOut) logger?.warn(`Syntax gate: parse-check timed out (15s) — ${cmd}`);
+            return { exitCode: r.exitCode, output: r.output };
+          },
+          // Reader for the in-process (tree-sitter) parse check — no shell.
+          async (file) => {
+            try {
+              const { workspace, Uri } = await import('vscode');
+              const bytes = await workspace.fs.readFile(Uri.file(file));
+              return Buffer.from(bytes).toString('utf-8');
+            } catch {
+              return null;
+            }
+          },
+        );
         if (failures.length > 0) {
           gateState.syntaxGateInjections = (gateState.syntaxGateInjections ?? 0) + 1;
           // Mark these files as gate-supervised fix targets so the write-target

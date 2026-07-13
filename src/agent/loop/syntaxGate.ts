@@ -10,9 +10,17 @@
 // parse check and refuse to finish if the code doesn't parse. No model
 // judgment, no false positives — it either parses or it doesn't.
 //
-// Scope: languages with a fast, dependency-free per-file syntax check. TS is
-// intentionally omitted — it's covered by tsc + VS Code diagnostics (autofix),
-// and there's no cheap per-file TS syntax check.
+// Scope: TWO checkers, in priority order.
+//   1. IN-PROCESS (tree-sitter) — TypeScript + 18 other languages, ~0.1ms per
+//      parse once warm, no shell. See `agent/tools/syntaxCheck.ts`.
+//   2. SHELL (py_compile / node --check) — retained for Python and JS, where
+//      the interpreter reports errors tree-sitter's error recovery can smooth
+//      over (e.g. IndentationError).
+//
+// TS was previously omitted on the theory that tsc + VS Code diagnostics cover
+// it. Dogfooding disproved that: in a workspace with neither, a TS-only edit
+// logged "no parse-checkable files among edited" and the run FINISHED with a
+// syntactically broken .ts file on disk. Any language we can parse, we check.
 // ---------------------------------------------------------------------------
 
 const PARSE_CHECKERS: ReadonlyArray<{ ext: RegExp; cmd: (quoted: string) => string }> = [
@@ -72,9 +80,36 @@ export interface SyntaxFailure {
 export async function runSyntaxGate(
   editedFiles: readonly string[],
   runCmd: (cmd: string) => Promise<{ exitCode: number; output: string }>,
+  readFile?: (file: string) => Promise<string | null>,
 ): Promise<SyntaxFailure[]> {
   const failures: SyntaxFailure[] = [];
+
+  // In-process parse check first — covers TypeScript and 18 other languages
+  // with no shell, and is the only coverage TS gets (there is no cheap
+  // per-file tsc check, so TS edits used to reach "done" completely
+  // unverified: the v0.119 dogfood run finished with a syntactically broken
+  // .ts file after logging "no parse-checkable files among edited"). ~0.1ms
+  // per parse once the grammar is warm; fails open when no grammar applies.
+  if (readFile) {
+    const { checkSyntax } = await import('../tools/syntaxCheck.js');
+    for (const file of editedFiles) {
+      const content = await readFile(file).catch(() => null);
+      if (content === null) continue;
+      const result = await checkSyntax(file, content);
+      if (!result.checked || !result.broken) continue;
+      const where = result.firstErrorLine ? ` at line ${result.firstErrorLine}` : '';
+      failures.push({
+        file,
+        output:
+          `${file} does not parse${where} (${result.errorCount} syntax error${result.errorCount === 1 ? '' : 's'}). ` +
+          `Read the file and fix the broken syntax — check for wrongly escaped characters, unbalanced ` +
+          `brackets, or a construct that was only partially replaced.`,
+      });
+    }
+  }
+
   for (const file of editedFiles) {
+    if (failures.some((f) => f.file === file)) continue; // already reported in-process
     const cmd = parseCheckCommand(file);
     if (!cmd) continue;
     const { exitCode, output } = await runCmd(cmd);
@@ -93,9 +128,18 @@ export async function runSyntaxGate(
   return failures;
 }
 
-/** Returns true if any edited file has a parse-checker (cheap pre-check to avoid spawning a shell). */
+/** Extensions the in-process (tree-sitter) parse check covers. Mirrors syntaxCheck.ts. */
+const IN_PROCESS_CHECKABLE = /\.(ts|tsx|js|jsx|mjs|cjs|py|rs|go|java|rb|c|cpp|cs|php|lua|swift|kt|scala|dart)$/i;
+
+/**
+ * Returns true if any edited file can be parse-checked at all — in-process
+ * (tree-sitter, covers TS + 18 more) or via a shell checker. Previously this
+ * only saw the two shell checkers, so a TS-only edit logged "no parse-checkable
+ * files" and finished unverified — which is how a syntactically broken .ts file
+ * reached "done" in the v0.119 dogfood run.
+ */
 export function hasCheckableFiles(editedFiles: readonly string[]): boolean {
-  return editedFiles.some((f) => parseCheckCommand(f) !== null);
+  return editedFiles.some((f) => IN_PROCESS_CHECKABLE.test(f) || parseCheckCommand(f) !== null);
 }
 
 /** Synthetic reprompt naming the unparseable files and their errors. */

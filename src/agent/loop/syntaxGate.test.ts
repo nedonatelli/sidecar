@@ -90,12 +90,56 @@ describe('runSyntaxGate', () => {
     expect(await runSyntaxGate(['a.ts', 'b.md'], runCmd)).toEqual([]);
     expect(runCmd).not.toHaveBeenCalled();
   });
+
+  it('reports a broken TypeScript file via the in-process parser — no shell', async () => {
+    // v0.119 dogfood: a corrupted .ts file reached "done" because the gate only
+    // knew the py/js shell checkers. With a reader wired, tree-sitter covers TS.
+    const { __setParserForTests, __resetParserCache } = await import('../tools/syntaxCheck.js');
+    const errNode = {
+      type: 'ERROR',
+      hasError: true,
+      startPosition: { row: 1, column: 0 },
+      childCount: 0,
+      child: () => null,
+    };
+    __setParserForTests('typescript', {
+      parse: (content: string) => ({
+        rootNode: {
+          type: 'program',
+          hasError: content.includes('BROKEN'),
+          startPosition: { row: 0, column: 0 },
+          childCount: content.includes('BROKEN') ? 1 : 0,
+          child: () => errNode,
+        },
+      }),
+    } as never);
+
+    const runCmd = vi.fn();
+    const readFile = async (f: string) => (f.endsWith('bad.ts') ? 'BROKEN source' : 'clean source');
+    const failures = await runSyntaxGate(['good.ts', 'bad.ts'], runCmd, readFile);
+
+    expect(failures.map((f) => f.file)).toEqual(['bad.ts']);
+    expect(failures[0].output).toContain('does not parse');
+    expect(failures[0].output).toContain('line 2');
+    expect(runCmd).not.toHaveBeenCalled(); // in-process — never touches the shell
+    __resetParserCache();
+  });
 });
 
 describe('hasCheckableFiles', () => {
-  it('is true only when a parse-checkable file is present', () => {
-    expect(hasCheckableFiles(['a.ts', 'b.md'])).toBe(false);
+  it('covers TypeScript via the in-process parser (v0.119: TS-only edits used to skip the gate)', () => {
+    // The shell checkers only handle py/js, so a TS-only edit logged "no
+    // parse-checkable files" and finished unverified — a syntactically broken
+    // .ts file reached "done" in the dogfood run. Tree-sitter covers TS now.
+    expect(hasCheckableFiles(['a.ts'])).toBe(true);
+    expect(hasCheckableFiles(['a.tsx', 'b.md'])).toBe(true);
+    expect(hasCheckableFiles(['a.rs'])).toBe(true);
     expect(hasCheckableFiles(['a.ts', 'c.py'])).toBe(true);
+  });
+
+  it('is false when nothing edited can be parsed at all', () => {
+    expect(hasCheckableFiles(['b.md', 'notes.txt', 'data.json'])).toBe(false);
+    expect(hasCheckableFiles([])).toBe(false);
   });
 });
 
