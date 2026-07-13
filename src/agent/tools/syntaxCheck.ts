@@ -4,118 +4,123 @@
 // The v0.119 dogfood pass produced three distinct corruptions of one 4-line
 // file, each slipping the previous guard:
 //   1. STRUCTURAL — an inferred edit replaced a block HEADER with a
-//      self-contained one-liner, orphaning the body (caught by the delimiter
-//      balance invariant).
+//      self-contained one-liner, orphaning the body (delimiter-balance guard).
 //   2. LEXICAL — an exact match ended mid-token (`…: s` inside `string`), so
-//      the splice cut an identifier in half (caught by the token-boundary
-//      invariant).
+//      the splice cut an identifier in half (token-boundary guard).
 //   3. SEMANTIC — the model emitted regex-ESCAPED source as its replacement
 //      (`function welcome\(name: s\)`). Balanced, token-aligned, and complete
 //      garbage. No lexical or structural rule can see it.
 //
 // The invariant that subsumes all three: an edit must not make a file stop
-// parsing. Tree-sitter grammars already ship with the extension (used by the
-// symbol index), so this is a cheap in-process check — no shell, no tsc, and
-// it covers TypeScript, which the completion-time syntax gate deliberately
-// skips ("no cheap per-file TS syntax check").
+// parsing. Verified against the shipped grammars — the clean fixture parses
+// with 0 errors and all three corruptions are flagged.
 //
-// Fail-open by design: when no grammar is available for the extension, or the
-// parser cannot load, the edit proceeds. A guard that blocks edits because a
-// grammar is missing would be worse than the corruption it prevents.
+// PERFORMANCE IS PART OF CORRECTNESS HERE. The first cut of this guard called
+// `parsing/registry.getAnalyzer`, which builds the symbol-index analyzer by
+// loading ALL 19 grammars serially: measured 3m20s cold in the extension host,
+// stalling a single edit that long — and when the load failed it fell back to
+// the regex analyzer, which exposes no parse tree, so the guard silently
+// failed open and a corrupting edit landed anyway. This module therefore:
+//   • loads exactly ONE grammar, for the language of the file being edited,
+//   • caches parsers per language across calls,
+//   • races every check against a hard timeout, and
+//   • fails OPEN on timeout / missing grammar / any error.
+// Fail-open is deliberate: blocking edits because a grammar is slow or absent
+// would be worse than the corruption it prevents. But a guard that ALWAYS
+// fails open is no guard, so the timeout is generous enough for a warm parser
+// (which is the steady state) and the load is scoped to one language.
 
 import * as path from 'path';
-import { getAnalyzer } from '../../parsing/registry.js';
+import { getGrammarsPath } from '../../parsing/registry.js';
 
-/** Extensions we can parse-check. Mirrors the tree-sitter grammar set. */
-const CHECKABLE = new Set([
-  'ts',
-  'tsx',
-  'js',
-  'jsx',
-  'py',
-  'rs',
-  'go',
-  'java',
-  'rb',
-  'c',
-  'cpp',
-  'cs',
-  'php',
-  'lua',
-  'swift',
-  'kt',
-  'scala',
-  'dart',
-]);
+/** File extension → tree-sitter grammar name. Mirrors the shipped wasm set. */
+const EXT_TO_GRAMMAR: Record<string, string> = {
+  ts: 'typescript',
+  tsx: 'tsx',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  py: 'python',
+  rs: 'rust',
+  go: 'go',
+  java: 'java',
+  rb: 'ruby',
+  c: 'c',
+  cpp: 'cpp',
+  cs: 'c_sharp',
+  php: 'php',
+  lua: 'lua',
+  swift: 'swift',
+  kt: 'kotlin',
+  scala: 'scala',
+  dart: 'dart',
+};
+
+/** Milliseconds a syntax check may take before the edit proceeds unchecked. */
+const CHECK_TIMEOUT_MS = 10_000;
+
+interface TsNode {
+  type: string;
+  isMissing?: boolean | (() => boolean);
+  hasError?: boolean | (() => boolean);
+  startPosition?: { row: number; column: number };
+  childCount: number;
+  child(i: number): TsNode | null;
+}
+interface TsParser {
+  parse(content: string): { rootNode: TsNode } | null;
+}
+
+const parserCache = new Map<string, TsParser | null>();
+
+/** Load (and cache) a parser for one grammar. Null when unavailable. */
+async function parserFor(grammar: string): Promise<TsParser | null> {
+  const cached = parserCache.get(grammar);
+  if (cached !== undefined) return cached;
+
+  const wasmDir = getGrammarsPath();
+  if (!wasmDir) {
+    parserCache.set(grammar, null);
+    return null;
+  }
+  try {
+    const { createParser } = await import('../../parsing/treeSitterLoader.js');
+    const parser = (await createParser(wasmDir, grammar)) as unknown as TsParser;
+    parserCache.set(grammar, parser);
+    return parser;
+  } catch {
+    parserCache.set(grammar, null); // don't retry a failing grammar on every edit
+    return null;
+  }
+}
 
 export interface SyntaxCheckResult {
-  /** True when the check ran and found the content unparseable. */
+  /** True only when the check RAN and found the content unparseable. */
   broken: boolean;
-  /** Number of ERROR/MISSING nodes; 0 when clean or unchecked. */
   errorCount: number;
-  /** First error's 1-based line, when known. */
   firstErrorLine?: number;
-  /** False when no grammar applies — caller must treat the edit as unverified, not unsafe. */
+  /** False when the check could not run — the edit is unverified, not unsafe. */
   checked: boolean;
 }
 
 const UNCHECKED: SyntaxCheckResult = { broken: false, errorCount: 0, checked: false };
 
-/**
- * Count parse errors in `content` for the language implied by `filePath`.
- * Never throws — any failure resolves to "unchecked".
- */
-export async function checkSyntax(filePath: string, content: string): Promise<SyntaxCheckResult> {
-  const ext = path.extname(filePath).slice(1).toLowerCase();
-  if (!CHECKABLE.has(ext)) return UNCHECKED;
+const asBool = (v: boolean | (() => boolean) | undefined): boolean => (typeof v === 'function' ? v() : v === true);
 
-  try {
-    const analyzer = await getAnalyzer(ext);
-    // The regex fallback cannot detect syntax errors — only the tree-sitter
-    // analyzer exposes a parse tree. `parseTree` is optional on the interface,
-    // so its absence means "no grammar loaded" → unchecked, never "broken".
-    const parseTree = (analyzer as { parseTree?: (p: string, c: string) => { rootNode: unknown } | null }).parseTree;
-    if (typeof parseTree !== 'function') return UNCHECKED;
-
-    const tree = parseTree.call(analyzer, filePath, content);
-    if (!tree?.rootNode) return UNCHECKED;
-
-    const errors = collectErrorNodes(tree.rootNode as TsNode);
-    return {
-      broken: errors.length > 0,
-      errorCount: errors.length,
-      firstErrorLine: errors[0]?.startPosition ? errors[0].startPosition.row + 1 : undefined,
-      checked: true,
-    };
-  } catch {
-    return UNCHECKED;
-  }
-}
-
-interface TsNode {
-  type: string;
-  isError?: boolean;
-  isMissing?: boolean;
-  hasError?: boolean;
-  startPosition?: { row: number; column: number };
-  childCount: number;
-  child(i: number): TsNode | null;
-}
-
-/** Depth-first collect of ERROR / MISSING nodes, bounded so a pathological tree can't stall an edit. */
-function collectErrorNodes(root: TsNode, limit = 20): TsNode[] {
+/** Depth-first collect of ERROR / MISSING nodes, bounded so a huge tree can't stall an edit. */
+function collectErrors(root: TsNode, limit = 20): TsNode[] {
   const found: TsNode[] = [];
   const stack: TsNode[] = [root];
   let visited = 0;
-  while (stack.length > 0 && found.length < limit && visited < 20_000) {
+  while (stack.length > 0 && found.length < limit && visited < 50_000) {
     const node = stack.pop()!;
     visited++;
-    if (node.type === 'ERROR' || node.isError === true || node.isMissing === true) {
+    if (node.type === 'ERROR' || asBool(node.isMissing)) {
       found.push(node);
-      continue; // don't descend into a broken subtree — its children are noise
+      continue; // a broken subtree's children are noise
     }
-    // Prune: a subtree with no error anywhere can be skipped wholesale.
-    if (node.hasError === false) continue;
+    if (node.hasError !== undefined && !asBool(node.hasError)) continue; // prune clean subtrees
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i);
       if (child) stack.push(child);
@@ -124,11 +129,45 @@ function collectErrorNodes(root: TsNode, limit = 20): TsNode[] {
   return found;
 }
 
+async function checkSyntaxUnbounded(filePath: string, content: string): Promise<SyntaxCheckResult> {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  const grammar = EXT_TO_GRAMMAR[ext];
+  if (!grammar) return UNCHECKED;
+
+  const parser = await parserFor(grammar);
+  if (!parser) return UNCHECKED;
+
+  const tree = parser.parse(content);
+  if (!tree?.rootNode) return UNCHECKED;
+
+  const errors = collectErrors(tree.rootNode);
+  const first = errors[0]?.startPosition?.row;
+  return {
+    broken: errors.length > 0,
+    errorCount: errors.length,
+    ...(first !== undefined ? { firstErrorLine: first + 1 } : {}),
+    checked: true,
+  };
+}
+
+/** Parse-check `content`. Never throws, never hangs — resolves UNCHECKED on any failure or timeout. */
+export async function checkSyntax(filePath: string, content: string): Promise<SyntaxCheckResult> {
+  try {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<SyntaxCheckResult>((resolve) => {
+      timer = setTimeout(() => resolve(UNCHECKED), CHECK_TIMEOUT_MS);
+    });
+    const result = await Promise.race([checkSyntaxUnbounded(filePath, content), timeout]);
+    if (timer) clearTimeout(timer);
+    return result;
+  } catch {
+    return UNCHECKED;
+  }
+}
+
 /**
- * Decide whether an edit may be written. An edit is refused only when it makes
- * a file that PARSED CLEANLY stop parsing — never when the file was already
- * broken (the model may be repairing it), and never when the language has no
- * grammar.
+ * Refuse an edit only when it makes a file that PARSED CLEANLY stop parsing.
+ * A file that was already broken stays editable — repairs must never be trapped.
  */
 export async function editWouldBreakSyntax(
   filePath: string,
@@ -139,12 +178,7 @@ export async function editWouldBreakSyntax(
   if (!afterCheck.checked || !afterCheck.broken) return { refuse: false };
 
   const beforeCheck = await checkSyntax(filePath, before);
-  // Already broken → the model is allowed to try to fix it (and must not be
-  // trapped in a state where every repair attempt is refused).
-  if (beforeCheck.broken && beforeCheck.errorCount <= afterCheck.errorCount) {
-    return { refuse: false };
-  }
-  if (beforeCheck.broken) return { refuse: false };
+  if (!beforeCheck.checked || beforeCheck.broken) return { refuse: false };
 
   const where = afterCheck.firstErrorLine ? ` The first parse error is at line ${afterCheck.firstErrorLine}.` : '';
   return {
@@ -155,6 +189,17 @@ export async function editWouldBreakSyntax(
       `${where} The file was NOT modified.\n\n` +
       `Common causes: the replacement text is escaped or quoted wrongly (e.g. \`\\(\` instead of \`(\`), a ` +
       `bracket or brace is unbalanced, or the replacement is only part of the construct it replaces.\n\n` +
-      `Call read_file on ${filePath}, then send a replacement that is valid, complete source code.`,
+      `Call read_file on ${filePath}, then send a replacement that is valid, complete source code — ` +
+      `exactly what should appear in the file, with no escaping.`,
   };
+}
+
+/** Test seam: inject a parser (or null) for a grammar without touching disk. */
+export function __setParserForTests(grammar: string, parser: TsParser | null): void {
+  parserCache.set(grammar, parser);
+}
+
+/** Test seam: clear the parser cache. */
+export function __resetParserCache(): void {
+  parserCache.clear();
 }

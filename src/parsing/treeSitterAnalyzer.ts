@@ -209,25 +209,6 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
     this.parsers = parsers;
   }
 
-  /**
-   * Raw parse tree for a file's content, or null when no grammar applies.
-   * Used by the edit-time syntax guard (`src/agent/tools/syntaxCheck.ts`) to
-   * refuse edits that would make a parsing file stop parsing — the general
-   * defence against agent-authored corruption. Not part of `CodeAnalyzer`:
-   * the regex fallback has no tree, and its absence reads as "unchecked".
-   */
-  parseTree(filePath: string, content: string): { rootNode: unknown } | null {
-    const ext = path.extname(filePath).slice(1).toLowerCase();
-    const langName = EXT_TO_LANGUAGE[ext];
-    const parser = langName ? this.parsers.get(langName) : undefined;
-    if (!parser) return null;
-    try {
-      return parser.parse(content) as unknown as { rootNode: unknown };
-    } catch {
-      return null;
-    }
-  }
-
   parseFileContent(filePath: string, content: string): ParsedFile {
     const ext = path.extname(filePath).slice(1).toLowerCase();
     const langName = EXT_TO_LANGUAGE[ext];

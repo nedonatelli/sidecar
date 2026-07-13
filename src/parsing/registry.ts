@@ -72,6 +72,17 @@ export function setGrammarsPath(grammarsPath: string): void {
 }
 
 /**
+ * Where the grammar wasm files live, or null before activation wires it.
+ * The edit-time syntax guard (`agent/tools/syntaxCheck.ts`) needs this to load
+ * ONE grammar for the file it is checking — going through `getAnalyzer` would
+ * drag in all 19 grammars serially (measured: 3m20s cold in the extension
+ * host, which stalled an edit that long before failing open).
+ */
+export function getGrammarsPath(): string | null {
+  return extensionGrammarsPath;
+}
+
+/**
  * Get the best available analyzer for a file extension.
  * Lazy-loads tree-sitter on first call. Falls back to regex on failure.
  */
