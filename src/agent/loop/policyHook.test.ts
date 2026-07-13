@@ -52,6 +52,7 @@ function makeState(logger?: AgentLogger): LoopState {
     forceVerifyBeforeBailByFile: new Map(),
     filesEditedViaEditTool: new Set(),
     editFailureSignatures: new Map(),
+    bounceCounts: new Map(),
     planRef: { plan: null },
     escalatedRewriteByFile: new Set(),
     enforceEditBlocksByFile: new Map(),

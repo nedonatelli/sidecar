@@ -177,6 +177,14 @@ export interface LoopState {
   // this to escalate the error message on a verbatim repeat rather than
   // showing the same hint again, and clears the entry on a successful edit.
   editFailureSignatures: Map<string, string>;
+
+  // Consecutive dispatch-bounce counts per (tool, kind): schema validation,
+  // malformed JSON, example replay, unknown tool. The executor escalates its
+  // bounce message on identical repeats (2nd: "do not resubmit"; 3rd+:
+  // "stop retrying, change approach") and clears a tool's entries on any
+  // successful execution — same weak-model-loop rationale as
+  // editFailureSignatures above.
+  bounceCounts: Map<string, number>;
   /** Externalized plan (S1): the loop re-injects <plan_state> each turn; update_plan mutates planRef.plan. */
   planRef: { plan: import('../plans/externalPlan.js').ExternalPlan | null };
 
@@ -337,6 +345,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
     editFailureSignatures: new Map<string, string>(),
+    bounceCounts: new Map<string, number>(),
     planRef: { plan: options.initialPlan ?? null },
     escalatedRewriteByFile: new Set<string>(),
     enforceEditBlocksByFile: new Map<string, number>(),

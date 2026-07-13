@@ -130,6 +130,42 @@ describe('executeTool', () => {
     expect(executor).not.toHaveBeenCalled();
   });
 
+  it('escalates repeated bounces of the same kind and resets on success', async () => {
+    const executor = vi.fn().mockResolvedValue('done');
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'write_file',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' }, content: { type: 'string' } },
+          required: ['path', 'content'],
+        },
+      },
+      executor,
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { write_file: 'allow' } });
+    const bounceCounts = new Map<string, number>();
+    const opts = { executorContext: { bounceCounts } as never };
+
+    const first = await executeTool(makeToolUse('write_file', { path: 'a.md' }), opts);
+    expect(first.is_error).toBe(true);
+    expect(first.content).not.toContain('consecutive');
+
+    const second = await executeTool(makeToolUse('write_file', { path: 'a.md' }), opts);
+    expect(second.content).toContain('2nd consecutive write_file call');
+
+    const third = await executeTool(makeToolUse('write_file', { path: 'a.md' }), opts);
+    expect(third.content).toContain('CRITICAL: 3 consecutive write_file calls');
+
+    // A successful call clears the streak; the next bounce starts over.
+    const ok = await executeTool(makeToolUse('write_file', { path: 'a.md', content: 'x' }), opts);
+    expect(ok.is_error).toBeFalsy();
+    const fresh = await executeTool(makeToolUse('write_file', { path: 'a.md' }), opts);
+    expect(fresh.content).not.toContain('consecutive');
+  });
+
   it('runs a tool normally when the arguments differ from the description example', async () => {
     const executor = vi.fn().mockResolvedValue('file contents');
     mockedFindTool.mockReturnValue({

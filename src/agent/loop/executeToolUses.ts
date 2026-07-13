@@ -250,6 +250,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       writesSinceVerifyByFile: state.writesSinceVerifyByFile,
       filesEditedViaEditTool: state.filesEditedViaEditTool,
       editFailureSignatures: state.editFailureSignatures,
+      bounceCounts: state.bounceCounts,
       planRef: state.planRef,
     },
     inlineEditFn: options.inlineEditFn,

@@ -21,6 +21,7 @@ import { validateToolInput } from './executor/inputValidator.js';
 import { remapParamSynonyms, coerceParamTypes } from './executor/paramRemap.js';
 import { resolveToolNameAlias } from './executor/toolNameAlias.js';
 import { isExampleReplay, buildExampleReplayError } from './executor/exampleReplayGuard.js';
+import { recordBounce, clearBounces, escalationSuffix } from './executor/bounceEscalation.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
@@ -140,11 +141,14 @@ export async function executeTool(
     }
   }
 
+  const bounceCounts = executorContext?.bounceCounts;
+
   if (!tool) {
+    const bounces = recordBounce(bounceCounts, toolUse.name, 'unknown-tool');
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: `Unknown tool: ${toolUse.name}`,
+      content: `Unknown tool: ${toolUse.name}${escalationSuffix(bounces, toolUse.name)}`,
       is_error: true,
     };
   }
@@ -160,13 +164,15 @@ export async function executeTool(
         ? `${toolUse._malformedInputRaw.slice(0, 500)}... [truncated]`
         : toolUse._malformedInputRaw;
     logger?.warn(`Tool ${toolUse.name} received malformed JSON input: ${truncated}`);
+    const bounces = recordBounce(bounceCounts, toolUse.name, 'malformed-json');
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
       content:
         `Error: the JSON input for tool '${toolUse.name}' was malformed and could not be parsed. ` +
         `Please retry with valid JSON — double-check that strings are properly quoted, ` +
-        `braces are balanced, and no characters were truncated.\n\nRaw input received:\n${truncated}`,
+        `braces are balanced, and no characters were truncated.\n\nRaw input received:\n${truncated}` +
+        escalationSuffix(bounces, toolUse.name),
       is_error: true,
     };
   }
@@ -209,12 +215,14 @@ export async function executeTool(
       toolUse.name === 'edit_file'
         ? '\nIf you are trying to CREATE a new file, use write_file(path="...", content="...") instead — edit_file only modifies existing files.'
         : '';
+    const bounces = recordBounce(bounceCounts, toolUse.name, 'schema');
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
       content:
         `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. ` +
-        `Retry with input matching this schema:\n${capped}${editFileAddendum}`,
+        `Retry with input matching this schema:\n${capped}${editFileAddendum}` +
+        escalationSuffix(bounces, toolUse.name),
       is_error: true,
     };
   }
@@ -226,10 +234,11 @@ export async function executeTool(
   // review/approval gates so the user is never asked to approve one.
   if (isExampleReplay(toolUse.name, toolUse.input, tool.definition.description)) {
     logger?.warn(`Tool ${toolUse.name} call is a verbatim replay of its description example — bounced`);
+    const bounces = recordBounce(bounceCounts, toolUse.name, 'example-replay');
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: buildExampleReplayError(toolUse.name),
+      content: buildExampleReplayError(toolUse.name) + escalationSuffix(bounces, toolUse.name),
       is_error: true,
     };
   }
@@ -509,6 +518,7 @@ export async function executeTool(
 
   try {
     const result = filePathForLock ? await withFileLock(resolveAbsPath(filePathForLock), runTool) : await runTool();
+    clearBounces(bounceCounts, toolUse.name);
 
     // --- Post-hook ---
     await runHook('post', toolUse.name, toolUse.input, result, config);

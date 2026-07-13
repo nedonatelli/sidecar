@@ -166,6 +166,14 @@ export interface ToolExecutorContext {
    */
   editFailureSignatures?: Map<string, string>;
   /**
+   * Consecutive dispatch-bounce counts per (tool, kind) — schema errors,
+   * malformed JSON, example replays, unknown tools. The executor escalates
+   * its bounce message on repeats and clears a tool's counts when it
+   * executes successfully. Threaded from `LoopState.bounceCounts`; absent
+   * in unit tests / non-loop calls, where escalation is skipped.
+   */
+  bounceCounts?: Map<string, number>;
+  /**
    * Shared handle on the externalized plan (S1). The loop owns the ref and
    * re-injects `<plan_state>` each turn; `update_plan` mutates `ref.plan`.
    * Absent when `sidecar.plan.externalized` is off (the tool errors politely).
