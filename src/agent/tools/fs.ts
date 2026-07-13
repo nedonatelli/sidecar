@@ -155,6 +155,37 @@ function findNearestMatch(fileText: string, search: string): string | null {
  * can find something the stricter first pass didn't.
  */
 /**
+ * Detect an edit whose intent is ALREADY SATISFIED by the file.
+ *
+ * A search-not-found failure has two very different causes, and telling the
+ * model "search string not found" for both is what produced a live loop
+ * (v0.119 dogfood): llama3.2 renamed `greet`→`welcome` correctly on iteration
+ * 1, verified it, then kept re-sending the rename. Each retry failed with
+ * "search string not found" — technically true, uselessly so — and it edited
+ * until cycle detection bailed. The file was right the whole time.
+ *
+ * The signal is deterministic: the tokens the edit meant to REMOVE are absent
+ * from the file, and the tokens it meant to ADD are present. Nothing is left
+ * to do. Deliberately conservative — it fires only when the search introduces
+ * at least one distinctive token that is now gone AND every distinctive token
+ * the replacement adds is already there, so a half-finished rename (old name
+ * still present somewhere) still reads as a normal failure.
+ */
+function isEditAlreadyApplied(fileText: string, search: string, replace: string): boolean {
+  const tokens = (s: string) => new Set((s.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? []).map((t) => t));
+  const searchTokens = tokens(search);
+  const replaceTokens = tokens(replace);
+
+  const removed = [...searchTokens].filter((t) => !replaceTokens.has(t));
+  const added = [...replaceTokens].filter((t) => !searchTokens.has(t));
+  if (removed.length === 0 || added.length === 0) return false;
+
+  const gone = removed.every((t) => !new RegExp(`\\b${t}\\b`).test(fileText));
+  const present = added.every((t) => new RegExp(`\\b${t}\\b`).test(fileText));
+  return gone && present;
+}
+
+/**
  * Net delimiter balance of a snippet: opens minus closes, per bracket family.
  * Template-literal `${…}` pairs cancel out, so a self-contained one-liner nets
  * zero while a block header (`… ): string {`) nets +1 curly.
@@ -799,6 +830,16 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       currentText = diskText;
     }
     if (!currentText.includes(search)) {
+      if (isEditAlreadyApplied(currentText, search, replace)) {
+        clearEditFailure(context, filePath);
+        const applied =
+          `No change needed: ${filePath} already contains the result of this edit. The text you searched for is ` +
+          `gone and your replacement is already present — this change was applied earlier, so the file is ` +
+          `already in the state you want.\n\nDo NOT repeat this edit. If the overall task is complete, say so ` +
+          `and finish; if other files still need changing, move on to those.`;
+        return applied;
+      }
+
       const failureCount = recordEditFailure(context, filePath, search, replace);
       // Third+ identical failure: the file/replace content hasn't changed
       // between attempts, so retrying findIntentTarget at the SAME confidence
@@ -898,6 +939,20 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       : '';
 
   if (!text.includes(search)) {
+    // Already applied? The rename the model is retrying may have LANDED on an
+    // earlier iteration — the old tokens are gone, the new ones are present.
+    // Saying "search string not found" there is true but useless, and it drove
+    // a live edit loop until cycle detection bailed. Say what is actually true.
+    if (isEditAlreadyApplied(text, search, replace)) {
+      clearEditFailure(context, filePath);
+      const applied =
+        `No change needed: ${filePath} already contains the result of this edit. The text you searched for is ` +
+        `gone and your replacement is already present — this change was applied earlier, so the file is ` +
+        `already in the state you want.\n\nDo NOT repeat this edit. If the overall task is complete, say so ` +
+        `and finish; if other files still need changing, move on to those.`;
+      return `${unreadPrefix}${applied}`;
+    }
+
     // Steer the model's intent: the replace content is usually correct even
     // when the search string isn't. Use the desired new content to locate
     // the target region and apply the edit directly. This handles the common

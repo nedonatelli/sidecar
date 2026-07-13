@@ -1934,3 +1934,40 @@ describe('completionGate — buildNoFileWriteReprompt', () => {
     expect(await buildNoFileWriteReprompt(msgs, new Set())).toBeNull();
   });
 });
+
+describe('no-op edits are not mutations (completion recognition)', () => {
+  it('does not record a "No change needed" edit as an edit or reset lint evidence', () => {
+    // v0.119 dogfood: after a successful rename the model re-sent the same
+    // edit. Counting that no-op as a mutation reset lintObserved and made the
+    // gate demand re-verification of already-verified work — fuel for the loop.
+    const state = createGateState();
+    state.lintObserved = true;
+
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: '1', name: 'edit_file', input: { path: 'src/greeter.ts' } },
+      {
+        type: 'tool_result',
+        tool_use_id: '1',
+        content: 'No change needed: src/greeter.ts already contains the result of this edit.',
+      },
+    );
+
+    expect(state.editedFiles.size).toBe(0);
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('still records a real edit and invalidates prior lint evidence', () => {
+    const state = createGateState();
+    state.lintObserved = true;
+
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: '2', name: 'edit_file', input: { path: 'src/greeter.ts' } },
+      { type: 'tool_result', tool_use_id: '2', content: 'File edited: src/greeter.ts' },
+    );
+
+    expect(state.editedFiles.size).toBe(1);
+    expect(state.lintObserved).toBe(false);
+  });
+});

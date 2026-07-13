@@ -288,6 +288,15 @@ export function recordToolCall(
   // Reset lintObserved so any lint run before this edit doesn't satisfy
   // the gate for the new change — the model must re-verify after editing.
   if (EDIT_TOOL_NAMES.has(tu.name)) {
+    // A no-op edit is not a mutation. edit_file reports "No change needed"
+    // when the change it was asked to make is ALREADY APPLIED (the tokens it
+    // would remove are gone, the ones it would add are present). Counting that
+    // as an edit would reset lintObserved and demand re-verification of work
+    // already verified — feeding the very post-success edit loop the
+    // already-applied message exists to end (v0.119 dogfood).
+    if (resultText.startsWith('No change needed:') || resultText.includes('already contains the result of this edit')) {
+      return;
+    }
     const raw = (tu.input.path ?? tu.input.file_path) as string | undefined;
     const p = normalizePath(raw);
     if (p) {

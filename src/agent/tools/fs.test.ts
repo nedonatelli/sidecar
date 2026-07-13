@@ -923,3 +923,66 @@ describe('exact-match token-boundary guard (no mid-token splicing)', () => {
     expect((written.match(/\{/g) || []).length).toBe((written.match(/\}/g) || []).length);
   });
 });
+
+describe('already-applied detection (completion recognition)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const renamed =
+    '// Says hello to the given name.\n' +
+    'export function welcome(name: string): string {\n' +
+    '  return `Hello, ${name}!`;\n' +
+    '}\n';
+
+  beforeEach(async () => {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(renamed) as never);
+  });
+
+  it('tells the model the change is ALREADY APPLIED instead of "search not found"', async () => {
+    // Live v0.119 loop: llama3.2 renamed greet→welcome on iteration 1, verified
+    // it, then re-sent the same rename. "search string not found" is true but
+    // useless, so it kept editing until cycle detection bailed at iteration 9.
+    const { workspace } = await import('vscode');
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear();
+
+    const result = await editMsg({
+      path: 'src/greeter.ts',
+      search: 'function greet(name: string)',
+      replace: 'function welcome(name: string)',
+    });
+
+    expect(result).toContain('already contains the result of this edit');
+    expect(result).toMatch(/do NOT repeat this edit/i);
+    expect(result).not.toContain('search string not found');
+    expect(writeSpy).not.toHaveBeenCalled(); // it's a no-op, not a rewrite
+  });
+
+  it('does NOT fire on a half-finished rename — the old name is still present', async () => {
+    const halfDone = 'export function welcome(n: string) {}\nexport const alias = greet;\n';
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(halfDone) as never);
+
+    const result = await editMsg({
+      path: 'src/a.ts',
+      search: 'function greet(name: string)',
+      replace: 'function welcome(name: string)',
+    });
+
+    // `greet` still lives in the file, so there IS work left — this must not be
+    // reported as complete. (It falls through to the normal not-found/inference
+    // path, whose own guards decide what happens next.)
+    expect(result).not.toContain('already contains the result');
+    expect(result).not.toMatch(/do NOT repeat this edit/i);
+  });
+
+  it('does NOT fire when the edit adds nothing new (pure deletion / no-op search)', async () => {
+    const result = await editMsg({
+      path: 'src/greeter.ts',
+      search: 'totally absent text',
+      replace: 'totally absent text',
+    });
+    expect(result).not.toContain('already contains the result');
+  });
+});
