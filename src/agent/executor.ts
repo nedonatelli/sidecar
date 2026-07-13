@@ -336,28 +336,50 @@ export async function executeTool(
   });
 
   if (needsApproval) {
-    // For edit_file with inline edit provider, show ghost text (tab to apply)
-    if (
+    // Ghost-text ("tab to apply") approval runs ONLY when no diff preview is
+    // wired. It is not a reliable gate: VS Code decides when to consult an
+    // inline-completion provider, so opening the document does not guarantee
+    // the ghost text ever renders — and it is the sole affordance. Live in the
+    // v0.119 dogfood pass: a cautious-mode edit_file opened greeter.ts, showed
+    // no ghost text and no dialog, and the run hung indefinitely at "Step 1/50"
+    // with Stop dead (the promise only settles on Tab/Esc). The chat's diff
+    // preview is a deterministic, visible gate, so it takes precedence; the
+    // inline path stays for hosts that wire only inlineEditFn, and is now
+    // abortable so a Stop can always end the wait.
+    const useInlineEdit =
       inlineEditFn &&
+      !diffPreviewFn &&
+      !streamingDiffPreviewFn &&
       toolUse.name === 'edit_file' &&
       toolUse.input.path &&
       toolUse.input.search &&
-      toolUse.input.replace
-    ) {
+      toolUse.input.replace;
+
+    if (useInlineEdit) {
       // Snapshot before the edit so we can revert if needed
       if (changelog) {
         await changelog.snapshotFile(toolUse.input.path as string);
       }
-      const accepted = await inlineEditFn(
+      const signal = executorContext?.signal;
+      const editPromise = inlineEditFn!(
         toolUse.input.path as string,
         toolUse.input.search as string,
         toolUse.input.replace as string,
       );
+      const accepted = signal
+        ? await Promise.race([
+            editPromise,
+            new Promise<boolean>((resolve) => {
+              if (signal.aborted) resolve(false);
+              else signal.addEventListener('abort', () => resolve(false), { once: true });
+            }),
+          ])
+        : await editPromise;
       if (!accepted) {
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
-          content: 'Edit dismissed by user.',
+          content: signal?.aborted ? 'Edit cancelled — run stopped by user.' : 'Edit dismissed by user.',
           is_error: true,
         };
       }

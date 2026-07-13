@@ -166,6 +166,61 @@ describe('executeTool', () => {
     expect(fresh.content).not.toContain('consecutive');
   });
 
+  describe('cautious-mode edit approval must be visible and abortable', () => {
+    const editTool = {
+      definition: {
+        name: 'edit_file',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' }, search: { type: 'string' }, replace: { type: 'string' } },
+          required: ['path', 'search', 'replace'],
+        },
+      },
+      executor: vi.fn().mockResolvedValue('edited'),
+      requiresApproval: true,
+    };
+    const editInput = { path: 'src/greeter.ts', search: 'greet', replace: 'welcome' };
+
+    it('prefers the visible diff preview over ghost-text approval', async () => {
+      // Live wedge: ghost text is the sole affordance on the inline path, but
+      // VS Code may never render it — greeter.ts opened with no ghost text, no
+      // dialog, and the run hung forever with Stop dead.
+      mockedFindTool.mockReturnValue({ ...editTool, executor: vi.fn().mockResolvedValue('edited') });
+      mockConfig({ toolPermissions: {} });
+      const inlineEditFn = vi.fn(() => new Promise<boolean>(() => {})); // never settles, like the real one
+      const diffPreviewFn = vi.fn().mockResolvedValue('accept');
+
+      const result = await executeTool(makeToolUse('edit_file', editInput), {
+        approvalMode: 'cautious',
+        inlineEditFn,
+        diffPreviewFn,
+      });
+
+      expect(diffPreviewFn).toHaveBeenCalled();
+      expect(inlineEditFn).not.toHaveBeenCalled();
+      expect(result.is_error).toBeFalsy();
+    });
+
+    it('aborts a pending ghost-text approval when the run is stopped', async () => {
+      mockedFindTool.mockReturnValue({ ...editTool, executor: vi.fn().mockResolvedValue('edited') });
+      mockConfig({ toolPermissions: {} });
+      const controller = new AbortController();
+      const inlineEditFn = vi.fn(() => new Promise<boolean>(() => {})); // waits for Tab/Esc forever
+
+      const pending = executeTool(makeToolUse('edit_file', editInput), {
+        approvalMode: 'cautious',
+        inlineEditFn, // no diffPreviewFn — the only host shape that still uses ghost text
+        executorContext: { signal: controller.signal } as never,
+      });
+      controller.abort();
+      const result = await pending;
+
+      expect(result.is_error).toBe(true);
+      expect(result.content).toContain('run stopped by user');
+    });
+  });
+
   it('normalizes a generic ask_user question to the canned clarification card', async () => {
     mockedFindTool.mockReturnValue({
       definition: {
