@@ -3398,6 +3398,7 @@
     "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:compare": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/modelComparison.eval.ts",
     "eval:guardprobe": "SIDECAR_DISABLE_THINKING=true SIDECAR_EVAL_TRAJECTORY_DIR=.sidecar/logs/eval-trajectories vitest run --config vitest.eval.config.ts tests/llm-eval/guardProbe.eval.ts",
+    "eval:reliability": "SIDECAR_DISABLE_THINKING=true SIDECAR_EVAL_TAGS=smoke SIDECAR_EVAL_TRIALS=3 vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
     "bench:bfcl": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts bench/bfcl/run.eval.ts",
     "bench:swe:predict": "SIDECAR_DISABLE_THINKING=true vitest run --config vitest.eval.config.ts tests/llm-eval/swe.eval.ts",
     "bench:swe:ablate": "vitest run --config vitest.eval.config.ts bench/swe/ablate.eval.ts",

@@ -8,6 +8,7 @@ import { THINKING_CASES } from './thinkingCases.js';
 import { SYSTEM_CASES } from './systemCases.js';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
+import { renderReliabilityReport, type ReliabilityRow } from './reliabilityMetrics.js';
 import type { AgentCaseResult } from './agentTypes.js';
 import { HistoryDb } from '../../src/agent/history/historyDb.js';
 import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
@@ -47,6 +48,14 @@ const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim(
 // Use `npm run eval:smoke` for the curated 8-case fast path (~10 min vs ~2 hr full suite).
 const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim());
 
+// SIDECAR_EVAL_TRIALS=N runs each case N times and reports reliability
+// (pass@1 / flakiness / PASS-FLAKY-FAIL) alongside pass rate. With trials
+// enabled, a case only FAILS the vitest run when every trial fails — a
+// mixed result is reported as flaky, not a regression, because for local
+// models "solvable but unreliable" and "broken" need different responses.
+// Default 1 preserves the classic single-shot semantics exactly.
+const TRIALS = Math.max(1, parseInt(process.env.SIDECAR_EVAL_TRIALS ?? '1', 10) || 1);
+
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
 //
@@ -83,6 +92,7 @@ const backend = pickAgentBackend();
 
 describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   const allResults: AgentCaseResult[] = [];
+  const reliabilityRows: ReliabilityRow[] = [];
   writeHeader('llm-eval :: agent loop');
 
   // Circuit breaker: if this many consecutive cases produce zero model output
@@ -96,54 +106,75 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
     if (TAG_FILTER && !TAG_FILTER.every((t) => evalCase.tags.includes(t))) continue;
     it(`${evalCase.id} — ${evalCase.description}`, async () => {
       const b = backend!;
+      const trialResults: AgentCaseResult[] = [];
 
-      // Circuit breaker check — fire before spending another timeout budget.
-      if (consecutiveApiUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
-        const synthetic: AgentCaseResult = {
-          id: evalCase.id,
-          description: evalCase.description,
-          passed: false,
-          apiUnavailable: true,
-          failures: [],
-          softFailures: [],
-          trajectory: [],
-          finalText: '',
-          workspaceAfter: {},
-          durationMs: 0,
-          iterationsUsed: 0,
-        };
-        allResults.push(synthetic);
-        consecutiveApiUnavailable++;
-        throw new Error(
-          `[circuit-breaker] API appears unavailable — ${consecutiveApiUnavailable} consecutive cases produced zero model output. ` +
-            `Check rate limits or network connectivity and re-run. ` +
-            `Set SIDECAR_EVAL_CASE_TIMEOUT to a higher value if the model is slow to respond.`,
-        );
+      for (let trial = 0; trial < TRIALS; trial++) {
+        // Circuit breaker check — fire before spending another timeout budget.
+        if (consecutiveApiUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
+          const synthetic: AgentCaseResult = {
+            id: evalCase.id,
+            description: evalCase.description,
+            passed: false,
+            apiUnavailable: true,
+            failures: [],
+            softFailures: [],
+            trajectory: [],
+            finalText: '',
+            workspaceAfter: {},
+            durationMs: 0,
+            iterationsUsed: 0,
+          };
+          allResults.push(synthetic);
+          consecutiveApiUnavailable++;
+          throw new Error(
+            `[circuit-breaker] API appears unavailable — ${consecutiveApiUnavailable} consecutive cases produced zero model output. ` +
+              `Check rate limits or network connectivity and re-run. ` +
+              `Set SIDECAR_EVAL_CASE_TIMEOUT to a higher value if the model is slow to respond.`,
+          );
+        }
+
+        let trialResult: AgentCaseResult;
+        try {
+          trialResult = await runAgentCase(evalCase, b);
+        } catch (err) {
+          // Infra errors (daemon down, network blip, timeout) surface
+          // here. Re-throw with a marker so the report clearly
+          // distinguishes infra breakage from case regressions.
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(`Agent case "${evalCase.id}" infra-failed: ${msg}`);
+        }
+
+        allResults.push(trialResult);
+        trialResults.push(trialResult);
+        tryWriteResult(trialResult, b.defaultModel(), evalCase.tags);
+
+        // Update the circuit-breaker counter before checking pass/fail so
+        // that api-unavailable cases don't pollute the failure output.
+        if (trialResult.apiUnavailable) {
+          consecutiveApiUnavailable++;
+        } else {
+          consecutiveApiUnavailable = 0;
+        }
       }
 
-      let result: AgentCaseResult;
-      try {
-        result = await runAgentCase(evalCase, b);
-      } catch (err) {
-        // Infra errors (daemon down, network blip, timeout) surface
-        // here. Re-throw with a marker so the report clearly
-        // distinguishes infra breakage from case regressions.
-        const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`Agent case "${evalCase.id}" infra-failed: ${msg}`);
+      // Reliability verdict over the scored (non-api-unavailable) trials.
+      // Multi-trial semantics: FAIL only when every scored trial failed —
+      // a mixed result is FLAKY, reported but not a vitest failure, since
+      // "solvable but unreliable" needs investigation, not a red build.
+      const scoredTrials = trialResults.filter((r) => !r.apiUnavailable);
+      const passes = scoredTrials.filter((r) => r.passed).length;
+      if (TRIALS > 1 && scoredTrials.length > 0) {
+        reliabilityRows.push({ caseId: evalCase.id, trials: scoredTrials.length, passes });
+        if (passes > 0 && passes < scoredTrials.length) {
+          // eslint-disable-next-line no-console -- eval diagnostics
+          console.log(`[flaky] ${evalCase.id}: ${passes}/${scoredTrials.length} trials passed`);
+        }
       }
 
-      allResults.push(result);
-      tryWriteResult(result, b.defaultModel(), evalCase.tags);
+      const result = scoredTrials.find((r) => !r.passed) ?? trialResults[trialResults.length - 1];
+      const caseFailed = TRIALS > 1 ? scoredTrials.length > 0 && passes === 0 : !result.passed;
 
-      // Update the circuit-breaker counter before checking pass/fail so
-      // that api-unavailable cases don't pollute the failure output.
-      if (result.apiUnavailable) {
-        consecutiveApiUnavailable++;
-      } else {
-        consecutiveApiUnavailable = 0;
-      }
-
-      if (!result.passed) {
+      if (caseFailed || (scoredTrials.length === 0 && trialResults.length > 0)) {
         if (result.apiUnavailable) {
           // Surface as a distinct infra signal, not a model regression.
           throw new Error(
@@ -186,6 +217,10 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
     writeSummary(passed, allResults.length);
     // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + renderAgentReport(allResults));
+    if (reliabilityRows.length > 0) {
+      // eslint-disable-next-line no-console -- intentional report output
+      console.log('\n\n' + renderReliabilityReport(reliabilityRows));
+    }
   });
 });
 
