@@ -986,3 +986,34 @@ describe('already-applied detection (completion recognition)', () => {
     expect(result).not.toContain('already contains the result');
   });
 });
+
+describe('success messages never carry retry guidance', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a successful edit is not prefixed with "you have not read this file" corrective text', async () => {
+    // v0.119 dogfood clunk: the rename LANDED on iteration 1, but the success
+    // message was prefixed with "[You have not read src/greeter.ts this turn.
+    // … use the exact text from above as your search string — it must match
+    // byte-for-byte]". That is guidance for a FAILED edit. The model read it as
+    // "something is wrong", re-read the file, and re-issued the same edit.
+    const original = 'export function greet(name: string): string {\n  return `hi`;\n}\n';
+    const { workspace } = await import('vscode');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+
+    const result = await editMsg(
+      {
+        path: 'src/greeter.ts',
+        search: 'export function greet(name: string): string {',
+        replace: 'export function welcome(name: string): string {',
+      },
+      // filesReadThisTurn present but EMPTY → the file counts as unread.
+      { filesReadThisTurn: new Set<string>() } as never,
+    );
+
+    expect(result).toContain('File edited');
+    expect(result).not.toContain('You have not read');
+    expect(result).not.toMatch(/use the exact text|search string/i);
+  });
+});

@@ -950,7 +950,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         `gone and your replacement is already present — this change was applied earlier, so the file is ` +
         `already in the state you want.\n\nDo NOT repeat this edit. If the overall task is complete, say so ` +
         `and finish; if other files still need changing, move on to those.`;
-      return `${unreadPrefix}${applied}`;
+      return applied;
     }
 
     // Steer the model's intent: the replace content is usually correct even
@@ -974,7 +974,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       context?.workspaceIndex?.invalidateFile(filePath);
       clearEditFailure(context, filePath);
       return (
-        `${unreadPrefix}Applied inferred edit to ${filePath}: the search string didn't match exactly, ` +
+        `Applied inferred edit to ${filePath}: the search string didn't match exactly, ` +
         `but I found the closest matching region and replaced it with your content.\n` +
         `Replaced:\n\`\`\`\n${intentTarget}\n\`\`\`\n` +
         `With:\n\`\`\`\n${replace}\n\`\`\`` +
@@ -1004,7 +1004,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         context?.workspaceIndex?.invalidateFile(filePath);
         clearEditFailure(context, filePath);
         return (
-          `${unreadPrefix}Auto-repaired ${filePath} after ${failureCount} identical failed attempts: a ` +
+          `Auto-repaired ${filePath} after ${failureCount} identical failed attempts: a ` +
           `low-confidence fuzzy match was applied since repeating the same failing call would only fail ` +
           `again. VERIFY this is correct — it may be wrong.\n` +
           `Replaced:\n\`\`\`\n${looseTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\`` +
@@ -1094,7 +1094,14 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
 
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
   context?.workspaceIndex?.invalidateFile(filePath);
-  return `${unreadPrefix}File edited: ${filePath}${partialReplaceWarning}`;
+  // NO unreadPrefix on success. That prefix is corrective guidance for a FAILED
+  // edit — "[You have not read this file… use the exact text from above as your
+  // search string — it must match byte-for-byte]" — and gluing it onto a
+  // successful edit reads as "something is wrong, fix your search string". Live
+  // v0.119 dogfood: the rename landed on iteration 1, the success message
+  // carried this preamble, and the model dutifully re-read the file and
+  // re-issued the same edit. The edit worked; only the message said otherwise.
+  return `File edited: ${filePath}${partialReplaceWarning}`;
 }
 
 export async function deleteFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
