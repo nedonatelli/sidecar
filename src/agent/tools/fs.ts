@@ -15,6 +15,7 @@ import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { isAuditModeActive } from './auditHelper.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 import { computeLineDiff } from './diffUtils.js';
+import { editWouldBreakSyntax } from './syntaxCheck.js';
 
 /**
  * Read buffered content for a workspace-relative path if Audit Mode
@@ -1011,6 +1012,18 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   const newText = text.replace(search, () => replace);
+
+  // Syntax guard — the general invariant behind the structural and lexical
+  // guards above: an edit must not make a parsing file stop parsing. Catches
+  // what the cheaper rules cannot, e.g. a model sending regex-ESCAPED source
+  // (`function welcome\(name: s\)`) — balanced, token-aligned, and complete
+  // garbage (live v0.119 dogfood, llama3.2). Fails open when no grammar
+  // applies, so unsupported languages behave exactly as before.
+  const syntax = await editWouldBreakSyntax(filePath, text, newText);
+  if (syntax.refuse) {
+    recordEditFailure(context, filePath, search, replace);
+    throw new Error(`${unreadPrefix}${syntax.message}`);
+  }
 
   if (context?.onOutput) {
     const patch = computeLineDiff(text, newText, filePath);
