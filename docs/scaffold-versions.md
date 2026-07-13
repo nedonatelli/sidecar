@@ -38,6 +38,31 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 3.0.0 — always-on dispatch guards + text-repair expansion (2026-07)
+
+MAJOR. Three shared-path changes, each verified against a live trajectory:
+
+- **Example-replay guard** (always on, no flag): the executor bounces any tool
+  call whose arguments verbatim-match the example embedded in that tool's own
+  description. Evidence: llama3.2 replayed the `ask_user` auth-flow example on
+  a bare "hi" (live chat) and the `edit_file` example on "thanks, great work!"
+  (guard-probe sweep, 5 models × 4 config arms — the only replay signature that
+  fired in 100 probe cases).
+- **Escalating dispatch bounces**: schema / malformed-JSON / example-replay /
+  unknown-tool bounce messages escalate on consecutive identical repeats
+  (2nd: do-not-resubmit; 3rd+: stop-retrying-change-approach) and reset on any
+  successful call of the tool.
+- **textParsing repair expansion**: the bare-JSON path recognizes the OpenAI
+  function-call shape (`{"type":"function","function":{name,parameters}}`) and
+  salvages truncated emissions missing the final brace (both observed live from
+  llama3.2 — previously dropped silently, making the model look like it
+  "chose" not to act).
+
+Cross-boundary comparability: NOT comparable for weak-model runs —
+llama3.2-class models gain tool calls that 2.x silently lost, so resolve/pass
+rates measured before and after this version differ for harness reasons, not
+model reasons.
+
 ### 2.1.0 — keep-best ratchet default-on (2026-07)
 
 MINOR. `sidecar.scaffolding.keepBest` defaults to **true**: every default-config

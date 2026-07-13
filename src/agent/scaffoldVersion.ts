@@ -27,6 +27,19 @@
  * human-facing registry is `docs/scaffold-versions.md`.
  *
  * ## Changelog
+ * - **3.0.0** (2026-07) — always-on dispatch guards + text-repair expansion.
+ *   Adds the example-replay guard (executor bounces tool calls whose arguments
+ *   verbatim-match the example in that tool's own description — no flag,
+ *   always on) and escalating dispatch-bounce messages (2nd consecutive
+ *   identical bounce: "do not resubmit"; 3rd+: "stop retrying, change
+ *   approach"; streaks reset on any successful call). textParsing's bare-JSON
+ *   path now recognizes the OpenAI function-call shape
+ *   ({"type":"function","function":{name,parameters}}) and salvages
+ *   truncated emissions missing their closing brace (both observed live from
+ *   llama3.2 — calls that previously dropped silently now dispatch). MAJOR:
+ *   the shared dispatch/repair path changed; a model's measured resolve rate
+ *   is not comparable across this boundary (llama3.2-class models gain
+ *   previously-lost tool calls).
  * - **2.0.1** (2026-07) — keep-best ratchet's over-engineering threshold
  *   (`DEFAULT_OVER_ENGINEER_BYTES`) tightened from 4096 to 0. A local SWE-bench
  *   repro of scaffold-on bail-early found a concrete case (a 536-byte wrong edit
@@ -55,7 +68,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '2.1.0';
+export const SCAFFOLD_VERSION = '3.0.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
