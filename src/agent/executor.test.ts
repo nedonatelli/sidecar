@@ -97,6 +97,58 @@ describe('executeTool', () => {
     expect(result.content).toContain('"required":["entities"]');
   });
 
+  it('bounces a verbatim replay of the description example without running the executor', async () => {
+    // Live failure: on a no-signal turn ("hi"), the model emitted the
+    // ask_user example from the tool description character-for-character,
+    // surfacing a fabricated auth-flow question to the user.
+    const executor = vi.fn().mockResolvedValue('answered');
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'ask_user',
+        description:
+          'Ask the user a clarifying question. ' +
+          'Example: `ask_user(question="Which auth flow should the callback use?", options=["OAuth code exchange", "Implicit (deprecated)", "Password grant"], allow_custom=true)`.',
+        input_schema: {
+          type: 'object' as const,
+          properties: { question: { type: 'string' }, options: { type: 'array' }, allow_custom: { type: 'boolean' } },
+          required: ['question'],
+        },
+      },
+      executor,
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { ask_user: 'allow' } });
+    const exampleArgs = {
+      question: 'Which auth flow should the callback use?',
+      options: ['OAuth code exchange', 'Implicit (deprecated)', 'Password grant'],
+      allow_custom: true,
+    };
+
+    const replay = await executeTool(makeToolUse('ask_user', { ...exampleArgs }));
+    expect(replay.is_error).toBe(true);
+    expect(replay.content).toContain('copies the example');
+    expect(executor).not.toHaveBeenCalled();
+  });
+
+  it('runs a tool normally when the arguments differ from the description example', async () => {
+    const executor = vi.fn().mockResolvedValue('file contents');
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'read_file',
+        description: 'Read a file. Example: `read_file(path="src/utils.ts")`.',
+        input_schema: { type: 'object' as const, properties: { path: { type: 'string' } }, required: ['path'] },
+      },
+      executor,
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { read_file: 'allow' } });
+
+    const result = await executeTool(makeToolUse('read_file', { path: 'src/agent/loop.ts' }));
+
+    expect(result.is_error).toBeFalsy();
+    expect(executor).toHaveBeenCalledTimes(1);
+  });
+
   it('remaps a synonym param onto the missing required key and discloses it (llama3.2 file→path)', async () => {
     const executor = vi.fn().mockResolvedValue('File written');
     mockedFindTool.mockReturnValue({

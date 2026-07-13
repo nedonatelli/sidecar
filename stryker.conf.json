@@ -33,7 +33,8 @@
     "src/agent/jsonRepair.ts",
     "src/agent/plans/externalPlan.ts",
     "src/agent/executor/paramRemap.ts",
-    "src/agent/executor/toolNameAlias.ts"
+    "src/agent/executor/toolNameAlias.ts",
+    "src/agent/executor/exampleReplayGuard.ts"
   ],
   "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "perTest",

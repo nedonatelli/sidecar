@@ -20,6 +20,7 @@ import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
 import { remapParamSynonyms, coerceParamTypes } from './executor/paramRemap.js';
 import { resolveToolNameAlias } from './executor/toolNameAlias.js';
+import { isExampleReplay, buildExampleReplayError } from './executor/exampleReplayGuard.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
@@ -214,6 +215,21 @@ export async function executeTool(
       content:
         `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. ` +
         `Retry with input matching this schema:\n${capped}${editFileAddendum}`,
+      is_error: true,
+    };
+  }
+
+  // --- Bounce verbatim replays of the description's own example ---
+  // A no-signal user turn ("hi") sends small models parroting the concrete
+  // example from a tool description (observed live: ask_user replayed the
+  // auth-flow example, surfacing a fabricated question). Checked before the
+  // review/approval gates so the user is never asked to approve one.
+  if (isExampleReplay(toolUse.name, toolUse.input, tool.definition.description)) {
+    logger?.warn(`Tool ${toolUse.name} call is a verbatim replay of its description example — bounced`);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: buildExampleReplayError(toolUse.name),
       is_error: true,
     };
   }
