@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
 import { parsePlanFromText } from '../../src/agent/plans/externalPlan.js';
 import { SideCarClient } from '../../src/ollama/client.js';
@@ -213,6 +215,67 @@ export const DEFAULT_CASE_TIMEOUT_MS = (() => {
 })();
 
 /**
+ * Config overrides applied to EVERY case in this process, on top of each
+ * case's own `configOverrides` (env wins). Lets any eval file sweep feature
+ * flags without editing cases:
+ *
+ *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"criticEnabled":true}' npm run eval:guardprobe
+ *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"planExternalizedEnabled":true}' npm run eval:smoke
+ *
+ * Malformed JSON throws at module load — a silent fallback would run the
+ * whole sweep under the wrong arm and label the results as if it hadn't.
+ */
+const ENV_CONFIG_OVERRIDES = (() => {
+  const raw = process.env.SIDECAR_EVAL_CONFIG_OVERRIDES;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error(`SIDECAR_EVAL_CONFIG_OVERRIDES is not valid JSON: ${raw}`);
+  }
+})();
+
+/**
+ * Persist one case run's full trajectory as a JSONL line when
+ * SIDECAR_EVAL_TRAJECTORY_DIR is set. Append-mode so multi-model sweeps
+ * accumulate into one grep-able file — any future "do models actually
+ * do X?" question gets answered by jq over this file instead of a new
+ * scorer. Non-fatal on write failure: trajectories are telemetry, the
+ * case result is the primary output.
+ */
+function dumpTrajectory(
+  caseId: string,
+  model: string,
+  backendName: string,
+  result: AgentCaseResult,
+  configOverrides?: AgentEvalCase['configOverrides'],
+): void {
+  const dir = process.env.SIDECAR_EVAL_TRAJECTORY_DIR;
+  if (!dir) return;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const mergedOverrides = { ...configOverrides, ...ENV_CONFIG_OVERRIDES };
+    const line = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      caseId,
+      model,
+      backend: backendName,
+      // The active config arm — without this, sweep runs across option
+      // variants would be indistinguishable in the accumulated JSONL.
+      ...(Object.keys(mergedOverrides).length > 0 ? { configOverrides: mergedOverrides } : {}),
+      passed: result.passed,
+      ...(result.apiUnavailable ? { apiUnavailable: true } : {}),
+      durationMs: result.durationMs,
+      iterationsUsed: result.iterationsUsed,
+      trajectory: result.trajectory,
+    });
+    fs.appendFileSync(path.join(dir, 'trajectories.jsonl'), line + '\n');
+  } catch {
+    // Telemetry only — never fail a case over a dump-write error.
+  }
+}
+
+/**
  * Run one agent-loop eval case end-to-end. Throws on infrastructure
  * errors (sandbox setup, backend unreachable); returns a pass/fail
  * result otherwise.
@@ -325,7 +388,7 @@ export async function runAgentCase(
     // Disable macOS seatbelt for eval runs — the sandbox is already a
     // controlled temp dir; seatbelt wrapping causes shell init hangs
     // when the ShellSession CWD is /var/folders (not the VS Code workspace).
-    config: { ...getConfig(), sandboxEnabled: false, ...evalCase.configOverrides },
+    config: { ...getConfig(), sandboxEnabled: false, ...evalCase.configOverrides, ...ENV_CONFIG_OVERRIDES },
   };
 
   // Determine whether this model needs a cold start (no prior context).
@@ -378,7 +441,7 @@ export async function runAgentCase(
     }
     // Everything else counts as a case failure — record it so the
     // report shows which case died and why.
-    return {
+    const errorResult: AgentCaseResult = {
       id: evalCase.id,
       description: evalCase.description,
       passed: false,
@@ -390,6 +453,8 @@ export async function runAgentCase(
       durationMs,
       iterationsUsed,
     };
+    dumpTrajectory(evalCase.id, model, backend.name, errorResult, evalCase.configOverrides);
+    return errorResult;
   }
 
   const scored = scoreAgentCase(evalCase, {
@@ -399,5 +464,7 @@ export async function runAgentCase(
     durationMs,
     iterationsUsed,
   });
-  return apiUnavailable ? { ...scored, apiUnavailable: true } : scored;
+  const finalResult = apiUnavailable ? { ...scored, apiUnavailable: true } : scored;
+  dumpTrajectory(evalCase.id, model, backend.name, finalResult, evalCase.configOverrides);
+  return finalResult;
 }
