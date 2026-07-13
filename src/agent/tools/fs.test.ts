@@ -1030,27 +1030,49 @@ describe('success messages never carry retry guidance', () => {
   });
 });
 
-describe('shape-validation refusals are ERRORS, not successes', () => {
+describe('missing-search recovery (live v0.119 JSDoc bug)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('edit_file with a missing search on an existing file throws (live v0.119 JSDoc bug)', async () => {
-    // The follow-up task ("add a JSDoc comment") failed silently: the model
-    // sent edit_file with only `replace`, and the shape-validation refusal was
-    // RETURNED as a normal string — outcome ok. The loop believed the edit had
-    // landed, no bounce counter fired, the JSDoc was never written, and the run
-    // thrashed to a cycle bail. A refusal that leaves the file unchanged must
-    // surface as is_error=true.
-    const original = 'export function welcome(name: string): string {\n  return `hi`;\n}\n';
+  const current = '// Says hello.\nexport function welcome(name: string): string {\n  return `hi`;\n}\n';
+
+  it('infers the target region when the model sends only replace, and discloses it', async () => {
+    // llama3.2 sent edit_file with ONLY `replace` nine times running, reading
+    // the file in between, and never produced a `search` field. The intent is
+    // unambiguous — the region its replacement supersedes should become the
+    // replacement — so infer it and disclose, instead of bouncing to a loop.
     const { workspace } = await import('vscode');
     vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
-    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(current) as never);
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
+      written = Buffer.from(c as Uint8Array).toString('utf-8');
+    });
+
+    const result = await editMsg({
+      path: 'src/greeter.ts',
+      replace: '/** Welcomes someone. */\nexport function welcome(name: string): string {',
+    });
+
+    expect(result).toContain("'search' was missing");
+    expect(result).toContain('File edited');
+    expect(written).toContain('/** Welcomes someone. */');
+    expect(written).toContain('export function welcome(name: string): string {');
+    expect(written).toContain('return `hi`;'); // body preserved — no clobber
+  });
+
+  it('when inference is impossible, the error hands the model the exact text to copy', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(current) as never);
     const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
     writeSpy.mockClear();
 
-    await expect(
-      editFile({ path: 'src/greeter.ts', replace: '/** Welcomes someone. */\nexport function welcome' }),
-    ).rejects.toThrow(/requires both 'search'.*'replace'|'search' is missing/i);
+    // Replacement shares no tokens with the file → nothing to infer from.
+    const err = await editMsg({ path: 'src/greeter.ts', replace: 'zzz qqq vvv' });
 
+    expect(err).toMatch(/requires 'search'/);
+    expect(err).toContain('Copy this into');
+    expect(err).toContain('export function welcome'); // the literal current text
     expect(writeSpy).not.toHaveBeenCalled();
   });
 });

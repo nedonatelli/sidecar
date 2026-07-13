@@ -617,10 +617,18 @@ export async function executeTool(
       content: wrapToolOutput(toolUse.name, finalContent, logger),
     };
   } catch (err) {
+    // Tool-thrown errors escalate on repetition, like the dispatch-level
+    // bounces above. Without this, a tool that keeps refusing the same broken
+    // call just repeats itself forever: live v0.119 dogfood — edit_file
+    // rejected nine IDENTICAL "missing search" calls with nine identical
+    // messages, and nothing ever told the model to stop resubmitting. The
+    // streak is keyed per tool and cleared by any successful call of it.
+    const message = err instanceof Error ? err.message : String(err);
+    const bounces = recordBounce(bounceCounts, toolUse.name, 'tool-error');
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+      content: `Error: ${message}${escalationSuffix(bounces, toolUse.name)}`,
       is_error: true,
     };
   }

@@ -10,7 +10,7 @@
  * Both functions are pure enough (no `this`) to be tested with mocks.
  */
 
-import { workspace, window } from 'vscode';
+import { workspace, window, ConfigurationTarget } from 'vscode';
 import { logger } from '../system/logger.js';
 import { getConfig } from '../config/settings.js';
 import { handleInstallModel } from './handlers/modelHandlers.js';
@@ -60,7 +60,30 @@ export async function setModel(
   }
   const supports = modelSupportsTools(model);
   postMessage({ command: 'setCurrentModel', currentModel: model, supportsTools: supports });
-  await workspace.getConfiguration('sidecar').update('model', model, true);
+  await persistModelToItsScope(model);
+}
+
+/**
+ * Persist the model to the scope where `sidecar.model` is ACTUALLY defined.
+ *
+ * The old code always wrote Global (`update(key, value, true)`). When a project
+ * pins `sidecar.model` in `.vscode/settings.json`, workspace scope wins on read
+ * — so the dropdown wrote Global, `getConfig()` kept returning the workspace
+ * value, and the next turn's `updateModel(config.model)` snapped the client
+ * straight back to the old model. The UI showed the new model while the agent
+ * silently kept using the old one (live v0.119 dogfood: switching to gemma4 ran
+ * llama3.2 anyway). Write where the setting lives, so the change takes effect.
+ */
+async function persistModelToItsScope(model: string): Promise<void> {
+  const cfg = workspace.getConfiguration('sidecar');
+  const scope = cfg.inspect<string>('model');
+  const target =
+    scope?.workspaceFolderValue !== undefined
+      ? ConfigurationTarget.WorkspaceFolder
+      : scope?.workspaceValue !== undefined
+        ? ConfigurationTarget.Workspace
+        : ConfigurationTarget.Global;
+  await cfg.update('model', model, target);
 }
 
 /**

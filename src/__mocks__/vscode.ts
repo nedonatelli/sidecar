@@ -492,3 +492,10 @@ export const tests = {
     dispose: () => {},
   }),
 };
+
+/** VS Code's ConfigurationTarget enum — settings scope for `config.update`. */
+export const ConfigurationTarget = {
+  Global: 1,
+  Workspace: 2,
+  WorkspaceFolder: 3,
+} as const;

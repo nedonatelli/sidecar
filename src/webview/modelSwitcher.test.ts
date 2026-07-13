@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { window, workspace } from 'vscode';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { window, workspace, ConfigurationTarget } from 'vscode';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -101,11 +101,14 @@ describe('setModel', () => {
     );
   });
 
-  it('saves the model to workspace config', async () => {
+  it('saves the model — to Global when nothing pins it elsewhere', async () => {
+    // Was `update('model', m, true)` (always Global). That silently broke the
+    // dropdown in any project pinning sidecar.model in .vscode/settings.json:
+    // workspace scope won on read, so the agent kept the old model.
     const mockUpdate = mockWorkspaceConfig();
     const state = makeState({ isLocalOllama: vi.fn().mockReturnValue(false) });
     await setModel(state, postMessage, 'mistral');
-    expect(mockUpdate).toHaveBeenCalledWith('model', 'mistral', true);
+    expect(mockUpdate).toHaveBeenCalledWith('model', 'mistral', ConfigurationTarget.Global);
   });
 
   it('shows warning and returns early when model is not installed', async () => {
@@ -168,5 +171,51 @@ describe('refreshOpenRouterCostsIfActive', () => {
     vi.mocked(ingestOpenRouterCatalog).mockReturnValue(5);
     await refreshOpenRouterCostsIfActive('https://openrouter.ai/api/v1', 'key');
     expect(ingestOpenRouterCatalog).toHaveBeenCalled();
+  });
+});
+
+describe('setModel persists to the scope where sidecar.model is defined', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function stubConfig(inspectResult: Record<string, unknown>) {
+    const update = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: <T>(_k: string, d?: T) => d,
+      inspect: () => inspectResult,
+      update,
+    } as never);
+    return update;
+  }
+
+  const state = () =>
+    ({
+      client: {
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        isLocalOllama: () => false,
+        listInstalledModels: vi.fn(),
+      },
+    }) as never;
+
+  it('writes to WORKSPACE scope when the project pins the model (live v0.119 bug)', async () => {
+    // The dogfood workspace pinned sidecar.model in .vscode/settings.json.
+    // setModel wrote Global, workspace scope won on read, and the next turn's
+    // updateModel(config.model) snapped the client back — switching to gemma4
+    // silently kept running llama3.2.
+    const update = stubConfig({ workspaceValue: 'llama3.2:latest', globalValue: undefined });
+    await setModel(state(), () => {}, 'gemma4:e4b');
+    expect(update).toHaveBeenCalledWith('model', 'gemma4:e4b', ConfigurationTarget.Workspace);
+  });
+
+  it('writes to GLOBAL scope when the model is only a user setting', async () => {
+    const update = stubConfig({ workspaceValue: undefined, globalValue: 'llama3.2:latest' });
+    await setModel(state(), () => {}, 'gemma4:e4b');
+    expect(update).toHaveBeenCalledWith('model', 'gemma4:e4b', ConfigurationTarget.Global);
+  });
+
+  it('writes to WORKSPACE FOLDER scope when that is where it is pinned', async () => {
+    const update = stubConfig({ workspaceFolderValue: 'llama3.2:latest', workspaceValue: undefined });
+    await setModel(state(), () => {}, 'gemma4:e4b');
+    expect(update).toHaveBeenCalledWith('model', 'gemma4:e4b', ConfigurationTarget.WorkspaceFolder);
   });
 });

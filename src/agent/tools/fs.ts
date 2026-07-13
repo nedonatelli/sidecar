@@ -715,6 +715,53 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         `the full content of a NEW file. To create files, call write_file(path, content) directly.]\n`;
       return note + (await writeFile({ path: filePath, content }, context));
     }
+    // MISSING SEARCH, PRESENT REPLACE — infer the target region.
+    //
+    // Live v0.119 dogfood: asked to add a JSDoc comment, llama3.2 sent
+    // edit_file with only `replace` (the complete new text) NINE times in a
+    // row. It read the file three times in between and still never produced a
+    // `search` field — telling it to "copy the exact text into search" simply
+    // does not land on this model class. The intent, though, is unambiguous:
+    // it wants the region that `replace` supersedes to become `replace`.
+    //
+    // So infer it, exactly as the search-not-found path does, and let the
+    // structural + syntax guards decide whether the result is safe. That keeps
+    // the deterministic-recovery contract (paramRemap / toolNameAlias): a
+    // wrong-but-unambiguous call is executed and the correction is disclosed,
+    // rather than bounced into a loop. When inference is unsafe or impossible,
+    // the error now hands the model the EXACT text to use as `search`.
+    if (search === undefined && replace !== undefined) {
+      const currentText = isAuditModeActive(context)
+        ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)) ?? '')
+        : ((await readDiskViaWorkspace(context, filePath)) ?? '');
+
+      const target = findIntentTarget(currentText, replace);
+      if (target && currentText.includes(target) && target !== replace) {
+        if (isStructurallySafeReplacement(target, replace)) {
+          const inferred = currentText.replace(target, replace);
+          const syntax = await editWouldBreakSyntax(filePath, currentText, inferred);
+          if (!syntax.refuse) {
+            return await editFile({ path: filePath, search: target, replace }, context).then(
+              (r) =>
+                `[note: 'search' was missing. The region your 'replace' text supersedes was inferred and used as ` +
+                `the search string. Always pass 'search' explicitly — it is the exact current text to replace.]\n${r}`,
+            );
+          }
+        }
+      }
+
+      // Inference impossible or unsafe — give the model the literal text to copy.
+      const nearest = findNearestMatchWide(currentText, replace, 25) ?? currentText.slice(0, 800);
+      recordEditFailure(context, filePath, '', replace);
+      throw new Error(
+        `Error: edit_file requires 'search' — the EXACT text currently in ${filePath} that you want to replace. ` +
+          `You sent only 'replace'.\n\n` +
+          `Copy this into 'search' (it is the current text, byte-for-byte):\n\`\`\`\n${nearest}\n\`\`\`\n\n` +
+          `Then put your new version in 'replace'. To rewrite the whole file instead, call ` +
+          `write_file(path="${filePath}", content="…").`,
+      );
+    }
+
     const missing = search === undefined ? 'search' : 'replace';
     throw new Error(
       `Error: edit_file on an existing file requires both 'search' (the current text) and 'replace' (the new text); ` +
