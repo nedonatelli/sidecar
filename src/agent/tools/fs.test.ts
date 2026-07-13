@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { writeFile, editFile, readFile } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
+import { workspace } from 'vscode';
 
 describe('writeFile audit mode', () => {
   let buf: AuditBuffer;
@@ -798,5 +799,63 @@ describe('path-validation rejections throw (never success-shaped strings)', () =
 
   it('writeFile rejects an absolute path', async () => {
     await expect(writeFile({ path: '/tmp/x.ts', content: 'x' })).rejects.toThrow('absolute paths are not allowed');
+  });
+});
+
+describe('inferred-edit structural guard (no silent file corruption)', () => {
+  const original =
+    '// Says hello to the given name.\n' +
+    'export function greet(name: string): string {\n' +
+    '  return `Hello, ${name}!`;\n' +
+    '}\n';
+
+  beforeEach(() => {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+  });
+
+  it('refuses an inference whose bracket balance differs from the region it would replace', async () => {
+    // Exact live corruption (v0.119 dogfood, llama3.2): the model's one-line
+    // replace made findIntentTarget pick the single-line block HEADER
+    // `export function greet(name: string): string {` (curly +1) and swap in a
+    // self-contained one-liner (curly 0), orphaning `return …` / `}` and
+    // dropping `export`. It returned SUCCESS, so the model "fixed" it four
+    // more times, each pass worse, until cycle detection bailed at iteration 22.
+    const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+
+    await expect(
+      editFile({
+        path: 'src/greeter.ts',
+        search: 'function greet(name): string', // genuinely absent — forces the inferred path
+        replace: 'function welcome(name: string): string { return `Hello, ${name}!`; }',
+      }),
+    ).rejects.toThrow(/could not safely apply|not a drop-in/i);
+
+    // The critical assertion: nothing was written to disk.
+    expect(writeFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('still applies a balanced inference (the legitimate fuzzy-match case)', async () => {
+    // Whitespace-only mismatch: the replacement is a drop-in for the region
+    // (same bracket balance), so the fuzzy path remains available.
+    let written = '';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written = Buffer.from(content as Uint8Array).toString('utf-8');
+    });
+
+    const result = await editFile({
+      path: 'src/greeter.ts',
+      search: '  return `Hello, ${name}!`;', // exact-match path
+      replace: '  return `Hi, ${name}!`;',
+    });
+
+    expect(result).not.toMatch(/could not safely apply/i);
+    expect(written).toContain('Hi, ${name}!');
+    // Structure intact: export preserved, braces balanced.
+    expect(written).toContain('export function greet');
+    const opens = (written.match(/\{/g) || []).length;
+    const closes = (written.match(/\}/g) || []).length;
+    expect(opens).toBe(closes);
   });
 });

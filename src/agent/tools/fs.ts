@@ -153,6 +153,63 @@ function findNearestMatch(fileText: string, search: string): string | null {
  * reject again for the same reason; loosening it is the only way a retry
  * can find something the stricter first pass didn't.
  */
+/**
+ * Net delimiter balance of a snippet: opens minus closes, per bracket family.
+ * Template-literal `${…}` pairs cancel out, so a self-contained one-liner nets
+ * zero while a block header (`… ): string {`) nets +1 curly.
+ */
+function delimiterBalance(s: string): { curly: number; paren: number; square: number } {
+  let curly = 0;
+  let paren = 0;
+  let square = 0;
+  for (const ch of s) {
+    if (ch === '{') curly++;
+    else if (ch === '}') curly--;
+    else if (ch === '(') paren++;
+    else if (ch === ')') paren--;
+    else if (ch === '[') square++;
+    else if (ch === ']') square--;
+  }
+  return { curly, paren, square };
+}
+
+/**
+ * An inferred (fuzzy) replacement is structurally safe only when it preserves
+ * the file's delimiter balance — i.e. `replace` opens and closes exactly as
+ * many brackets as the region it replaces.
+ *
+ * Why this exists (v0.119 dogfood, live file corruption): `findIntentTarget`
+ * sizes its window by the REPLACE string's line count. A model asked to rename
+ * `greet` sent a one-line replace, so the window was the single line
+ * `export function greet(name: string): string {` — a block HEADER (curly +1).
+ * Replacing it with a self-contained one-liner (curly 0) orphaned the old body
+ * (`return …` / `}`), dropped `export`, and left a syntax error. The tool
+ * reported SUCCESS, so the model "fixed" it four more times, each pass
+ * mangling further; the run only ended when cycle detection bailed at
+ * iteration 22 with the file broken on disk.
+ *
+ * Balance mismatch means the replacement cannot be a drop-in for the region,
+ * regardless of how well the fuzzy scorer liked it — so refuse to guess.
+ */
+function isStructurallySafeReplacement(target: string, replace: string): boolean {
+  const t = delimiterBalance(target);
+  const r = delimiterBalance(replace);
+  return t.curly === r.curly && t.paren === r.paren && t.square === r.square;
+}
+
+/** Error text for a rejected inference — names the mismatch and demands an exact search. */
+function unsafeInferenceError(filePath: string, target: string): string {
+  return (
+    `Error: edit_file could not safely apply this edit to ${filePath}. Your search string did not match ` +
+    `the file, and the closest region found is not a drop-in for your replacement — it opens or closes a ` +
+    `different number of brackets, so applying it would corrupt the file (orphaned code, broken syntax).\n\n` +
+    `The closest region was:\n\`\`\`\n${target}\n\`\`\`\n\n` +
+    `Call read_file on ${filePath}, copy the EXACT current text you want to change into \`search\` ` +
+    `(byte-for-byte, including \`export\`, indentation, and the full block if you are replacing a block), ` +
+    `and put the complete new version in \`replace\`.`
+  );
+}
+
 function findIntentTarget(fileText: string, replace: string, minConfidenceRatio = 0.4): string | null {
   const searchWords = replace
     .split(/\W+/)
@@ -653,6 +710,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     // find the intent target and apply the edit rather than failing.
     if (currentContent) {
       const intentTarget = findIntentTarget(currentContent, search);
+      if (intentTarget && !isStructurallySafeReplacement(intentTarget, replace)) {
+        recordEditFailure(context, filePath, search, replace);
+        throw new Error(unsafeInferenceError(filePath, intentTarget));
+      }
       if (intentTarget && currentContent.includes(intentTarget) && intentTarget !== search) {
         // We're in the early path (before file is read via fileUri), so
         // re-read or use currentContent directly based on which path we're in.
@@ -836,6 +897,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     // small-model failure where the model writes the new text in search instead
     // of the old text — we infer where it wants to make the change.
     const intentTarget = findIntentTarget(text, replace);
+    if (intentTarget && !isStructurallySafeReplacement(intentTarget, replace)) {
+      recordEditFailure(context, filePath, search, replace);
+      throw new Error(unsafeInferenceError(filePath, intentTarget));
+    }
     if (intentTarget && text.includes(intentTarget) && intentTarget !== replace) {
       const inferredText = text.replace(intentTarget, replace);
       const patch = computeLineDiff(text, inferredText, filePath);
@@ -862,6 +927,12 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     // just repeating the same hint a model has already ignored twice.
     if (failureCount >= 3) {
       const looseTarget = findIntentTarget(text, replace, 0.2);
+      // Low-confidence repair is even more dangerous than the default-confidence
+      // inference, so it obeys the same structural invariant — never guess an
+      // edit that cannot be a drop-in for the region it replaces.
+      if (looseTarget && !isStructurallySafeReplacement(looseTarget, replace)) {
+        throw new Error(unsafeInferenceError(filePath, looseTarget));
+      }
       if (looseTarget && text.includes(looseTarget) && looseTarget !== replace) {
         const inferredText = text.replace(looseTarget, replace);
         const patch = computeLineDiff(text, inferredText, filePath);
