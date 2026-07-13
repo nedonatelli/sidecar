@@ -166,6 +166,36 @@ describe('executeTool', () => {
     expect(fresh.content).not.toContain('consecutive');
   });
 
+  it('normalizes a generic ask_user question to the canned clarification card', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'ask_user',
+        description: '',
+        input_schema: { type: 'object' as const, properties: { question: { type: 'string' } }, required: ['question'] },
+      },
+      executor: async () => 'unused — ask_user routes through clarifyFn',
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { ask_user: 'allow' } });
+    const clarifyFn = vi.fn().mockResolvedValue('Run the tests');
+
+    await executeTool(makeToolUse('ask_user', { question: 'What do you want me to do?', options: ['Help'] }), {
+      executorContext: { clarifyFn } as never,
+    });
+    expect(clarifyFn).toHaveBeenCalledWith(
+      expect.stringContaining("I'm not sure what you'd like me to do"),
+      expect.arrayContaining(['Run the tests', 'Explain this codebase']),
+      true,
+    );
+
+    // A specific question passes through with the model's own phrasing.
+    await executeTool(
+      makeToolUse('ask_user', { question: 'Which of the two greet functions should I rename?', options: ['first'] }),
+      { executorContext: { clarifyFn } as never },
+    );
+    expect(clarifyFn).toHaveBeenLastCalledWith('Which of the two greet functions should I rename?', ['first'], true);
+  });
+
   it('runs a tool normally when the arguments differ from the description example', async () => {
     const executor = vi.fn().mockResolvedValue('file contents');
     mockedFindTool.mockReturnValue({

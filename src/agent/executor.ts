@@ -22,6 +22,7 @@ import { remapParamSynonyms, coerceParamTypes } from './executor/paramRemap.js';
 import { resolveToolNameAlias } from './executor/toolNameAlias.js';
 import { isExampleReplay, buildExampleReplayError } from './executor/exampleReplayGuard.js';
 import { recordBounce, clearBounces, escalationSuffix } from './executor/bounceEscalation.js';
+import { isGenericClarification, CANNED_CLARIFICATION } from './executor/genericClarification.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 
@@ -254,10 +255,20 @@ export async function executeTool(
 
   // --- ask_user: route through clarification UI ---
   if (toolUse.name === 'ask_user') {
-    const question = ((toolUse.input as Record<string, unknown>).question as string) || 'What would you like to do?';
-    const rawOptions = ((toolUse.input as Record<string, unknown>).options as string[]) || [];
+    let question = ((toolUse.input as Record<string, unknown>).question as string) || 'What would you like to do?';
+    let rawOptions = ((toolUse.input as Record<string, unknown>).options as string[]) || [];
+    let allowCustom = ((toolUse.input as Record<string, unknown>).allow_custom as boolean) !== false;
+    // A lost model improvises "What do you want me to do?" with random
+    // options; swap detected generic questions for the canonical card so the
+    // user always sees consistent, actionable choices. Specific questions
+    // pass through untouched.
+    if (isGenericClarification(question)) {
+      logger?.info(`ask_user question was generic ("${question.slice(0, 60)}") — normalized to the canned card`);
+      question = CANNED_CLARIFICATION.question;
+      rawOptions = [...CANNED_CLARIFICATION.options];
+      allowCustom = CANNED_CLARIFICATION.allowCustom;
+    }
     const options = rawOptions.slice(0, 5); // cap at 5 — more become a keyboard-like grid
-    const allowCustom = ((toolUse.input as Record<string, unknown>).allow_custom as boolean) !== false;
     const clarifyFn = executorContext?.clarifyFn;
 
     if (!clarifyFn) {
