@@ -240,30 +240,30 @@ export function resolveRootUri(context?: ToolExecutorContext): Uri {
 /** Reject obviously invalid file paths that indicate the model hallucinated. */
 export function validateFilePath(filePath: string): string | null {
   if (!filePath || filePath.trim().length === 0) {
-    return 'Error: file path is empty.';
+    return 'file path is empty.';
   }
   // Reject paths with backticks, control chars, or that look like prose
   if (/[`\x00-\x1f]/.test(filePath)) {
-    return `Error: invalid characters in file path: ${filePath.slice(0, 80)}`;
+    return `invalid characters in file path: ${filePath.slice(0, 80)}`;
   }
   // Reject paths containing spaces that are clearly not file names
   // (e.g., "... ```) that contain diagram content")
   if (filePath.length > 80) {
-    return `Error: file path too long (${filePath.length} chars): ${filePath.slice(0, 80)}...`;
+    return `file path too long (${filePath.length} chars): ${filePath.slice(0, 80)}...`;
   }
   // Reject paths that don't have at least one valid-looking segment
   const segments = filePath.split(/[\\/]/);
   for (const seg of segments) {
     if (seg.length > 60) {
-      return `Error: path segment too long, likely not a real file name: ${seg.slice(0, 60)}...`;
+      return `path segment too long, likely not a real file name: ${seg.slice(0, 60)}...`;
     }
   }
   // Block path traversal outside workspace
   if (filePath.includes('..')) {
-    return `Error: path traversal ("..") is not allowed: ${filePath}`;
+    return `path traversal ("..") is not allowed: ${filePath}`;
   }
   if (path.isAbsolute(filePath)) {
-    return `Error: absolute paths are not allowed. Use a path relative to the workspace root.`;
+    return `absolute paths are not allowed. Use a path relative to the workspace root.`;
   }
   return null; // valid
 }
