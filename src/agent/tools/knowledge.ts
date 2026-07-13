@@ -101,7 +101,7 @@ export async function displayDiagram(input: Record<string, unknown>): Promise<st
   const effectiveIndex = diagramIndex ?? 0;
 
   const pathError = validateFilePath(filePath);
-  if (pathError) return pathError;
+  if (pathError) throw new Error(pathError);
 
   try {
     const fileUri = Uri.joinPath(getRootUri(), filePath);

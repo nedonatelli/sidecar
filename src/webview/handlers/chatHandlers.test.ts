@@ -892,6 +892,18 @@ describe('buildBaseSystemPrompt', () => {
     expect(prompt).toContain('`git_*`');
   });
 
+  it('never orders the model to read conventions files (reactive rule 5)', () => {
+    // v0.119 dogfood: the old imperative "call read_file on SIDECAR.md"
+    // sent llama3.2 hunting for a nonexistent file for a full 10-iteration
+    // run on a bare "hi". The injector supplies conventions content when a
+    // file exists, so the rule is reactive: follow the injected section,
+    // and explicitly do not search when none appears.
+    const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).toContain('Follow the project conventions supplied in this prompt');
+    expect(prompt).toContain('do not search for or try to read conventions files');
+    expect(prompt).not.toMatch(/call `read_file` on it/);
+  });
+
   it('uses positive framing with trailing contrast notes', () => {
     // Regression for the cycle-2 prompt-engineer finding: rules used
     // to open with "don't restate", "don't defer", "don't ask

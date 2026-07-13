@@ -577,30 +577,22 @@ describe('tools.ts', () => {
 
     it('readFile executor should reject empty paths', async () => {
       const readFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'read_file');
-      const result = await readFileTool!.executor({ path: '' });
-      expect(result).toContain('Error');
-      expect(result.toLowerCase()).toContain('empty');
+      await expect(readFileTool!.executor({ path: '' })).rejects.toThrow(/empty/i);
     });
 
     it('readFile executor should reject paths with backticks', async () => {
       const readFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'read_file');
-      const result = await readFileTool!.executor({ path: 'file`name.txt' });
-      expect(result).toContain('Error');
-      expect(result).toContain('invalid');
+      await expect(readFileTool!.executor({ path: 'file`name.txt' })).rejects.toThrow(/invalid/);
     });
 
     it('readFile executor should reject absolute paths', async () => {
       const readFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'read_file');
-      const result = await readFileTool!.executor({ path: '/etc/passwd' });
-      expect(result).toContain('Error');
-      expect(result.toLowerCase()).toContain('absolute');
+      await expect(readFileTool!.executor({ path: '/etc/passwd' })).rejects.toThrow(/absolute/i);
     });
 
     it('readFile executor should reject path traversal', async () => {
       const readFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'read_file');
-      const result = await readFileTool!.executor({ path: '../../../etc/passwd' });
-      expect(result).toContain('Error');
-      expect(result).toContain('..');
+      await expect(readFileTool!.executor({ path: '../../../etc/passwd' })).rejects.toThrow('..');
     });
 
     it('readFile executor should warn about sensitive files', async () => {
@@ -642,20 +634,19 @@ describe('tools.ts', () => {
 
     it('writeFile executor should reject empty paths', async () => {
       const writeFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'write_file');
-      const result = await writeFileTool!.executor({ path: '', content: 'test' });
-      expect(result).toContain('Error');
+      await expect(writeFileTool!.executor({ path: '', content: 'test' })).rejects.toThrow(/empty/i);
     });
 
     it('editFile executor should reject empty paths', async () => {
       const editFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'edit_file');
-      const result = await editFileTool!.executor({ path: '', search: 'a', replace: 'b' });
-      expect(result).toContain('Error');
+      await expect(editFileTool!.executor({ path: '', search: 'a', replace: 'b' })).rejects.toThrow(/empty/i);
     });
 
     it('editFile executor should reject path traversal', async () => {
       const editFileTool = TOOL_REGISTRY.find((t) => t.definition.name === 'edit_file');
-      const result = await editFileTool!.executor({ path: '../../etc/passwd', search: 'a', replace: 'b' });
-      expect(result).toContain('Error');
+      await expect(editFileTool!.executor({ path: '../../etc/passwd', search: 'a', replace: 'b' })).rejects.toThrow(
+        'path traversal',
+      );
     });
   });
 
@@ -673,8 +664,7 @@ describe('tools.ts', () => {
 
     it('should reject invalid paths', async () => {
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'display_diagram');
-      const result = await tool!.executor({ path: '../../../etc/passwd' });
-      expect(result).toContain('Error');
+      await expect(tool!.executor({ path: '../../../etc/passwd' })).rejects.toThrow('path traversal');
     });
   });
 

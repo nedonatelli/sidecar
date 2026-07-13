@@ -145,9 +145,11 @@ describe('latexCompile — guard paths', () => {
   });
 
   it('validates file path for traversal attempts', async () => {
+    // Path-validation rejections THROW so the executor records is_error —
+    // returned error strings were logged as successes, resetting bounce
+    // streaks and satisfying gates (v0.119 dogfood finding).
     const ctx = makeContext(true);
-    const result = await latexCompile({ file: '../../../etc/passwd' }, ctx);
-    expect(result).toContain('Invalid file path');
+    await expect(latexCompile({ file: '../../../etc/passwd' }, ctx)).rejects.toThrow('Invalid file path');
   });
 });
 

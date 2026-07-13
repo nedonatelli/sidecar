@@ -392,7 +392,7 @@ export const listDirectoryDef: ToolDefinition = {
 export async function readFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
-  if (pathError) return pathError;
+  if (pathError) throw new Error(pathError);
   if (isSensitiveFile(filePath)) {
     return `Warning: "${filePath}" appears to contain secrets or credentials. Reading this file would send its contents to the LLM provider. Use read_file on a non-sensitive file instead, or ask the user to provide the needed information directly.`;
   }
@@ -474,7 +474,7 @@ function pathInSetByBasename(filePath: string, set: Set<string>): boolean {
 export async function writeFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
-  if (pathError) return pathError;
+  if (pathError) throw new Error(pathError);
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   if (isSensitiveFile(filePath)) {
@@ -581,7 +581,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
 export async function editFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
-  if (pathError) return pathError;
+  if (pathError) throw new Error(pathError);
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   if (isSensitiveFile(filePath)) {
@@ -923,7 +923,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
 export async function deleteFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
-  if (pathError) return pathError;
+  if (pathError) throw new Error(pathError);
   const protectedError = isProtectedWritePath(filePath);
   if (protectedError) return protectedError;
   if (isSensitiveFile(filePath)) {
@@ -958,7 +958,7 @@ export async function listDirectory(input: Record<string, unknown>, context?: To
   // trust independently, but belt-and-suspenders is the right shape.
   if (dirPath !== '.' && dirPath !== '') {
     const pathError = validateFilePath(dirPath);
-    if (pathError) return pathError;
+    if (pathError) throw new Error(pathError);
   }
   const dirUri = Uri.joinPath(resolveRootUri(context), dirPath);
   const entries = await workspace.fs.readDirectory(dirUri);

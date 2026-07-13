@@ -157,7 +157,7 @@ export async function latexCompile(input: Record<string, unknown>, context?: Too
   }
 
   const pathError = validateFilePath(file);
-  if (pathError) return `Invalid file path: ${pathError}`;
+  if (pathError) throw new Error(`Invalid file path: ${pathError}`);
   if (hasShellMetachar(file)) {
     return 'Error: `file` contains shell metacharacters. Pass a plain .tex path (e.g. "paper/main.tex").';
   }

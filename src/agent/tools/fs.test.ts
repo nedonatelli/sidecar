@@ -781,3 +781,22 @@ describe('streaming diff via onOutput', () => {
     vi.restoreAllMocks();
   });
 });
+
+describe('path-validation rejections throw (never success-shaped strings)', () => {
+  // v0.119 dogfood finding: validateFilePath errors were RETURNED as normal
+  // tool output, so the executor recorded is_error=false — absolute-path and
+  // traversal rejections looked like successful calls to every downstream
+  // ledger (bounce-escalation streak resets, cycle detection, the completion
+  // gate's read-verification). They must throw so is_error is honest.
+  it('readFile rejects an absolute path', async () => {
+    await expect(readFile({ path: '/etc/hosts' })).rejects.toThrow('absolute paths are not allowed');
+  });
+
+  it('readFile rejects path traversal', async () => {
+    await expect(readFile({ path: '../outside.ts' })).rejects.toThrow('path traversal');
+  });
+
+  it('writeFile rejects an absolute path', async () => {
+    await expect(writeFile({ path: '/tmp/x.ts', content: 'x' })).rejects.toThrow('absolute paths are not allowed');
+  });
+});
