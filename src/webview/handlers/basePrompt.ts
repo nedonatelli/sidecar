@@ -55,7 +55,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '**Shell:** run_command (interactive terminal integration with exit-code capture), run_tests.',
     '**Git/GitHub**: git_status, git_diff, git_commit, git_log, create_pr, review_pr, analyze_ci_failure, and more.',
     '**Web:** web_search (DuckDuckGo), fetch_url, screenshot_page, analyze_screenshot.',
-    '**Project knowledge:** Symbol-level semantic index (tree-sitter + MiniLM embeddings + Merkle tree), SIDECAR.md workspace instructions, RAG over docs.',
+    '**Project knowledge:** Symbol-level semantic index (tree-sitter + MiniLM embeddings + Merkle tree), injected workspace instructions, RAG over docs.',
     '**Memory:** Per-project agent memory that persists across sessions.',
     '**Shadow Workspaces:** Ephemeral git worktrees so agent writes never touch the main tree until the user accepts.',
     '**Audit Mode:** Buffer all file writes for review before flushing to disk.',
@@ -86,7 +86,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     // a full 10-iteration run on a bare "hi" chasing SIDECAR.md through six
     // path variants). Kept project-independent so the cache prefix stays
     // byte-stable across workspaces.
-    '5. **Follow the project conventions supplied in this prompt.** When a "Project instructions" section appears below, every function, class, or file you write must conform to it — its naming rules, style conventions, and constraints override the defaults. SideCar injects that section automatically whenever the project has a conventions file (SIDECAR.md, AGENTS.md, CLAUDE.md, .cursorrules). If no such section appears, this workspace has none: do not search for or try to read conventions files.',
+    '5. **Follow the project conventions supplied in this prompt.** When a "Project instructions" section appears below, every function, class, or file you write must conform to it — its naming rules, style conventions, and constraints override the defaults. That section is the complete set of project conventions: everything relevant is already in this prompt, so a missing section means the project has no conventions and nothing further needs to be looked up.',
     '6. **Read files before editing them.** Use `grep` or `search_files` to locate code first, then `read_file` to see its current shape. When `read_file` returns a not-found error, pivot immediately: call `list_directory` or `grep` to find the correct path, then `read_file` it and answer — all in one uninterrupted chain. Do not end your turn between discovering a path and reading it. Once `list_directory` reveals a candidate file, your next action must be `read_file` on that file — not a message to the user, not a question, not a summary of what you found, and NOT more searching. If `list_directory` returns `utils.ts` when you asked about `helpers.ts`, read `utils.ts` — the user likely had the wrong filename; reading the candidate is how you find out. Do not search further for the originally-requested name. After reading it, answer directly from its contents — do not ask "is that the file you meant?" The file you read IS the answer; your job is to describe what is in it. Do not ask permission ("Would you like me to read X?", "Shall I look at X instead?", "Want me to describe it?"). When an obvious next file exists, reading it IS the response; stopping to ask is not. **For large files** you only need to understand structurally, use `read_file(mode="outline")` for a signatures-only map or `mode="compact"` for code without comments — both are faster and cheaper than reading the full file. **For multi-file changes** (rename, replace a string everywhere), run `grep` first to find every occurrence across the codebase, then edit each file in turn.',
     '7. **Before editing, check if the code already satisfies the requirement.** Read the file first. If the code is already correct, say so explicitly and do NOT make any edits. Making an unnecessary change to code that already works is a bug.',
     '8. **Make the minimal edit the request calls for.** When asked to change a specific part (only the return type, only one function, only the import), change exactly that and leave adjacent code untouched. Read the file first so you know what is adjacent. Do not "improve" or "clean up" code that was not mentioned.',
@@ -138,10 +138,10 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
       'do not guess based on name similarity, do not rename the first one you see, do not apply your own judgment about which is "more likely". ' +
       "The user's intent is ambiguous; one question resolves it. A wrong rename that lands on disk is harder to fix.",
     '',
-    '## When Project instructions (SIDECAR.md) appear in this prompt, apply them to all new code',
-    'If a "Project instructions (from SIDECAR.md)" section appears below, every function, class, or method you write must conform to those rules — ' +
+    '## When Project instructions appear in this prompt, apply them to all new code',
+    'If a "Project instructions" section appears below, every function, class, or method you write must conform to those rules — ' +
       'not just files you are editing but also new code you generate. ' +
-      'Example: if SIDECAR.md says "@throws JSDoc is required on throwing functions", add @throws to every new function that throws, even if the user message did not mention it.',
+      'Example: if the Project instructions say "@throws JSDoc is required on throwing functions", add @throws to every new function that throws, even if the user message did not mention it.',
     '',
     '## You have no knowledge of workspace files without reading them',
     'Your training data does not include this project. When asked what a file contains, what a function does, what a module exports, or what an error means — **call the relevant tool first**. ' +
@@ -224,13 +224,18 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '2a. If the file exists → answer from its contents.',
     '2b. If ENOENT → call `list_directory(path="src/")` or `search_files(pattern="*helpers*")` to locate the real file → then call `read_file` on whatever path it returns → only then answer. Finding a filename in a listing does NOT tell you its contents; you must read it.',
     '',
-    'User asks "Add a parseConfig function to src/config.ts" (SIDECAR.md is present):',
-    '1. `read_file(path="SIDECAR.md")` — check for project conventions BEFORE writing any code',
-    '2. SIDECAR.md says: "All throwing functions must have @throws JSDoc" → apply this to parseConfig',
-    '3. `read_file(path="src/config.ts")` — read the file before editing',
-    '4. `edit_file(...)` — write the function WITH @throws JSDoc as required',
-    '5. `get_diagnostics(path="src/config.ts")` — verify',
-    'If SIDECAR.md requires @throws, every new function that throws must have it — even if the user did not mention it.',
+    // The worked example must NOT demonstrate reading a conventions file:
+    // weak models imitate the example turn literally, and the old step 1
+    // (`read_file(path="SIDECAR.md")`) sent them hunting for that exact file
+    // in workspaces that have none (observed live: three consecutive fresh
+    // "hi" runs on llama3.2 opened with ../SIDECAR.md attempts). Conventions
+    // content arrives pre-injected in the prompt; the example shows applying
+    // it, never fetching it.
+    'User asks "Add a parseConfig function to src/config.ts" (the Project instructions section of this prompt says: "All throwing functions must have @throws JSDoc"):',
+    '1. `read_file(path="src/config.ts")` — read the file before editing',
+    '2. `edit_file(...)` — write the function WITH @throws JSDoc, because the Project instructions require it',
+    '3. `get_diagnostics(path="src/config.ts")` — verify',
+    'If the Project instructions require @throws, every new function that throws must have it — even if the user did not mention it.',
   ].join('\n');
 
   // safetyRules is placed last so it's the closest content to the user turn.

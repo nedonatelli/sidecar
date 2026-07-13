@@ -892,16 +892,24 @@ describe('buildBaseSystemPrompt', () => {
     expect(prompt).toContain('`git_*`');
   });
 
-  it('never orders the model to read conventions files (reactive rule 5)', () => {
-    // v0.119 dogfood: the old imperative "call read_file on SIDECAR.md"
-    // sent llama3.2 hunting for a nonexistent file for a full 10-iteration
-    // run on a bare "hi". The injector supplies conventions content when a
-    // file exists, so the rule is reactive: follow the injected section,
-    // and explicitly do not search when none appears.
+  it('never names conventions files anywhere in the base prompt (salience-ectomy)', () => {
+    // v0.119 dogfood: three consecutive fresh "hi" runs on llama3.2 opened
+    // with SIDECAR.md hunts. Root causes, fixed in order of discovery: rule 5
+    // ordered "call read_file on SIDECAR.md"; the softened rule still NAMED
+    // the files inside a negation ("do not search for SIDECAR.md" — negation
+    // attention is unreliable, naming is salience); and the worked example
+    // turn demonstrated `read_file(path="SIDECAR.md")` as step 1. The
+    // invariant that survives all three: the base prompt contains no
+    // conventions filename at all. Conventions content arrives pre-injected
+    // under a "Project instructions" header, which names the source file
+    // only when it actually exists.
     const prompt = buildBaseSystemPrompt(baseParams);
+    expect(prompt).not.toContain('SIDECAR.md');
+    expect(prompt).not.toContain('CLAUDE.md');
+    expect(prompt).not.toContain('AGENTS.md');
+    expect(prompt).not.toContain('.cursorrules');
     expect(prompt).toContain('Follow the project conventions supplied in this prompt');
-    expect(prompt).toContain('do not search for or try to read conventions files');
-    expect(prompt).not.toMatch(/call `read_file` on it/);
+    expect(prompt).toContain('Project instructions');
   });
 
   it('uses positive framing with trailing contrast notes', () => {
