@@ -75,7 +75,7 @@ describe('editWouldBreakSyntax', () => {
 
     const verdict = await editWouldBreakSyntax('src/greeter.ts', before, after);
     expect(verdict.refuse).toBe(true);
-    expect(verdict.message).toMatch(/unparseable/i);
+    expect(verdict.message).toMatch(/new syntax error/i);
     expect(verdict.message).toMatch(/escaped/i);
   });
 
@@ -101,7 +101,7 @@ describe('editWouldBreakSyntax', () => {
       '@tsDocParam(', // exactly what llama3.2 wrote to a .ts file via write_file
     );
     expect(verdict.refuse).toBe(true);
-    expect(verdict.message).toMatch(/unparseable/i);
+    expect(verdict.message).toMatch(/new syntax error/i);
   });
 
   it('fails open for a language with no grammar', async () => {

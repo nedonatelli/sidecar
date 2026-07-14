@@ -861,7 +861,7 @@ describe('inferred-edit structural guard (no silent file corruption)', () => {
         search: 'function greet(name): string', // genuinely absent — forces the inferred path
         replace: 'function welcome(name: string): string { return `Hello, ${name}!`; }',
       }),
-    ).rejects.toThrow(/unparseable|could not safely apply|not a drop-in/i);
+    ).rejects.toThrow(/new syntax error|could not safely apply|not a drop-in/i);
 
     // The critical assertion: nothing was written to disk.
     expect(writeFileSpy).not.toHaveBeenCalled();

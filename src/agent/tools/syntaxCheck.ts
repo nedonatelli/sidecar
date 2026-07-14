@@ -237,14 +237,34 @@ export async function editWouldBreakSyntax(
   if (!afterCheck.checked || !afterCheck.broken) return { refuse: false };
 
   const beforeCheck = await checkSyntax(filePath, before);
-  if (!beforeCheck.checked || beforeCheck.broken) return { refuse: false };
+  if (!beforeCheck.checked) return { refuse: false };
 
+  // Compare error COUNTS — do not treat "the file already has an error" as a
+  // blank cheque.
+  //
+  // The old rule (before.broken → allow anything) silently disabled the guard
+  // for any file the grammar mis-parses. That is not hypothetical: the shipped
+  // tree-sitter TypeScript grammar cannot parse `import('vscode').Disposable`
+  // type-imports or `accessor` fields, so 16 of SideCar's own 475 valid source
+  // files (3.4%) register a phantom error — including loop.ts (15) and
+  // settings.ts (11). The guard was OFF for every one of them, and the edit
+  // oracle caught it: deleting a closing brace from workspaceIndexer.ts was
+  // APPLIED because the file "was already broken".
+  //
+  // Counting instead survives grammar gaps: a phantom error is present before
+  // AND after, so it cancels. Only an edit that makes things WORSE is refused,
+  // and a model repairing a genuinely broken file (count falling) is still free
+  // to work. Grammars will always lag the language; the rule must not.
+  if (afterCheck.errorCount <= beforeCheck.errorCount) return { refuse: false };
+
+  const introduced = afterCheck.errorCount - beforeCheck.errorCount;
   const where = afterCheck.firstErrorLine ? ` The first parse error is at line ${afterCheck.firstErrorLine}.` : '';
+  const already = beforeCheck.broken ? ' (the file had pre-existing parse errors; your edit added more)' : '';
   return {
     refuse: true,
     message:
-      `Error: edit_file refused this edit to ${filePath} — the file currently parses, but your edit would ` +
-      `make it unparseable (${afterCheck.errorCount} syntax error${afterCheck.errorCount === 1 ? '' : 's'}).` +
+      `Error: edit_file refused this edit to ${filePath} — it would introduce ${introduced} new syntax ` +
+      `error${introduced === 1 ? '' : 's'}${already}.` +
       `${where} The file was NOT modified.\n\n` +
       `Common causes: the replacement text is escaped or quoted wrongly (e.g. \`\\(\` instead of \`(\`), a ` +
       `bracket or brace is unbalanced, or the replacement is only part of the construct it replaces.\n\n` +
