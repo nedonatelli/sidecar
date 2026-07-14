@@ -29,7 +29,19 @@ const rawCaseTimeout = parseInt(process.env.SIDECAR_EVAL_CASE_TIMEOUT ?? '', 10)
 // hitting timeout before the agent could complete the edit-verify loop, producing
 // spurious failures that looked like the model couldn't tool-call.
 const caseTimeout = Number.isFinite(rawCaseTimeout) && rawCaseTimeout > 0 ? rawCaseTimeout : 240_000;
-const vitestTimeout = caseTimeout + 60_000;
+
+// SIDECAR_EVAL_TRIALS=N runs N trials INSIDE a single `it()`, sequentially. The
+// vitest budget therefore has to cover all of them — it did not, so any real
+// reliability run (the whole point of trials) was killed mid-way at the
+// single-case budget. Observed: a 25-trial run completed 4 of 9 cases and reported
+// the rest as timeouts that looked like model failures.
+//
+// That mattered more than a slow test. Multi-trial evals are the only way to tell
+// a regression from variance — a supposedly-boring `grep` case measures 88%
+// reliable, and `no-stub-in-write` is a 52% coin flip — so a harness that cannot
+// run trials cannot answer whether scaffolding helps.
+const trials = Math.max(1, parseInt(process.env.SIDECAR_EVAL_TRIALS ?? '1', 10) || 1);
+const vitestTimeout = caseTimeout * trials + 60_000;
 
 export default defineConfig({
   test: {
