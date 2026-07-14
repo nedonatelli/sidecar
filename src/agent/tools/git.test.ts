@@ -162,13 +162,12 @@ describe('gitDiffTool', () => {
     expect(result).toContain('1 file changed');
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return { diff: vi.fn().mockRejectedValue(new Error('not a git repo')) };
     });
-    const result = await gitDiffTool({});
-    expect(result).toContain('git diff failed');
+    await expect(gitDiffTool({})).rejects.toThrow('git diff failed');
   });
 
   it('passes ref1 and ref2 to GitCLI.diff', async () => {
@@ -188,13 +187,12 @@ describe('gitStatus', () => {
     expect(result).toContain('On branch main');
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return { status: vi.fn().mockRejectedValue(new Error('boom')) };
     });
-    const result = await gitStatus();
-    expect(result).toContain('git status failed');
+    await expect(gitStatus()).rejects.toThrow('git status failed');
   });
 });
 
@@ -204,13 +202,12 @@ describe('gitStage', () => {
     expect(result).toContain('staged');
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return { stage: vi.fn().mockRejectedValue(new Error('stage fail')) };
     });
-    const result = await gitStage({});
-    expect(result).toContain('git stage failed');
+    await expect(gitStage({})).rejects.toThrow('git stage failed');
   });
 });
 
@@ -230,13 +227,12 @@ describe('gitLog', () => {
     expect(result).toBe('No commits found.');
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return { log: vi.fn().mockRejectedValue(new Error('log fail')) };
     });
-    const result = await gitLog({});
-    expect(result).toContain('git log failed');
+    await expect(gitLog({})).rejects.toThrow('git log failed');
   });
 });
 
@@ -261,7 +257,7 @@ describe('gitPush', () => {
     expect(result).toContain('upstream set');
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return {
@@ -270,8 +266,7 @@ describe('gitPush', () => {
         push: vi.fn().mockRejectedValue(new Error('push fail')),
       };
     });
-    const result = await gitPush({});
-    expect(result).toContain('git push failed');
+    await expect(gitPush({})).rejects.toThrow('git push failed');
   });
 });
 
@@ -383,13 +378,12 @@ describe('gitPull', () => {
     expect(result).toContain('Already up to date.');
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return { pull: vi.fn().mockRejectedValue(new Error('conflict')) };
     });
-    const result = await gitPull({});
-    expect(result).toContain('git pull failed');
+    await expect(gitPull({})).rejects.toThrow('git pull failed');
   });
 });
 
@@ -414,9 +408,8 @@ describe('gitBranch', () => {
     expect(result).toContain('branch created');
   });
 
-  it('returns error when create has no name', async () => {
-    const result = await gitBranch({ action: 'create' });
-    expect(result).toContain('branch name required');
+  it('THROWS when create has no name (a returned error reads as is_error=false)', async () => {
+    await expect(gitBranch({ action: 'create' })).rejects.toThrow('branch name required');
   });
 
   it('switches branch', async () => {
@@ -424,18 +417,16 @@ describe('gitBranch', () => {
     expect(result).toContain('switched');
   });
 
-  it('returns error when switch has no name', async () => {
-    const result = await gitBranch({ action: 'switch' });
-    expect(result).toContain('branch name required');
+  it('THROWS when switch has no name (a returned error reads as is_error=false)', async () => {
+    await expect(gitBranch({ action: 'switch' })).rejects.toThrow('branch name required');
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return { listBranches: vi.fn().mockRejectedValue(new Error('no git')) };
     });
-    const result = await gitBranch({});
-    expect(result).toContain('git branch failed');
+    await expect(gitBranch({})).rejects.toThrow('git branch failed');
   });
 });
 
@@ -455,13 +446,12 @@ describe('gitStash', () => {
     expect(stashMock).toHaveBeenCalledWith('pop', { message: 'WIP', index: 2 });
   });
 
-  it('returns error prefix on failure', async () => {
+  it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
     const { GitCLI } = await import('../../github/git.js');
     vi.mocked(GitCLI).mockImplementationOnce(function () {
       return { stash: vi.fn().mockRejectedValue(new Error('stash fail')) };
     });
-    const result = await gitStash({});
-    expect(result).toContain('git stash failed');
+    await expect(gitStash({})).rejects.toThrow('git stash failed');
   });
 });
 
@@ -473,9 +463,8 @@ describe('gitSearchHistory', () => {
     vi.clearAllMocks();
   });
 
-  it('returns error when query is missing', async () => {
-    const result = await gitSearchHistory({});
-    expect(result).toBe('Error: query is required.');
+  it('THROWS when query is missing (a returned error reads as is_error=false)', async () => {
+    await expect(gitSearchHistory({})).rejects.toThrow('Error: query is required.');
   });
 
   it('passes query as a separate execFile argument (not shell-interpolated)', async () => {

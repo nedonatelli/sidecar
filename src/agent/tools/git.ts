@@ -50,7 +50,7 @@ export async function gitDiffTool(input: Record<string, unknown>, context?: Tool
     // change, so there's no cost to stripping them.
     return `${result.summary}\n\n${compressGitDiff(result.diff)}`;
   } catch (err) {
-    return `git diff failed: ${formatToolError(err)}`;
+    throw new Error(`git diff failed: ${formatToolError(err)}`);
   }
 }
 
@@ -73,7 +73,7 @@ export async function gitStatus(_input?: Record<string, unknown>, context?: Tool
   try {
     return await new GitCLI(context?.cwd).status();
   } catch (err) {
-    return `git status failed: ${formatToolError(err)}`;
+    throw new Error(`git status failed: ${formatToolError(err)}`);
   }
 }
 
@@ -102,7 +102,7 @@ export async function gitStage(input: Record<string, unknown>, context?: ToolExe
   try {
     return await new GitCLI(context?.cwd).stage(input.files as string[] | undefined);
   } catch (err) {
-    return `git stage failed: ${formatToolError(err)}`;
+    throw new Error(`git stage failed: ${formatToolError(err)}`);
   }
 }
 
@@ -145,7 +145,7 @@ export async function gitCommit(input: Record<string, unknown>, context?: ToolEx
 
     return await new GitCLI(context?.cwd).commit(message, extraTrailers);
   } catch (err) {
-    return `git commit failed: ${formatToolError(err)}`;
+    throw new Error(`git commit failed: ${formatToolError(err)}`);
   }
 }
 
@@ -173,7 +173,7 @@ export async function gitLog(input: Record<string, unknown>, context?: ToolExecu
     if (commits.length === 0) return 'No commits found.';
     return commits.map((c) => `${c.hash} ${c.message} (${c.author}, ${c.date})`).join('\n');
   } catch (err) {
-    return `git log failed: ${formatToolError(err)}`;
+    throw new Error(`git log failed: ${formatToolError(err)}`);
   }
 }
 
@@ -246,7 +246,7 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
     }
     return await git.push();
   } catch (err) {
-    return `git push failed: ${formatToolError(err)}`;
+    throw new Error(`git push failed: ${formatToolError(err)}`);
   }
 }
 
@@ -279,7 +279,7 @@ export async function gitPull(input: Record<string, unknown>, context?: ToolExec
     }
     return await new GitCLI(context?.cwd).pull();
   } catch (err) {
-    return `git pull failed: ${formatToolError(err)}`;
+    throw new Error(`git pull failed: ${formatToolError(err)}`);
   }
 }
 
@@ -313,11 +313,11 @@ export async function gitBranch(input: Record<string, unknown>, context?: ToolEx
     const git = new GitCLI(context?.cwd);
     switch (action) {
       case 'create': {
-        if (!name) return 'Error: branch name required for create.';
+        if (!name) throw new Error('Error: branch name required for create.');
         return await git.createBranch(name);
       }
       case 'switch': {
-        if (!name) return 'Error: branch name required for switch.';
+        if (!name) throw new Error('Error: branch name required for switch.');
         return await git.switchBranch(name);
       }
       default: {
@@ -326,7 +326,7 @@ export async function gitBranch(input: Record<string, unknown>, context?: ToolEx
       }
     }
   } catch (err) {
-    return `git branch failed: ${formatToolError(err)}`;
+    throw new Error(`git branch failed: ${formatToolError(err)}`);
   }
 }
 
@@ -360,7 +360,7 @@ export async function gitStash(input: Record<string, unknown>, context?: ToolExe
       index: input.index as number | undefined,
     });
   } catch (err) {
-    return `git stash failed: ${formatToolError(err)}`;
+    throw new Error(`git stash failed: ${formatToolError(err)}`);
   }
 }
 
@@ -407,7 +407,7 @@ export const gitSearchHistoryDef: ToolDefinition = {
 export async function gitSearchHistory(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
     const query = (input.query as string | undefined)?.trim();
-    if (!query) return 'Error: query is required.';
+    if (!query) throw new Error('Error: query is required.');
 
     const searchType = (input.search_type as string | undefined) ?? 'both';
     const maxResults = Math.min(Number(input.max_results) || 20, 100);
@@ -477,7 +477,7 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
     );
     return `Found ${results.length} commit${results.length === 1 ? '' : 's'} matching "${query}":\n\n${lines.join('\n\n')}`;
   } catch (err) {
-    return `git_search_history failed: ${formatToolError(err)}`;
+    throw new Error(`git_search_history failed: ${formatToolError(err)}`);
   }
 }
 

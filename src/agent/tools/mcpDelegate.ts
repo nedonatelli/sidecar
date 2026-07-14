@@ -101,7 +101,12 @@ export async function delegateToMcp(input: Record<string, unknown>, context?: To
       clearTimeout(timeoutHandle!);
     }
   } catch (err) {
-    return `Delegation to "${server}/${resolved.toolName}" failed: ${err instanceof Error ? err.message : String(err)}`;
+    // A failed delegation must surface as is_error=true: the MCP verify
+    // discipline treats a delegation as an unverified MUTATION, so a failure
+    // reported as success would let the completion gate believe work landed.
+    throw new Error(
+      `Delegation to "${server}/${resolved.toolName}" failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 

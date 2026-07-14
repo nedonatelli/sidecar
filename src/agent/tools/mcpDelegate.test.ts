@@ -209,12 +209,15 @@ describe('delegateToMcp — successful delegation', () => {
     expect(callArg.context).toContain('[REDACTED:GitHub Token]');
   });
 
-  it('propagates callServerTool errors as a string result', async () => {
+  it('THROWS on a callServerTool error (a returned failure reads as is_error=false)', async () => {
+    // A delegation is treated as an unverified MUTATION by the MCP verify
+    // discipline — a failure reported as success lets the completion gate
+    // believe work landed on the remote system.
     const mgr = makeMcpManager({ toolNames: ['run_task'], callThrows: new Error('server crashed') });
     const ctx = makeContext(mgr);
-    const result = await delegateToMcp({ server: 'math-engine', task: 'x' }, ctx);
-    expect(result).toContain('server crashed');
-    expect(result).toContain('math-engine/run_task');
+    const err = await delegateToMcp({ server: 'math-engine', task: 'x' }, ctx).catch((e: Error) => e.message);
+    expect(err).toContain('server crashed');
+    expect(err).toContain('math-engine/run_task');
   });
 });
 
@@ -234,7 +237,7 @@ describe('delegateToMcp — timeout and abort', () => {
     };
     const ctx = makeContext(mgr as never);
 
-    const promise = delegateToMcp({ server: 'math-engine', task: 'compute' }, ctx);
+    const promise = delegateToMcp({ server: 'math-engine', task: 'compute' }, ctx).catch((e: Error) => e.message);
     // Advance past MCP_DELEGATE_TIMEOUT_MS (60 000 ms)
     vi.advanceTimersByTime(60_001);
     const result = await promise;
@@ -257,7 +260,7 @@ describe('delegateToMcp — timeout and abort', () => {
       signal: controller.signal,
     };
 
-    const promise = delegateToMcp({ server: 'math-engine', task: 'compute' }, ctx);
+    const promise = delegateToMcp({ server: 'math-engine', task: 'compute' }, ctx).catch((e: Error) => e.message);
     controller.abort();
     const result = await promise;
 

@@ -272,7 +272,7 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
     );
   }
   if (command && input.command_id) {
-    return 'Error: `command` and `command_id` are mutually exclusive — provide one, not both.';
+    throw new Error('Error: `command` and `command_id` are mutually exclusive — provide one, not both.');
   }
   if (input.background && !command) {
     return (
