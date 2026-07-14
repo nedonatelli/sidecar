@@ -12,6 +12,8 @@
 // the only part that needs a live model.
 // ---------------------------------------------------------------------------
 
+import { inferAblation, type AblationInference, type Pair } from './ablationStats.js';
+
 /** One eval run, tagged with which scaffold was toggled and whether it was active. */
 export interface AblationRun {
   /** Scaffold under test, e.g. 'completionGate' | 'analysisCritic' | 'autoFix'. */
@@ -19,6 +21,14 @@ export interface AblationRun {
   /** Was the scaffold active for this run? */
   present: boolean;
   caseId: string;
+  /**
+   * Repetition index. With it, the two arms of the same (scaffold, caseId, rep)
+   * form a PAIR — and a paired binary comparison is the only one with any power
+   * here, because between-case difficulty (a case is either within the model's
+   * reach or it isn't) swamps the scaffold effect in an unpaired test. The runner
+   * seeds both arms of a pair identically, so a pair differs only in the scaffold.
+   */
+  rep?: number;
   passed: boolean;
   durationMs: number;
   /**
@@ -62,6 +72,36 @@ export interface AblationSummary {
   latencyDeltaMs: number;
   /** Graded-metric means per arm, one entry per metric name observed. */
   metricDeltas: MetricDelta[];
+  /**
+   * Paired inference: exact McNemar over the discordant pairs, plus an honesty
+   * gate that refuses to call a lift it had no power to see. `lift` above is a
+   * point estimate and, on its own, has repeatedly been read as a finding when it
+   * was noise — this is the number that decides.
+   */
+  inference: AblationInference;
+}
+
+/**
+ * Pair the two arms of each (caseId, rep). A run without a partner is dropped: an
+ * unpaired run cannot say anything about the scaffold, and silently folding it
+ * into a marginal pass-rate is how an unpaired comparison manufactures lift out of
+ * case-difficulty imbalance.
+ */
+function buildPairs(group: AblationRun[]): Pair[] {
+  const byKey = new Map<string, { on?: boolean; off?: boolean }>();
+  for (const r of group) {
+    const key = `${r.caseId}#${r.rep ?? 0}`;
+    const slot = byKey.get(key) ?? {};
+    if (r.present) slot.on = r.passed;
+    else slot.off = r.passed;
+    byKey.set(key, slot);
+  }
+  const pairs: Pair[] = [];
+  for (const { on, off } of byKey.values()) {
+    if (on === undefined || off === undefined) continue; // no partner → no information
+    pairs.push({ withScaffold: on, withoutScaffold: off });
+  }
+  return pairs;
 }
 
 function mean(ns: number[]): number {
@@ -101,6 +141,7 @@ export function summarizeAblation(runs: AblationRun[]): AblationSummary[] {
       latencyWithoutMs,
       latencyDeltaMs: latencyWithMs - latencyWithoutMs,
       metricDeltas: summarizeMetrics(withRuns, withoutRuns),
+      inference: inferAblation(buildPairs(group)),
     });
   }
 
@@ -140,15 +181,33 @@ export function formatAblationReport(summaries: AblationSummary[]): string {
   lines.push('Scaffold ablation — lift (pass-rate Δ) vs latency cost:');
   lines.push('');
   for (const s of summaries) {
-    const liftPct = (s.lift * 100).toFixed(0);
-    const sign = s.lift > 0 ? '+' : '';
-    const verdict = s.lift > 0 ? 'HELPS' : s.lift < 0 ? 'HURTS' : 'no effect';
+    const inf = s.inference;
     const latency = `${s.latencyDeltaMs >= 0 ? '+' : ''}${(s.latencyDeltaMs / 1000).toFixed(1)}s`;
+
+    // The verdict comes from the PAIRED TEST, never from the sign of the point
+    // estimate. `lift > 0 → HELPS` was the old rule, and it would call a 1-of-1
+    // coin flip a win — the exact error the SWE campaign's n=1 "+100%" made.
+    const label =
+      inf.verdict === 'helps'
+        ? 'HELPS'
+        : inf.verdict === 'hurts'
+          ? 'HURTS'
+          : inf.verdict === 'no-effect'
+            ? 'no effect'
+            : 'NO POWER';
+
+    const liftText =
+      inf.verdict === 'underpowered'
+        ? 'lift unmeasured'
+        : `lift ${(inf.lift ?? 0) > 0 ? '+' : ''}${((inf.lift ?? 0) * 100).toFixed(0)}pts ` +
+          `(${(s.passRateWithout * 100).toFixed(0)}%→${(s.passRateWith * 100).toFixed(0)}%)`;
+
     lines.push(
-      `  ${s.scaffold.padEnd(18)} ${verdict.padEnd(9)} ` +
-        `lift ${sign}${liftPct}% (${(s.passRateWithout * 100).toFixed(0)}%→${(s.passRateWith * 100).toFixed(0)}%) ` +
-        `latency ${latency}  [n=${s.withN}/${s.withoutN}]`,
+      `  ${s.scaffold.padEnd(18)} ${label.padEnd(9)} ${liftText} ` +
+        `p=${inf.pValue.toFixed(3)} disc=${inf.outcome.b}/${inf.outcome.c} ` +
+        `latency ${latency}  [pairs=${inf.pairs}]`,
     );
+    if (inf.verdict === 'underpowered') lines.push(`  ${''.padEnd(18)} → ${inf.explanation}`);
     // Graded metrics: for defect counts the readable direction is
     // without→with (the scaffold REDUCES the count when the arrow drops).
     for (const m of s.metricDeltas) {

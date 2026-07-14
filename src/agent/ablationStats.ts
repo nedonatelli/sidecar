@@ -1,0 +1,197 @@
+// Inference for scaffold ablation — turn a pass-rate delta into a claim you can defend.
+//
+// `summarizeAblation` reports `lift = passRateWith − passRateWithout` and nothing
+// else. No interval, no p-value, no notion of power. A +0.15 lift measured over
+// five runs of a stochastic 7B prints identically to a real effect, and the whole
+// point of the ablation harness is to decide whether a scaffold earns its keep.
+// The SWE campaign already learned this the hard way — an n=1 "+100%" — and its
+// write-up says plainly that at 2/50 resolved "the instrument has no power to
+// detect a scaffold effect, and it SAYS SO rather than printing a misleading
+// number." That honesty was applied by hand. This module makes it automatic.
+//
+// ## Why the design is PAIRED
+//
+// Runs are paired by (scaffold, caseId, rep): the same case, the same repetition
+// index, once with the scaffold and once without. Given common random numbers
+// (the runner seeds both arms of a pair identically), the pair differs only in the
+// scaffold. Pairing removes between-case difficulty — by far the largest variance
+// component, since a case either is or isn't within a model's reach — and it is
+// what makes a handful of reps informative at all.
+//
+// In a paired binary design only the DISCORDANT pairs carry information:
+//
+//     b = scaffold PASSED, no-scaffold FAILED   (the scaffold rescued the run)
+//     c = scaffold FAILED, no-scaffold PASSED   (the scaffold broke the run)
+//
+// Pairs where both arms agree tell you the case is easy or impossible — they say
+// nothing about the scaffold. This is McNemar's test, and it is exactly the right
+// instrument: `b + c` IS the sample size, no matter how many runs you did.
+//
+// ## The honesty gate
+//
+// With the two-sided exact test, the smallest reachable p-value on `n = b + c`
+// discordant pairs is `2 · 0.5^n`. So:
+//
+//     n = 0 → no evidence at all       n = 4 → best possible p = 0.125
+//     n = 5 → best possible p = 0.0625 n = 6 → best possible p = 0.031  ← first n
+//                                                                        that can
+//                                                                        reach 0.05
+//
+// Below six discordant pairs, significance at α = 0.05 is ARITHMETICALLY
+// IMPOSSIBLE — even if every discordant pair favors the scaffold. A run like that
+// has not produced a weak result; it has produced NO result, and reporting its
+// lift as a number invites exactly the false claim this exists to prevent. So the
+// verdict is `underpowered`, and the lift is reported as unmeasured.
+
+/** Minimum discordant pairs at which a two-sided exact McNemar test can reach p < 0.05.
+ *  2·0.5^5 = 0.0625 > 0.05; 2·0.5^6 = 0.03125 < 0.05. */
+export const MIN_DISCORDANT_FOR_SIGNIFICANCE = 6;
+
+export const ALPHA = 0.05;
+
+export type AblationVerdict =
+  /** The scaffold significantly improved the pass rate. */
+  | 'helps'
+  /** The scaffold significantly HURT the pass rate — cut it. */
+  | 'hurts'
+  /** Enough discordant pairs to have seen an effect; none found. */
+  | 'no-effect'
+  /** Too few discordant pairs for ANY conclusion. Not a weak result — no result. */
+  | 'underpowered';
+
+export interface PairedOutcome {
+  /** Scaffold passed, control failed. */
+  b: number;
+  /** Scaffold failed, control passed. */
+  c: number;
+  /** Both arms passed. */
+  bothPass: number;
+  /** Both arms failed. */
+  bothFail: number;
+}
+
+export interface AblationInference {
+  pairs: number;
+  outcome: PairedOutcome;
+  /** b + c. The real sample size of a paired binary comparison. */
+  discordant: number;
+  /** Two-sided exact McNemar p-value. 1 when there are no discordant pairs. */
+  pValue: number;
+  /** Paired lift = (b − c) / pairs. Null when there are no pairs. */
+  lift: number | null;
+  verdict: AblationVerdict;
+  /** Plain-language reading, safe to print verbatim in a report. */
+  explanation: string;
+}
+
+/** n choose k, exact for the small n a paired eval produces. */
+function binom(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  let r = 1;
+  for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
+  return r;
+}
+
+/**
+ * Two-sided exact McNemar p-value. Under the null the scaffold changes nothing,
+ * so each discordant pair is a fair coin: b ~ Binomial(b + c, 0.5).
+ *
+ * Exact rather than the χ² approximation, because a local-model ablation produces
+ * single-digit discordant counts and χ² is not trustworthy there — which is
+ * precisely the regime where a wrong p-value would do the most damage.
+ */
+export function mcnemarExactP(b: number, c: number): number {
+  const n = b + c;
+  if (n === 0) return 1;
+  const lo = Math.min(b, c);
+  let tail = 0;
+  for (let i = 0; i <= lo; i++) tail += binom(n, i);
+  const p = 2 * tail * Math.pow(0.5, n);
+  return Math.min(1, p);
+}
+
+/** Wilson score interval for a binomial proportion — behaves at the 0/1 extremes,
+ *  where Wald produces a zero-width interval and lies about certainty. */
+export function wilsonInterval(k: number, n: number, z = 1.96): [number, number] {
+  if (n === 0) return [0, 0];
+  const p = k / n;
+  const z2 = z * z;
+  const denom = 1 + z2 / n;
+  const center = (p + z2 / (2 * n)) / denom;
+  const half = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / denom;
+  return [Math.max(0, center - half), Math.min(1, center + half)];
+}
+
+/** One paired trial: the same case + rep, run with and without the scaffold. */
+export interface Pair {
+  withScaffold: boolean;
+  withoutScaffold: boolean;
+}
+
+/**
+ * Infer whether a scaffold helps, from paired outcomes. Never reports a lift it
+ * cannot see: with fewer than MIN_DISCORDANT_FOR_SIGNIFICANCE discordant pairs the
+ * verdict is `underpowered`, because significance is arithmetically unreachable
+ * there and a printed number would be read as a finding.
+ */
+export function inferAblation(pairs: readonly Pair[]): AblationInference {
+  const outcome: PairedOutcome = { b: 0, c: 0, bothPass: 0, bothFail: 0 };
+  for (const p of pairs) {
+    if (p.withScaffold && !p.withoutScaffold) outcome.b++;
+    else if (!p.withScaffold && p.withoutScaffold) outcome.c++;
+    else if (p.withScaffold && p.withoutScaffold) outcome.bothPass++;
+    else outcome.bothFail++;
+  }
+
+  const discordant = outcome.b + outcome.c;
+  const pValue = mcnemarExactP(outcome.b, outcome.c);
+  const lift = pairs.length === 0 ? null : (outcome.b - outcome.c) / pairs.length;
+
+  if (discordant < MIN_DISCORDANT_FOR_SIGNIFICANCE) {
+    const best = discordant === 0 ? 1 : 2 * Math.pow(0.5, discordant);
+    return {
+      pairs: pairs.length,
+      outcome,
+      discordant,
+      pValue,
+      lift,
+      verdict: 'underpowered',
+      explanation:
+        `${pairs.length} pairs but only ${discordant} discordant ` +
+        `(${outcome.b} rescued by the scaffold, ${outcome.c} broken by it). ` +
+        `The best p-value reachable on ${discordant} discordant pairs is ${best.toFixed(3)}, so ` +
+        `significance at ${ALPHA} is arithmetically impossible — this is NOT a weak result, it is ` +
+        `no result. Need at least ${MIN_DISCORDANT_FOR_SIGNIFICANCE} discordant pairs; ` +
+        `run more reps or pick cases the scaffold actually bites on.`,
+    };
+  }
+
+  if (pValue < ALPHA) {
+    const helps = outcome.b > outcome.c;
+    return {
+      pairs: pairs.length,
+      outcome,
+      discordant,
+      pValue,
+      lift,
+      verdict: helps ? 'helps' : 'hurts',
+      explanation:
+        `${helps ? 'HELPS' : 'HURTS'}: of ${discordant} discordant pairs, the scaffold rescued ` +
+        `${outcome.b} and broke ${outcome.c} (exact McNemar p = ${pValue.toFixed(4)}). ` +
+        `Paired lift ${((lift ?? 0) * 100).toFixed(1)} points over ${pairs.length} pairs.`,
+    };
+  }
+
+  return {
+    pairs: pairs.length,
+    outcome,
+    discordant,
+    pValue,
+    lift,
+    verdict: 'no-effect',
+    explanation:
+      `No detectable effect: ${discordant} discordant pairs split ${outcome.b}/${outcome.c} ` +
+      `(exact McNemar p = ${pValue.toFixed(4)}). The instrument had the power to see an effect ` +
+      `this size and did not. A scaffold with no lift and a latency cost is pure tax.`,
+  };
+}

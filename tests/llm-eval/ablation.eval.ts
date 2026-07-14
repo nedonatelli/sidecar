@@ -50,6 +50,9 @@ const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim()
 const DIM_FILTER = process.env.SIDECAR_ABLATION_DIMS?.split(',').map((s) => s.trim());
 const REPS = Math.max(1, parseInt(process.env.SIDECAR_ABLATION_REPS ?? '1', 10) || 1);
 
+/** Seed base for common random numbers. Override to re-roll a whole campaign. */
+const PAIR_SEED_BASE = parseInt(process.env.SIDECAR_ABLATION_SEED_BASE ?? '1000', 10) || 1000;
+
 // Default to the smoke set — ablating the full suite × dimensions × arms is
 // hours of real-model time. The operator narrows to scaffold-relevant cases.
 const ALL_CASES = [...AGENT_CASES, ...CODE_QUALITY_CASES];
@@ -71,15 +74,26 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
         const armConfig = arm ? dim.present : dim.absent;
         for (let rep = 0; rep < REPS; rep++) {
           it(`${dim.scaffold} ${arm ? 'on' : 'off'} :: ${evalCase.id}${REPS > 1 ? ` #${rep + 1}` : ''}`, async () => {
+            // COMMON RANDOM NUMBERS. Both arms of a (case, rep) pair get the same
+            // sampling seed, so the pair differs only in the scaffold. This is
+            // variance reduction, not determinism: the two arms see different
+            // prompts (that IS the treatment), so they still diverge — but they
+            // diverge from the same roll of the dice. Without it, an ablation on a
+            // stochastic 7B spends most of its power measuring the model's mood.
             const cased: AgentEvalCase = {
               ...evalCase,
-              configOverrides: { ...evalCase.configOverrides, ...armConfig } as AgentEvalCase['configOverrides'],
+              configOverrides: {
+                ...evalCase.configOverrides,
+                ...armConfig,
+                agentSeed: PAIR_SEED_BASE + rep,
+              } as AgentEvalCase['configOverrides'],
             };
             const result = await runAgentCase(cased, backend!);
             runs.push({
               scaffold: dim.scaffold,
               present: arm,
               caseId: evalCase.id,
+              rep, // pairs the two arms — see buildPairs() in ablation.ts
               passed: result.passed,
               durationMs: result.durationMs,
               metrics: result.metrics,

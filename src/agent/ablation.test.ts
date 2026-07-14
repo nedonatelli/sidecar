@@ -98,12 +98,32 @@ describe('graded metrics (M1/M2 count/rate finding)', () => {
 });
 
 describe('formatAblationReport', () => {
-  it('renders a verdict per scaffold', () => {
+  it('refuses to call ONE lucky pair a win — it reports NO POWER', () => {
+    // This test used to assert HELPS here. One pair, scaffold passed, control
+    // failed: a 50/50 coin landing heads once. The old rule was `lift > 0 → HELPS`,
+    // which cannot tell that from a real effect — the same error as the SWE
+    // campaign's n=1 "+100%". Significance on a single discordant pair is
+    // arithmetically impossible (best p = 1.0).
     const report = formatAblationReport(
       summarizeAblation([run('completionGate', true, true, 2000), run('completionGate', false, false, 1000)]),
     );
     expect(report).toContain('completionGate');
+    expect(report).toContain('NO POWER');
+    expect(report).toContain('lift unmeasured');
+    expect(report).not.toContain('HELPS');
+  });
+
+  it('calls HELPS once the discordant pairs actually support it', () => {
+    // Six pairs the scaffold rescued and none it broke → exact McNemar p = 0.031.
+    const runs = Array.from({ length: 6 }, (_, rep) => [
+      { scaffold: 'completionGate', present: true, caseId: `c${rep}`, rep, passed: true, durationMs: 2000 },
+      { scaffold: 'completionGate', present: false, caseId: `c${rep}`, rep, passed: false, durationMs: 1000 },
+    ]).flat();
+
+    const report = formatAblationReport(summarizeAblation(runs));
     expect(report).toContain('HELPS');
+    expect(report).toContain('p=0.031');
+    expect(report).toContain('disc=6/0');
   });
 
   it('handles an empty set', () => {
