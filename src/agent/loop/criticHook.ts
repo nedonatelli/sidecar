@@ -440,9 +440,17 @@ export async function applyCritic(
 ): Promise<void> {
   if (!config.criticEnabled || signal.aborted) return;
 
-  // D2 — a second-LLM critic over a weak primary is ≈ noise and doubles cost;
-  // the deterministic completion gate (lint/test/syntax) covers the semantic
-  // catch. Only suppresses when adaptive scaffolding has resolved a tier.
+  // D2 — a weak primary gets no critic at all: it is the SAME small model judging
+  // its own work, which doubles latency and cost for a bounded, unproven lift.
+  //
+  // The broader finding is not about model size. The critic has not demonstrated
+  // a benefit at ANY tier, and when it BLOCKS it has demonstrated harm — the
+  // SWE-bench arm carrying it terminated ~7.5x faster while producing MORE empty
+  // patches, i.e. it made runs bail early rather than resolve more. That is why
+  // `critic.blockOnHighSeverity` now defaults false: the critic may observe and
+  // annotate, but a model's opinion of another model's work no longer redirects
+  // the run. Deterministic checks (completion gate, lint, tests, syntax) block;
+  // the critic advises.
   if (state.scaffoldingProfile && !state.scaffoldingProfile.runLlmCritic) {
     state.logger?.info('Critic skipped — weak-tier primary relies on deterministic gate/lint/test (D2)');
     return;

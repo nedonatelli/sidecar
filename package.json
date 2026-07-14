@@ -459,7 +459,7 @@
           "sidecar.critic.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Run an adversarial critic LLM call after every write_file / edit_file and after every failed run_tests. High-severity findings block the agent until addressed; low-severity findings surface as chat annotations only. Doubles API spend on edit turns — off by default."
+            "description": "Run an adversarial critic LLM call after every write_file / edit_file and after every failed run_tests. Findings surface as chat annotations; they do not block the agent unless sidecar.critic.blockOnHighSeverity is also enabled. Doubles API spend on edit turns and has not shown a measured benefit — off by default. On a VRAM-bound machine the critic is the SAME model judging its own work, so its lift is bounded; deterministic verification (completion gate, lint, tests, syntax) is the load-bearing layer."
           },
           "sidecar.adaptiveScaffolding.enabled": {
             "type": "boolean",
@@ -517,8 +517,8 @@
           },
           "sidecar.critic.blockOnHighSeverity": {
             "type": "boolean",
-            "default": true,
-            "description": "When the critic reports a high-severity finding, inject a synthetic user message forcing the agent to address it before the turn can finish. When false, high-severity findings surface as chat annotations only (same as low-severity)."
+            "default": false,
+            "description": "Let the critic BLOCK the agent: a high-severity finding injects a synthetic user message forcing the agent to address it before the turn can finish. Default false — the critic surfaces findings as annotations but cannot redirect the run. A blocking critic acts on a model's opinion, and a false high-severity finding sends the agent chasing a problem that isn't there: the SWE-bench ablation saw the critic-bearing arm terminate ~7.5x faster while producing MORE empty patches. Deterministic checks (lint, tests, syntax) are what block; a model-judges-model verdict advises."
           },
           "sidecar.autoFixOnFailure": {
             "type": "boolean",

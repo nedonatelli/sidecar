@@ -555,7 +555,7 @@ function readConfig(): SideCarConfig {
       (detectProvider(rawBaseUrl, rawProvider) === 'anthropic' && model !== ANTHROPIC_DEFAULT_MODEL
         ? ANTHROPIC_DEFAULT_MODEL
         : ''),
-    criticBlockOnHighSeverity: cfg.get<boolean>('critic.blockOnHighSeverity', true),
+    criticBlockOnHighSeverity: cfg.get<boolean>('critic.blockOnHighSeverity', false),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
     fallbackApiKey: getCachedFallbackApiKey() ?? cfg.get<string>('fallbackApiKey', ''),

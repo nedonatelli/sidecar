@@ -262,11 +262,11 @@ When enabled, SideCar automatically runs VS Code's language diagnostics after th
 
 ## Adversarial Critic (v0.48+)
 
-| Setting                              | Type    | Default | Description                                                                                                                                                                   |
-| ------------------------------------ | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.critic.enabled`             | boolean | `false` | Run an adversarial critic LLM call after every `write_file` / `edit_file` and after every failed `run_tests`. Disabled by default because it doubles API spend on edit turns. |
-| `sidecar.critic.model`               | string  | `""`    | Model for the critic call. Empty = reuse `sidecar.model`. Set to a cheaper model (e.g. `claude-haiku-4-5`) to reduce cost.                                                    |
-| `sidecar.critic.blockOnHighSeverity` | boolean | `true`  | Inject a synthetic user message forcing the agent to address high-severity findings before the turn can finish. When `false`, findings surface as chat annotations only.      |
+| Setting                              | Type    | Default | Description                                                                                                                                                                                                                                                                                     |
+| ------------------------------------ | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.critic.enabled`             | boolean | `false` | Run an adversarial critic LLM call after every `write_file` / `edit_file` and after every failed `run_tests`. Disabled by default because it doubles API spend on edit turns.                                                                                                                   |
+| `sidecar.critic.model`               | string  | `""`    | Model for the critic call. Empty = reuse `sidecar.model`. Set to a cheaper model (e.g. `claude-haiku-4-5`) to reduce cost.                                                                                                                                                                      |
+| `sidecar.critic.blockOnHighSeverity` | boolean | `false` | Let a high-severity critic finding BLOCK the agent until addressed. Default false — the critic annotates but cannot redirect the run; a false finding sends the agent chasing a problem that isn't there. Deterministic checks (lint/tests/syntax) block; a model-judges-model verdict advises. |
 
 The critic is capped at 2 injections per file per run to prevent unbounded spend on stuck loops.
 
