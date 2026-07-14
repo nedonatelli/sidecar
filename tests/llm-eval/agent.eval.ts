@@ -231,6 +231,25 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
     if (reliabilityRows.length > 0) {
       // eslint-disable-next-line no-console -- intentional report output
       console.log('\n\n' + renderReliabilityReport(reliabilityRows));
+
+      // Persist the baseline. A per-case pass rate is not a log line — it is the
+      // instrument that says which cases can inform an ablation for THIS model
+      // (only the ones that can go either way) and which are saturated and can
+      // never inform one at any sample size. It has to outlive the run.
+      const out = process.env.SIDECAR_RELIABILITY_OUT;
+      if (out) {
+        const fs = require('node:fs') as typeof import('node:fs');
+        const path = require('node:path') as typeof import('node:path');
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        fs.writeFileSync(
+          out,
+          JSON.stringify(
+            { model: backend?.defaultModel() ?? 'unknown', trials: TRIALS, rows: reliabilityRows },
+            null,
+            2,
+          ),
+        );
+      }
     }
   });
 });
