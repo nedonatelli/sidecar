@@ -56,6 +56,7 @@ export {
   updateWorkspaceRelevance,
   prepareUserMessageText,
   resolveNumberedListRef,
+  lastUserTextMessage,
   languageToExtension,
 } from './messageUtils.js';
 
@@ -91,6 +92,7 @@ import {
   prepareUserMessageText,
   shouldAutoEnablePlanMode,
   resolveToolTier,
+  lastUserTextMessage,
 } from './messageUtils.js';
 import { buildBaseSystemPrompt, injectSystemContext, enrichAndPruneMessages } from './systemPrompt.js';
 import { connectWithRetry, ensureProviderRunning } from './connectionHandlers.js';
@@ -627,21 +629,13 @@ export async function handleReconnect(state: ChatState): Promise<void> {
     });
     state.postMessage({ command: 'done', messageCount: state.messages.length });
 
-    const lastUserMsg = [...state.messages].reverse().find((m) => m.role === 'user');
-    if (lastUserMsg) {
-      const text =
-        typeof lastUserMsg.content === 'string'
-          ? lastUserMsg.content
-          : lastUserMsg.content
-              .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-              .map((b) => b.text)
-              .join('\n');
+    const last = lastUserTextMessage(state.messages);
+    if (last) {
       // Splice from the user message index onward (removing it plus any
-      // trailing assistant messages) so handleUserMessage starts clean.
-      const lastUserIdx = state.messages.lastIndexOf(lastUserMsg);
-      if (lastUserIdx >= 0) state.messages.splice(lastUserIdx);
+      // trailing assistant/tool messages) so handleUserMessage starts clean.
+      state.messages.splice(last.index);
       state.saveHistory();
-      await handleUserMessage(state, text);
+      await handleUserMessage(state, last.text);
     }
   } else {
     state.postMessage({
@@ -660,21 +654,14 @@ export async function handleReconnect(state: ChatState): Promise<void> {
 
 /** Re-run the last user message, discarding the most recent assistant turn. */
 export async function handleRegenerateResponse(state: ChatState): Promise<void> {
-  const lastUserMsg = [...state.messages].reverse().find((m) => m.role === 'user');
-  if (!lastUserMsg) return;
+  const last = lastUserTextMessage(state.messages);
+  if (!last) return;
 
-  const text =
-    typeof lastUserMsg.content === 'string'
-      ? lastUserMsg.content
-      : lastUserMsg.content
-          .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-          .map((b) => b.text)
-          .join('\n');
-
-  // Remove from the last user message onward (strips the stale assistant turn).
-  const idx = state.messages.lastIndexOf(lastUserMsg);
-  if (idx >= 0) state.messages.splice(idx);
+  // Remove from the last user message onward — which strips the stale assistant
+  // turn AND every tool_use/tool_result pair it produced. Splicing at the last
+  // `role: 'user'` message instead would cut between a tool_use and its result.
+  state.messages.splice(last.index);
   state.saveHistory();
 
-  await handleUserMessage(state, text);
+  await handleUserMessage(state, last.text);
 }

@@ -623,7 +623,14 @@ export async function executeTool(
     // rejected nine IDENTICAL "missing search" calls with nine identical
     // messages, and nothing ever told the model to stop resubmitting. The
     // streak is keyed per tool and cleared by any successful call of it.
-    const message = err instanceof Error ? err.message : String(err);
+    // This is the one place that labels a failure, so strip a leading "Error:"
+    // the tool already wrote. Many tool messages carry one — a leftover from
+    // when they RETURNED "Error: …" as a success string instead of throwing —
+    // and the two labels stacked into "Error: Error: edit_file refused this
+    // edit…" in the model's context. Garbled scaffolding is not free: these
+    // messages exist to be read and acted on by a weak model.
+    const raw = err instanceof Error ? err.message : String(err);
+    const message = raw.replace(/^Error:\s*/i, '');
     const bounces = recordBounce(bounceCounts, toolUse.name, 'tool-error');
     return {
       type: 'tool_result',

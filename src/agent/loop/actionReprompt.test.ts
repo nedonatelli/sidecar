@@ -163,6 +163,38 @@ describe('maybeInjectActionReprompt', () => {
     expect(maybeInjectActionReprompt(state, '', cb)).toBe(false);
   });
 
+  it('still fires after a tool call — a tool result is not the user speaking', () => {
+    // The live failure this guards. Tool results are role:'user' messages whose
+    // blocks are all tool_result, so filtering to text blocks yields ''. That ''
+    // was returned as "the user's message", and isActionRequest('') is false —
+    // so the reprompt was dead on every turn after the first tool call, which is
+    // precisely when a model narrates instead of editing.
+    //
+    // Observed: qwen2.5-coder read greeter.ts, printed the finished JSDoc in a
+    // fenced code block, and the loop accepted that as done. The file was never
+    // touched.
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'Add a JSDoc comment above the welcome function in src/greeter.ts.' },
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'src/greeter.ts' } }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: 'export function welcome(name: string) {}' }],
+        },
+      ] as never,
+    });
+    const cb = stubCallbacks();
+
+    // The model answers with the finished code as prose. It must be sent back to work.
+    const narrated = '```typescript\n/** Greets someone. */\nexport function welcome(name: string) {}\n```';
+    expect(maybeInjectActionReprompt(state, narrated, cb)).toBe(true);
+    expect(state.actionRepromptCount).toBe(1);
+  });
+
   it('skips synthetic gate messages when finding the last user message', () => {
     // A gate injection starts with '[' and should be skipped so we look
     // at the real user message before it.

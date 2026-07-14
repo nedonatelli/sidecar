@@ -150,26 +150,27 @@ describe('editFile audit mode', () => {
     vi.restoreAllMocks();
   });
 
-  it('applies inferred edit when search=replace (intent inference steers gemma4)', async () => {
-    // Gemma4 writes the DESIRED new text in both search and replace.
-    // Intent inference finds the closest matching region and applies the edit
-    // rather than failing — "steer the model's action rather than fight it."
+  it('SUGGESTS the region when search=replace, and never writes (fuzzy match is 30% wrong)', async () => {
+    // Was: apply the inferred edit. The matcher picks the WRONG region in 30% of
+    // the cases it commits to, measured over 1,700 real edits from 11 repos — and
+    // a wrong region that parses is silent corruption the syntax guard cannot see.
     const context = { config: { agentMode: 'audit' } as never };
     const fileContent = [
       '// Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script',
-      '// names that conventionally run lint or type-checking.',
       'if (/\\b(eslint|tsc)\\b/.test(cmd)) {',
       '  state.lintObserved = true;',
       '}',
     ].join('\n');
     await buf.write('src/gate.ts', fileContent, async () => undefined);
-    const newText = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
-    const result = await editMsg({ path: 'src/gate.ts', search: newText, replace: newText }, context);
-    // Should succeed by applying the edit, not fail with an error
-    expect(result).toContain('Applied inferred edit');
-    expect(result).toContain('eslint / tsc'); // shows what was replaced
-    // File should now contain the new text
-    expect(buf.read('src/gate.ts').content).toContain('pylint, flake8');
+    const newText = 'if (/\\b(eslint|tsc|pylint)\\b/.test(cmd)) {';
+
+    const err = await editMsg({ path: 'src/gate.ts', search: newText, replace: newText }, context);
+
+    expect(err).toMatch(/did not apply|identical/i);
+    expect(err).toContain('closest matching region');
+    expect(err).toContain('eslint'); // the candidate text is handed to the model
+    // Critically: the buffer is untouched.
+    expect(buf.read('src/gate.ts').content).toBe(fileContent);
   });
 
   it('returns grep-based line hint when search string is not found in buffered content', async () => {
@@ -366,11 +367,13 @@ describe('editFile repeated-failure escalation', () => {
     vi.restoreAllMocks();
   });
 
-  it('search-not-found: a 3rd identical repeat auto-repairs via a loosened confidence match', async () => {
-    // "alpha" is the only one of 5 candidate words (alpha/beta/gamma/delta/
-    // epsilon) present near the target line: score=1 passes the loosened 20%
-    // threshold (ceil(5*0.2)=1) but not the default 40% (ceil(5*0.4)=2) —
-    // exactly the gap the 3rd-strike retry is designed to cross.
+  it('search-not-found: a 3rd identical repeat SUGGESTS a region — it never overwrites one', async () => {
+    // This test used to assert the opposite: that a 20%-confidence fuzzy match
+    // should overwrite `alpha zzzz zzzz zzzz` with `alpha beta gamma delta
+    // epsilon`. That is nonsense, and it was the DESIGNED behaviour. Measured
+    // over 1,700 real edits from 11 repositories, the matcher picks the wrong
+    // region 30% of the time it commits — at ANY confidence threshold. It now
+    // hands the candidate to the model instead of writing it.
     const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
     const fileContent = 'function foo() {\n  alpha zzzz zzzz zzzz zzzz;\n  return 1;\n}\n';
     await buf.write('src/loose.ts', fileContent, async () => undefined);
@@ -378,26 +381,24 @@ describe('editFile repeated-failure escalation', () => {
 
     const first = await editMsg(call, context);
     expect(first).toContain('search string not found');
-    expect(first).not.toContain('AGAIN');
 
     const second = await editMsg(call, context);
     expect(second).toContain('AGAIN');
-    expect(second).not.toContain('Auto-repaired');
 
     const third = await editMsg(call, context);
-    expect(third).toContain('Auto-repaired');
-    expect(third).toContain('3 identical failed attempts');
-    expect(third).toContain('VERIFY');
-    const state = buf.read('src/loose.ts');
-    expect(state.content).toContain('alpha beta gamma delta epsilon');
-    expect(state.content).not.toContain('zzzz zzzz zzzz zzzz');
+    expect(third).toContain('closest matching region'); // the candidate, handed over
+    expect(third).not.toContain('Auto-repaired');
+
+    // The file is untouched. That is the whole point.
+    expect(buf.read('src/loose.ts').content).toBe(fileContent);
   });
 
-  it('disk mode: a 3rd identical repeat auto-repairs via a loosened confidence match', async () => {
+  it('disk mode: a 3rd identical repeat SUGGESTS a region and writes NOTHING', async () => {
     const { workspace } = await import('vscode');
     const fileContent = 'function foo() {\n  alpha zzzz zzzz zzzz zzzz;\n  return 1;\n}\n';
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(fileContent) as never);
     const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear();
     const context = { editFailureSignatures: new Map<string, string>() };
     const call = {
       path: 'src/disk-loose.ts',
@@ -407,11 +408,10 @@ describe('editFile repeated-failure escalation', () => {
 
     await editMsg(call, context); // 1st
     await editMsg(call, context); // 2nd (AGAIN)
-    const third = await editMsg(call, context); // 3rd (auto-repair)
-    expect(third).toContain('Auto-repaired');
-    expect(writeSpy).toHaveBeenCalledTimes(1);
-    const written = Buffer.from(writeSpy.mock.calls[0][1] as Uint8Array).toString('utf-8');
-    expect(written).toContain('alpha beta gamma delta epsilon');
+    const third = await editMsg(call, context); // 3rd — used to auto-repair to disk
+
+    expect(third).toContain('closest matching region');
+    expect(writeSpy).not.toHaveBeenCalled(); // NOTHING is written on a guess
     vi.restoreAllMocks();
   });
 
@@ -840,31 +840,24 @@ describe('inferred-edit structural guard (no silent file corruption)', () => {
     vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
   });
 
-  it('refuses an inference whose bracket balance differs from the region it would replace', async () => {
-    // Exact live corruption (v0.119 dogfood, llama3.2): the model's one-line
-    // replace made findIntentTarget pick the single-line block HEADER
-    // `export function greet(name: string): string {` (curly +1) and swap in a
-    // self-contained one-liner (curly 0), orphaning `return …` / `}` and
-    // dropping `export`. It returned SUCCESS, so the model "fixed" it four
-    // more times, each pass worse, until cycle detection bailed at iteration 22.
-    const writeFileSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
-    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+  it('SUGGESTS rather than applies when the search string does not match', async () => {
+    // This case used to be gated by a delimiter-balance heuristic and then
+    // APPLIED. Both halves were wrong: the heuristic false-refuses 8% of valid
+    // TypeScript, and the fuzzy region it was gating is wrong 30% of the time.
+    // Nothing is written on a guess now — the candidate region is handed to the
+    // model to copy into `search`.
+    const { workspace } = await import('vscode');
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear();
 
-    // The SYNTAX guard is the gate now: replacing the block header with a
-    // self-contained one-liner orphans the body, so the file stops parsing. The
-    // old delimiter-balance heuristic was demoted to a no-grammar fallback —
-    // over real source it reported a false imbalance for 8% of valid TypeScript
-    // files (regex literals), 17% of Rust (lifetimes), 3.5% of Python.
-    await expect(
-      editFile({
-        path: 'src/greeter.ts',
-        search: 'function greet(name): string', // genuinely absent — forces the inferred path
-        replace: 'function welcome(name: string): string { return `Hello, ${name}!`; }',
-      }),
-    ).rejects.toThrow(/new syntax error|could not safely apply|not a drop-in/i);
+    const result = await editMsg({
+      path: 'src/greeter.ts',
+      search: 'function greet(name): string', // genuinely absent — forces the fuzzy path
+      replace: 'function welcome(name: string): string { return `Hello, ${name}!`; }',
+    });
 
-    // The critical assertion: nothing was written to disk.
-    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(result).toMatch(/closest matching region|search string not found/i);
+    expect(writeSpy).not.toHaveBeenCalled();
   });
 
   it('still applies a balanced inference (the legitimate fuzzy-match case)', async () => {
@@ -1040,29 +1033,26 @@ describe('missing-search recovery (live v0.119 JSDoc bug)', () => {
 
   const current = '// Says hello.\nexport function welcome(name: string): string {\n  return `hi`;\n}\n';
 
-  it('infers the target region when the model sends only replace, and discloses it', async () => {
-    // llama3.2 sent edit_file with ONLY `replace` nine times running, reading
-    // the file in between, and never produced a `search` field. The intent is
-    // unambiguous — the region its replacement supersedes should become the
-    // replacement — so infer it and disclose, instead of bouncing to a loop.
+  it('missing search: suggests the region and writes nothing unless the match is unambiguous', async () => {
+    // Applying a GUESSED region is only safe when it is unambiguous (beats the
+    // runner-up by APPLY_MARGIN distinctive words — zero wrong regions across
+    // 1,700 real edits at that bar). A small file rarely clears it, so the model
+    // gets the exact text to copy instead of a coin-flip rewrite.
     const { workspace } = await import('vscode');
     vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(current) as never);
-    let written = '';
-    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
-      written = Buffer.from(c as Uint8Array).toString('utf-8');
-    });
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear();
 
     const result = await editMsg({
       path: 'src/greeter.ts',
       replace: '/** Welcomes someone. */\nexport function welcome(name: string): string {',
     });
 
-    expect(result).toContain("'search' was missing");
-    expect(result).toContain('File edited');
-    expect(written).toContain('/** Welcomes someone. */');
-    expect(written).toContain('export function welcome(name: string): string {');
-    expect(written).toContain('return `hi`;'); // body preserved — no clobber
+    expect(result).toMatch(/requires 'search'/);
+    expect(result).toContain('Copy this into');
+    expect(result).toContain('export function welcome'); // the literal current text
+    expect(writeSpy).not.toHaveBeenCalled();
   });
 
   it('when inference is impossible, the error hands the model the exact text to copy', async () => {

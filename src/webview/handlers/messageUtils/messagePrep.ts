@@ -72,6 +72,33 @@ function extractNumberedItems(body: string): string[] {
 }
 
 /**
+ * The last message the USER actually typed, with its index — not the last
+ * message with `role: 'user'`.
+ *
+ * Those are different, and the difference is a bug that shipped. Tool results
+ * are appended to the same history as `role: 'user'` messages carrying
+ * `tool_result` blocks (the Anthropic wire format requires it), and after an
+ * agent run `state.messages` is the loop's full history. So after ANY tool-using
+ * turn, a reverse-find for `role === 'user'` lands on a tool result, whose text
+ * content is ''. Regenerate then re-ran an empty prompt and spliced the history
+ * at the tool-result boundary, orphaning the `tool_use` block that preceded it.
+ *
+ * A message with no text is not something the user said. Skip it.
+ */
+export function lastUserTextMessage(
+  messages: ChatState['messages'],
+): { index: number; text: string; message: ChatState['messages'][number] } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const text = getContentText(msg.content).trim();
+    if (text === '') continue; // tool results and other text-free turns
+    return { index: i, text, message: msg };
+  }
+  return null;
+}
+
+/**
  * If the user's message looks like a numbered-list selection ("2", "option 3",
  * "#1") and the most recent assistant message contained a numbered list, expand
  * the reference into a contextual message the model can act on unambiguously.

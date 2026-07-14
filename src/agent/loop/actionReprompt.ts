@@ -51,8 +51,20 @@ const DEFERRED_ACTION_RE =
   /\b(?:I will|I'll|I am going to|I'm going to|I plan to|I intend to|I need to|Let me|Let's|Next,?\s+I(?:'ll| will)?|First,?\s+I(?:'ll| will)?)\b[^.!?\n]{0,40}?\b(?:read|examine|investigate|analy[sz]e|inspect|review|map|explore|look|check|start|begin|proceed|continue|search|fetch|open|trace|study|dig|gather|edit|implement|write|create|refactor|build|run|add|update|fix|modify|delete|move|attempt|try)\b|\b(?:Would you like me to|Shall I|Do you want me to|Should I go ahead|Want me to)\b/i;
 
 /**
- * Return the text content of the last real user message (skipping
- * tool-result messages and synthetic gate injections).
+ * Return the text of the last REAL user message — the user's actual intent.
+ *
+ * Tool results are `role: 'user'` messages carrying `tool_result` blocks and no
+ * text. An earlier version filtered to text blocks, got `''`, saw that `''` does
+ * not start with '[', and returned it as the user's message. So on every turn
+ * that followed a tool call, this reported the user had said nothing — and
+ * `isActionRequest('')` is false, which silently disabled the reprompt for the
+ * entire class of runs it exists to catch: read the file, then describe the edit
+ * in prose instead of making it. (Observed live: qwen2.5-coder read greeter.ts,
+ * printed the finished JSDoc in a fenced block, and the loop accepted it as
+ * done.) It only ever fired on a model's very first turn, before any tool ran.
+ *
+ * A message with no text is not a user message. Skip it, and keep walking back
+ * to the real one.
  */
 function lastUserMessageText(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -65,6 +77,8 @@ function lastUserMessageText(messages: ChatMessage[]): string {
             .filter((b) => b.type === 'text')
             .map((b) => (b as { text: string }).text)
             .join(' ');
+    // Tool results and other text-free blocks carry no intent.
+    if (raw.trim() === '') continue;
     // Skip synthetic gate injections — they start with '[Completion gate'
     // or '[You have not read'. Only the user's original intent counts.
     if (raw.startsWith('[')) continue;
