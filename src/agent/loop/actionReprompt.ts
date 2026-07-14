@@ -24,7 +24,7 @@ import type { LoopState } from './state.js';
 //   the case where the model never started working.
 // ---------------------------------------------------------------------------
 
-const MAX_ACTION_REPROMPTS = 2;
+import { MAX_ACTION_REPROMPTS } from '../../config/constants.js';
 
 /** Action verbs that indicate the user wants something done, not just explained. */
 const ACTION_VERB_RE =

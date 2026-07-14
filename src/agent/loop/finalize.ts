@@ -4,7 +4,7 @@ import type { LoopState } from './state.js';
 import { classifyFailureBucket, type RunFailureSignals } from '../failureTaxonomy.js';
 
 /** Gate injection cap mirrored from gate.ts — used to detect an exhausted gate. */
-const MAX_GATE_INJECTIONS = 2;
+import { MAX_GATE_INJECTIONS } from '../../config/constants.js';
 
 // ---------------------------------------------------------------------------
 // Post-loop teardown for runAgentLoop.

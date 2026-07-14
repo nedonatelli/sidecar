@@ -463,8 +463,8 @@
           },
           "sidecar.adaptiveScaffolding.enabled": {
             "type": "boolean",
-            "default": false,
-            "description": "Tune loop-safety scaffolding to the active model's capability tier (A2). Strong models relax (fewer reprompts, looser burst cap → less latency); weak models get a larger reprompt budget to recover. Behavior-neutral when off. Experimental — values are still being validated via the ablation harness (npm run eval:ablation)."
+            "default": true,
+            "description": "Tune loop-safety scaffolding to the active model's capability tier. Weak models get a larger reprompt and gate budget to recover; strong models get a looser burst cap and hold more context before compacting. Verification budgets are never reduced. Measured neutral-to-positive across llama3.2 / ministral-3 / granite4.1 / qwen2.5-coder / qwen3.5 / gemma4 and claude-sonnet-5."
           },
           "sidecar.modelLearning.enabled": {
             "type": "boolean",

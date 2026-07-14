@@ -22,6 +22,36 @@ export const INPUT_TOKEN_RATIO = 0.7;
  */
 export const CONTEXT_COMPRESSION_THRESHOLD = 0.7;
 
+// ---------------------------------------------------------------------------
+// Loop-safety defaults — the single source of truth for the `medium` tier.
+//
+// These were four private constants in four modules (cycleDetection, action-
+// Reprompt, gate, finalize — the last two each declaring their OWN
+// MAX_GATE_INJECTIONS), with `DEFAULT_SCAFFOLDING_PROFILE` separately
+// hardcoding the same numbers a fifth time. The claim that the medium tier is
+// "behavior-neutral" — the claim that lets adaptive scaffolding ship enabled by
+// default without changing anything for most models — was therefore true only by
+// coincidence, and nothing would have caught the drift.
+//
+// It is now true by construction: every fallback and the medium profile read
+// from here. See scaffoldingProfileNeutrality.test.ts.
+// ---------------------------------------------------------------------------
+
+/** Tool calls allowed in a single iteration before the burst cap trips. */
+export const MAX_TOOL_CALLS_PER_ITERATION = 12;
+
+/** Reprompts before the loop stops nudging a model that answers without acting. */
+export const MAX_ACTION_REPROMPTS = 2;
+
+/** Completion-gate injections before the loop lets the model terminate unverified. */
+export const MAX_GATE_INJECTIONS = 2;
+
+/** Recent turns that survive summarization untouched. */
+export const COMPACTION_KEEP_RECENT_TURNS = 2;
+
+/** Character cap on a generated conversation summary. */
+export const COMPACTION_MAX_SUMMARY_CHARS = 800;
+
 /** Fallback max system prompt characters when model context length is unknown. */
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 

@@ -59,7 +59,15 @@ describe('scaffoldLabel', () => {
   });
 
   it('shows "bare" when nothing is on', () => {
-    const label = scaffoldLabel(describeScaffold({ completionGateEnabled: false, injectionGuardEnabled: false }));
+    // adaptiveScaffolding defaults ON now, so "bare" means every mechanism
+    // explicitly off — an EMPTY config is no longer bare.
+    const label = scaffoldLabel(
+      describeScaffold({
+        completionGateEnabled: false,
+        injectionGuardEnabled: false,
+        adaptiveScaffoldingEnabled: false,
+      }),
+    );
     expect(label).toContain('bare');
   });
 });

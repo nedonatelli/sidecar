@@ -27,6 +27,20 @@
  * human-facing registry is `docs/scaffold-versions.md`.
  *
  * ## Changelog
+ * - **3.1.0** (2026-07) — adaptive scaffolding ON by default, and capability
+ *   tiers learned from measured performance rather than parsed from the model's
+ *   filename. MINOR: the default arm composition changed, so runs either side of
+ *   this boundary are comparable only when their per-arm feature snapshots match.
+ *   The `medium` tier is provably identical to the historical constants (it is now
+ *   BUILT from them — see scaffoldingProfileNeutrality.test.ts), so the flip is a
+ *   no-op for a medium model. `weak` measured flat across llama3.2 / ministral-3 /
+ *   granite4.1 (dogfood, 2 trials, both arms — not one case moved). `strong` had
+ *   its verification budgets RESTORED to parity with medium (maxActionReprompts
+ *   and maxGateInjections were 1, now 2): against claude-sonnet-5 the action
+ *   reprompt fired in 10/10 runs — a frontier model narrates instead of acting at
+ *   least once per task — so a budget of 1 runs permanently at its ceiling; and the
+ *   completion gate injected 0 times, so the cut was never exercised at all. Strong
+ *   keeps only the latency relaxations (burst cap, compression threshold).
  * - **3.0.0** (2026-07) — always-on dispatch guards + edit recovery + text repair.
  *   Adds the example-replay guard (executor bounces tool calls whose arguments
  *   verbatim-match the example in that tool's own description — no flag,
@@ -78,7 +92,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '3.0.0';
+export const SCAFFOLD_VERSION = '3.1.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
@@ -101,8 +115,15 @@ export interface ScaffoldDescriptor {
   features: Record<string, boolean>;
 }
 
-/** Snapshot the active scaffold from a config/arm. `completionGate` and
- *  `injectionGuard` default ON (mirroring settings.ts); the rest default OFF. */
+/** Snapshot the active scaffold from a config/arm. `completionGate`,
+ *  `injectionGuard` and `adaptiveScaffolding` default ON (mirroring settings.ts);
+ *  the rest default OFF.
+ *
+ *  These defaults MUST track settings.ts. `adaptiveScaffolding` read an absent
+ *  field as `false` until its real default flipped to `true` — which would have
+ *  stamped `adaptiveScaffolding: false` into every run manifest of a run that was
+ *  actually using it. A scaffold snapshot that misreports the scaffold defeats the
+ *  entire purpose of versioning it. */
 export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
   return {
     version: SCAFFOLD_VERSION,
@@ -110,7 +131,7 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
       completionGate: cfg.completionGateEnabled !== false,
       critic: cfg.criticEnabled === true,
       autoFix: cfg.autoFixOnFailure === true,
-      adaptiveScaffolding: cfg.adaptiveScaffoldingEnabled === true,
+      adaptiveScaffolding: cfg.adaptiveScaffoldingEnabled !== false,
       impactGate: cfg.impactGateEnabled === true,
       numericalContractGate: cfg.numericalContractGateEnabled === true,
       analyticBoundsGate: cfg.analyticBoundsGateEnabled === true,

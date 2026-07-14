@@ -6,11 +6,18 @@ describe('resolveScaffoldingProfile', () => {
     expect(resolveScaffoldingProfile('medium')).toEqual(DEFAULT_SCAFFOLDING_PROFILE);
   });
 
-  it('strong tier relaxes: fewer reprompts, looser burst cap', () => {
+  it('strong tier relaxes LATENCY only — never the verification budget', () => {
+    // This used to assert `maxActionReprompts` and `maxGateInjections` were LOWER
+    // for strong. Measured against claude-sonnet-5, that was wrong: the action
+    // reprompt fired in 10/10 runs (a frontier model narrates instead of acting at
+    // least once per task), so a budget of 1 runs permanently at its ceiling; and
+    // the completion gate injected 0 times, so the cut had never been exercised at
+    // all. A capable model earns lower latency, not less verification.
     const p = resolveScaffoldingProfile('strong');
-    expect(p.maxActionReprompts).toBeLessThan(DEFAULT_SCAFFOLDING_PROFILE.maxActionReprompts);
-    expect(p.maxGateInjections).toBeLessThan(DEFAULT_SCAFFOLDING_PROFILE.maxGateInjections);
     expect(p.burstCap).toBeGreaterThan(DEFAULT_SCAFFOLDING_PROFILE.burstCap);
+    expect(p.compressionThreshold).toBeGreaterThan(DEFAULT_SCAFFOLDING_PROFILE.compressionThreshold);
+    expect(p.maxActionReprompts).toBe(DEFAULT_SCAFFOLDING_PROFILE.maxActionReprompts);
+    expect(p.maxGateInjections).toBe(DEFAULT_SCAFFOLDING_PROFILE.maxGateInjections);
   });
 
   it('weak tier widens the reprompt budget but keeps the burst cap (no double-edged tightening)', () => {

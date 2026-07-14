@@ -536,7 +536,7 @@ function readConfig(): SideCarConfig {
     kickstandYarnOrigCtx: Math.max(cfg.get<number>('kickstand.yarnOrigCtx', 0), 0),
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
-    adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
+    adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', true),
     modelLearningEnabled: cfg.get<boolean>('modelLearning.enabled', true),
     modelTierOverrides: cfg.get<Record<string, CapabilityTier>>('modelTier', {}),
     scaffoldingOverrides: cfg.get<ScaffoldingOverrides>('scaffolding.overrides', {}),

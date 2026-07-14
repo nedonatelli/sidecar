@@ -45,7 +45,7 @@ import type { LoopState, NormalizedEntry } from './state.js';
 // `state.logger` so the stop is observable in the chat + audit log.
 // ---------------------------------------------------------------------------
 
-const MAX_TOOL_CALLS_PER_ITERATION = 12;
+import { MAX_TOOL_CALLS_PER_ITERATION } from '../../config/constants.js';
 const MAX_CYCLE_LEN = 4;
 // Default for the normalized-signature pass, user-configurable via
 // `sidecar.scaffolding.cycleDetectionMinRepeats` (LoopState.config —

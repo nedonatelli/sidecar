@@ -38,6 +38,37 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 3.1.0 — adaptive scaffolding on by default + learned tiers (2026-07)
+
+MINOR. The default arm composition changed, so runs either side of this boundary
+compare only when their per-arm feature snapshots match.
+
+- **`sidecar.adaptiveScaffolding.enabled` defaults to `true`.** Scaffolding is now
+  tuned to the model's capability tier out of the box.
+- **Tiers are learned, not parsed from the filename.** `parseParamSizeB` read
+  `qwen2.5-coder:7b` (5/5 dogfood) and `llama3.2` (2/5) as the same `weak` tier,
+  and could not parse `qwen3.5:latest` at all. Precedence is now: user override →
+  observed performance in this workspace → tested baseline (`modelBaselines.ts`) →
+  name heuristic. Promotion requires the model to have succeeded WITHOUT the
+  scaffolding ever firing; demotion needs only failures. (Promoting on success
+  alone is circular — a model may be succeeding _because_ of the scaffolding.)
+- **`strong` no longer cuts the verification budget.** `maxActionReprompts` and
+  `maxGateInjections` were 1; both are back to 2, at parity with `medium`. Strong
+  keeps only the latency relaxations (burst cap 16, compression 0.75, deeper
+  compaction).
+
+Evidence for the flip:
+
+| tier     | verdict                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `medium` | **Provable no-op.** Every knob is now BUILT from the constant its call site falls back to, so "flag on" and "flag off" are the same run. Pinned by `scaffoldingProfileNeutrality.test.ts`.                                                                                                                                                                                              |
+| `weak`   | **Measured flat.** llama3.2 2/5→2/5, ministral-3 5/5→5/5, granite4.1 5/5→5/5 (dogfood, 2 trials, both arms). Not one case moved.                                                                                                                                                                                                                                                        |
+| `strong` | **The cut was never justified.** Against claude-sonnet-5: the action reprompt fired in **10/10 runs** — a frontier model narrates instead of acting at least once per task — so a budget of 1 runs permanently at its ceiling. The completion gate injected **0 times**, so the 2→1 cut had never been exercised at all: absence of evidence, not evidence of safety. Budgets restored. |
+
+Note that a `weak` tier's `runLlmCritic: false` is not a guard removal on a default
+install — the critic is opt-in (`sidecar.critic.enabled` defaults false) and is
+checked before the tier is consulted.
+
 ### 3.0.0 — always-on dispatch guards + edit-recovery + text-repair (2026-07)
 
 MAJOR. Shared-path changes, each verified against a live trajectory:

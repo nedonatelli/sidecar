@@ -270,7 +270,7 @@ const MAX_SYNTAX_GATE_INJECTIONS = 2;
 // gate logs a warning and allows termination with unverified edits.
 // ---------------------------------------------------------------------------
 
-const MAX_GATE_INJECTIONS = 2;
+import { MAX_GATE_INJECTIONS } from '../../config/constants.js';
 
 /** Bounded re-fire for the behavioral-verification gate. Two attempts: one to
  * prompt a real test, one more if the first was hollow (mock that never imports
