@@ -1136,3 +1136,133 @@ describe('write_file syntax guard (edit_file bypass)', () => {
     expect(result).toContain('File written');
   });
 });
+
+describe('edit_file insertion (first-class add, not a restated anchor)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const original =
+    '// Says hello to the given name.\n' +
+    'export function welcome(name: string): string {\n' +
+    '  return `Hello, ${name}!`;\n' +
+    '}\n';
+
+  beforeEach(async () => {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+  });
+
+  it('insert_before adds text above the anchor and KEEPS the anchor (the live JSDoc task)', async () => {
+    // Both qwen2.5-coder and llama3.2 failed this by sending only the comment in
+    // `replace` — which means "delete the function, put a comment there".
+    const { workspace } = await import('vscode');
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
+      written = Buffer.from(c as Uint8Array).toString('utf-8');
+    });
+
+    const result = await editMsg({
+      path: 'src/greeter.ts',
+      search: 'export function welcome(name: string): string {',
+      insert_before: '/**\n * Welcomes someone.\n * @param name - the person to greet\n */',
+    });
+
+    expect(result).toContain('File edited');
+    expect(written).toContain('/**');
+    expect(written).toContain('* @param name');
+    expect(written).toContain('export function welcome(name: string): string {'); // anchor kept
+    expect(written).toContain('return `Hello, ${name}!`;'); // body intact
+    expect((written.match(/\{/g) || []).length).toBe((written.match(/\}/g) || []).length);
+  });
+
+  it('insert_after adds text below the anchor', async () => {
+    const { workspace } = await import('vscode');
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
+      written = Buffer.from(c as Uint8Array).toString('utf-8');
+    });
+
+    await editMsg({
+      path: 'src/greeter.ts',
+      search: '  return `Hello, ${name}!`;',
+      insert_after: '  // greeting sent',
+    });
+
+    expect(written).toContain('// greeting sent');
+    expect(written).toContain('export function welcome');
+    expect((written.match(/\{/g) || []).length).toBe((written.match(/\}/g) || []).length);
+  });
+
+  it('rejects replace + insert together, and an insert with no anchor', async () => {
+    const both = await editMsg({
+      path: 'src/greeter.ts',
+      search: 'x',
+      replace: 'y',
+      insert_before: 'z',
+    });
+    expect(both).toMatch(/both 'replace' and an insert/i);
+
+    const noAnchor = await editMsg({ path: 'src/greeter.ts', insert_before: '/** hi */' });
+    expect(noAnchor).toMatch(/needs 'search'/i);
+  });
+});
+
+describe('duplicated-tail repair (over-specified replace)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const original =
+    '// Says hello to the given name.\n' +
+    'export function welcome(name: string): string {\n' +
+    '  return `Hello, ${name}!`;\n' +
+    '}\n';
+
+  it('trims a replace that restates the block body, applying the edit as an insertion', async () => {
+    // Exactly what qwen2.5-coder sent for "add a JSDoc comment": search names
+    // the HEADER, replace restates header AND body. Substituting duplicates the
+    // body and the file stops parsing — so the whole task failed with the file
+    // untouched, three attempts running.
+    const { workspace } = await import('vscode');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
+      written = Buffer.from(c as Uint8Array).toString('utf-8');
+    });
+
+    const result = await editMsg({
+      path: 'src/greeter.ts',
+      search: 'export function welcome(name: string): string {',
+      replace:
+        '/**\n * Says hello.\n * @param name - the person\n */\n' +
+        'export function welcome(name: string): string {\n  return `Hello, ${name}!`;\n}',
+    });
+
+    expect(result).toContain('File edited');
+    expect(result).toMatch(/redundant tail was trimmed/i);
+
+    // The JSDoc landed, the function survives EXACTLY once, and it still parses.
+    expect(written).toContain('* @param name');
+    expect(written.match(/export function welcome/g)).toHaveLength(1);
+    expect(written.match(/return `Hello/g)).toHaveLength(1);
+    expect((written.match(/\{/g) || []).length).toBe((written.match(/\}/g) || []).length);
+  });
+
+  it('never rewrites an edit that was already valid', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
+      written = Buffer.from(c as Uint8Array).toString('utf-8');
+    });
+
+    const result = await editMsg({
+      path: 'src/greeter.ts',
+      search: 'export function welcome(name: string): string {',
+      replace: 'export function greet(name: string): string {',
+    });
+
+    expect(result).not.toMatch(/redundant tail/i);
+    expect(written).toContain('export function greet(name: string): string {');
+  });
+});

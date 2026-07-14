@@ -396,7 +396,9 @@ export const editFileDef: ToolDefinition = {
     'Not for multi-location changes in one call — call `edit_file` once per location, each with a unique search string. ' +
     'The `search` argument must match exactly one location in the file; if it appears multiple times the call returns an error — add more surrounding lines to make it unique. ' +
     'Match is byte-exact: whitespace, indentation, and trailing spaces must match the file verbatim. When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
-    'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`.',
+    'To ADD text rather than replace it, use `insert_before` or `insert_after` with the anchor in `search` — do not restate the anchor inside `replace`. ' +
+    'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
+    'Insert example: `edit_file(path="src/utils.ts", search="export function greet(", insert_before="/** Greets someone. */")`.',
   input_schema: {
     type: 'object',
     properties: {
@@ -411,6 +413,16 @@ export const editFileDef: ToolDefinition = {
         description:
           'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error. ' +
           'If the replacement is very short and appears verbatim inside the search string, the call succeeds but appends a warning; call read_file to verify the result.',
+      },
+      insert_before: {
+        type: 'string',
+        description:
+          'ADD text immediately before the search match, keeping the match itself. Use this to insert — a JSDoc comment above a function, an import at the top of a block — instead of restating the anchor inside `replace`. Mutually exclusive with `replace` and `insert_after`.',
+      },
+      insert_after: {
+        type: 'string',
+        description:
+          'ADD text immediately after the search match, keeping the match itself. Mutually exclusive with `replace` and `insert_before`.',
       },
     },
     // Only `path` is structurally required. search/replace presence is
@@ -690,7 +702,44 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     );
   }
   const search = typeof input.search === 'string' ? (input.search as string) : undefined;
-  const replace = typeof input.replace === 'string' ? (input.replace as string) : undefined;
+  const rawReplace = typeof input.replace === 'string' ? (input.replace as string) : undefined;
+  const insertBefore = typeof input.insert_before === 'string' ? (input.insert_before as string) : undefined;
+  const insertAfter = typeof input.insert_after === 'string' ? (input.insert_after as string) : undefined;
+
+  // INSERTION, normalized into the replace machinery.
+  //
+  // edit_file inherited pure SEARCH/REPLACE from the diff-edit convention.
+  // Insertion is expressible in it — anchor in `search`, "new text + the anchor
+  // restated" in `replace` — but that encoding is exactly what weak models fail:
+  // asked to add a JSDoc comment they send only the comment in `replace`, which
+  // MEANS "delete the function and put a comment there" (live v0.119: qwen2.5-coder
+  // and llama3.2 both failed the task this way). Adding text is one of the
+  // commonest edits there is, so it gets a first-class form. Rewriting it into
+  // search/replace here keeps every guard — uniqueness, token boundaries,
+  // structural balance, syntax — applying unchanged.
+  const insertion = insertBefore ?? insertAfter;
+  if (insertion !== undefined) {
+    if (rawReplace !== undefined) {
+      throw new Error(
+        `Error: edit_file received both 'replace' and an insert argument. Use 'replace' to SUBSTITUTE text, ` +
+          `or 'insert_before'/'insert_after' to ADD text around the 'search' anchor — not both.`,
+      );
+    }
+    if (insertBefore !== undefined && insertAfter !== undefined) {
+      throw new Error(`Error: edit_file received both 'insert_before' and 'insert_after'. Use one.`);
+    }
+    if (search === undefined) {
+      throw new Error(
+        `Error: edit_file needs 'search' — the existing text to insert ${insertBefore !== undefined ? 'before' : 'after'} — ` +
+          `alongside '${insertBefore !== undefined ? 'insert_before' : 'insert_after'}'. Call read_file(path="${filePath}") ` +
+          `and copy the anchor text verbatim into 'search'.`,
+      );
+    }
+    const joined = insertBefore !== undefined ? `${insertBefore}\n${search}` : `${search}\n${insertAfter as string}`;
+    return editFile({ path: filePath, search, replace: joined }, context);
+  }
+
+  const replace = rawReplace;
 
   // Creation-intent coercion. Small models constantly call edit_file with
   // one of search/replace missing on a file that doesn't exist yet — the
@@ -754,6 +803,30 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
               (r) =>
                 `[note: 'search' was missing. The region your 'replace' text supersedes was inferred and used as ` +
                 `the search string. Always pass 'search' explicitly — it is the exact current text to replace.]\n${r}`,
+            );
+          }
+        }
+
+        // INSERTION intent. edit_file only replaces, but models routinely use it
+        // to ADD something — "add a JSDoc comment above welcome" — by sending
+        // only the new text in `replace`. Replacing the target with it then
+        // destroys the target (the comment would eat the function header), which
+        // the syntax guard correctly refuses, and the task fails with the file
+        // untouched (live v0.119: qwen2.5-coder, three attempts, no JSDoc).
+        //
+        // If the replacement cannot stand in for the target but CAN sit in front
+        // of it and still parse, that is what the model meant. Try it, and
+        // disclose that it was treated as an insertion.
+        if (!replace.includes(target)) {
+          const insertion = currentText.replace(target, `${replace}\n${target}`);
+          const insertSyntax = await editWouldBreakSyntax(filePath, currentText, insertion);
+          if (!insertSyntax.refuse && insertion !== currentText) {
+            return await editFile({ path: filePath, search: target, replace: `${replace}\n${target}` }, context).then(
+              (r) =>
+                `[note: 'search' was missing, and your 'replace' text could not stand in for any existing ` +
+                `region — so it was INSERTED immediately before the closest matching code instead of ` +
+                `overwriting it. To insert deliberately, pass the existing text in 'search' and ` +
+                `'<new text>\\n<existing text>' in 'replace'.]\n${r}`,
             );
           }
         }
@@ -1127,7 +1200,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     );
   }
 
-  const newText = text.replace(search, () => replace);
+  const rawNewText = text.replace(search, () => replace);
 
   // Syntax guard — the general invariant behind the structural and lexical
   // guards above: an edit must not make a parsing file stop parsing. Catches
@@ -1135,6 +1208,41 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // (`function welcome\(name: s\)`) — balanced, token-aligned, and complete
   // garbage (live v0.119 dogfood, llama3.2). Fails open when no grammar
   // applies, so unsupported languages behave exactly as before.
+  let newText = rawNewText;
+  let duplicateTrimNote = '';
+
+  // DUPLICATED-TAIL REPAIR. A very common weak-model mistake: `search` names the
+  // block HEADER but `replace` restates the whole block — header AND body —
+  // because the model is thinking "here is what the code should look like".
+  // Substituting then duplicates the body and the file stops parsing.
+  //
+  // Live v0.119, qwen2.5-coder adding a JSDoc comment:
+  //   search  = "export function welcome(name: string): string {"
+  //   replace = "/** … */\nexport function welcome(…): string {\n  return …;\n}"
+  // The trailing part of `replace` after the search text is EXACTLY the text
+  // that already follows the match in the file, so it is provably redundant.
+  // Trim it and the edit is precisely what the model meant: an insertion.
+  const searchIdxInReplace = replace.indexOf(search);
+  if (searchIdxInReplace !== -1) {
+    const trailing = replace.slice(searchIdxInReplace + search.length);
+    const afterMatch = text.slice(text.indexOf(search) + search.length);
+    if (trailing.length > 0 && afterMatch.startsWith(trailing)) {
+      const trimmedReplace = replace.slice(0, searchIdxInReplace + search.length);
+      const trimmedText = text.replace(search, () => trimmedReplace);
+      const trimmedSyntax = await editWouldBreakSyntax(filePath, text, trimmedText);
+      const originalSyntax = await editWouldBreakSyntax(filePath, text, rawNewText);
+      // Only rewrite when the trim actually rescues the edit — never silently
+      // change an edit that was already fine.
+      if (originalSyntax.refuse && !trimmedSyntax.refuse) {
+        newText = trimmedText;
+        duplicateTrimNote =
+          `[note: your 'replace' restated text that already follows the match (the block body), which would ` +
+          `have duplicated it. The redundant tail was trimmed and the edit applied as an insertion. To ADD ` +
+          `text, prefer edit_file(search=<anchor>, insert_before=<new text>).]\n`;
+      }
+    }
+  }
+
   const syntax = await editWouldBreakSyntax(filePath, text, newText);
   if (syntax.refuse) {
     recordEditFailure(context, filePath, search, replace);
@@ -1162,7 +1270,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // v0.119 dogfood: the rename landed on iteration 1, the success message
   // carried this preamble, and the model dutifully re-read the file and
   // re-issued the same edit. The edit worked; only the message said otherwise.
-  return `File edited: ${filePath}${partialReplaceWarning}`;
+  return `${duplicateTrimNote}File edited: ${filePath}${partialReplaceWarning}`;
 }
 
 export async function deleteFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
