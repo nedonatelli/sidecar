@@ -605,12 +605,28 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
       err instanceof Error && (err.message.includes('ENOENT') || (err as { code?: string }).code === 'FileNotFound');
     if (!isNotFound) throw err;
 
+    // Render a found file relative to the root WE resolved, not via
+    // `workspace.asRelativePath`. That API resolves against the extension host's
+    // workspace folders, which are not the root here when the agent is pinned to a
+    // Shadow Workspace or a temp dir — the eval harness got back absolute
+    // `/var/folders/T/…` paths, so the model was handed a wall of noise instead of
+    // `src/utils.ts`. resolveRootUri is the same root `read_file` just read from,
+    // so it is correct in every context.
+    const uriPath = (u: { path?: string; fsPath?: string }): string => u.path ?? u.fsPath ?? '';
+    const rootPath = uriPath(resolveRootUri(context)).replace(/\/$/, '');
+    const rel = (u: { path?: string; fsPath?: string }): string => {
+      const p = uriPath(u);
+      return rootPath && p.startsWith(rootPath + '/')
+        ? p.slice(rootPath.length + 1)
+        : workspace.asRelativePath(u as never, false);
+    };
+
     // Suggest similarly-named files so the model can self-correct without
     // needing a separate list_directory call.
     const basename = path.posix.basename(filePath);
     const similar = await workspace.findFiles(`**/${basename}`, '**/node_modules/**', 5);
     if (similar.length > 0) {
-      const suggestions = similar.map((u) => workspace.asRelativePath(u, false)).join('\n  - ');
+      const suggestions = similar.map(rel).join('\n  - ');
       // Throw so the executor sets is_error:true on the tool_result — the
       // eval harness and completion gate both check is_error to detect
       // file-not-found. The helpful message is still visible to the model.
@@ -631,10 +647,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
     const dirGlob = dir && dir !== '.' ? `${dir}/*` : '*';
     const siblings = await workspace.findFiles(dirGlob, '**/node_modules/**', 20);
     if (siblings.length > 0) {
-      const listing = siblings
-        .map((u) => workspace.asRelativePath(u, false))
-        .sort()
-        .join('\n  - ');
+      const listing = siblings.map(rel).sort().join('\n  - ');
       throw new Error(
         `File not found: ${filePath}\nNo file named "${basename}" exists. ` +
           `${dir && dir !== '.' ? `The directory \`${dir}/\`` : 'The workspace root'} contains:\n  - ${listing}\n\n` +
