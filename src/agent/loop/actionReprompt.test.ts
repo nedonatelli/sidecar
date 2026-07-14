@@ -107,6 +107,92 @@ describe('maybeInjectActionReprompt', () => {
     return state;
   }
 
+  // -------------------------------------------------------------------------
+  // Content-block extraction.
+  //
+  // Every test below used to give the user message a plain STRING `content`, so
+  // the array-of-blocks branch — filter → map → join — was never executed. Stryker
+  // proved it: `.filter(() => false)`, which discards every block, SURVIVED. The
+  // path is dead in the tests and live in production, where the webview sends
+  // block arrays (attachments, images) and gate injections push
+  // `content: [{type:'text'}]`.
+  //
+  // That is exactly how the guard died the first time — extraction yielded '',
+  // `isActionRequest('')` returned false, and the reprompt silently never fired.
+  // These tests make the extraction load-bearing.
+  // -------------------------------------------------------------------------
+
+  it('reads an action request out of a user message made of content BLOCKS, not a string', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'edit src/foo.ts to add a hello function' }] },
+      ] as never,
+    });
+    const cb = stubCallbacks();
+    expect(maybeInjectActionReprompt(state, 'Here is what I would write...', cb)).toBe(true);
+  });
+
+  it('extracts only the TEXT blocks — an image alongside the text must not swallow it', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } },
+            { type: 'text', text: 'edit src/foo.ts to add a hello function' },
+          ],
+        },
+      ] as never,
+    });
+    const cb = stubCallbacks();
+    expect(maybeInjectActionReprompt(state, 'Here is what I would write...', cb)).toBe(true);
+  });
+
+  it('skips a user message whose text is only WHITESPACE — it carries no intent either', () => {
+    // Stryker: `raw.trim() === ''` → `raw === ''` survived. With that mutation a
+    // blank-but-not-empty message is returned AS the user's intent, and the real
+    // request behind it is never seen — the same shape as the tool-result bug.
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'edit src/foo.ts to add a hello function' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: {} }] },
+        { role: 'user', content: [{ type: 'text', text: '   \n  ' }] },
+      ] as never,
+    });
+    const cb = stubCallbacks();
+    expect(maybeInjectActionReprompt(state, 'Here is the code you asked for...', cb)).toBe(true);
+  });
+
+  it('injects a well-formed user turn that actually tells the model to call tools', () => {
+    // Stryker: `role: 'user'` → `role: ""` survived, as did emptying the injected
+    // text. Nothing asserted what we push into the conversation — and a malformed
+    // role is rejected by the API at runtime, where it is expensive to discover.
+    const state = makeState('edit src/foo.ts to add a hello function');
+    const cb = stubCallbacks();
+    expect(maybeInjectActionReprompt(state, 'I would add a function like this...', cb)).toBe(true);
+
+    const injected = state.messages[state.messages.length - 1];
+    expect(injected.role).toBe('user');
+    const text = (injected.content as { type: string; text: string }[])[0];
+    expect(text.type).toBe('text');
+    expect(text.text).toMatch(/text only/i);
+    expect(text.text).toMatch(/call the appropriate tools/i);
+  });
+
+  it('does not fire when there is no user message at all', () => {
+    // The `return ''` fallback — reported by Stryker as NoCoverage, i.e. no test
+    // ever reached it.
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [{ role: 'assistant', content: 'thinking out loud' }] as never,
+    });
+    const cb = stubCallbacks();
+    expect(maybeInjectActionReprompt(state, 'Some prose with no intent opener.', cb)).toBe(false);
+  });
+
   it('injects a reprompt when model produces text on an action request', () => {
     const state = makeState('edit src/foo.ts to add a hello function');
     const cb = stubCallbacks();
