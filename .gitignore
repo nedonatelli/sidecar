@@ -37,3 +37,8 @@ eval-failures.md
 # moved into internal/; they remain in git history — this only stops future
 # tracking.)
 /internal/
+
+# Stryker mutation-testing sandboxes (transient; can be 50MB+ and are
+# recreated on every run). Stryker ignores them internally, git did not —
+# a `git add -A` after a run swept 1117 sandbox files into a commit.
+.stryker-tmp/

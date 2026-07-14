@@ -1673,6 +1673,88 @@ describe('completionGate — buildBehavioralVerificationReprompt', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The TypeScript/JavaScript branch.
+//
+// Every behavioural-verification test above uses PYTHON files, so the non-.py arm
+// of `candidateTestFiles` — `${base}.test${ext}` / `${base}.spec${ext}` — had NO
+// coverage at all. Stryker reported it as such: emptying that array entirely was a
+// NoCoverage mutant. In a TypeScript project, that is the primary path.
+// ---------------------------------------------------------------------------
+
+describe('completionGate — behavioral verification on TypeScript sources', () => {
+  const edited = new Set<string>(['src/counter.ts']);
+  const noTests = {
+    testsRunForFiles: new Set<string>(),
+    passingTestFiles: new Set<string>(),
+    projectTestsPassed: false,
+  };
+
+  it('fires when a TS source is edited for a bug report and no test ran', async () => {
+    const r = await buildBehavioralVerificationReprompt('the counter does nothing when clicked', edited, noTests);
+    expect(r).toMatch(/no test that PASSES exercises/i);
+    expect(r).toContain('src/counter.ts');
+  });
+
+  // candidateTestFiles() is ONLY consulted on a whole-suite pass (projectTestsPassed),
+  // where there is no explicit per-file test name to check. That is the arm whose
+  // TS/JS filename derivation had no coverage — so these must go through it.
+  const suitePassed = {
+    testsRunForFiles: new Set<string>(),
+    passingTestFiles: new Set<string>(),
+    projectTestsPassed: true,
+  };
+
+  it('a whole-suite pass is confirmed against the colocated .test.ts convention', async () => {
+    const readFile = async (p: string) =>
+      p === 'src/counter.test.ts' ? "import { increment } from './counter.js';\n" : null;
+    expect(
+      await buildBehavioralVerificationReprompt('the counter does nothing', edited, suitePassed, readFile),
+    ).toBeNull();
+  });
+
+  it('a whole-suite pass is confirmed against the .spec.ts convention too', async () => {
+    const readFile = async (p: string) =>
+      p === 'src/counter.spec.ts' ? "import { increment } from './counter.js';\n" : null;
+    expect(
+      await buildBehavioralVerificationReprompt('the counter does nothing', edited, suitePassed, readFile),
+    ).toBeNull();
+  });
+
+  it('a whole-suite pass with NO conventional test for the module still demands one', async () => {
+    const readFile = async () => null;
+    const r = await buildBehavioralVerificationReprompt('the counter does nothing', edited, suitePassed, readFile);
+    expect(r).toMatch(/no test that PASSES exercises/i);
+  });
+
+  it('a PASSING test that does not import the module is HOLLOW, not coverage', async () => {
+    const ran = {
+      testsRunForFiles: new Set<string>(['src/counter.test.ts']),
+      passingTestFiles: new Set<string>(['src/counter.test.ts']),
+      projectTestsPassed: false,
+    };
+    const readFile = async (p: string) =>
+      p === 'src/counter.test.ts' ? "import { unrelated } from './other.js';\n" : null;
+    const r = await buildBehavioralVerificationReprompt('the counter does nothing', edited, ran, readFile);
+    expect(r).toBeTruthy();
+  });
+
+  it('a dot in the module name is not a regex wildcard', async () => {
+    // referencesModule interpolates the module name into a RegExp. Unescaped, the
+    // `.` in `a.b` matches ANY character, so a test importing `axb` would count as
+    // coverage for `a.b.ts`. Stryker: emptying escapeRegExp's replacement survived.
+    const dotted = new Set<string>(['src/a.b.ts']);
+    const ran = {
+      testsRunForFiles: new Set<string>(['src/a.b.test.ts']),
+      passingTestFiles: new Set<string>(['src/a.b.test.ts']),
+      projectTestsPassed: false,
+    };
+    const readFile = async (p: string) => (p === 'src/a.b.test.ts' ? "import { x } from './axb.js';\n" : null);
+    const r = await buildBehavioralVerificationReprompt('the widget does nothing', dotted, ran, readFile);
+    expect(r).toBeTruthy(); // axb must NOT satisfy a.b
+  });
+});
+
 describe('completionGate — classifyTestResult', () => {
   it('classifies a passing pytest run', () => {
     expect(classifyTestResult('===== 5 passed in 0.05s =====\n(exit code: 0)')).toBe('pass');

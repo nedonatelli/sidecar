@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseTextToolCalls,
+  parseTextToolCallsCleaned,
   stripRepeatedContent,
   parseMangledToolName,
   splitTopLevelArgs,
@@ -563,5 +564,105 @@ describe('parseTextToolCalls — argument-key and name-key variants', () => {
       parseTextToolCalls('<tool_call>{"function":{"name":"read_file","arguments":{"path":"y"}}}</tool_call>', tools)[0]
         .name,
     ).toBe('read_file');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseTextToolCallsCleaned — the excision path.
+//
+// This is what removes a dispatched text-form tool call from the assistant's
+// VISIBLE text, so the user doesn't read raw JSON in the chat. It had no direct
+// tests: Stryker left every span mutant alive, including
+// `[match.index, match.index + match[0].length]` → `- match[0].length` (a NEGATIVE
+// span end) and `spans.sort((a,b) => a[0] - b[0])` → `a[0] + b[0]`. Some were not
+// even covered.
+//
+// Also unpinned: `idCounter++` → `idCounter--`. Tool-use ids must be unique within
+// a turn — colliding ids break tool_result matching, and nothing asserted it.
+// ---------------------------------------------------------------------------
+
+describe('parseTextToolCallsCleaned — excises the dispatched call from the text', () => {
+  const tools = defineTools('read_file', 'grep');
+
+  it('removes the tool-call JSON and keeps the surrounding prose', () => {
+    const text =
+      'Let me look.\n```json\n{"name": "read_file", "arguments": {"path": "a.ts"}}\n```\nThen I will report.';
+    const { calls, cleanedText } = parseTextToolCallsCleaned(text, tools);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('read_file');
+    // The JSON must be gone — this is the whole point.
+    expect(cleanedText).not.toContain('read_file');
+    expect(cleanedText).not.toContain('{');
+    expect(cleanedText).toContain('Let me look.');
+    expect(cleanedText).toContain('Then I will report.');
+  });
+
+  it('gives every call in a turn a UNIQUE id', () => {
+    // `idCounter--` produces colliding / negative ids, which silently breaks the
+    // tool_use → tool_result pairing.
+    const text =
+      '```json\n{"name": "read_file", "arguments": {"path": "a.ts"}}\n```\n' +
+      '```json\n{"name": "grep", "arguments": {"pattern": "TODO"}}\n```';
+    const { calls } = parseTextToolCallsCleaned(text, tools);
+
+    expect(calls).toHaveLength(2);
+    expect(new Set(calls.map((c) => c.id)).size).toBe(2);
+  });
+
+  it('excises MULTIPLE calls without eating the prose between them', () => {
+    // A negative or mis-sorted span silently swallows the text around it.
+    const text =
+      'First:\n```json\n{"name": "read_file", "arguments": {"path": "a.ts"}}\n```\n' +
+      'Middle prose.\n```json\n{"name": "grep", "arguments": {"pattern": "TODO"}}\n```\nTail prose.';
+    const { calls, cleanedText } = parseTextToolCallsCleaned(text, tools);
+
+    expect(calls).toHaveLength(2);
+    expect(cleanedText).toContain('First:');
+    expect(cleanedText).toContain('Middle prose.');
+    expect(cleanedText).toContain('Tail prose.');
+    expect(cleanedText).not.toContain('"name"');
+  });
+
+  it('leaves text untouched when there is no tool call in it', () => {
+    const text = 'Just an explanation, no calls here.';
+    expect(parseTextToolCallsCleaned(text, tools)).toEqual({ calls: [], cleanedText: text });
+  });
+
+  it('does not accept a name that is not a real tool', () => {
+    // `canonical !== null && toolNames.has(canonical)` → `||` accepts ANY non-null
+    // name, dispatching a tool that does not exist.
+    const text = '```json\n{"name": "definitely_not_a_tool", "arguments": {"x": 1}}\n```';
+    const { calls } = parseTextToolCallsCleaned(text, tools);
+    expect(calls).toHaveLength(0);
+  });
+  // Each emission syntax is a SEPARATE branch with its own span push. The fenced
+  // ```json tests above cover only one of them; Stryker showed the others' spans
+  // untested (some entirely uncovered), so a broken excision there would leak raw
+  // tool-call syntax into the chat with no test failing.
+
+  it('excises a <tool_call> emission', () => {
+    const text = 'Checking.\n<tool_call>{"name": "read_file", "arguments": {"path": "a.ts"}}</tool_call>\nDone.';
+    const { calls, cleanedText } = parseTextToolCallsCleaned(text, tools);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('read_file');
+    expect(cleanedText).not.toContain('tool_call');
+    expect(cleanedText).not.toContain('read_file');
+    expect(cleanedText).toContain('Checking.');
+    expect(cleanedText).toContain('Done.');
+  });
+
+  it('excises a <function=...> emission', () => {
+    const text = 'Now.\n<function=read_file>\n<parameter=path>\na.ts\n</parameter>\n</function>\nThat is it.';
+    const { calls, cleanedText } = parseTextToolCallsCleaned(text, tools);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('read_file');
+    expect(calls[0].input).toEqual({ path: 'a.ts' });
+    expect(cleanedText).not.toContain('<function');
+    expect(cleanedText).not.toContain('<parameter');
+    expect(cleanedText).toContain('Now.');
+    expect(cleanedText).toContain('That is it.');
   });
 });
