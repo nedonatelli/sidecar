@@ -13,6 +13,7 @@ import {
   type TextToolCallState,
 } from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
+import { hasProblematicThinking } from '../config/modelAgentBehavior.js';
 import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE, contextCapForModel } from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
@@ -355,7 +356,12 @@ export class OllamaBackend implements ApiBackend {
     const envSeed = process.env.SIDECAR_AGENT_SEED;
     const seed = agentSeed ?? (envSeed !== undefined && envSeed !== '' ? Number(envSeed) : null);
     if (seed !== null && Number.isFinite(seed)) options.seed = seed;
-    if (ollamaDisableThinking) options.think = false;
+    // Thinking: ON by default for models that support it. Disabled when the
+    // user opts out, OR when the model is on the known-problematic list —
+    // thinking tokens make those models stall, time out, or stop emitting tool
+    // calls. That list was previously honored ONLY by the eval harness, so we
+    // protected our own tests from a failure mode we then shipped to users.
+    if (ollamaDisableThinking || hasProblematicThinking(model)) options.think = false;
     const body: Record<string, unknown> = {
       model,
       messages: toOllamaMessages(messages, systemPrompt),

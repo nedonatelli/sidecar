@@ -658,3 +658,46 @@ describe('runtime tool failure tracking', () => {
     expect(modelSupportsTools(model)).toBe(true);
   });
 });
+
+describe('thinking mode', () => {
+  /** Run one streamChat and return the `options` object we sent to Ollama. */
+  async function capturedOptions(model: string, config: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const settings = await import('../config/settings.js');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      agentTemperature: 0,
+      agentSeed: null,
+      ollamaNumCtx: 0,
+      ollamaDisableThinking: false,
+      ...config,
+    } as never);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: ndjsonBody([{ model, message: { role: 'assistant', content: 'x' }, done: true, done_reason: 'stop' }]),
+    });
+    const b = new OllamaBackend('http://localhost:11434');
+    for await (const _ of b.streamChat(model, '', [{ role: 'user', content: 'hi' }])) {
+      // drain
+    }
+    const body = JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string);
+    return body.options as Record<string, unknown>;
+  }
+
+  it('leaves thinking ON by default for models that support it', async () => {
+    const options = await capturedOptions('qwen3.5:latest', { ollamaDisableThinking: false });
+    expect(options.think).toBeUndefined(); // unset → Ollama uses the model default
+  });
+
+  it('disables thinking when the user opts out', async () => {
+    const options = await capturedOptions('qwen3.5:latest', { ollamaDisableThinking: true });
+    expect(options.think).toBe(false);
+  });
+
+  it('disables thinking for known-problematic models even without an opt-out', async () => {
+    // These stall / stop emitting tool calls with thinking on. The list was
+    // honored ONLY by the eval harness — production shipped the failure mode.
+    for (const model of ['qwen3:8b', 'qwen3:14b', 'qwen3:32b', 'glm-4.7-flash:latest']) {
+      const options = await capturedOptions(model, { ollamaDisableThinking: false });
+      expect({ model, think: options.think }).toEqual({ model, think: false });
+    }
+  });
+});
