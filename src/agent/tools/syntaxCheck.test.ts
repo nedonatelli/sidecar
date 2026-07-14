@@ -40,10 +40,18 @@ describe('checkSyntax', () => {
     expect(result.broken).toBe(false);
   });
 
-  it('fails open when no parser is available (no grammars path — the unit-test env)', async () => {
-    const result = await checkSyntax('src/a.ts', 'function ( hopelessly broken');
-    expect(result.checked).toBe(false);
-    expect(result.broken).toBe(false);
+  it('uses the REAL grammars outside the extension host (eval harness, sandboxes)', async () => {
+    // Before the wasm-dir fallback, the guard was inert anywhere setGrammarsPath
+    // had not run — the eval harness let a model write `@tsDocParam(` to a .ts
+    // file and reported success. A guard that only works in the extension host
+    // cannot be regression-tested, which is how the write_file bypass survived.
+    const broken = await checkSyntax('src/a.ts', 'function ( hopelessly broken');
+    expect(broken.checked).toBe(true);
+    expect(broken.broken).toBe(true);
+
+    const clean = await checkSyntax('src/a.ts', 'export const x = 1;\n');
+    expect(clean.checked).toBe(true);
+    expect(clean.broken).toBe(false);
   });
 
   it('reports parse errors when a parser is available', async () => {
@@ -86,8 +94,18 @@ describe('editWouldBreakSyntax', () => {
     expect(verdict.refuse).toBe(false);
   });
 
-  it('fails open (allows the edit) when no parser is available', async () => {
-    const verdict = await editWouldBreakSyntax('src/a.ts', 'clean', 'total ( garbage');
+  it('refuses real broken source with the real grammars (no stub)', async () => {
+    const verdict = await editWouldBreakSyntax(
+      'src/a.ts',
+      'export const x = 1;\n',
+      '@tsDocParam(', // exactly what llama3.2 wrote to a .ts file via write_file
+    );
+    expect(verdict.refuse).toBe(true);
+    expect(verdict.message).toMatch(/unparseable/i);
+  });
+
+  it('fails open for a language with no grammar', async () => {
+    const verdict = await editWouldBreakSyntax('notes.md', '# hi', '### ( not code');
     expect(verdict.refuse).toBe(false);
   });
 });

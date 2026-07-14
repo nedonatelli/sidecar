@@ -74,12 +74,42 @@ interface TsParser {
 
 const parserCache = new Map<string, TsParser | null>();
 
+/**
+ * Locate the grammar wasm directory when `setGrammarsPath` has NOT run — i.e.
+ * outside the VS Code extension host: the eval harness, sub-agent sandboxes,
+ * any headless driver.
+ *
+ * This is not a nicety. The guard fails open without a grammar, so before this
+ * existed it was inert everywhere except the extension host — the eval harness
+ * happily let a model write `@tsDocParam(` to a TypeScript file and reported
+ * success, which is precisely the corruption the guard is meant to stop. A
+ * guard that only works in one host is a guard you cannot regression-test.
+ */
+function resolveGrammarsDirOutsideExtensionHost(): string | null {
+  const candidates = [
+    process.env.SIDECAR_GRAMMARS_DIR,
+    path.join(process.cwd(), 'grammars'),
+    // dist/ and out/ builds sit one level below the repo root.
+    path.join(process.cwd(), '..', 'grammars'),
+  ].filter((p): p is string => Boolean(p));
+
+  for (const dir of candidates) {
+    try {
+      const fs = require('fs') as typeof import('fs');
+      if (fs.existsSync(path.join(dir, 'tree-sitter.wasm'))) return dir;
+    } catch {
+      // fall through to the next candidate
+    }
+  }
+  return null;
+}
+
 /** Load (and cache) a parser for one grammar. Null when unavailable. */
 async function parserFor(grammar: string): Promise<TsParser | null> {
   const cached = parserCache.get(grammar);
   if (cached !== undefined) return cached;
 
-  const wasmDir = getGrammarsPath();
+  const wasmDir = getGrammarsPath() ?? resolveGrammarsDirOutsideExtensionHost();
   if (!wasmDir) {
     parserCache.set(grammar, null);
     return null;

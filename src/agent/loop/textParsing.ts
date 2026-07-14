@@ -1,5 +1,6 @@
 import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../ollama/types.js';
 import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
+import { findBalancedEnd } from '../delimiters.js';
 
 /**
  * A parsed name is dispatchable when it's in the catalog OR the executor's
@@ -295,33 +296,41 @@ function parseTextToolCallsInternal(
   // (e.g. {"name":"x","arguments":{"key":"val"}}) are extracted correctly —
   // a lazy regex terminates at the first } and chops off the inner object.
   if (firstType === null) {
-    // Seed starts from line-anchored `{`, then follow concatenated objects:
-    // models emit back-to-back calls with no separator (`…}}{"name":…`) and
-    // the second object never sits at a line start (observed live: llama3.2
-    // emitted run_command + create_file fused; only the first was found).
+    // Seed from EVERY `{` that opens a quoted key — not just line-anchored ones.
+    //
+    // The old seed was `/(?:^|\n)\{/`: an object had to start a line. Live
+    // v0.119 dogfood, qwen2.5-coder:7b emitted a perfectly valid call glued to
+    // the closing fence of the previous one:
+    //
+    //     ```{"name": "edit_file", "arguments": {"path":"src/greeter.ts", …}}
+    //
+    // That `{` sits mid-line, so the scanner never found it. salvageToolName
+    // then recovered the NAME from the raw text and the repair layer produced
+    // `edit_file({})` — empty arguments. The model's edit was correct and
+    // complete; SideCar threw the arguments away, bounced it on schema
+    // validation, and the model eventually apologized and gave up on a task it
+    // had actually solved. A brace-followed-by-a-quoted-key is the right seed:
+    // the `"name"` requirement and dispatchable-name check below reject the
+    // false positives (nested argument objects don't carry a tool name).
     const starts: number[] = [];
-    const lineStart = /(?:^|\n)\{/g;
+    const objectStart = /\{(?=\s*")/g;
     let lsMatch;
-    while ((lsMatch = lineStart.exec(text)) !== null) {
-      starts.push(lsMatch.index + lsMatch[0].length - 1);
+    while ((lsMatch = objectStart.exec(text)) !== null) {
+      starts.push(lsMatch.index);
     }
     const seen = new Set<number>();
+    // End index (exclusive) of the last object we consumed. Seeds inside it are
+    // that object's own nested argument objects, never separate tool calls —
+    // skipping them keeps the broader seed from double-parsing a single call.
+    let consumedUntil = -1;
     while (starts.length > 0) {
       const start = starts.shift()!;
-      if (seen.has(start)) continue;
+      if (seen.has(start) || start < consumedUntil) continue;
       seen.add(start);
-      let depth = 0;
-      let end = -1;
-      for (let i = start; i < text.length; i++) {
-        if (text[i] === '{') depth++;
-        else if (text[i] === '}') {
-          depth--;
-          if (depth === 0) {
-            end = i;
-            break;
-          }
-        }
-      }
+      // Shared string-aware scanner (agent/delimiters.ts): a naive depth count
+      // ran off on braces inside argument VALUES — the commonest call there is,
+      // a code edit — discarding the arguments and dispatching edit_file({}).
+      const end = findBalancedEnd(text, start, { dialect: 'json' });
       if (end === -1) {
         // Truncated emission — the object never closes (observed live:
         // llama3.2 emitted an OpenAI-function-shaped call missing its final
@@ -339,6 +348,10 @@ function parseTextToolCallsInternal(
               input: {},
               _malformedInputRaw: truncated,
             });
+            // The object never closed, so everything after it is part of THIS
+            // truncated call — including any nested object that happens to be
+            // well-formed. Consume to the end so it isn't parsed as a second call.
+            consumedUntil = text.length;
           }
         }
         continue;
@@ -365,6 +378,7 @@ function parseTextToolCallsInternal(
           firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           spans?.push([start, end + 1]);
+          consumedUntil = end + 1;
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {

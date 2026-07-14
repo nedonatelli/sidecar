@@ -16,6 +16,7 @@ import { isAuditModeActive } from './auditHelper.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 import { computeLineDiff } from './diffUtils.js';
 import { editWouldBreakSyntax } from './syntaxCheck.js';
+import { delimiterBalance, balanceEquals } from '../delimiters.js';
 
 /**
  * Read buffered content for a workspace-relative path if Audit Mode
@@ -186,26 +187,6 @@ function isEditAlreadyApplied(fileText: string, search: string, replace: string)
 }
 
 /**
- * Net delimiter balance of a snippet: opens minus closes, per bracket family.
- * Template-literal `${…}` pairs cancel out, so a self-contained one-liner nets
- * zero while a block header (`… ): string {`) nets +1 curly.
- */
-function delimiterBalance(s: string): { curly: number; paren: number; square: number } {
-  let curly = 0;
-  let paren = 0;
-  let square = 0;
-  for (const ch of s) {
-    if (ch === '{') curly++;
-    else if (ch === '}') curly--;
-    else if (ch === '(') paren++;
-    else if (ch === ')') paren--;
-    else if (ch === '[') square++;
-    else if (ch === ']') square--;
-  }
-  return { curly, paren, square };
-}
-
-/**
  * An inferred (fuzzy) replacement is structurally safe only when it preserves
  * the file's delimiter balance — i.e. `replace` opens and closes exactly as
  * many brackets as the region it replaces.
@@ -224,9 +205,11 @@ function delimiterBalance(s: string): { curly: number; paren: number; square: nu
  * regardless of how well the fuzzy scorer liked it — so refuse to guess.
  */
 function isStructurallySafeReplacement(target: string, replace: string): boolean {
-  const t = delimiterBalance(target);
-  const r = delimiterBalance(replace);
-  return t.curly === r.curly && t.paren === r.paren && t.square === r.square;
+  // String-aware (see agent/delimiters.ts): braces inside string literals,
+  // comments, and template text are NOT delimiters. Counting them made this
+  // guard refuse legitimate edits — `const s = "{";` reads as +1 curly — and
+  // let genuinely unbalanced edits slip through when the noise cancelled out.
+  return balanceEquals(delimiterBalance(target), delimiterBalance(replace));
 }
 
 /** Error text for a rejected inference — names the mismatch and demands an exact search. */
@@ -624,6 +607,15 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     }
   }
 
+  // Syntax guard — the same invariant edit_file enforces: never write source
+  // that does not parse. Live v0.119 dogfood: asked to add a JSDoc comment,
+  // llama3.2 sidestepped edit_file entirely and called write_file with
+  // `@tsdoc \n\nfunction welcome(name: string): string {…` — dropping `export`,
+  // writing a non-comment, and clobbering a clean file with unparseable source.
+  // Every corruption defence lived in edit_file, so this sailed through and
+  // reported success. An empty/absent file parses clean, so the same rule
+  // covers creation: don't create a file that doesn't parse either. Fails open
+  // when no grammar applies (markdown, JSON, unknown extensions).
   // Committing to write — record the content hash for circular detection.
   if (writeHistory && contentHash !== undefined) {
     const set = writeHistory.get(filePath);
@@ -649,10 +641,27 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
   }
 
-  // Read original once for both edit timeline and streaming diff.
-  // Skip when cwd is set (shadow workspace — sandbox has its own review flow).
-  const needsOriginal = (context?.editTimeline && !context.cwd) || !!context?.onOutput;
-  const original = needsOriginal ? await readDiskViaWorkspace(context, filePath) : undefined;
+  // Read the original ONCE — the syntax guard, the edit timeline, and the
+  // streaming diff all need it, and a second read would consume a different
+  // snapshot (and, in tests, a different mock).
+  const original = await readDiskViaWorkspace(context, filePath);
+
+  // Syntax guard — the same invariant edit_file enforces: never write source
+  // that does not parse. Live v0.119 dogfood: asked to add a JSDoc comment,
+  // llama3.2 sidestepped edit_file entirely and called write_file with
+  // `@tsdoc \n\nfunction welcome(name: string): string {…` — dropping `export`,
+  // writing a non-comment, and clobbering a clean file with unparseable source.
+  // Every corruption defence lived in edit_file, so this sailed through and
+  // reported success. An absent file reads as empty, which parses clean, so the
+  // same rule covers creation. Fails open when no grammar applies (md, json…).
+  const syntax = await editWouldBreakSyntax(filePath, original ?? '', content);
+  if (syntax.refuse) {
+    throw new Error(
+      (syntax.message ?? '').replace('edit_file refused this edit to', 'write_file refused this write to') +
+        `\n\nTo change part of a file, prefer edit_file(path, search, replace) — it edits in place instead of ` +
+        `replacing the whole file.`,
+    );
+  }
 
   if (context?.editTimeline && !context.cwd) {
     context.editTimeline.record(filePath, original, content);

@@ -56,9 +56,15 @@ function result(id: string, isError = false): ToolResultContentBlock {
   return { type: 'tool_result', tool_use_id: id, content: 'ok', is_error: isError };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.mocked(recordToolCall).mockClear();
   vi.mocked(checkCompletionGate).mockClear();
+  // The syntax gate parse-checks every edited file. The vscode mock returns
+  // 'mock file content' for ANY read, which is not valid TypeScript, so these
+  // gate tests would all trip the (now working) syntax gate on their fixture
+  // paths. Give it parseable source; the syntax gate has its own tests.
+  const { workspace } = await import('vscode');
+  vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('export const x = 1;\n') as never);
 });
 
 describe('recordGateToolUses', () => {

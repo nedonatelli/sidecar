@@ -7,6 +7,7 @@ import { GIT_CASES } from './gitCases.js';
 import { THINKING_CASES } from './thinkingCases.js';
 import { SYSTEM_CASES } from './systemCases.js';
 import { MULTI_TURN_CASES } from './multiTurnCases.js';
+import { DOGFOOD_CASES } from './dogfoodCases.js';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
 import { renderReliabilityReport, type ReliabilityRow } from './reliabilityMetrics.js';
@@ -44,6 +45,7 @@ const ALL_CASES = [
   ...THINKING_CASES,
   ...SYSTEM_CASES,
   ...MULTI_TURN_CASES,
+  ...DOGFOOD_CASES,
 ];
 
 // When SIDECAR_EVAL_CASE is set, only register it() blocks for matching cases

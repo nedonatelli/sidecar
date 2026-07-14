@@ -1076,3 +1076,63 @@ describe('missing-search recovery (live v0.119 JSDoc bug)', () => {
     expect(writeSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('write_file syntax guard (edit_file bypass)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refuses unparseable source that would clobber a clean file (live v0.119 JSDoc bypass)', async () => {
+    // The model sidestepped edit_file and called write_file with
+    // `@tsdoc \n\nfunction welcome(...)` — dropping `export`, writing a
+    // non-comment, and destroying a clean file. Every guard lived in edit_file.
+    const clean = 'export function welcome(name: string): string {\n  return `hi`;\n}\n';
+    const { workspace } = await import('vscode');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(clean) as never);
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    const { __setParserForTests, __resetParserCache } = await import('./syntaxCheck.js');
+    const broken = '@tsdoc \n\nfunction welcome(name: string): string {';
+    __setParserForTests('typescript', {
+      parse: (c: string) => ({
+        rootNode:
+          c === broken
+            ? {
+                type: 'program',
+                hasError: true,
+                startPosition: { row: 0, column: 0 },
+                childCount: 1,
+                child: () => ({
+                  type: 'ERROR',
+                  hasError: true,
+                  startPosition: { row: 0, column: 0 },
+                  childCount: 0,
+                  child: () => null,
+                }),
+              }
+            : {
+                type: 'program',
+                hasError: false,
+                startPosition: { row: 0, column: 0 },
+                childCount: 0,
+                child: () => null,
+              },
+      }),
+    } as never);
+    writeSpy.mockClear();
+
+    await expect(writeFile({ path: 'src/greeter.ts', content: broken })).rejects.toThrow(/unparseable|refused/i);
+    expect(writeSpy).not.toHaveBeenCalled();
+    __resetParserCache();
+  });
+
+  it('still writes valid source normally', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('ENOENT'));
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+
+    const result = await writeFile({ path: 'src/new.ts', content: 'export const x = 1;\n' });
+    expect(result).toContain('File written');
+  });
+});

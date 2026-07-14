@@ -256,6 +256,69 @@ describe('parseTextToolCalls', () => {
       expect(result).toHaveLength(0);
     });
 
+    it('parses a call glued to the previous closing fence (qwen2.5-coder live)', () => {
+      // The seed used to require a line-anchored `{`, so a call emitted
+      // immediately after a closing ``` fence was never found: salvageToolName
+      // recovered the NAME and the repair layer produced edit_file({}) — empty
+      // arguments. The model's edit was correct and complete; SideCar threw the
+      // arguments away, bounced it on schema validation, and the model gave up
+      // on a task it had actually solved.
+      const input =
+        '```json\n{"name": "grep", "arguments": {"pattern": "greet"}}\n```' +
+        '{"name": "read_file", "arguments": {"path": "src/greeter.ts"}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1); // first-pattern-wins: the fenced call
+      expect(result[0].name).toBe('grep');
+
+      // On a turn with no fence, the glued/mid-line object must parse fully.
+      const glued = 'Here you go: {"name": "read_file", "arguments": {"path": "src/greeter.ts"}}';
+      const r2 = parseTextToolCalls(glued, tools);
+      expect(r2).toHaveLength(1);
+      expect(r2[0].name).toBe('read_file');
+      expect(r2[0].input).toEqual({ path: 'src/greeter.ts' });
+    });
+
+    it('parses a call whose argument VALUES contain braces (qwen2.5-coder live)', () => {
+      // The commonest call of all — a code edit — carries braces inside its
+      // string values. A naive brace-depth scan ran off on `… : string {`,
+      // decided the object was truncated, threw the arguments away, and
+      // dispatched edit_file({}). The model then apologized and gave up on a
+      // rename it had gotten right on the first attempt.
+      const editTools = defineTools('edit_file');
+      const input =
+        '{"name": "edit_file", "arguments": {"path":"src/greeter.ts",' +
+        '"search":"export function greet(name: string): string {",' +
+        '"replace":"export function welcome(name: string): string {"}}';
+      const result = parseTextToolCalls(input, editTools);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('edit_file');
+      expect(result[0].input).toEqual({
+        path: 'src/greeter.ts',
+        search: 'export function greet(name: string): string {',
+        replace: 'export function welcome(name: string): string {',
+      });
+      expect(result[0]._malformedInputRaw).toBeUndefined(); // NOT a repair path
+    });
+
+    it('handles escaped quotes and newlines inside argument values', () => {
+      const editTools = defineTools('edit_file');
+      const input =
+        '{"name": "edit_file", "arguments": {"path":"a.ts",' +
+        '"search":"say(\\"hi\\") {",' +
+        '"replace":"say(\\"bye\\") {\\n  return 1;\\n}"}}';
+      const result = parseTextToolCalls(input, editTools);
+      expect(result).toHaveLength(1);
+      expect(result[0].input).toMatchObject({ path: 'a.ts' });
+      expect(result[0]._malformedInputRaw).toBeUndefined();
+    });
+
+    it('does not double-parse an argument object as a second call', () => {
+      const input = '{"name": "run_command", "arguments": {"command": "npm test", "cwd": "/proj"}}';
+      const result = parseTextToolCalls(input, tools);
+      expect(result).toHaveLength(1);
+      expect(result[0].input).toEqual({ command: 'npm test', cwd: '/proj' });
+    });
+
     it('parses multiple bare JSON lines in the same turn', () => {
       const input =
         'First call:\n{"name": "read_file", "parameters": {"path": "a.ts"}}\n' +
