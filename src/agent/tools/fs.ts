@@ -618,8 +618,37 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
         `File not found: ${filePath}\nDid you mean one of these?\n  - ${suggestions}\nUse list_directory to explore the directory structure if none match.`,
       );
     }
+    // No file by that name anywhere. Telling the model to "use search_files" here
+    // is a dead end and we have watched it die: qwen2.5-coder asked for
+    // src/helpers.ts, was told to search, ran search_files("*helpers*"), got "No
+    // files found", and gave up — while src/utils.ts, the file it actually needed,
+    // sat one directory listing away. Searching for a filename the model INVENTED
+    // can never succeed; that is the one query guaranteed to return nothing.
+    //
+    // We know what is in that directory. Say it, and point the model at content
+    // search (the symbol it is after) rather than name search.
+    const dir = path.posix.dirname(filePath);
+    const dirGlob = dir && dir !== '.' ? `${dir}/*` : '*';
+    const siblings = await workspace.findFiles(dirGlob, '**/node_modules/**', 20);
+    if (siblings.length > 0) {
+      const listing = siblings
+        .map((u) => workspace.asRelativePath(u, false))
+        .sort()
+        .join('\n  - ');
+      throw new Error(
+        `File not found: ${filePath}\nNo file named "${basename}" exists. ` +
+          `${dir && dir !== '.' ? `The directory \`${dir}/\`` : 'The workspace root'} contains:\n  - ${listing}\n\n` +
+          `If one of these is the file you want, read it. If not, search by CONTENT — ` +
+          `grep for the symbol or text you are looking for — rather than by filename: ` +
+          `you already know the name you guessed does not exist.`,
+      );
+    }
+
     throw new Error(
-      `File not found: ${filePath}\nNo file named "${basename}" exists in the workspace. Use list_directory or search_files to find the correct path.`,
+      `File not found: ${filePath}\nNo file named "${basename}" exists in the workspace, and ` +
+        `${dir && dir !== '.' ? `\`${dir}/\` has no files either` : 'the workspace root appears empty'}. ` +
+        `Use list_directory to see the real structure, or grep for the symbol you are after — ` +
+        `do not search for the filename you guessed.`,
     );
   }
   const text = Buffer.from(bytes).toString('utf-8');

@@ -1261,3 +1261,52 @@ describe('duplicated-tail repair (over-specified replace)', () => {
     expect(written).toContain('export function greet(name: string): string {');
   });
 });
+
+// ---------------------------------------------------------------------------
+// read_file — recovering from a wrong path.
+//
+// The live failure (T2 smoke, qwen2.5-coder): the model asked for src/helpers.ts,
+// which does not exist. Our error told it to "use search_files". It did exactly
+// that — search_files("*helpers*") — got "No files found", and gave up. src/utils.ts,
+// the file it actually needed, was one directory listing away.
+//
+// Searching for a filename the model INVENTED is the one query guaranteed to return
+// nothing. We know what is in the directory; the error has to say so, and point at
+// CONTENT search rather than name search.
+// ---------------------------------------------------------------------------
+
+describe('readFile — file-not-found recovery', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('lists the real directory contents instead of sending the model to search for a name it invented', async () => {
+    const { workspace, Uri } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    // No exact basename match anywhere (helpers.ts does not exist) …
+    const findFiles = vi.spyOn(workspace, 'findFiles') as unknown as ReturnType<typeof vi.fn>;
+    findFiles.mockImplementation(async (glob: string) =>
+      glob === 'src/*' ? [Uri.file('/ws/src/utils.ts'), Uri.file('/ws/src/index.ts')] : [],
+    );
+    vi.spyOn(workspace, 'asRelativePath').mockImplementation(((u: { fsPath: string }) =>
+      u.fsPath.replace('/ws/', '')) as never);
+
+    const err = await readFile({ path: 'src/helpers.ts' }).catch((e: Error) => e.message);
+    expect(err).toContain('No file named "helpers.ts" exists');
+    expect(err).toContain('src/utils.ts'); // the file it actually needs
+    expect(err).toMatch(/search by CONTENT/i); // and not by the invented filename
+  });
+
+  it('still offers an exact basename match from another directory when one exists', async () => {
+    const { workspace, Uri } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    const findFiles = vi.spyOn(workspace, 'findFiles') as unknown as ReturnType<typeof vi.fn>;
+    findFiles.mockImplementation(async (glob: string) =>
+      glob === '**/utils.ts' ? [Uri.file('/ws/src/lib/utils.ts')] : [],
+    );
+    vi.spyOn(workspace, 'asRelativePath').mockImplementation(((u: { fsPath: string }) =>
+      u.fsPath.replace('/ws/', '')) as never);
+
+    const err = await readFile({ path: 'utils.ts' }).catch((e: Error) => e.message);
+    expect(err).toContain('Did you mean');
+    expect(err).toContain('src/lib/utils.ts');
+  });
+});
