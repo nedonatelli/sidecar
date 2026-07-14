@@ -195,3 +195,70 @@ export function inferAblation(pairs: readonly Pair[]): AblationInference {
       `this size and did not. A scaffold with no lift and a latency cost is pure tax.`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Campaign planning: WHERE to aim the ablation.
+//
+// Discordant pairs are the only informative ones, and they only occur where the
+// outcome can go either way. If both arms sit near a pass rate p, the chance that
+// a given pair is discordant is 2p(1−p): maximal at p = 0.5, and ZERO at p = 0 or
+// p = 1. A case the model always solves passes with and without the scaffold; a
+// case it never solves fails both ways. Neither can ever tell you anything, no
+// matter how many times you run it.
+//
+// This is the real lesson of the 50-task SWE campaign. It reported "zero discordant
+// pairs" and no power, and concluded it needed more tasks (the field runs 300-500).
+// But at 2/50 resolved, nearly every task is simply beyond a 7B — both arms fail,
+// every pair is concordant, and the information content is zero BY CONSTRUCTION.
+// Running 500 tasks in the floor regime would have bought exactly nothing. The
+// campaign was not under-sampled; it was AIMED WRONG.
+//
+// Ablations belong in the transition regime — the cases the model sometimes solves
+// — because those are the only ones where a guard can change the answer. The
+// reliability baseline (pass rate per case over N trials) is what identifies them.
+// ---------------------------------------------------------------------------
+
+/** Expected fraction of pairs that will be discordant, for a case with pass rate `p`. */
+export function expectedDiscordantRate(passRate: number): number {
+  return 2 * passRate * (1 - passRate);
+}
+
+/**
+ * Reps needed for this case to yield MIN_DISCORDANT_FOR_SIGNIFICANCE discordant
+ * pairs in expectation. Infinity when the case is saturated (always or never
+ * passes) — it can never contribute information, and belongs nowhere near an
+ * ablation campaign however cheap it looks.
+ */
+export function requiredRepsForPower(passRate: number): number {
+  const rate = expectedDiscordantRate(passRate);
+  if (rate <= 0) return Infinity;
+  return Math.ceil(MIN_DISCORDANT_FOR_SIGNIFICANCE / rate);
+}
+
+export interface CasePlan {
+  caseId: string;
+  passRate: number;
+  /** Expected discordant pairs per rep. Higher = more information per unit of GPU. */
+  informationPerRep: number;
+  /** Reps needed for a conclusive result, or Infinity when the case is saturated. */
+  requiredReps: number;
+  usable: boolean;
+}
+
+/**
+ * Rank cases by how much they can actually tell us, most-informative first.
+ * Saturated cases are marked unusable rather than quietly dropped — a campaign
+ * plan that silently omits them looks like it covered the suite when it did not.
+ */
+export function planAblationCampaign(
+  baseline: ReadonlyArray<{ caseId: string; passes: number; trials: number }>,
+): CasePlan[] {
+  return baseline
+    .map(({ caseId, passes, trials }) => {
+      const passRate = trials === 0 ? 0 : passes / trials;
+      const informationPerRep = expectedDiscordantRate(passRate);
+      const requiredReps = requiredRepsForPower(passRate);
+      return { caseId, passRate, informationPerRep, requiredReps, usable: Number.isFinite(requiredReps) };
+    })
+    .sort((a, b) => b.informationPerRep - a.informationPerRep);
+}

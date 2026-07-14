@@ -3,6 +3,9 @@ import {
   mcnemarExactP,
   wilsonInterval,
   inferAblation,
+  expectedDiscordantRate,
+  requiredRepsForPower,
+  planAblationCampaign,
   MIN_DISCORDANT_FOR_SIGNIFICANCE,
   type Pair,
 } from './ablationStats.js';
@@ -148,5 +151,64 @@ describe('wilsonInterval', () => {
 
   it('is [0,0] for an empty sample rather than NaN', () => {
     expect(wilsonInterval(0, 0)).toEqual([0, 0]);
+  });
+});
+
+describe('campaign planning — where to aim the ablation', () => {
+  it('a saturated case can NEVER inform an ablation, however cheap it looks', () => {
+    // Always-passes and never-passes are both worthless: the scaffold cannot change
+    // an outcome that never varies. This is not "needs more reps" — it is infinite
+    // reps, i.e. never.
+    expect(expectedDiscordantRate(1)).toBe(0);
+    expect(expectedDiscordantRate(0)).toBe(0);
+    expect(requiredRepsForPower(1)).toBe(Infinity);
+    expect(requiredRepsForPower(0)).toBe(Infinity);
+  });
+
+  it('information peaks at a coin-flip case', () => {
+    expect(expectedDiscordantRate(0.5)).toBeCloseTo(0.5, 6);
+    expect(expectedDiscordantRate(0.5)).toBeGreaterThan(expectedDiscordantRate(0.8));
+    expect(expectedDiscordantRate(0.5)).toBeGreaterThan(expectedDiscordantRate(0.2));
+  });
+
+  it('converts a reliability baseline into reps-per-case', () => {
+    // The measured baseline: no-stub-in-write is a 52% coin flip (the most
+    // informative case in the suite), grep-for-todo is 88%, and read-single-file
+    // passes 25/25 — which makes it useless for ablation no matter how fast it runs.
+    expect(requiredRepsForPower(0.52)).toBe(13); // ceil(6 / 0.4992)
+    expect(requiredRepsForPower(0.88)).toBe(29); // ceil(6 / 0.2112)
+    expect(requiredRepsForPower(1.0)).toBe(Infinity);
+  });
+
+  it('ranks the real baseline by information, and flags the saturated cases', () => {
+    const plan = planAblationCampaign([
+      { caseId: 'read-single-file', passes: 25, trials: 25 },
+      { caseId: 'grep-for-todo', passes: 22, trials: 25 },
+      { caseId: 'no-stub-in-write', passes: 13, trials: 25 },
+      { caseId: 'plan-mode-no-tools', passes: 25, trials: 25 },
+    ]);
+
+    expect(plan[0].caseId).toBe('no-stub-in-write'); // nearest a coin flip → most informative
+    expect(plan[1].caseId).toBe('grep-for-todo');
+    // The two 25/25 cases are last, and explicitly unusable rather than quietly
+    // dropped — a plan that silently omits them looks like it covered the suite.
+    expect(
+      plan
+        .filter((c) => !c.usable)
+        .map((c) => c.caseId)
+        .sort(),
+    ).toEqual(['plan-mode-no-tools', 'read-single-file']);
+  });
+
+  it('explains the SWE campaign: the floor regime carries no information at ANY n', () => {
+    // 2/50 resolved → ~4% pass rate → almost every pair concordant-fail. The
+    // campaign concluded it needed more tasks (the field runs 300-500). It did not.
+    // It needed DIFFERENT tasks — ones the model can sometimes solve.
+    const floor = expectedDiscordantRate(2 / 50);
+    expect(floor).toBeLessThan(0.08);
+    // Even 500 tasks in that regime yield only a handful of discordant pairs…
+    expect(Math.round(floor * 500)).toBeLessThan(40);
+    // …while the same GPU spent on coin-flip cases yields an order more.
+    expect(expectedDiscordantRate(0.5) * 500).toBeGreaterThan(floor * 500 * 6);
   });
 });
