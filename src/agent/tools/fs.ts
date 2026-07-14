@@ -15,7 +15,7 @@ import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { isAuditModeActive } from './auditHelper.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 import { computeLineDiff } from './diffUtils.js';
-import { editWouldBreakSyntax } from './syntaxCheck.js';
+import { editWouldBreakSyntax, canParseSyntax } from './syntaxCheck.js';
 import { delimiterBalance, balanceEquals } from '../delimiters.js';
 
 /**
@@ -204,11 +204,24 @@ function isEditAlreadyApplied(fileText: string, search: string, replace: string)
  * Balance mismatch means the replacement cannot be a drop-in for the region,
  * regardless of how well the fuzzy scorer liked it — so refuse to guess.
  */
-function isStructurallySafeReplacement(target: string, replace: string): boolean {
-  // String-aware (see agent/delimiters.ts): braces inside string literals,
-  // comments, and template text are NOT delimiters. Counting them made this
-  // guard refuse legitimate edits — `const s = "{";` reads as +1 curly — and
-  // let genuinely unbalanced edits slip through when the noise cancelled out.
+function isStructurallySafeReplacement(filePath: string, target: string, replace: string): boolean {
+  // The delimiter-balance heuristic is a FALLBACK, not the gate.
+  //
+  // It predates the tree-sitter syntax guard (both landed in the same v0.119
+  // session) and is strictly weaker: an edit that breaks structure makes the
+  // file stop parsing, which the syntax check catches with a real grammar. The
+  // heuristic, by contrast, is measurably unreliable — run over real source, it
+  // reports a NON-ZERO balance for complete, valid files:
+  //     TypeScript  72/900   (regex literals: /\{|\}/ — braces inside a regex)
+  //     Rust        58/344   (lifetimes: &'a str — the ' reads as a string open)
+  //     Python      14/400   (# comments and ''' strings are not modelled)
+  // Every one of those is a FALSE REFUSAL of a legitimate edit.
+  //
+  // So it now runs only where the syntax guard cannot: a language with no
+  // grammar. There, a rough structural signal beats none. Where a grammar
+  // exists — which is every language people actually edit here — the parse
+  // decides, and this never fires.
+  if (canParseSyntax(filePath)) return true;
   return balanceEquals(delimiterBalance(target), delimiterBalance(replace));
 }
 
@@ -795,7 +808,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
 
       const target = findIntentTarget(currentText, replace);
       if (target && currentText.includes(target) && target !== replace) {
-        if (isStructurallySafeReplacement(target, replace)) {
+        if (isStructurallySafeReplacement(filePath, target, replace)) {
           const inferred = currentText.replace(target, replace);
           const syntax = await editWouldBreakSyntax(filePath, currentText, inferred);
           if (!syntax.refuse) {
@@ -875,7 +888,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     // find the intent target and apply the edit rather than failing.
     if (currentContent) {
       const intentTarget = findIntentTarget(currentContent, search);
-      if (intentTarget && !isStructurallySafeReplacement(intentTarget, replace)) {
+      if (intentTarget && !isStructurallySafeReplacement(filePath, intentTarget, replace)) {
         recordEditFailure(context, filePath, search, replace);
         throw new Error(unsafeInferenceError(filePath, intentTarget));
       }
@@ -1093,12 +1106,24 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     // small-model failure where the model writes the new text in search instead
     // of the old text — we infer where it wants to make the change.
     const intentTarget = findIntentTarget(text, replace);
-    if (intentTarget && !isStructurallySafeReplacement(intentTarget, replace)) {
+    if (intentTarget && !isStructurallySafeReplacement(filePath, intentTarget, replace)) {
       recordEditFailure(context, filePath, search, replace);
       throw new Error(unsafeInferenceError(filePath, intentTarget));
     }
     if (intentTarget && text.includes(intentTarget) && intentTarget !== replace) {
       const inferredText = text.replace(intentTarget, replace);
+
+      // An INFERRED edit is a guess about what the model meant — so it gets the
+      // same parse gate as an exact one, and needs it more. Until now this path
+      // was gated only by the delimiter-balance heuristic; when that heuristic
+      // was demoted (it false-refuses 8% of valid TypeScript), this path was
+      // left with NO structural protection at all. The parse decides.
+      const inferSyntax = await editWouldBreakSyntax(filePath, text, inferredText);
+      if (inferSyntax.refuse) {
+        recordEditFailure(context, filePath, search, replace);
+        throw new Error(`${unreadPrefix}${inferSyntax.message}`);
+      }
+
       const patch = computeLineDiff(text, inferredText, filePath);
 
       if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
@@ -1126,11 +1151,15 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       // Low-confidence repair is even more dangerous than the default-confidence
       // inference, so it obeys the same structural invariant — never guess an
       // edit that cannot be a drop-in for the region it replaces.
-      if (looseTarget && !isStructurallySafeReplacement(looseTarget, replace)) {
+      if (looseTarget && !isStructurallySafeReplacement(filePath, looseTarget, replace)) {
         throw new Error(unsafeInferenceError(filePath, looseTarget));
       }
       if (looseTarget && text.includes(looseTarget) && looseTarget !== replace) {
         const inferredText = text.replace(looseTarget, replace);
+        // The LOW-confidence repair is the most dangerous write in the tool —
+        // it fires after repeated failures on a fuzzy match. It must parse.
+        const looseSyntax = await editWouldBreakSyntax(filePath, text, inferredText);
+        if (looseSyntax.refuse) throw new Error(`${unreadPrefix}${looseSyntax.message}`);
         const patch = computeLineDiff(text, inferredText, filePath);
         if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
         if (context?.editTimeline && !context.cwd) context.editTimeline.record(filePath, text, inferredText);

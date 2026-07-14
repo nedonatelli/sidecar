@@ -262,3 +262,9 @@ export function __setParserForTests(grammar: string, parser: TsParser | null): v
 export function __resetParserCache(): void {
   parserCache.clear();
 }
+
+/** True when a grammar exists for this file — i.e. the parse guard can actually run. */
+export function canParseSyntax(filePath: string): boolean {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  return EXT_TO_GRAMMAR[ext] !== undefined;
+}
