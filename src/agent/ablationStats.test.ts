@@ -6,8 +6,12 @@ import {
   expectedDiscordantRate,
   requiredRepsForPower,
   planAblationCampaign,
+  contrastArms,
+  contrastAllArms,
+  renderArmContrasts,
   MIN_DISCORDANT_FOR_SIGNIFICANCE,
   type Pair,
+  type ArmedRun,
 } from './ablationStats.js';
 
 const pair = (withScaffold: boolean, withoutScaffold: boolean): Pair => ({ withScaffold, withoutScaffold });
@@ -210,5 +214,67 @@ describe('campaign planning — where to aim the ablation', () => {
     expect(Math.round(floor * 500)).toBeLessThan(40);
     // …while the same GPU spent on coin-flip cases yields an order more.
     expect(expectedDiscordantRate(0.5) * 500).toBeGreaterThan(floor * 500 * 6);
+  });
+});
+
+describe('three-arm contrasts — bare vs always-on vs dynamic', () => {
+  /** Build runs for one arm from a pass pattern, paired by rep. */
+  const arm = (name: string, pattern: boolean[]): ArmedRun[] =>
+    pattern.map((passed, rep) => ({ arm: name, caseId: 'c', rep, passed }));
+
+  it('pairs on (caseId, rep) and ignores runs with no counterpart', () => {
+    const runs: ArmedRun[] = [
+      { arm: 'dynamic', caseId: 'c', rep: 0, passed: true },
+      { arm: 'bare', caseId: 'c', rep: 0, passed: false },
+      { arm: 'dynamic', caseId: 'c', rep: 1, passed: true }, // no bare partner → dropped
+    ];
+    const c = contrastArms(runs, 'dynamic', 'bare');
+    expect(c.inference.pairs).toBe(1);
+  });
+
+  it('says DYNAMIC BEATS BARE when the harness rescues runs the bare model loses', () => {
+    const runs = [
+      ...arm('dynamic', [true, true, true, true, true, true, true, true]),
+      ...arm('bare', [false, false, false, false, false, false, false, true]),
+    ];
+    const c = contrastArms(runs, 'dynamic', 'bare');
+    expect(c.inference.verdict).toBe('helps');
+    expect(c.inference.outcome.b).toBe(7);
+    expect(renderArmContrasts([c])).toContain('dynamic BEATS bare');
+  });
+
+  it('says ALWAYS-ON LOSES TO BARE when piling on guards makes things worse', () => {
+    // Not hypothetical. The critic shipped as a BLOCKING guard and made runs bail
+    // early — the SWE arm carrying it terminated 7.5x faster with MORE empty
+    // patches. "More scaffolding" is a hypothesis, not a direction, and the
+    // instrument has to be able to say so out loud.
+    const runs = [
+      ...arm('always-on', [false, false, false, false, false, false, false, true]),
+      ...arm('bare', [true, true, true, true, true, true, true, true]),
+    ];
+    const c = contrastArms(runs, 'always-on', 'bare');
+    expect(c.inference.verdict).toBe('hurts');
+    expect(renderArmContrasts([c])).toContain('always-on LOSES TO bare');
+  });
+
+  it('the decisive contrast: DYNAMIC = ALWAYS-ON means the tier machinery is a no-op', () => {
+    // If adapting per model matches a fixed maximum, then capability tiers, the
+    // learner, and the baselines are elaborate scaffolding around nothing — and
+    // this is the contrast nobody has ever run.
+    const same = [true, false, true, true, false, true, true, false, true, true, false, true];
+    const runs = [...arm('dynamic', same), ...arm('always-on', same)];
+    const c = contrastArms(runs, 'dynamic', 'always-on');
+    expect(c.inference.outcome.b).toBe(0);
+    expect(c.inference.outcome.c).toBe(0);
+    // Zero disagreement over 12 pairs is not "no effect" — it is NO POWER: the
+    // arms never disagreed, so nothing was measured. Honest either way.
+    expect(c.inference.verdict).toBe('underpowered');
+    expect(renderArmContrasts([c])).toContain('NO POWER');
+  });
+
+  it('emits all three pairwise contrasts', () => {
+    const runs = [...arm('bare', [false, false]), ...arm('always-on', [true, false]), ...arm('dynamic', [true, true])];
+    const cs = contrastAllArms(runs, ['bare', 'always-on', 'dynamic']);
+    expect(cs.map((c) => `${c.armA}|${c.armB}`)).toEqual(['bare|always-on', 'bare|dynamic', 'always-on|dynamic']);
   });
 });

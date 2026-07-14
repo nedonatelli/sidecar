@@ -262,3 +262,106 @@ export function planAblationCampaign(
     })
     .sort((a, b) => b.informationPerRep - a.informationPerRep);
 }
+
+// ---------------------------------------------------------------------------
+// Three arms, not two.
+//
+// A two-arm ablation (scaffold on vs off) answers "does this guard help?". It
+// cannot answer the question SideCar actually stakes its design on, which is
+// whether ADAPTING the scaffolding per model beats picking one setting and
+// leaving it there. That needs three arms, run on the same cases with the same
+// seeds:
+//
+//   bare      — no harness. The model, the tools, nothing else. The floor.
+//   always-on — every guard on, fixed, for every model. The naive maximum.
+//   dynamic   — the tier system: scaffolding chosen from the model's measured
+//               capability. What SideCar now ships by default.
+//
+// The three pairwise contrasts each falsify a different claim:
+//
+//   dynamic vs bare      — does the harness help at all? If not, the product is
+//                          a UI over Ollama.
+//   always-on vs bare    — does scaffolding help when applied indiscriminately?
+//   dynamic vs always-on — does ADAPTING beat a fixed maximum? This is the one
+//                          nobody has ever run, and it is the one that decides
+//                          whether the tier machinery earns its complexity. If
+//                          dynamic ≈ always-on, the capability tiers, the learner
+//                          and the baselines are all elaborate no-ops. If dynamic
+//                          BEATS always-on, that is the moat, stated as a number.
+//
+// Note that always-on can lose to bare, and it is not a stretch: the critic ran
+// as a blocking guard for months and made runs bail EARLY. "More scaffolding" is
+// a hypothesis, not a direction.
+// ---------------------------------------------------------------------------
+
+/** One run tagged with the arm it belongs to. Pairing is by (caseId, rep). */
+export interface ArmedRun {
+  arm: string;
+  caseId: string;
+  rep: number;
+  passed: boolean;
+}
+
+export interface ArmContrast {
+  armA: string;
+  armB: string;
+  /** Inference for "A relative to B" — b = A passed & B failed. */
+  inference: AblationInference;
+}
+
+/**
+ * Pair two arms on their shared (caseId, rep) keys and infer. Runs without a
+ * counterpart in the other arm are dropped: an unpaired run carries no
+ * information about the contrast, and folding it into a marginal rate is how an
+ * unpaired comparison invents a lift out of case-difficulty imbalance.
+ */
+export function contrastArms(runs: readonly ArmedRun[], armA: string, armB: string): ArmContrast {
+  const key = (r: ArmedRun) => `${r.caseId}#${r.rep}`;
+  const a = new Map<string, boolean>();
+  const b = new Map<string, boolean>();
+  for (const r of runs) {
+    if (r.arm === armA) a.set(key(r), r.passed);
+    else if (r.arm === armB) b.set(key(r), r.passed);
+  }
+
+  const pairs: Pair[] = [];
+  for (const [k, passedA] of a) {
+    const passedB = b.get(k);
+    if (passedB === undefined) continue;
+    pairs.push({ withScaffold: passedA, withoutScaffold: passedB });
+  }
+  return { armA, armB, inference: inferAblation(pairs) };
+}
+
+/** Every pairwise contrast among `arms`, in the order given. */
+export function contrastAllArms(runs: readonly ArmedRun[], arms: readonly string[]): ArmContrast[] {
+  const out: ArmContrast[] = [];
+  for (let i = 0; i < arms.length; i++) {
+    for (let j = i + 1; j < arms.length; j++) {
+      out.push(contrastArms(runs, arms[i], arms[j]));
+    }
+  }
+  return out;
+}
+
+/** Render the pairwise contrasts, verdict first — safe to print verbatim. */
+export function renderArmContrasts(contrasts: readonly ArmContrast[]): string {
+  const lines: string[] = ['Arm contrasts (paired, exact McNemar):', ''];
+  for (const c of contrasts) {
+    const i = c.inference;
+    const label =
+      i.verdict === 'helps'
+        ? `${c.armA} BEATS ${c.armB}`
+        : i.verdict === 'hurts'
+          ? `${c.armA} LOSES TO ${c.armB}`
+          : i.verdict === 'no-effect'
+            ? `${c.armA} = ${c.armB} (no detectable difference)`
+            : `${c.armA} vs ${c.armB}: NO POWER`;
+    lines.push(`  ${label}`);
+    lines.push(
+      `      pairs=${i.pairs} discordant=${i.outcome.b}/${i.outcome.c} p=${i.pValue.toFixed(4)}` +
+        (i.verdict === 'underpowered' ? ' — lift unmeasured' : ` lift=${((i.lift ?? 0) * 100).toFixed(1)}pts`),
+    );
+  }
+  return lines.join('\n');
+}

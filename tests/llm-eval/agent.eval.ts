@@ -179,6 +179,28 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
         if (passes > 0 && passes < scoredTrials.length) {
           // eslint-disable-next-line no-console -- eval diagnostics
           console.log(`[flaky] ${evalCase.id}: ${passes}/${scoredTrials.length} trials passed`);
+
+          // A flaky case used to report its RATE and throw away the evidence: the
+          // failing trajectories were only dumped when a case failed OUTRIGHT. So
+          // `fix-simple-bug: 13/25` told us the product's central task is a coin
+          // flip and gave us nothing to act on. The failing trial is the whole
+          // point — it is where the cause is.
+          const firstFail = scoredTrials.find((r) => !r.passed);
+          if (firstFail) {
+            const why = firstFail.failures.map((f) => `      - ${f}`).join('\n');
+            const traj = firstFail.trajectory
+              .filter((e) => e.type !== 'text')
+              .slice(0, 12)
+              .map((e) => {
+                if (e.type === 'tool_call') return `      → ${e.name}(${JSON.stringify(e.input).slice(0, 110)})`;
+                if (e.type === 'tool_result')
+                  return `      ← ${e.name}${e.isError ? ' [ERROR]' : ''}: ${e.result.replace(/\s+/g, ' ').slice(0, 110)}`;
+                return `      · ${e.type}`;
+              })
+              .join('\n');
+            // eslint-disable-next-line no-console -- eval diagnostics
+            console.log(`  why a failing trial failed:\n${why}\n  its trajectory:\n${traj}\n`);
+          }
         }
       }
 
