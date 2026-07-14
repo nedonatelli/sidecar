@@ -54,7 +54,11 @@ export function finalize(state: LoopState, callbacks: AgentCallbacks): ChatMessa
   // the signals the loop accumulated, and report it before onDone so the
   // metrics collector can stamp the in-progress run.
   try {
-    callbacks.onOutcome?.(classifyFailureBucket(buildRunFailureSignals(state)));
+    const signals = buildRunFailureSignals(state);
+    callbacks.onOutcome?.(classifyFailureBucket(signals), {
+      aborted: signals.aborted,
+      scaffoldInterventions: countScaffoldInterventions(state),
+    });
   } catch (e) {
     state.logger?.error(`onOutcome error: ${e}`);
   }
@@ -101,6 +105,33 @@ export function buildRunFailureSignals(state: LoopState): RunFailureSignals {
     toolErrors,
     gateExhausted,
   };
+}
+
+/**
+ * Count how many times the scaffolding had to intervene to keep this run on the
+ * rails: action reprompts, completion-gate injections, unrepaired malformed
+ * calls, degenerate-output retries, stub-fix retries, unapplied-edit nudges.
+ *
+ * This is the signal that makes tier PROMOTION honest. A model's success rate is
+ * measured with the scaffolding running, so "it succeeded" is not evidence it
+ * can succeed without help — promote on that and you strip the guards that
+ * produced the success, then watch it fail, then add them back. (qwen2.5-coder
+ * scores 5/5 on the dogfood suite, but only passes the add-jsdoc case *because*
+ * the action reprompt drags it back to work after it narrates the edit instead
+ * of making it.)
+ *
+ * Zero interventions across a run means the model never actually reached for the
+ * safety net. That, and only that, is grounds for taking one away.
+ */
+export function countScaffoldInterventions(state: LoopState): number {
+  return (
+    state.actionRepromptCount +
+    (state.gateState?.gateInjections ?? 0) +
+    state.unrepairedMalformedCalls +
+    state.degenerateTurns +
+    state.stubFixRetries +
+    (state.unappliedEditNudged ? 1 : 0)
+  );
 }
 
 /**

@@ -11,6 +11,8 @@ import {
   type TextEditor,
 } from 'vscode';
 import { ChatState } from './chatState.js';
+import { applyModelLearningSettings } from '../agent/modelLearningSetup.js';
+import { hydrateModelPerformance } from '../agent/modelPerformance.js';
 import type { PendingEditStore } from '../agent/pendingEdits.js';
 import { getChatWebviewHtml, type WebviewMessage, type ExtensionMessage } from './chatWebview.js';
 import type { TerminalManager } from '../terminal/manager.js';
@@ -72,6 +74,13 @@ export class ChatViewProvider implements WebviewViewProvider {
       this.state.sidecarDir = sidecarDir;
       this.state.metricsCollector.init(sidecarDir);
     }
+
+    // Seed the capability learner from this workspace's run history, and install
+    // the user's overrides. Without the hydrate, every reload would judge every
+    // model by its filename again — the run outcomes were already being recorded,
+    // they just had nowhere to go.
+    applyModelLearningSettings(getConfig());
+    hydrateModelPerformance(this.state.metricsCollector.getHistory());
     if (skillLoader) this.state.skillLoader = skillLoader;
     this.state.contentProvider = contentProvider;
     if (inlineEditProvider) this.state.inlineEditProvider = inlineEditProvider;

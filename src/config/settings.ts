@@ -2,6 +2,8 @@ import { workspace } from 'vscode';
 import { getCachedApiKey, getCachedFallbackApiKey } from './settings/secrets.js';
 import { OLLAMA_DEFAULT_MODEL, ANTHROPIC_DEFAULT_MODEL, detectProvider } from './settings/backends.js';
 import type { RoutingRule } from '../ollama/modelRouter.js';
+import type { CapabilityTier } from '../ollama/modelCapability.js';
+import type { ScaffoldingOverrides } from '../agent/scaffoldingProfile.js';
 
 // Re-export the public SecretStorage API from its extracted module so
 // every existing `import { initSecrets, ... } from '../config/settings.js'`
@@ -161,6 +163,12 @@ export interface SideCarConfig {
   criticModel: string;
   criticBlockOnHighSeverity: boolean;
   adaptiveScaffoldingEnabled: boolean;
+  /** Learn each model's capability tier from how it actually performs (see modelPerformance.ts). */
+  modelLearningEnabled: boolean;
+  /** Explicit per-model tier, e.g. `{"llama3.2": "weak"}`. Absolute — overrides detection. */
+  modelTierOverrides: Record<string, CapabilityTier>;
+  /** Pin individual scaffolding triggers regardless of tier, e.g. `{"runLlmCritic": true}`. */
+  scaffoldingOverrides: ScaffoldingOverrides;
   keepBestRatchetEnabled: boolean;
   planExternalizedEnabled: boolean;
   keepBestOverEngineerBytes: number;
@@ -529,6 +537,9 @@ function readConfig(): SideCarConfig {
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
     criticEnabled: cfg.get<boolean>('critic.enabled', false),
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', false),
+    modelLearningEnabled: cfg.get<boolean>('modelLearning.enabled', true),
+    modelTierOverrides: cfg.get<Record<string, CapabilityTier>>('modelTier', {}),
+    scaffoldingOverrides: cfg.get<ScaffoldingOverrides>('scaffolding.overrides', {}),
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', true),
     planExternalizedEnabled: cfg.get<boolean>('plan.externalized', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),

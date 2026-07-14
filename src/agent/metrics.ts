@@ -3,6 +3,7 @@ import { logger } from '../system/logger.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { FailureBucket } from './failureTaxonomy.js';
+import { recordRunForLearning } from './modelPerformance.js';
 
 const METRICS_LOG = 'logs/metrics.jsonl';
 
@@ -28,6 +29,28 @@ export interface AgentRunMetrics {
   repairedToolCalls?: number;
   /** F1 failure bucket, or null/undefined when the run succeeded. */
   failureBucket?: FailureBucket | null;
+  // --- Attribution: which model produced this outcome (see modelPerformance.ts) ---
+  /**
+   * The model that ran. Without this the outcome data is model-blind, which is
+   * exactly why `buildCapabilityProfile`'s measured-signal branch sat dead: every
+   * run's success or failure was recorded and none of it could be attributed back
+   * to the model that earned it.
+   */
+  model?: string;
+  /**
+   * How many times the scaffolding had to intervene (reprompts, gate injections,
+   * malformed calls, degenerate retries). The signal that makes tier PROMOTION
+   * honest: success is measured WITH the scaffolding on, so a high success rate
+   * is not evidence the model can do without it — but never having touched the
+   * safety net is. See modelPerformance.ts.
+   */
+  scaffoldInterventions?: number;
+  /**
+   * The user pressed Stop. `classifyFailureBucket` scores an abort as `null`
+   * (success) — right for the taxonomy, wrong as evidence — so the learner needs
+   * to see aborts explicitly in order to throw them out.
+   */
+  aborted?: boolean;
 }
 
 const STORAGE_KEY = 'sidecar.metrics';
@@ -44,8 +67,9 @@ export class MetricsCollector {
     this.sidecarDir = dir;
   }
 
-  startRun(): void {
+  startRun(model?: string): void {
     this.currentRun = {
+      model,
       timestamp: Date.now(),
       toolCalls: [],
       errors: [],
@@ -106,9 +130,17 @@ export class MetricsCollector {
     this.currentRun.repairedToolCalls = (this.currentRun.repairedToolCalls ?? 0) + repaired;
   }
 
-  /** F1 — record the run's outcome: a failure bucket, or null for success. */
-  recordOutcome(bucket: FailureBucket | null): void {
-    if (this.currentRun) this.currentRun.failureBucket = bucket;
+  /**
+   * F1 — record the run's outcome: a failure bucket, or null for success.
+   * `aborted` is carried separately because the bucket cannot express it: a
+   * user-cancelled run classifies as `null` (not a model failure) but is also
+   * not evidence the model succeeded, so the learner discards it entirely.
+   */
+  recordOutcome(bucket: FailureBucket | null, meta?: { aborted: boolean; scaffoldInterventions: number }): void {
+    if (!this.currentRun) return;
+    this.currentRun.failureBucket = bucket;
+    this.currentRun.aborted = meta?.aborted ?? false;
+    this.currentRun.scaffoldInterventions = meta?.scaffoldInterventions ?? 0;
   }
 
   endRun(): void {
@@ -121,6 +153,10 @@ export class MetricsCollector {
     history.push(run);
     if (history.length > 100) history.splice(0, history.length - 100);
     this.workspaceState.update(STORAGE_KEY, history);
+
+    // Fold the outcome into the live capability signal so the NEXT run is
+    // scaffolded by what this model has actually done, not by its filename.
+    recordRunForLearning(run);
 
     // Append to rolling JSONL for long-term history (no cap).
     if (this.sidecarDir?.isReady()) {

@@ -425,7 +425,9 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     state.postMessage({ command: 'typingStatus', content: 'Sending to model...' });
     state.postMessage({ command: 'setLoading', isLoading: true, expandThinking: config.expandThinking });
 
-    state.metricsCollector.startRun();
+    // Attribute the run to its model — this is what lets the next run be
+    // scaffolded by measured performance instead of a guess from the filename.
+    state.metricsCollector.startRun(state.client.getModel());
     if (state.auditLog) {
       const sessionId = state.agentMemory?.getSessionId() || `s-${Date.now()}`;
       state.auditLog.setContext(sessionId, config.model, effectiveApprovalMode);

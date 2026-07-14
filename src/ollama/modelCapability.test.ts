@@ -54,11 +54,20 @@ describe('buildCapabilityProfile — tier', () => {
     expect(buildCapabilityProfile('llama2:13b', { supportsTools: false }).tier).toBe('weak');
   });
 
-  it('rates large local models medium and small ones weak', () => {
+  it('rates large local models medium and small ones weak — for models we have NOT tested', () => {
+    // The name heuristic is the fallback, not the first answer. It only decides
+    // models absent from the measured baseline table (modelBaselines.ts).
     expect(buildCapabilityProfile('qwen3:30b').tier).toBe('medium');
     expect(buildCapabilityProfile('llama3.1:70b').tier).toBe('medium');
     expect(buildCapabilityProfile('llama3.2:3b').tier).toBe('weak');
-    expect(buildCapabilityProfile('qwen2.5-coder:7b').tier).toBe('weak');
+  });
+
+  it('a TESTED model is rated by its measurement, not by the size in its name', () => {
+    // This assertion used to read `.toBe('weak')`, because `parseParamSizeB` sees
+    // "7b" and infers a small, untrustworthy model. It scores 5/5 on the dogfood
+    // suite. Reading a model's capability off its filename is what this whole
+    // chain replaces; the heuristic's verdict here was simply wrong.
+    expect(buildCapabilityProfile('qwen2.5-coder:7b').tier).toBe('medium');
   });
 
   it('defaults an unknown-size local model to weak (conservative — more scaffolding)', () => {

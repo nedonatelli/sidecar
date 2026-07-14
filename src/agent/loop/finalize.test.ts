@@ -178,31 +178,35 @@ describe('finalize — F1 outcome classification', () => {
   it('reports null (success) for a natural completion', () => {
     const onOutcome = vi.fn();
     finalize(stubLoopState({ termination: 'natural' }), stubCallbacks({ onOutcome }));
-    expect(onOutcome).toHaveBeenCalledWith(null);
+    expect(onOutcome).toHaveBeenCalledWith(null, expect.objectContaining({ aborted: false }));
   });
 
-  it('reports null for a user abort (a clean stop is not a failure)', () => {
+  it('reports null for a user abort — and flags it, so the learner can discard it', () => {
+    // The bucket cannot distinguish "the model succeeded" from "the user pressed
+    // Stop": both are null. For the failure taxonomy that is right — an abort is
+    // not the model's fault. For the capability learner it is poison, so the abort
+    // travels alongside the bucket and gets thrown out. See modelPerformance.ts.
     const onOutcome = vi.fn();
     finalize(stubLoopState({ termination: 'aborted' }), stubCallbacks({ onOutcome }));
-    expect(onOutcome).toHaveBeenCalledWith(null);
+    expect(onOutcome).toHaveBeenCalledWith(null, expect.objectContaining({ aborted: true }));
   });
 
   it('reports timeout when the iteration cap was reached', () => {
     const onOutcome = vi.fn();
     finalize(stubLoopState({ termination: 'max-iterations' }), stubCallbacks({ onOutcome }));
-    expect(onOutcome).toHaveBeenCalledWith('timeout');
+    expect(onOutcome).toHaveBeenCalledWith('timeout', expect.anything());
   });
 
   it('reports timeout when resources ran out (token budget / request timeout)', () => {
     const onOutcome = vi.fn();
     finalize(stubLoopState({ termination: 'out-of-resources' }), stubCallbacks({ onOutcome }));
-    expect(onOutcome).toHaveBeenCalledWith('timeout');
+    expect(onOutcome).toHaveBeenCalledWith('timeout', expect.anything());
   });
 
   it('reports malformed-call when repair could not recover the tool calls', () => {
     const onOutcome = vi.fn();
     finalize(stubLoopState({ termination: 'stuck', unrepairedMalformedCalls: 2 }), stubCallbacks({ onOutcome }));
-    expect(onOutcome).toHaveBeenCalledWith('malformed-call');
+    expect(onOutcome).toHaveBeenCalledWith('malformed-call', expect.anything());
   });
 
   it('reports bad-reasoning for a stuck (cycle/burst) bail with healthy tool calls', () => {
@@ -212,7 +216,23 @@ describe('finalize — F1 outcome classification', () => {
       messages: [{ role: 'assistant', content: [use('read_file', { path: 'a.ts' })] }],
     });
     finalize(state, stubCallbacks({ onOutcome }));
-    expect(onOutcome).toHaveBeenCalledWith('bad-reasoning');
+    expect(onOutcome).toHaveBeenCalledWith('bad-reasoning', expect.anything());
+  });
+
+  it('counts the scaffolding interventions — the signal that keeps promotion honest', () => {
+    // A model's success rate is measured WITH the scaffolding running, so success
+    // alone can never justify REMOVING a guard — it may be succeeding because of
+    // it. Counting how often the scaffolding actually had to fire is what lets the
+    // learner tell "does not need help" from "is being helped". See modelPerformance.ts.
+    const onOutcome = vi.fn();
+    const state = stubLoopState({
+      termination: 'natural',
+      actionRepromptCount: 2,
+      unrepairedMalformedCalls: 0,
+      degenerateTurns: 1,
+    });
+    finalize(state, stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith(null, expect.objectContaining({ scaffoldInterventions: 3 }));
   });
 
   it('never lets an onOutcome throw block onDone', () => {

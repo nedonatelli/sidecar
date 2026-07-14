@@ -1,5 +1,11 @@
 import { modelSupportsTools, getCachedOllamaNumCtx } from './ollamaBackend.js';
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
+import { getModelBaseline } from '../agent/modelBaselines.js';
+import {
+  adjustTierByPerformance,
+  getObservedPerformance,
+  type ObservedPerformance,
+} from '../agent/modelPerformance.js';
 
 // ---------------------------------------------------------------------------
 // Model capability profile (scaffolding roadmap A1).
@@ -46,6 +52,17 @@ export interface CapabilitySignals {
   contextWindow?: number | null;
   /** Aggregate eval pass rate in [0,1], if eval data exists for this model. */
   evalPassRate?: number | null;
+  /**
+   * What this model has ACTUALLY done in this workspace. Outranks the baseline
+   * and the heuristics below, because those are priors and this is measurement.
+   * Null when the model has no track record yet (or learning is disabled).
+   */
+  observed?: ObservedPerformance | null;
+  /**
+   * An explicit tier from `sidecar.modelTier`. Absolute — detection can be
+   * wrong, so the user gets the last word and nothing overrides them.
+   */
+  userTier?: CapabilityTier | null;
 }
 
 export interface ModelCapabilityProfile {
@@ -89,8 +106,21 @@ export function parseParamSizeB(model: string): number | null {
 }
 
 /**
- * Build a capability profile from a model id + whatever live signals the
- * caller could gather. Pure: no I/O, fully testable.
+ * Build a capability profile from a model id + whatever live signals the caller
+ * could gather. Pure: no I/O, fully testable.
+ *
+ * Precedence, strongest evidence first:
+ *
+ *   1. USER OVERRIDE  — the user said so. Absolute; detection can be wrong, and
+ *                       they get the last word. Not second-guessed by the learner.
+ *   2. OBSERVED       — what this model has actually done in this workspace.
+ *                       Adjusts the baseline (see modelPerformance.ts).
+ *   3. BASELINE       — what it scored on our test suites (modelBaselines.ts).
+ *                       Measured, but on our repos — a prior, not a verdict.
+ *   4. HEURISTIC      — a regex over the model's filename. The guess of last
+ *                       resort, and the reason this whole chain exists: it reads
+ *                       `qwen2.5-coder:7b` (5/5 on dogfood) and `llama3.2`
+ *                       (2/5) as the same tier.
  */
 export function buildCapabilityProfile(model: string, signals: CapabilitySignals = {}): ModelCapabilityProfile {
   const family = detectModelFamily(model);
@@ -100,6 +130,15 @@ export function buildCapabilityProfile(model: string, signals: CapabilitySignals
   const evalPassRate = signals.evalPassRate ?? null;
   const reasons: string[] = [];
 
+  // 1. The user's word is final — no learning, no heuristics, no argument.
+  if (signals.userTier) {
+    reasons.push(`user override → ${signals.userTier}`);
+    return { model, family, paramsB, supportsTools, contextWindow, evalPassRate, tier: signals.userTier, reasons };
+  }
+
+  // 3/4. Establish the baseline tier: measured if we have tested this model,
+  // otherwise guessed from its name.
+  const baseline = getModelBaseline(model);
   let tier: CapabilityTier;
   if (FRONTIER_FAMILIES.has(family)) {
     tier = 'strong';
@@ -108,6 +147,9 @@ export function buildCapabilityProfile(model: string, signals: CapabilitySignals
     // Eval data, when present, overrides heuristics — it's measured, not guessed.
     tier = evalPassRate >= 0.8 ? 'strong' : evalPassRate >= 0.5 ? 'medium' : 'weak';
     reasons.push(`eval pass rate ${(evalPassRate * 100).toFixed(0)}%`);
+  } else if (baseline) {
+    tier = baseline.tier;
+    reasons.push(`tested model — ${baseline.evidence}`);
   } else if (supportsTools === false) {
     tier = 'weak';
     reasons.push('no reliable tool-call support');
@@ -120,19 +162,66 @@ export function buildCapabilityProfile(model: string, signals: CapabilitySignals
     reasons.push('unknown local model — conservative default');
   }
 
+  // 2. Then let this workspace's own evidence move it. `supportsTools === false`
+  // is a hard floor: a model that cannot call a tool is not promoted by anything.
+  if (supportsTools !== false) {
+    const decision = adjustTierByPerformance(tier, signals.observed ?? null);
+    if (decision.reason) reasons.push(decision.reason);
+    tier = decision.tier;
+  }
+
   return { model, family, paramsB, supportsTools, contextWindow, evalPassRate, tier, reasons };
 }
 
+// ---------------------------------------------------------------------------
+// User tier overrides (`sidecar.modelTier`).
+//
+// Every layer below this one — the learner, the baseline table, the name
+// heuristic — can be wrong about a model, and the user is the one who has to
+// live with it. So they get an absolute override, and nothing argues with it:
+// a model pinned to `strong` is not quietly demoted after three bad runs.
+//
+// Held as module state, mirroring how `modelSupportsTools` and the cached
+// context window already reach this file, so modelCapability stays free of any
+// vscode import and stays a pure unit under test.
+// ---------------------------------------------------------------------------
+
+let userTierOverrides: Readonly<Record<string, CapabilityTier>> = {};
+
+/** Install the user's `sidecar.modelTier` map. Called from settings on load and on change. */
+export function setUserTierOverrides(overrides: Readonly<Record<string, CapabilityTier>>): void {
+  userTierOverrides = overrides;
+}
+
+/** The user's explicit tier for `model`, or null. Exact match, then longest prefix. */
+export function getUserTierOverride(model: string): CapabilityTier | null {
+  const id = model.toLowerCase();
+  const direct = userTierOverrides[id] ?? userTierOverrides[model];
+  if (direct) return direct;
+
+  let best: { key: string; tier: CapabilityTier } | null = null;
+  for (const [key, tier] of Object.entries(userTierOverrides)) {
+    const k = key.toLowerCase();
+    if (!id.startsWith(k)) continue;
+    if (!best || k.length > best.key.length) best = { key: k, tier };
+  }
+  return best?.tier ?? null;
+}
+
 /**
- * Resolve a profile for `model` from the live in-memory signals SideCar
- * already maintains: probed tool support + resolved context window. Eval pass
- * rate is left undefined here (most users have no eval data); A2 wires the
- * HistoryDb baseline read when it's available.
+ * Resolve a profile for `model` from the live in-memory signals SideCar already
+ * maintains: probed tool support, resolved context window, the user's explicit
+ * tier override, and the model's observed track record in this workspace.
+ *
+ * Eval pass rate stays undefined here — most users have no eval data, and the
+ * `modelBaselines` table now carries what our own eval runs measured.
  */
 export function resolveModelCapability(model: string): ModelCapabilityProfile {
   const contextWindow = MODEL_CONTEXT_LENGTHS[model] ?? getCachedOllamaNumCtx(model) ?? null;
   return buildCapabilityProfile(model, {
     supportsTools: modelSupportsTools(model),
     contextWindow,
+    observed: getObservedPerformance(model),
+    userTier: getUserTierOverride(model),
   });
 }

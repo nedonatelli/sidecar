@@ -147,7 +147,21 @@ export interface AgentCallbacks {
    * bucket (or `null` for a clean success). Feeds the per-model failure
    * distribution that steers where scaffolding effort goes.
    */
-  onOutcome?: (bucket: import('./failureTaxonomy.js').FailureBucket | null) => void;
+  /**
+   * The run's outcome, plus the context the capability learner needs.
+   *
+   * The bucket alone is not enough to learn from. `aborted` scores as `null`
+   * (not a model failure) but is not evidence of success either, so it must be
+   * discardable. And `scaffoldInterventions` is what makes promotion honest: a
+   * model's success rate is measured WITH the scaffolding running, so promoting
+   * on success alone would strip the guards that produced the success. Counting
+   * how often the scaffolding actually had to fire tells us whether it was
+   * needed at all. See modelPerformance.ts.
+   */
+  onOutcome?: (
+    bucket: import('./failureTaxonomy.js').FailureBucket | null,
+    meta?: { aborted: boolean; scaffoldInterventions: number },
+  ) => void;
   /** Fired when update_plan changed the externalized plan (S1) — checkpointing hook. */
   onPlanUpdate?: (plan: import('./plans/externalPlan.js').ExternalPlan) => void;
   onDone: () => void;
@@ -349,7 +363,14 @@ export async function runAgentLoop(
   // the historical constants (behavior-neutral). Resolved once at loop start
   // from the active model's tier.
   if (state.config.adaptiveScaffoldingEnabled) {
-    state.scaffoldingProfile = resolveScaffoldingProfile(resolveModelCapability(client.getModel()).tier);
+    const capability = resolveModelCapability(client.getModel());
+    state.scaffoldingProfile = resolveScaffoldingProfile(capability.tier, state.config.scaffoldingOverrides);
+    // Log WHY this model got this much scaffolding. When the tier is learned
+    // rather than guessed, an unexplained change in the agent's behavior between
+    // two runs of the same model is indistinguishable from a bug.
+    state.logger?.info(
+      `Scaffolding tier '${capability.tier}' for ${capability.model} — ${capability.reasons.join('; ')}`,
+    );
   }
 
   // Keep-best ratchet IO (§2.1). Built once, rooted at the loop's effective

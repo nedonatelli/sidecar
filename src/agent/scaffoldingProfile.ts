@@ -111,6 +111,25 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
   },
 };
 
-export function resolveScaffoldingProfile(tier: CapabilityTier): ScaffoldingProfile {
-  return PROFILES[tier];
+/**
+ * Per-knob user overrides (`sidecar.scaffolding.overrides`).
+ *
+ * The tier is a bundle — moving it changes six things at once. Sometimes a user
+ * wants exactly one: keep the critic but raise the burst cap, or force the
+ * completion gate on for a model we classified as strong. Tier overrides are too
+ * blunt for that, so every trigger is individually pinnable.
+ *
+ * Applied LAST, on top of whatever tier was resolved (user, learned, baseline or
+ * heuristic), because an explicit instruction outranks every inference.
+ */
+export type ScaffoldingOverrides = Partial<Omit<ScaffoldingProfile, 'tier'>>;
+
+export function resolveScaffoldingProfile(tier: CapabilityTier, overrides?: ScaffoldingOverrides): ScaffoldingProfile {
+  const base = PROFILES[tier];
+  if (!overrides || Object.keys(overrides).length === 0) return base;
+
+  // Ignore explicit `undefined`s — `getConfiguration` hands back absent keys as
+  // undefined, and spreading those would blow away the tier's real values.
+  const defined = Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined));
+  return { ...base, ...defined, tier };
 }
