@@ -42,6 +42,7 @@
 
 import * as path from 'path';
 import { getGrammarsPath } from '../../parsing/registry.js';
+import { findPythonIndentErrors } from './pythonIndent.js';
 
 /** File extension → tree-sitter grammar name. Mirrors the shipped wasm set. */
 const EXT_TO_GRAMMAR: Record<string, string> = {
@@ -181,11 +182,29 @@ async function checkSyntaxUnbounded(filePath: string, content: string): Promise<
   if (!tree?.rootNode) return UNCHECKED;
 
   const errors = collectErrors(tree.rootNode);
-  const first = errors[0]?.startPosition?.row;
+  let count = errors.length;
+  let firstLine = errors[0]?.startPosition?.row !== undefined ? errors[0].startPosition!.row + 1 : undefined;
+
+  // PYTHON: tree-sitter catches structure (a missing colon) but NOT indentation
+  // — verified against the shipped grammar, it parses an orphaned indented line
+  // and a mis-indented block as clean. In Python the corruption class this guard
+  // exists for (replacing a block header with a one-liner, orphaning the body)
+  // IS an indentation error, so tree-sitter alone would let it through.
+  // findPythonIndentErrors closes that gap; it is validated against 4,001
+  // CPython-accepted files with zero false positives and fails open on anything
+  // it cannot read confidently. See pythonIndent.ts / pythonIndentCorpus.test.ts.
+  if (grammar === 'python') {
+    const indentErrors = findPythonIndentErrors(content);
+    if (indentErrors.length > 0) {
+      count += indentErrors.length;
+      if (firstLine === undefined || indentErrors[0].line < firstLine) firstLine = indentErrors[0].line;
+    }
+  }
+
   return {
-    broken: errors.length > 0,
-    errorCount: errors.length,
-    ...(first !== undefined ? { firstErrorLine: first + 1 } : {}),
+    broken: count > 0,
+    errorCount: count,
+    ...(firstLine !== undefined ? { firstErrorLine: firstLine } : {}),
     checked: true,
   };
 }

@@ -10,26 +10,26 @@ describe('syntax guard: languages beyond TypeScript', () => {
     expect((await editWouldBreakSyntax('a.py', clean, broken)).refuse).toBe(true);
   });
 
-  it('KNOWN LIMIT: tree-sitter does not flag Python INDENTATION errors — py_compile does', async () => {
-    // Verified against the shipped grammar: tree-sitter-python parses both an
-    // orphaned indented line and a mis-indented block as CLEAN (it flags
-    // structural breaks like a missing colon, but not indentation).
-    //
-    // This is not a hole, because the layers cover each other: the
-    // completion-time syntax gate still shells out to `py_compile` for .py
-    // files (runSyntaxGate skips the shell checker only for files the
-    // in-process pass ALREADY flagged), and py_compile raises IndentationError.
-    // Edit-time catches structure; completion-time catches indentation.
-    const clean = 'def greet(name):\n    return name\n';
-    const orphaned = 'def welcome(name): return name\n    return name\n';
-    const misIndented = 'def f():\n    x = 1\n  y = 2\n';
+  it('catches Python INDENTATION errors too (tree-sitter alone does not)', () => {
+    // tree-sitter-python parses an orphaned indented line and a mis-indented
+    // block as CLEAN. In Python the corruption class this guard exists for —
+    // replacing a block header with a one-liner, orphaning the body — IS an
+    // indentation error, so the tree-sitter check is layered with a dedicated
+    // indent scanner (validated against 4,001 CPython-accepted files).
+    return (async () => {
+      const clean = 'def greet(name):\n    return name\n';
+      const orphaned = 'def welcome(name): return name\n    return name\n';
+      const misIndented = 'def f():\n    x = 1\n  y = 2\n';
+      const noColon = 'def welcome(name) -> str\n    return name\n';
 
-    expect((await editWouldBreakSyntax('a.py', clean, orphaned)).refuse).toBe(false);
-    expect((await editWouldBreakSyntax('a.py', clean, misIndented)).refuse).toBe(false);
+      expect((await editWouldBreakSyntax('a.py', clean, orphaned)).refuse).toBe(true);
+      expect((await editWouldBreakSyntax('a.py', clean, misIndented)).refuse).toBe(true);
+      expect((await editWouldBreakSyntax('a.py', clean, noColon)).refuse).toBe(true);
 
-    // …but a STRUCTURAL Python break is caught at edit time.
-    const noColon = 'def welcome(name) -> str\n    return name\n';
-    expect((await editWouldBreakSyntax('a.py', clean, noColon)).refuse).toBe(true);
+      // …and valid Python is still accepted.
+      const renamed = 'def welcome(name):\n    return name\n';
+      expect((await editWouldBreakSyntax('a.py', clean, renamed)).refuse).toBe(false);
+    })();
   });
 
   it('detects broken Rust, Go, and Java too', async () => {
