@@ -38,9 +38,9 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
-### 3.0.0 — always-on dispatch guards + text-repair expansion (2026-07)
+### 3.0.0 — always-on dispatch guards + edit-recovery + text-repair (2026-07)
 
-MAJOR. Three shared-path changes, each verified against a live trajectory:
+MAJOR. Shared-path changes, each verified against a live trajectory:
 
 - **Example-replay guard** (always on, no flag): the executor bounces any tool
   call whose arguments verbatim-match the example embedded in that tool's own
@@ -59,7 +59,21 @@ MAJOR. Three shared-path changes, each verified against a live trajectory:
   function-call shape (`{"type":"function","function":{name,parameters}}`) and
   salvages truncated emissions missing the final brace (both observed live from
   llama3.2 — previously dropped silently, making the model look like it
-  "chose" not to act).
+  "chose" not to act). The bare-JSON scanner also counts braces string-aware:
+  it previously ran its depth off on a `{` inside a JSON string value, so a
+  perfectly-formed rename arrived as `edit_file({})`.
+- **Two-tier edit recovery**: when a model's `search` does not match, the intent
+  matcher APPLIES its guess only when the winning region beats the runner-up by
+  ≥3 distinctive words, and otherwise SUGGESTS the region and writes nothing.
+  The bar is measured, not chosen: over 1,700 real edits mined from eleven
+  repositories' git history, that margin commits 177 times and is wrong zero
+  times, where margin 1 is wrong 6.7% of the time. Suggest-only is the safe
+  alternative but costs capability (qwen2.5-coder 5/5 → 3/5 on dogfood); this
+  keeps the recovery at zero measured corruption risk.
+- **Action reprompt actually fires**: it had been dead on every turn following a
+  tool call (tool results are `role:'user'` messages with no text, and that empty
+  text was read as the user's intent), so a model that read a file and then
+  described the edit in prose terminated as "done" with the file untouched.
 
 Cross-boundary comparability: NOT comparable for weak-model runs —
 llama3.2-class models gain tool calls that 2.x silently lost, so resolve/pass

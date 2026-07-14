@@ -27,7 +27,7 @@
  * human-facing registry is `docs/scaffold-versions.md`.
  *
  * ## Changelog
- * - **3.0.0** (2026-07) — always-on dispatch guards + text-repair expansion.
+ * - **3.0.0** (2026-07) — always-on dispatch guards + edit recovery + text repair.
  *   Adds the example-replay guard (executor bounces tool calls whose arguments
  *   verbatim-match the example in that tool's own description — no flag,
  *   always on, restricted to examples with ≥2 arguments so legitimate
@@ -36,9 +36,17 @@
  *   identical bounce: "do not resubmit"; 3rd+: "stop retrying, change
  *   approach"; streaks reset on any successful call). textParsing's bare-JSON
  *   path now recognizes the OpenAI function-call shape
- *   ({"type":"function","function":{name,parameters}}) and salvages
- *   truncated emissions missing their closing brace (both observed live from
- *   llama3.2 — calls that previously dropped silently now dispatch). MAJOR:
+ *   ({"type":"function","function":{name,parameters}}), salvages
+ *   truncated emissions missing their closing brace, and counts braces
+ *   string-aware (a `{` inside a JSON string value used to run the depth off,
+ *   delivering a well-formed rename as `edit_file({})`). edit_file gains an
+ *   edit-time tree-sitter syntax guard, a Python indentation check, and
+ *   two-tier intent recovery: a guessed region is APPLIED only when it beats
+ *   the runner-up by ≥3 distinctive words (zero wrong in 177 commitments over
+ *   1,700 real edits) and otherwise merely SUGGESTED, writing nothing. The
+ *   action reprompt now fires after tool calls at all — it had been reading a
+ *   tool result as "the user said nothing", so a model that narrated an edit
+ *   instead of making it terminated as done. MAJOR:
  *   the shared dispatch/repair path changed; a model's measured resolve rate
  *   is not comparable across this boundary (llama3.2-class models gain
  *   previously-lost tool calls).
