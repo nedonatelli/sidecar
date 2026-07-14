@@ -88,23 +88,25 @@ const stubCheckHook: PolicyHook = {
   },
 };
 
+/**
+ * Adversarial critic — fires at COMPLETION, not after every edit.
+ *
+ * It used to run in `afterToolResults`, once per successful write_file /
+ * edit_file. That made it review half-finished work: on a multi-file change it
+ * judged file A alone, before file B existed, and reported the real-but-
+ * irrelevant problems of an incomplete job. With blocking on, it then sent the
+ * agent off to fix a phantom — the early-bail signature in the SWE-bench
+ * ablation (~7.5x faster termination, MORE empty patches).
+ *
+ * A critic reviews work. So it runs where the work is finished: onEmptyResponse,
+ * over the cumulative diff of every file the run edited.
+ */
 const criticHook: PolicyHook = {
   name: 'adversarialCritic',
-  async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
-    if (!ctx.pendingToolUses || !ctx.toolResults || ctx.fullText === undefined) {
-      return { mutated: false };
-    }
+  async onEmptyResponse(state: LoopState, ctx: HookContext): Promise<HookResult> {
+    if (ctx.fullText === undefined) return { mutated: false };
     const messagesBefore = state.messages.length;
-    await applyCritic(
-      state,
-      ctx.client,
-      ctx.config,
-      ctx.pendingToolUses,
-      ctx.toolResults,
-      ctx.fullText,
-      ctx.callbacks,
-      ctx.signal,
-    );
+    await applyCritic(state, ctx.client, ctx.config, ctx.fullText, ctx.callbacks, ctx.signal);
     // applyCritic returns void — detect whether it injected by
     // checking the history length. Slightly unclean but the
     // underlying helper's return shape is already committed to tests.

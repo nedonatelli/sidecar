@@ -1,6 +1,6 @@
 import { workspace, Uri } from 'vscode';
 import type { SideCarClient } from '../../ollama/client.js';
-import type { ToolUseContentBlock, ToolResultContentBlock, ChatMessage } from '../../ollama/types.js';
+import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { AgentLogger } from '../logger.js';
 import type { ChangeLog } from '../changelog.js';
@@ -67,67 +67,6 @@ const MAX_EVIDENCE_PER_RESULT = 4000;
 const MAX_CRITIC_INJECTIONS_PER_FILE = 2;
 
 /**
- * Cap on how many times the critic can block on a given test-output
- * signature within a single run. Pre-cap, `test_failure`
- * triggers were completely unbounded — a gate-forced test run that
- * kept failing could fire the critic every iteration until the outer
- * `maxIterations` cap tripped, burning ~$1-2 of critic API spend on
- * a single stuck turn.
- *
- * We cap on the *normalized* test output hash (see
- * `normalizeTestOutput` below) rather than the raw output so cosmetic
- * differences between runs — timestamps, memory addresses, temp paths
- * — don't defeat the cap. A test that keeps failing for different
- * reasons (different assertion, different stack trace) still fires
- * the critic because its normalized hash is different.
- */
-const MAX_CRITIC_INJECTIONS_PER_TEST_HASH = 2;
-
-/**
- * Normalize test output for stable hashing across cosmetic re-runs.
- * Strips timestamps, hex-format memory addresses, and tmp paths that
- * change per run without carrying test-result signal. Two outputs
- * that differ only in these fields hash to the same string and
- * share the same injection counter.
- *
- * Exported for tests.
- */
-export function normalizeTestOutput(text: string): string {
-  return (
-    text
-      // ISO-ish timestamps: 2026-04-17T15:30:42.123Z or 15:30:42.123
-      .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '<TIMESTAMP>')
-      .replace(/\b\d{1,2}:\d{2}:\d{2}(\.\d+)?\b/g, '<TIME>')
-      // Hex memory addresses: 0x7fff5fbff8a0
-      .replace(/\b0x[0-9a-fA-F]{4,}\b/g, '<ADDR>')
-      // Temp paths: /tmp/vitest-xxx, /var/folders/...
-      .replace(/\/tmp\/[^\s:]+/g, '<TMP>')
-      .replace(/\/var\/folders\/[^\s:]+/g, '<TMP>')
-      // Duration measurements: "took 42ms" / "in 1.23s"
-      .replace(/\b\d+(\.\d+)?\s*(ms|µs|us|ns|s)\b/g, '<DUR>')
-      // Collapse all whitespace runs so indentation noise doesn't matter
-      .replace(/\s+/g, ' ')
-      .trim()
-  );
-}
-
-/**
- * Hash a string to a short stable key. Not cryptographic — just needs
- * to be collision-resistant enough that two materially different test
- * outputs don't collide into the same bucket. DJB2, 32-bit.
- *
- * Exported for tests.
- */
-export function hashTestOutput(normalized: string): string {
-  let hash = 5381;
-  for (let i = 0; i < normalized.length; i++) {
-    hash = ((hash << 5) + hash + normalized.charCodeAt(i)) | 0;
-  }
-  // Return as hex for readability in logs.
-  return (hash >>> 0).toString(16);
-}
-
-/**
  * Session-level counters for critic activity (v0.62.1 p.1b —
  * observability gap flagged in the post-ship audit). Users could
  * tell the critic fired via chat annotations + the agent output
@@ -170,44 +109,62 @@ export function resetCriticStats(): void {
 export interface RunCriticOptions {
   client: SideCarClient;
   config: ReturnType<typeof getConfig>;
-  pendingToolUses: ToolUseContentBlock[];
-  toolResults: ToolResultContentBlock[];
+  /**
+   * Every file the agent edited during the run — reviewed once, at completion.
+   * Previously the critic read the CURRENT TURN's tool uses, which is what made
+   * it judge half-finished work; see runCriticChecks.
+   */
+  editedFilePaths: readonly string[];
   changelog: ChangeLog | undefined;
   fullText: string;
   callbacks: AgentCallbacks;
   logger: AgentLogger | undefined;
   signal: AbortSignal;
   criticInjectionsByFile: Map<string, number>;
-  /**
-   * Per-test-output-hash cap counter. Bounds the
-   * previously-unbounded `test_failure` trigger path. Shared across
-   * triggers in a single run so the same failing test-output
-   * signature can't re-block the critic indefinitely. Optional so
-   * legacy callers (tests written pre-v0.63) keep working without
-   * a coordinated update — missing map is treated as "no cap".
-   */
-  criticInjectionsByTestHash?: Map<string, number>;
   maxPerFile: number;
-  /** Matching cap for the test-hash counter. Optional for back-compat. */
-  maxPerTestHash?: number;
 }
 
 /**
- * Run the adversarial critic against the current iteration's edits and any
- * failed test runs. Returns a synthetic user-message string if high-severity
- * findings should block the turn, or null to let the loop continue normally.
+ * Run the adversarial critic over the run's COMPLETED work — every file the
+ * agent edited, reviewed once, at the point it believes it is finished. Returns
+ * a synthetic user-message string if high-severity findings should block, or
+ * null to let the loop end normally.
  *
- * The critic is opportunistic: any exception (network, parse error, bad
- * model response) is logged and swallowed so the main loop can proceed.
- * Findings are always surfaced to the chat via `onText` regardless of
- * whether they block — users want to see the review even when it's passive.
+ * ## Why completion, and not after every edit
+ *
+ * This used to fire in `afterToolResults` — once per successful write_file /
+ * edit_file, i.e. after every step. That means it judged HALF-FINISHED WORK. On
+ * a multi-file change it reviewed file A alone, mid-refactor, before file B
+ * existed, and reported the entirely real "problems" of an incomplete job:
+ * dangling references, a helper that isn't called yet, a signature that no
+ * caller has been updated for. With blocking on, it then injected those findings
+ * as a synthetic user message and sent the agent off to fix a phantom.
+ *
+ * That is the early-bail signature in the SWE-bench ablation: the critic-bearing
+ * arm terminated ~7.5x faster (50s vs 379s) while producing MORE empty patches
+ * (20 vs 18) — it made runs give up sooner rather than resolve more. It also
+ * explains "doubles API spend": N critic calls per run, one per edit.
+ *
+ * A critic is supposed to review the work. So it now runs where the work exists:
+ * once, at the completion boundary, over the cumulative diff of every edited
+ * file. `buildCriticDiff` diffs the file's CURRENT content against the
+ * changelog's original snapshot, so at this point each diff is the whole change,
+ * not a fragment of it.
+ *
+ * Failed `run_tests` no longer triggers a critic pass at all. A failing test
+ * mid-run is not a finished job either — and "the tests must pass before you may
+ * declare done" is the completion gate's job, deterministically, with no model
+ * call and no opinion.
+ *
+ * The critic is opportunistic: any exception (network, parse error, bad model
+ * response) is logged and swallowed so the loop can proceed. Findings are always
+ * surfaced to the chat via `onText` whether or not they block.
  */
 export async function runCriticChecks(opts: RunCriticOptions): Promise<string | null> {
   const {
     client,
     config,
-    pendingToolUses,
-    toolResults,
+    editedFilePaths,
     changelog,
     fullText,
     callbacks,
@@ -217,45 +174,18 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
     maxPerFile,
   } = opts;
 
-  // Build the set of triggers: one per successful edit, plus one per
-  // failed run_tests. A turn can have multiple triggers — we fire the
-  // critic on each independently so per-trigger findings are traceable.
+  // One trigger per edited file, each carrying that file's cumulative diff.
+  // Per-file (rather than one lump) so findings stay traceable to a file, and so
+  // the per-file injection cap still applies.
   const triggers: CriticTrigger[] = [];
-
-  // --- Edit triggers ---
-  const editedFiles: { filePath: string; diff: string }[] = [];
-  for (let i = 0; i < pendingToolUses.length; i++) {
-    const tu = pendingToolUses[i];
-    const tr = toolResults[i];
-    if (!tr || tr.is_error) continue;
-    if (tu.name !== 'write_file' && tu.name !== 'edit_file') continue;
-
-    const filePath = (tu.input.path ?? tu.input.file_path) as string | undefined;
-    if (!filePath) continue;
-
+  for (const filePath of editedFilePaths) {
     const diff = await buildCriticDiff(filePath, changelog);
-    if (!diff) continue;
-
-    editedFiles.push({ filePath, diff });
+    if (!diff) continue; // unchanged, or the file is gone
     triggers.push({
       kind: 'edit',
       filePath,
       diff,
       intent: extractAgentIntent(fullText),
-    });
-  }
-
-  // --- Test-failure triggers ---
-  for (let i = 0; i < pendingToolUses.length; i++) {
-    const tu = pendingToolUses[i];
-    const tr = toolResults[i];
-    if (!tr || !tr.is_error) continue;
-    if (tu.name !== 'run_tests') continue;
-
-    triggers.push({
-      kind: 'test_failure',
-      testOutput: tr.content,
-      recentEdits: editedFiles.slice(),
     });
   }
 
@@ -274,20 +204,6 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
       const used = criticInjectionsByFile.get(trigger.filePath) ?? 0;
       if (used >= maxPerFile) {
         logger?.info(`Critic: skipping ${trigger.filePath} — cap reached (${used}/${maxPerFile})`);
-        continue;
-      }
-    }
-
-    // Per-test-output-hash cap. Bounds the previously
-    // unbounded test_failure trigger. The hash is computed on
-    // normalized output so cosmetic re-runs (same failure,
-    // different timestamps) collapse to the same bucket.
-    let testHash: string | undefined;
-    if (trigger.kind === 'test_failure' && opts.criticInjectionsByTestHash && opts.maxPerTestHash !== undefined) {
-      testHash = hashTestOutput(normalizeTestOutput(trigger.testOutput));
-      const used = opts.criticInjectionsByTestHash.get(testHash) ?? 0;
-      if (used >= opts.maxPerTestHash) {
-        logger?.info(`Critic: skipping test_failure (hash ${testHash}) — cap reached (${used}/${opts.maxPerTestHash})`);
         continue;
       }
     }
@@ -343,14 +259,6 @@ export async function runCriticChecks(opts: RunCriticOptions): Promise<string | 
     if (config.criticBlockOnHighSeverity && high.length > 0) {
       highFindings.push(...high);
       if (trigger.kind === 'edit') blockedFiles.add(trigger.filePath);
-      // increment the per-test-hash cap counter here so
-      // the next iteration that produces the same hash gets skipped.
-      // The counter lives with the shared LoopState map so it
-      // persists across iterations in the same run.
-      if (testHash !== undefined && opts.criticInjectionsByTestHash) {
-        const prev = opts.criticInjectionsByTestHash.get(testHash) ?? 0;
-        opts.criticInjectionsByTestHash.set(testHash, prev + 1);
-      }
     }
   }
 
@@ -432,8 +340,6 @@ export async function applyCritic(
   state: LoopState,
   client: SideCarClient,
   config: ReturnType<typeof getConfig>,
-  pendingToolUses: ToolUseContentBlock[],
-  toolResults: ToolResultContentBlock[],
   fullText: string,
   callbacks: AgentCallbacks,
   signal: AbortSignal,
@@ -456,20 +362,22 @@ export async function applyCritic(
     return;
   }
 
+  // Every file edited across the whole run — not just this turn's. The critic
+  // reviews finished work, so it needs the finished set.
+  const editedFilePaths = [...(state.gateState?.editedFiles ?? [])];
+  if (editedFilePaths.length === 0) return;
+
   const injection = await runCriticChecks({
     client,
     config,
-    pendingToolUses,
-    toolResults,
+    editedFilePaths,
     changelog: state.changelog,
     fullText,
     callbacks,
     logger: state.logger,
     signal,
     criticInjectionsByFile: state.criticInjectionsByFile,
-    criticInjectionsByTestHash: state.criticInjectionsByTestHash,
     maxPerFile: MAX_CRITIC_INJECTIONS_PER_FILE,
-    maxPerTestHash: MAX_CRITIC_INJECTIONS_PER_TEST_HASH,
   });
 
   if (injection) {

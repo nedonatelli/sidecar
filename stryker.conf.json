@@ -34,7 +34,14 @@
     "src/agent/plans/externalPlan.ts",
     "src/agent/executor/paramRemap.ts",
     "src/agent/executor/toolNameAlias.ts",
-    "src/agent/executor/exampleReplayGuard.ts"
+    "src/agent/executor/exampleReplayGuard.ts",
+    "src/agent/executor/bounceEscalation.ts",
+    "src/agent/loop/actionReprompt.ts",
+    "src/agent/delimiters.ts",
+    "src/agent/tools/pythonIndent.ts",
+    "src/agent/modelPerformance.ts",
+    "src/agent/failureTaxonomy.ts",
+    "src/agent/scaffoldingProfile.ts"
   ],
   "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "perTest",

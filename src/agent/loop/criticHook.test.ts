@@ -5,8 +5,6 @@ import {
   applyAnalysisCritic,
   gatherReadEvidence,
   runCriticChecks,
-  normalizeTestOutput,
-  hashTestOutput,
   getCriticStats,
   resetCriticStats,
 } from './criticHook.js';
@@ -28,48 +26,8 @@ vi.mock('../critic.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// normalizeTestOutput
-// ---------------------------------------------------------------------------
-
-describe('normalizeTestOutput', () => {
-  it('replaces variable memory addresses', () => {
-    const out = normalizeTestOutput('at 0x7f3a12345678');
-    expect(out).not.toContain('0x7f3a12345678');
-  });
-
-  it('replaces durations like 0.042s', () => {
-    const out = normalizeTestOutput('finished in 0.042s');
-    expect(out).not.toContain('0.042');
-  });
-
-  it('passes through text with no variable data unchanged in structure', () => {
-    const out = normalizeTestOutput('Test failed: assertion error');
-    expect(out).toContain('Test failed');
-    expect(out).toContain('assertion error');
-  });
-});
-
-// ---------------------------------------------------------------------------
 // hashTestOutput
 // ---------------------------------------------------------------------------
-
-describe('hashTestOutput', () => {
-  it('returns a non-empty string for non-empty input', () => {
-    const h = hashTestOutput('AssertionError: expected 1 to be 2');
-    expect(typeof h).toBe('string');
-    expect(h.length).toBeGreaterThan(0);
-  });
-
-  it('returns the same hash for the same input', () => {
-    const h1 = hashTestOutput('error text');
-    const h2 = hashTestOutput('error text');
-    expect(h1).toBe(h2);
-  });
-
-  it('returns different hashes for different inputs', () => {
-    expect(hashTestOutput('error A')).not.toBe(hashTestOutput('error B'));
-  });
-});
 
 // ---------------------------------------------------------------------------
 // getCriticStats / resetCriticStats
@@ -106,7 +64,7 @@ describe('applyCritic', () => {
     const callbacks = { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn() };
     const signal = new AbortController().signal;
 
-    await applyCritic(state, client, config, [], [], 'agent text', callbacks, signal);
+    await applyCritic(state, client, config, 'agent text', callbacks, signal);
     expect((state as { messages: unknown[] }).messages).toHaveLength(0);
   });
 
@@ -125,8 +83,6 @@ describe('applyCritic', () => {
       state,
       {} as never,
       { criticEnabled: true } as never,
-      [],
-      [],
       'text',
       {
         onText: vi.fn(),
@@ -147,16 +103,15 @@ describe('applyCritic', () => {
       logger: { info },
       criticInjectionsByFile: new Map(),
       criticInjectionsByTestHash: new Map(),
+      // The run edited a file — it WOULD be reviewed if the tier didn't skip it.
+      gateState: { editedFiles: new Set(['a.ts']) },
       scaffoldingProfile: { tier: 'weak', runLlmCritic: false },
     } as never;
     const callbacks = { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn() };
-    // An edit that WOULD trigger the critic if not skipped.
     await applyCritic(
       state,
       {} as never,
       { criticEnabled: true } as never,
-      [{ type: 'tool_use', id: '1', name: 'write_file', input: { path: 'a.ts' } }] as never,
-      [{ type: 'tool_result', tool_use_id: '1', content: 'ok' }] as never,
       'text',
       callbacks,
       new AbortController().signal,
@@ -177,8 +132,8 @@ describe('applyCritic', () => {
     const config = { criticEnabled: true } as never;
     const callbacks = { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn() };
 
-    // Empty tool uses → runCriticChecks returns null → no injection
-    await applyCritic(state, client, config, [], [], 'agent text', callbacks, new AbortController().signal);
+    // The run edited nothing → nothing to review → no injection.
+    await applyCritic(state, client, config, 'agent text', callbacks, new AbortController().signal);
     expect((state as { messages: unknown[] }).messages).toHaveLength(0);
   });
 });
@@ -333,12 +288,11 @@ describe('runCriticChecks', () => {
     onDone: vi.fn(),
   });
 
-  it('returns null when there are no edit or test_failure tool uses', async () => {
+  it('returns null when the run edited nothing', async () => {
     const result = await runCriticChecks({
       client: {} as never,
       config: {} as never,
-      pendingToolUses: [{ type: 'tool_use', id: 'x', name: 'read_file', input: { path: 'a.ts' } }],
-      toolResults: [{ type: 'tool_result', tool_use_id: 'x', content: 'file contents' }],
+      editedFilePaths: [],
       changelog: undefined,
       fullText: 'reading the file',
       callbacks: makeCallbacks(),
@@ -350,12 +304,11 @@ describe('runCriticChecks', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null when tool result has is_error=true (skips the trigger)', async () => {
+  it('returns null when the edited file yields no diff', async () => {
     const result = await runCriticChecks({
       client: {} as never,
       config: {} as never,
-      pendingToolUses: [{ type: 'tool_use', id: 'y', name: 'write_file', input: { path: 'b.ts' } }],
-      toolResults: [{ type: 'tool_result', tool_use_id: 'y', content: 'error', is_error: true }],
+      editedFilePaths: ['a.ts'],
       changelog: undefined,
       fullText: '',
       callbacks: makeCallbacks(),
@@ -373,8 +326,7 @@ describe('runCriticChecks', () => {
     const result = await runCriticChecks({
       client: {} as never,
       config: {} as never,
-      pendingToolUses: [{ type: 'tool_use', id: 'z', name: 'write_file', input: { path: 'src/foo.ts' } }],
-      toolResults: [{ type: 'tool_result', tool_use_id: 'z', content: 'written' }],
+      editedFilePaths: ['a.ts'],
       changelog: undefined,
       fullText: 'writing the file',
       callbacks: makeCallbacks(),
@@ -394,8 +346,7 @@ describe('runCriticChecks', () => {
     const result = await runCriticChecks({
       client: {} as never,
       config: {} as never,
-      pendingToolUses: [{ type: 'tool_use', id: 'w', name: 'edit_file', input: { path: 'src/x.ts' } }],
-      toolResults: [{ type: 'tool_result', tool_use_id: 'w', content: 'edited' }],
+      editedFilePaths: ['a.ts'],
       changelog: undefined,
       fullText: 'fixing the logic in the function',
       callbacks: makeCallbacks(),
@@ -417,8 +368,7 @@ describe('runCriticChecks', () => {
     const result = await runCriticChecks({
       client: mockClient as never,
       config: { criticModel: undefined, criticBlockOnHighSeverity: false } as never,
-      pendingToolUses: [{ type: 'tool_use', id: 'v', name: 'write_file', input: { path: 'src/clean.ts' } }],
-      toolResults: [{ type: 'tool_result', tool_use_id: 'v', content: 'written' }],
+      editedFilePaths: ['a.ts'],
       changelog: undefined,
       fullText: 'added clean code',
       callbacks: makeCallbacks(),
@@ -448,8 +398,7 @@ describe('runCriticChecks', () => {
     const result = await runCriticChecks({
       client: mockClient as never,
       config: { criticModel: undefined, criticBlockOnHighSeverity: true } as never,
-      pendingToolUses: [{ type: 'tool_use', id: 't', name: 'write_file', input: { path: 'src/bad.ts' } }],
-      toolResults: [{ type: 'tool_result', tool_use_id: 't', content: 'written' }],
+      editedFilePaths: ['a.ts'],
       changelog: undefined,
       fullText: 'adding vulnerable code',
       callbacks: makeCallbacks(),
@@ -468,8 +417,7 @@ describe('runCriticChecks', () => {
     const result = await runCriticChecks({
       client: {} as never,
       config: {} as never,
-      pendingToolUses: [{ type: 'tool_use', id: 'u', name: 'write_file', input: { path: 'src/capped.ts' } }],
-      toolResults: [{ type: 'tool_result', tool_use_id: 'u', content: 'written' }],
+      editedFilePaths: ['a.ts'],
       changelog: undefined,
       fullText: 'editing a capped file',
       callbacks: makeCallbacks(),
