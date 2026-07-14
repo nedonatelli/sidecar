@@ -30,6 +30,16 @@
 // fails open is no guard, so the timeout is generous enough for a warm parser
 // (which is the steady state) and the load is scoped to one language.
 
+// LANGUAGE COVERAGE, honestly stated (verified against the shipped grammars):
+//   • TypeScript / TSX / JS — full: structure, token splices, escaped source.
+//   • Rust / Go / Java / others — structural breaks caught.
+//   • Python — STRUCTURAL breaks caught (a missing colon), but tree-sitter does
+//     NOT flag INDENTATION errors: an orphaned indented line and a mis-indented
+//     block both parse clean. That gap is covered one layer up — the
+//     completion-time syntax gate still runs `py_compile` on .py files, which
+//     raises IndentationError. Edit-time catches structure; completion-time
+//     catches indentation. See syntaxCheckLanguages.test.ts, which pins both.
+
 import * as path from 'path';
 import { getGrammarsPath } from '../../parsing/registry.js';
 
