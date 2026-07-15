@@ -39,7 +39,15 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', 'bench/**/*.test.ts'],
+    // tests/llm-eval/**/*.test.ts holds PURE unit tests of eval infrastructure
+    // (verdict logic, statistics) — no model, no network — so they run in the fast
+    // suite. The model-driven eval cases are *.eval.ts and run under
+    // vitest.eval.config.ts instead; they are not matched here.
+    // tests/llm-eval/*.test.ts (top level only — NOT fixtures/, which contains
+    // polyglot test DATA named *.test.ts) holds pure unit tests of eval infra
+    // (verdict logic, statistics) — no model, no network — so they run in the fast
+    // suite. Model-driven eval cases are *.eval.ts under vitest.eval.config.ts.
+    include: ['src/**/*.test.ts', 'bench/**/*.test.ts', 'tests/llm-eval/*.test.ts'],
     exclude: ['src/test/integration/**'],
     coverage: {
       provider: 'v8',
