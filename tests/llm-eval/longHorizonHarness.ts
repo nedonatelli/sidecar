@@ -112,7 +112,19 @@ export async function runLongHorizonCase(
   }
   client.updateSystemPrompt(systemPrompt);
 
-  let baseConfig = { ...getConfig(), sandboxEnabled: false, ...lhCase.configOverrides };
+  // SIDECAR_EVAL_CONFIG_OVERRIDES lets a run toggle a scaffold without editing
+  // cases — e.g. testing whether plan.externalized (which re-injects plan state
+  // every turn to survive compaction) fixes the long-horizon memory failures.
+  const envOverrides = (() => {
+    const raw = process.env.SIDECAR_EVAL_CONFIG_OVERRIDES;
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error(`SIDECAR_EVAL_CONFIG_OVERRIDES is not valid JSON: ${raw}`);
+    }
+  })();
+  let baseConfig = { ...getConfig(), sandboxEnabled: false, ...lhCase.configOverrides, ...envOverrides };
   if (hasProblematicThinking(model)) baseConfig = { ...baseConfig, ollamaDisableThinking: true };
   // NB: cold-start models (gemma4) perform worse WITH prior context — but a
   // long-horizon test is prior context by definition, so we deliberately do NOT
