@@ -19,8 +19,14 @@ import { pickAgentBackend, DEFAULT_CASE_TIMEOUT_MS } from './agentHarness.js';
 const backend = pickAgentBackend();
 const results: Awaited<ReturnType<typeof runLongHorizonCase>>[] = [];
 
+// SIDECAR_EVAL_CASE=id1,id2 narrows the run — useful for focusing reps on the
+// cases that actually flip between arms (memory-recall, plan-survives) instead of
+// re-running the saturated ones.
+const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+const SELECTED = CASE_FILTER ? LONG_HORIZON_CASES.filter((c) => CASE_FILTER.includes(c.id)) : LONG_HORIZON_CASES;
+
 describe.skipIf(!backend)('llm-eval :: long-horizon', () => {
-  for (const lhCase of LONG_HORIZON_CASES) {
+  for (const lhCase of SELECTED) {
     // A multi-turn conversation needs a bigger budget than a single case.
     it(
       `${lhCase.id} — ${lhCase.description}`,
