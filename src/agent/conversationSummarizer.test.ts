@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ConversationSummarizer } from './conversationSummarizer.js';
+import { ConversationSummarizer, extractUserMessagesVerbatim } from './conversationSummarizer.js';
 import type { ChatMessage } from '../ollama/types.js';
 
 /**
@@ -648,5 +648,61 @@ describe('ConversationSummarizer', () => {
       const text = typeof summaryMsg.content === 'string' ? summaryMsg.content : '';
       expect(text).not.toContain('## Errors hit');
     });
+  });
+});
+
+describe('extractUserMessagesVerbatim — standing instructions survive compaction', () => {
+  const userTurn = (text: string): ChatMessage[] => [{ role: 'user', content: text }];
+  const toolResultTurn = (): ChatMessage[] => [
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'file contents' }] as any },
+  ];
+
+  it("preserves the user's durable instructions VERBATIM", () => {
+    const turns = [
+      userTurn('Remember: the magic word is pineapple.'),
+      userTurn('Now read src/greeter.ts and describe it.'),
+      userTurn('Every numeric config value must be even.'),
+    ];
+    const out = extractUserMessagesVerbatim(turns, 1500);
+    // The exact words survive — no model distillation involved.
+    expect(out).toContain('the magic word is pineapple');
+    expect(out).toContain('must be even');
+  });
+
+  it('skips tool-result turns and synthetic injections — those are not the user speaking', () => {
+    const turns = [
+      userTurn('Keep retries even.'),
+      toolResultTurn(),
+      [{ role: 'user', content: '[Completion gate — attempt 1]' }] as ChatMessage[],
+      [{ role: 'user', content: '[Earlier conversation summary]\nstuff' }] as ChatMessage[],
+    ];
+    const out = extractUserMessagesVerbatim(turns, 1500);
+    expect(out).toContain('Keep retries even');
+    expect(out).not.toContain('tool_result');
+    expect(out).not.toContain('Completion gate');
+    expect(out).not.toContain('conversation summary');
+  });
+
+  it('keeps the MOST RECENT messages when over budget (a later instruction supersedes)', () => {
+    const turns = [userTurn('OLD instruction one'), userTurn('OLD instruction two'), userTurn('RECENT instruction')];
+    const out = extractUserMessagesVerbatim(turns, 25); // only room for ~one line
+    expect(out).toContain('RECENT');
+    expect(out).not.toContain('OLD instruction one');
+  });
+
+  it('caps a single very long message rather than blowing the budget', () => {
+    const out = extractUserMessagesVerbatim([userTurn('x'.repeat(2000))], 1500, 500);
+    expect(out.length).toBeLessThan(520);
+    expect(out).toContain('…');
+  });
+
+  it('flattens newlines so each user message is one bullet', () => {
+    const out = extractUserMessagesVerbatim([userTurn('line one\nline two\nline three')], 1500);
+    expect(out).toBe('- line one line two line three');
+  });
+
+  it('returns empty string when there are no real user messages', () => {
+    expect(extractUserMessagesVerbatim([toolResultTurn()], 1500)).toBe('');
+    expect(extractUserMessagesVerbatim([], 1500)).toBe('');
   });
 });

@@ -171,6 +171,8 @@ export interface SideCarConfig {
   scaffoldingOverrides: ScaffoldingOverrides;
   keepBestRatchetEnabled: boolean;
   planExternalizedEnabled: boolean;
+  /** Chars of user messages preserved verbatim through compaction so standing instructions survive (0 disables). */
+  summarizerVerbatimUserChars: number;
   keepBestOverEngineerBytes: number;
   /** Repeats of the same tool+file (normalized signature — content-aware,
    *  see cycleDetection.ts) before the loop bails as a stuck cycle. Also
@@ -542,6 +544,7 @@ function readConfig(): SideCarConfig {
     scaffoldingOverrides: cfg.get<ScaffoldingOverrides>('scaffolding.overrides', {}),
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', true),
     planExternalizedEnabled: cfg.get<boolean>('plan.externalized', false),
+    summarizerVerbatimUserChars: cfg.get<number>('compaction.verbatimUserChars', 1500),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
     // Provider-aware default: an empty `critic.model` historically meant
