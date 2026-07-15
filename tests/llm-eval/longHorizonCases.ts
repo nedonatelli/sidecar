@@ -128,7 +128,11 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       {
         label: 'digression',
         userMessage: 'Quick aside — what does the existing `noop` function do?',
-        expect: { toolsCalled: ['read_file'] },
+        // Pure digression: assert nothing. The test is whether the PLAN survives
+        // it (turns 3-4 resume "step 2" / "the last step" by reference). Asserting
+        // read_file here tests the digression, not the plan, and penalizes a model
+        // that answers about a trivial one-liner from context.
+        expect: {},
       },
       {
         label: 'resume the plan by reference',
@@ -161,7 +165,10 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
         label: 'give a durable instruction, then generate bulk context',
         userMessage:
           'Remember this for later: the magic word is "pineapple". Now read src/greeter.ts and describe in detail, line by line, everything it does and every edge case you can think of.',
-        expect: { toolsCalled: ['read_file'] },
+        // Setup turn: establish the instruction + generate bulk context to force
+        // compaction. The outcome — the magic word surviving compaction — is
+        // asserted on the final turn, not here.
+        expect: {},
       },
       {
         label: 'more bulk to push the window past the compaction threshold',
