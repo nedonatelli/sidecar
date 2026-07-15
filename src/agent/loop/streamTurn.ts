@@ -6,6 +6,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCallsCleaned, stripRepeatedContent } from './textParsing.js';
 import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
+import type { ToolDefinition } from '../../ollama/types.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
 import { logApiCall } from '../apiAuditLog.js';
 // getConfig removed — thinkingMode now read from state.config (injected at loop entry)
@@ -108,6 +109,26 @@ async function buildEpisodicAddon(client: SideCarClient, state: LoopState): Prom
   return state.episodicMemory.buildContextBlock(queryText).catch(() => undefined);
 }
 
+/**
+ * The tool catalog for this iteration. In plan mode it is restricted to
+ * `ask_user` (or empty on the weak tier); everywhere else it is the full set.
+ *
+ * This MUST be the single source of truth for "which tools exist this turn",
+ * because it is consumed in two places that have to agree: the catalog sent to
+ * the model, AND the tool list the text-form parser validates against. They used
+ * to be computed separately — the catalog was restricted but the text parser
+ * validated against the FULL set — so a model that emitted a text-form `read_file`
+ * in plan mode (qwen3.5 does, every time) had it parsed as a real call and
+ * recorded in the trajectory, even though the runtime gate then blocked its
+ * execution. Result: plan-mode-no-tools failed 0/15 on qwen3.5 while every other
+ * model passed. One catalog, consumed twice, cannot drift.
+ */
+export function resolveIterationTools(state: LoopState): ToolDefinition[] {
+  if (state.approvalMode !== 'plan') return state.tools;
+  if (state.scaffoldingProfile?.planModeAskUser === false) return [];
+  return state.tools.filter((t) => t.name === 'ask_user');
+}
+
 function abortedPromise(signal: AbortSignal): Promise<undefined> {
   return new Promise<undefined>((resolve) => {
     if (signal.aborted) {
@@ -156,9 +177,7 @@ export async function streamOneTurn(
   // questions in dogfood), and the plan-approval step already gives the
   // user a correction point. Gated on the adaptive-scaffolding profile —
   // behavior-neutral when A2 is off.
-  const planTools =
-    state.scaffoldingProfile?.planModeAskUser === false ? [] : state.tools.filter((t) => t.name === 'ask_user');
-  const iterTools = state.approvalMode === 'plan' ? planTools : state.tools;
+  const iterTools = resolveIterationTools(state);
 
   // Augment the system prompt with retrieved episodic context when the
   // store has relevant prior summaries. Falls back gracefully — if
@@ -384,7 +403,10 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     // text — the raw JSON/XML must not survive into the assistant message
     // (it rendered as stray call syntax live and dominated restored
     // history, reading as "outputs weren't stored").
-    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, state.tools);
+    // Validate text-form calls against THIS iteration's catalog, not the full
+    // set — otherwise a text-form call to a tool that plan mode has removed is
+    // still parsed and recorded as a call. See resolveIterationTools.
+    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, resolveIterationTools(state));
     for (const tu of parsed) {
       pendingToolUses.push(tu);
       state.logger?.logToolCall(tu.name, tu.input);

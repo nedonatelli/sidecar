@@ -154,6 +154,62 @@ describe('resolveTurnContent text tool call parsing', () => {
     expect(result.pendingToolUses).toHaveLength(1);
     expect(result.stopReason).toBe('tool_use');
   });
+
+  it('in PLAN MODE, a text-form call to a non-plan tool is NOT parsed as a call', () => {
+    // The qwen3.5 bug: plan mode restricts the catalog to ask_user, but the text
+    // parser used to validate against the FULL tool set — so a text-form read_file
+    // (which qwen3.5 emits every time in plan mode) was parsed and recorded as a
+    // call, and plan-mode-no-tools failed 0/15 while every other model passed.
+    // In plan mode that text is the PLAN, not an action.
+    const toolCallText = '<tool_call>\n{"name": "read_file", "arguments": {"path": "src/foo.ts"}}\n</tool_call>';
+    const onToolCall = vi.fn();
+    const state = makeState();
+    (state as any).approvalMode = 'plan';
+    (state as any).tools = [
+      {
+        name: 'read_file',
+        description: 'Reads a file',
+        input_schema: { type: 'object', properties: {}, required: [] },
+      },
+      { name: 'ask_user', description: 'Ask the user', input_schema: { type: 'object', properties: {}, required: [] } },
+    ];
+    const callbacks = makeCallbacks({ onToolCall });
+    const turn = { fullText: toolCallText, pendingToolUses: [], stopReason: 'stop', terminated: undefined };
+
+    const result = resolveTurnContent(turn as never, state, callbacks);
+
+    expect(onToolCall).not.toHaveBeenCalled();
+    expect(result.pendingToolUses).toHaveLength(0);
+    // The turn ends as text (the plan), not a tool_use.
+    expect(result.stopReason).not.toBe('tool_use');
+  });
+
+  it('in plan mode a text-form ask_user IS still parsed — plan mode permits it', () => {
+    const toolCallText =
+      '<tool_call>\n{"name": "ask_user", "arguments": {"question": "which framework?"}}\n</tool_call>';
+    const onToolCall = vi.fn();
+    const state = makeState();
+    (state as any).approvalMode = 'plan';
+    (state as any).tools = [
+      {
+        name: 'read_file',
+        description: 'Reads a file',
+        input_schema: { type: 'object', properties: {}, required: [] },
+      },
+      { name: 'ask_user', description: 'Ask the user', input_schema: { type: 'object', properties: {}, required: [] } },
+    ];
+    const callbacks = makeCallbacks({ onToolCall });
+    const turn = { fullText: toolCallText, pendingToolUses: [], stopReason: 'stop', terminated: undefined };
+
+    const result = resolveTurnContent(turn as never, state, callbacks);
+
+    expect(onToolCall).toHaveBeenCalledWith(
+      'ask_user',
+      expect.objectContaining({ question: 'which framework?' }),
+      expect.any(String),
+    );
+    expect(result.pendingToolUses).toHaveLength(1);
+  });
 });
 
 describe('streamOneTurn answer-in-thinking fallback', () => {
