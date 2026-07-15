@@ -24,6 +24,13 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     id: 'lh-memory-recall',
     description: 'A constraint stated on turn 1 must still govern an edit made on turn 4',
     tags: ['long-horizon', 'memory', 'multi-turn'],
+    // Force compaction — WITHOUT this the conversation stays under the token
+    // threshold and compaction never fires, so the case tests recall but NOT
+    // recall-THROUGH-compaction (which is the whole point). Discovered when an
+    // off/on validation of the verbatim fix showed compaction=0 on every
+    // memory-recall run, making the fix dormant and the comparison meaningless.
+    configOverrides: { agentMaxTokens: 3000 },
+    requiresCompression: true,
     workspace: {
       'src/config.ts': '// App configuration.\nexport const settings = {\n  retries: 3,\n};\n',
     },

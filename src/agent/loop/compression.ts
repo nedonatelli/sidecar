@@ -353,7 +353,7 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
       // measured: gemma4/ministral lose "remember X" / "must be even"). Config
       // gate `summarizerVerbatimUserChars` (0 disables) so the off/on effect is
       // measurable; default 1500 keeps it on.
-      maxVerbatimUserChars: state.config.summarizerVerbatimUserChars ?? 1500,
+      maxVerbatimUserChars: state.config.summarizerVerbatimUserChars ?? 0,
     });
     if (summarized.freedChars > 0) {
       state.messages.splice(0, state.messages.length, ...summarized.messages);
