@@ -42,6 +42,18 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
         expect: { files: { notContain: [{ path: 'src/config.ts', substrings: ['retries: 4', 'retries: 2'] }] } },
       },
       {
+        // BULK turn — generate enough context that compaction actually fires
+        // before the constraint is applied. Without this the conversation stays
+        // short, compaction never triggers, and the case is VACUOUS (proves
+        // nothing about recall-THROUGH-compaction). agentMaxTokens alone was not
+        // enough: the summarizer also bails below minCharsToSave, so the window
+        // must genuinely fill.
+        label: 'bulk context to force compaction',
+        userMessage:
+          'Read src/config.ts and describe, in exhaustive detail and at length, every field it could plausibly contain for a production web service, what each is for, sensible ranges, and how a wrong value would manifest. Be thorough — several paragraphs.',
+        expect: {},
+      },
+      {
         label: 'unrelated read',
         userMessage: 'What is the current value of `retries` in src/config.ts?',
         // Assert the ANSWER, not the METHOD. A model that read config.ts on turn 1
