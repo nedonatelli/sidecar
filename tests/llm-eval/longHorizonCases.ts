@@ -37,7 +37,11 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       {
         label: 'unrelated read',
         userMessage: 'What is the current value of `retries` in src/config.ts?',
-        expect: { toolsCalled: ['read_file'], finalTextContains: ['3'] },
+        // Assert the ANSWER, not the METHOD. A model that read config.ts on turn 1
+        // and remembers `3` here — instead of re-reading — is exhibiting exactly
+        // the memory this case rewards; requiring read_file would penalize the
+        // right behavior. (This is why sonnet "failed" the first pass.)
+        expect: { finalTextContains: ['3'] },
       },
       {
         label: 'unrelated add',

@@ -25,7 +25,13 @@ describe.skipIf(!backend)('llm-eval :: long-horizon', () => {
     it(
       `${lhCase.id} — ${lhCase.description}`,
       async () => {
-        const r = await runLongHorizonCase(lhCase, backend!);
+        // The internal abort budget must scale with turn count — it covers the
+        // WHOLE conversation. A flat single-case budget starved multi-turn cases
+        // (compaction-survival's heavy bulk-text turns timed out). Give it the same
+        // turns-scaled budget as the vitest `it` below, minus the 60s slack, so the
+        // case aborts itself cleanly before vitest kills it.
+        const caseBudget = DEFAULT_CASE_TIMEOUT_MS * lhCase.turns.length;
+        const r = await runLongHorizonCase(lhCase, backend!, caseBudget);
         results.push(r);
 
         if (r.apiUnavailable) return; // infra, not a behavioral verdict

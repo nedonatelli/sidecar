@@ -188,7 +188,13 @@ export async function runLongHorizonCase(
           userMessage: turn.userMessage,
           expect: turn.expect,
         },
-        { finalText: textBuffer.join(''), trajectory, workspace: snapshot, iterationsUsed: 0, durationMs: 0 },
+        // Field is `workspaceAfter`, not `workspace` — the scorer reads
+        // run.workspaceAfter[path], so the wrong name made every file assertion
+        // throw "Cannot read properties of undefined". (Caught by the sonnet
+        // ceiling check: a frontier model "failing" all four cases meant the
+        // harness was broken, not the model — which is why the ceiling check runs
+        // first.)
+        { finalText: textBuffer.join(''), trajectory, workspaceAfter: snapshot, iterationsUsed: 0, durationMs: 0 },
       );
       turnResults.push({
         index: t,
