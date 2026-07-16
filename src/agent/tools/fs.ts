@@ -1404,10 +1404,8 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     throw new Error(`${unreadPrefix}${syntax.message}`);
   }
 
-  if (context?.onOutput) {
-    const patch = computeLineDiff(text, newText, filePath);
-    if (patch) context.onOutput(DIFF_PREFIX + patch);
-  }
+  const patch = computeLineDiff(text, newText, filePath);
+  if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
   clearEditFailure(context, filePath);
 
   // Record to edit timeline before overwriting.
@@ -1425,7 +1423,32 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // v0.119 dogfood: the rename landed on iteration 1, the success message
   // carried this preamble, and the model dutifully re-read the file and
   // re-issued the same edit. The edit worked; only the message said otherwise.
-  return `${duplicateTrimNote}File edited: ${filePath}${partialReplaceWarning}`;
+  //
+  // OUTCOME-VISIBILITY (flagged, default off). "File edited: <path>" tells the
+  // model nothing about WHAT changed, so it cannot tell a correct edit from a
+  // wrong-but-applied one (gemma4 duplicated a function and read the same success
+  // string as a model that did it right). Optionally append a BOUNDED diff so the
+  // model can see — and self-verify — the outcome. Bounded because extra context
+  // can overwhelm a weak model (LOCAL_MAX_SYSTEM_CHARS); the char cap is the config
+  // value, and the A/B decides whether it helps or is just noise.
+  return `${duplicateTrimNote}File edited: ${filePath}${partialReplaceWarning}${editDiffSuffix(patch, context)}`;
+}
+
+/**
+ * A capped diff to append to a successful edit_file result, or '' when disabled.
+ * Gated by `editFile.resultDiffChars` (0 = off) so the outcome-visibility change is
+ * measurable as an A/B rather than shipped on a guess. Truncates on a line boundary
+ * so the model never sees a half-line of diff.
+ */
+function editDiffSuffix(patch: string | null, context?: ToolExecutorContext): string {
+  const cap = context?.config?.editResultDiffChars ?? 0;
+  if (cap <= 0 || !patch) return '';
+  let shown = patch;
+  if (patch.length > cap) {
+    const cut = patch.lastIndexOf('\n', cap);
+    shown = patch.slice(0, cut > 0 ? cut : cap) + '\n… (diff truncated)';
+  }
+  return `\nWhat changed (verify this is what you intended):\n${shown}`;
 }
 
 export async function deleteFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

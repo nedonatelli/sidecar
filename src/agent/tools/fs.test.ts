@@ -1221,6 +1221,22 @@ describe('edit_file insertion (first-class add, not a restated anchor)', () => {
     const empty = await editMsg({ path: 'src/greeter.ts', search: '  return `Hello, ${name}!`;', insert_after: '   ' });
     expect(empty).toMatch(/is empty — there is nothing to add/i);
   });
+
+  it('outcome-visibility: appends a bounded diff to the result ONLY when the flag is on', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    const args = { path: 'src/greeter.ts', search: '  return `Hello, ${name}!`;', replace: '  return `Hi, ${name}!`;' };
+
+    // Default (flag off): bare success, no diff — current behavior preserved.
+    const off = await editMsg(args, { config: { editResultDiffChars: 0 } as never });
+    expect(off).toContain('File edited');
+    expect(off).not.toMatch(/What changed/i);
+
+    // Flag on: the model gets to SEE what changed, so it can self-verify.
+    const on = await editMsg(args, { config: { editResultDiffChars: 500 } as never });
+    expect(on).toMatch(/What changed/i);
+    expect(on).toMatch(/Hi, \$\{name\}/); // the new line is visible in the diff
+  });
 });
 
 describe('duplicated-tail repair (over-specified replace)', () => {

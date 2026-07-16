@@ -173,6 +173,8 @@ export interface SideCarConfig {
   planExternalizedEnabled: boolean;
   /** Chars of user messages preserved verbatim through compaction so standing instructions survive (0 disables). */
   summarizerVerbatimUserChars: number;
+  /** Append a bounded diff of the change to edit_file's success result so the model can SEE what its edit did (outcome-visibility). 0 disables; N = max chars of diff. */
+  editResultDiffChars: number;
   keepBestOverEngineerBytes: number;
   /** Repeats of the same tool+file (normalized signature — content-aware,
    *  see cycleDetection.ts) before the loop bails as a stuck cycle. Also
@@ -545,6 +547,7 @@ function readConfig(): SideCarConfig {
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', true),
     planExternalizedEnabled: cfg.get<boolean>('plan.externalized', false),
     summarizerVerbatimUserChars: cfg.get<number>('compaction.verbatimUserChars', 0),
+    editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
     // Provider-aware default: an empty `critic.model` historically meant
