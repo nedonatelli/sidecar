@@ -871,6 +871,28 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
           `and copy the anchor text verbatim into 'search'.`,
       );
     }
+    const whichInsert = insertBefore !== undefined ? 'insert_before' : 'insert_after';
+    // API-INVERSION GUARD. Weak models read `insert_after: X` as "insert after X"
+    // and put the ANCHOR in it instead of the NEW text — so the insert equals the
+    // search. The naive encoding below then becomes `search\nsearch`, which
+    // DUPLICATES the anchor and reports success: gemma4 did exactly this on a
+    // calculator build (inserted a second `subtract`, never added the requested
+    // functions, then declared success). Catch the inversion and say what went
+    // wrong instead of silently duplicating.
+    if (insertion.trim() === search.trim()) {
+      throw new Error(
+        `Error: your '${whichInsert}' text is identical to your 'search' anchor — you repeated the anchor instead ` +
+          `of giving the NEW text to add. Put ONLY the new code in '${whichInsert}'; the existing anchor stays in ` +
+          `'search'. Example — to add a function after an existing one: ` +
+          `search="def subtract(a, b):\\n    return a - b", ${whichInsert}="def multiply(a, b):\\n    return a * b".`,
+      );
+    }
+    // An empty insert is a no-op that would also report success — reject it.
+    if (insertion.trim() === '') {
+      throw new Error(
+        `Error: '${whichInsert}' is empty — there is nothing to add. Put the new text to insert in '${whichInsert}'.`,
+      );
+    }
     const joined = insertBefore !== undefined ? `${insertBefore}\n${search}` : `${search}\n${insertAfter as string}`;
     return editFile({ path: filePath, search, replace: joined }, context);
   }

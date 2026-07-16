@@ -52,9 +52,25 @@ describe.skipIf(!backend)('llm-eval :: long-horizon', () => {
         }
         if (!r.passed) {
           const firstFail = r.turns.find((t) => !t.passed);
-          const detail = firstFail
+          let detail = firstFail
             ? `first failing turn "${firstFail.label}":\n  - ${firstFail.failures.join('\n  - ')}`
             : 'no turn detail';
+          // Dump WHAT THE MODEL DID on the failing turn — the whole point of a
+          // diagnosis is to tell a SideCar edit-path failure (bad tool call,
+          // rejected edit) from a model failure (never acted, wrong content).
+          if (firstFail?.trajectory?.length) {
+            const traj = firstFail.trajectory
+              .map((e) => {
+                if (e.type === 'tool_call') return `    → ${e.name}(${JSON.stringify(e.input).slice(0, 700)})`;
+                if (e.type === 'tool_result')
+                  return `    ← ${e.name}${e.isError ? ' [ERROR]' : ''}: ${e.result.replace(/\s+/g, ' ').slice(0, 300)}`;
+                if (e.type === 'text') return `    · text: ${e.text.replace(/\s+/g, ' ').slice(0, 160)}`;
+                return null;
+              })
+              .filter(Boolean)
+              .join('\n');
+            detail += `\n  trajectory of the failing turn:\n${traj}`;
+          }
           throw new Error(
             `Long-horizon case "${r.caseId}" failed after ${r.turns.length}/${lhCase.turns.length} turns ` +
               `(compaction fired ${r.compressionCount}x). ${detail}`,

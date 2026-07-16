@@ -1200,6 +1200,27 @@ describe('edit_file insertion (first-class add, not a restated anchor)', () => {
     const noAnchor = await editMsg({ path: 'src/greeter.ts', insert_before: '/** hi */' });
     expect(noAnchor).toMatch(/needs 'search'/i);
   });
+
+  it('rejects the API INVERSION — anchor repeated in insert_after instead of the new text', async () => {
+    // The live gemma4 failure: it put the anchor in BOTH search and insert_after,
+    // so the naive encoding became `search\nsearch` and DUPLICATED the anchor while
+    // reporting success (it added a second `subtract`, never the requested
+    // multiply/divide, then declared done). Reject with a message that names the
+    // mistake instead of silently duplicating.
+    const anchor = '  return `Hello, ${name}!`;';
+    const inverted = await editMsg({ path: 'src/greeter.ts', search: anchor, insert_after: anchor });
+    expect(inverted).toMatch(/identical to your 'search' anchor/i);
+    expect(inverted).toMatch(/repeated the anchor/i);
+
+    // Same inversion via insert_before.
+    const invertedBefore = await editMsg({ path: 'src/greeter.ts', search: anchor, insert_before: anchor });
+    expect(invertedBefore).toMatch(/identical to your 'search' anchor/i);
+  });
+
+  it('rejects an empty insert (a no-op that would otherwise report success)', async () => {
+    const empty = await editMsg({ path: 'src/greeter.ts', search: '  return `Hello, ${name}!`;', insert_after: '   ' });
+    expect(empty).toMatch(/is empty — there is nothing to add/i);
+  });
 });
 
 describe('duplicated-tail repair (over-specified replace)', () => {

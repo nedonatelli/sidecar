@@ -66,6 +66,9 @@ export interface LongHorizonTurnResult {
   label: string;
   passed: boolean;
   failures: string[];
+  /** Tool-call trajectory for this turn — kept so a FAILED turn can be diagnosed
+   *  ("what did the model actually do?") instead of only reporting the assertion. */
+  trajectory: TrajectoryEvent[];
 }
 
 export interface LongHorizonResult {
@@ -213,6 +216,7 @@ export async function runLongHorizonCase(
         label: turn.label ?? `turn ${t + 1}`,
         passed: scored.passed,
         failures: scored.failures,
+        trajectory,
       });
       if (!scored.passed) {
         // A failed turn poisons everything downstream (the conversation diverges),
