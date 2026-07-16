@@ -6,6 +6,7 @@ const turn = (index: number, passed: boolean): LongHorizonTurnResult => ({
   label: `turn ${index + 1}`,
   passed,
   failures: passed ? [] : ['assertion failed'],
+  trajectory: [],
 });
 
 const base = {
@@ -72,5 +73,45 @@ describe('summarizeLongHorizon — the verdict honesty rules', () => {
 
   it('an empty run (zero turns executed) is not a pass', () => {
     expect(summarizeLongHorizon({ ...base, turns: [] }).passed).toBe(false);
+  });
+});
+
+describe('summarizeLongHorizon — editDiffShownCount (verify the diff flag fired)', () => {
+  const turnWithTraj = (results: Array<{ name: string; result: string }>): LongHorizonTurnResult => ({
+    index: 0,
+    label: 'edit turn',
+    passed: true,
+    failures: [],
+    trajectory: results.map((r, i) => ({
+      type: 'tool_result' as const,
+      name: r.name,
+      result: r.result,
+      isError: false,
+      id: `t${i}`,
+    })),
+  });
+
+  it('counts edit_file results carrying the outcome-visibility diff marker', () => {
+    const r = summarizeLongHorizon({
+      ...base,
+      totalTurns: 1,
+      turns: [
+        turnWithTraj([
+          { name: 'edit_file', result: 'File edited: a.ts\nWhat changed (verify this is what you intended):\n+foo' },
+          { name: 'edit_file', result: 'File edited: b.ts' }, // no diff (flag off for this one)
+          { name: 'read_file', result: 'What changed (verify …' }, // wrong tool — must not count
+        ]),
+      ],
+    });
+    expect(r.editDiffShownCount).toBe(1);
+  });
+
+  it('is 0 when no edit result carried the diff — the flag-off arm', () => {
+    const r = summarizeLongHorizon({
+      ...base,
+      totalTurns: 1,
+      turns: [turnWithTraj([{ name: 'edit_file', result: 'File edited: a.ts' }])],
+    });
+    expect(r.editDiffShownCount).toBe(0);
   });
 });

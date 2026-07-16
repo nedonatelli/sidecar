@@ -83,6 +83,14 @@ export interface LongHorizonResult {
   vacuous: boolean;
   apiUnavailable: boolean;
   durationMs: number;
+  /**
+   * How many edit_file results carried the outcome-visibility diff ("What
+   * changed…") across the WHOLE run. Observable regardless of pass/fail, so an
+   * off/on A/B of `editFile.resultDiffChars` can VERIFY the flag actually fired —
+   * grepping the log for the marker fails on a passing run, whose tool results are
+   * never dumped. Verify the mechanism, don't assume it.
+   */
+  editDiffShownCount: number;
 }
 
 /**
@@ -265,6 +273,18 @@ export function summarizeLongHorizon(input: {
   const allTurnsPassed =
     input.turns.length === input.totalTurns && input.turns.length > 0 && input.turns.every((r) => r.passed);
 
+  // Count edit_file results that carried the outcome-visibility diff, across every
+  // turn's trajectory — the mechanism-fired signal for the editFile.resultDiffChars
+  // A/B. Marker matches editDiffSuffix() in fs.ts.
+  const editDiffShownCount = input.turns.reduce(
+    (n, t) =>
+      n +
+      t.trajectory.filter(
+        (e) => e.type === 'tool_result' && e.name === 'edit_file' && e.result.includes('What changed (verify'),
+      ).length,
+    0,
+  );
+
   return {
     caseId: input.caseId,
     passed: allTurnsPassed && !vacuous && !input.apiUnavailable,
@@ -274,5 +294,6 @@ export function summarizeLongHorizon(input: {
     vacuous,
     apiUnavailable: input.apiUnavailable,
     durationMs: input.durationMs,
+    editDiffShownCount,
   };
 }
