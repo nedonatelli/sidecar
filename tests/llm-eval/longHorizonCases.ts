@@ -202,4 +202,77 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       },
     ],
   },
+
+  {
+    id: 'lh-calculator-session',
+    description: 'A realistic incremental calculator build across turns — the practical "can you develop with this model" test',
+    tags: ['long-horizon', 'coding', 'calculator', 'multi-turn'],
+    // The PRACTICAL question, not a synthetic memory-stress test: can the model
+    // sustain a real development loop across turns — reading its own prior work,
+    // EDITING it (not just appending), and building on it? This is what "can you
+    // develop code with SideCar + <model>" actually means. Reconstructed as a
+    // multi-turn session from the single-turn build-python-calculator spec
+    // (codeQualityCases.ts). No forced compaction — a real session is however long
+    // it naturally is. Assertions are on the produced CODE (deterministic, no
+    // Python interpreter needed in the sandbox), and each turn asserts the PRIOR
+    // turns' work survived — which is the multi-turn part that single-turn evals
+    // cannot see.
+    workspace: {
+      'README.md': '# Calculator\n\nAn empty project — build the calculator here.\n',
+    },
+    turns: [
+      {
+        label: 'start with two operations',
+        userMessage:
+          'Create calculator.py with two fully-implemented functions: add(a, b) and subtract(a, b). No placeholders.',
+        expect: {
+          files: {
+            exist: ['calculator.py'],
+            contain: [{ path: 'calculator.py', substrings: ['def add', 'def subtract'] }],
+            notContain: [{ path: 'calculator.py', substrings: ['TODO', 'NotImplementedError', 'pass  #'] }],
+          },
+        },
+      },
+      {
+        // EDIT prior work: add to the existing file, keeping add/subtract.
+        label: 'add the other two operations + a guard',
+        userMessage:
+          'Now add multiply(a, b) and divide(a, b) to calculator.py. divide must raise ValueError on division by zero.',
+        expect: {
+          files: {
+            // All four now present — turn-1 work must survive the edit.
+            contain: [{ path: 'calculator.py', substrings: ['def add', 'def subtract', 'def multiply', 'def divide'] }],
+            matchesRegex: [{ path: 'calculator.py', patterns: [/raise\s+ValueError/] }],
+          },
+        },
+      },
+      {
+        label: 'add tests for what was built',
+        userMessage:
+          'Write test_calculator.py with one test for each of the four operations and one for the divide-by-zero case.',
+        expect: {
+          files: {
+            exist: ['test_calculator.py'],
+            contain: [{ path: 'test_calculator.py', substrings: ['def test', 'divide'] }],
+            // calculator.py must still have all four — tests referencing them.
+            matchesRegex: [{ path: 'calculator.py', patterns: [/def add/, /def divide/] }],
+          },
+        },
+      },
+      {
+        label: 'wrap it in a CLI on top of the existing functions',
+        userMessage:
+          'Add a command-line interface to calculator.py that reads an operation and two numbers from the command line (argparse or sys.argv) and prints the result, supporting all four operations, printing a clear error instead of crashing on divide-by-zero.',
+        expect: {
+          files: {
+            matchesRegex: [
+              { path: 'calculator.py', patterns: [/if\s+__name__\s*==\s*['"]__main__['"]/, /argparse|sys\.argv/] },
+              // The four functions the CLI dispatches to must all still be there.
+              { path: 'calculator.py', patterns: [/def add/, /def subtract/, /def multiply/, /def divide/] },
+            ],
+          },
+        },
+      },
+    ],
+  },
 ];
