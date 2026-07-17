@@ -1,6 +1,6 @@
 # SideCar Roadmap
 
-_Last updated: 2026-07-09 (v0.118.0)_
+_Last updated: 2026-07-17 (v0.119.0)_
 
 This document is forward-looking only: what SideCar is building next and why. Completed work lives in the [CHANGELOG](CHANGELOG.md).
 
