@@ -198,6 +198,19 @@ export interface LoopState {
   // an enforce-edit-blocked rewrite (bounds the escalation to once per file).
   escalatedRewriteByFile: Set<string>;
 
+  // Signature-AGNOSTIC count of consecutive FAILED edit_file calls per file —
+  // distinct from editFailureSignatures (verbatim repeats only). Weak models
+  // vary the broken call (both insert fields → no search → repeated anchor)
+  // while never producing the delta, so the verbatim counter keeps resetting and
+  // never fires. This one counts any edit_file error on a path and resets on a
+  // successful edit. circularRewrite.ts (maybeSteerEditToWrite) is the only writer.
+  editFailureCountByFile: Map<string, number>;
+
+  // Files for which the loop has already injected the edit→write steer (the mirror
+  // of escalatedRewriteByFile): after N failed edit_file calls, redirect the model
+  // to rewrite the whole file with write_file. Bounds the steer to once per file.
+  escalatedEditToWriteByFile: Set<string>;
+
   // Per-file count of enforce-edit-blocked write_file calls. After enough blocks
   // (the model was escalated to edit_file and ignored it), the loop RELEASES the
   // enforce-edit lock for that file so a rewrite-oriented model can rewrite
@@ -348,6 +361,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     bounceCounts: new Map<string, number>(),
     planRef: { plan: options.initialPlan ?? null },
     escalatedRewriteByFile: new Set<string>(),
+    editFailureCountByFile: new Map<string, number>(),
+    escalatedEditToWriteByFile: new Set<string>(),
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,

@@ -8,6 +8,7 @@ import {
   clearTrackingForDeletedFiles,
   captureLastFailureOutput,
   maybeEscalateBlockedRewrite,
+  maybeSteerEditToWrite,
   maybeReleaseEnforceLock,
 } from './circularRewrite.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
@@ -242,6 +243,83 @@ describe('maybeEscalateBlockedRewrite', () => {
     const state = stubLoopState();
     const cb = stubCallbacks();
     expect(maybeEscalateBlockedRewrite([write('gui.py', 'x')], [applied()], state, cb)).toBe(false);
+  });
+});
+
+describe('maybeSteerEditToWrite', () => {
+  const edit = (path: string): ToolUseContentBlock => ({
+    type: 'tool_use',
+    id: `e-${path}`,
+    name: 'edit_file',
+    input: { path, search: 'x', insert_after: 'x' },
+  });
+  const editErr = (): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    is_error: true,
+    content: "Error: your 'insert_after' text is identical to your 'search' anchor…",
+  });
+  const editOk = (): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: 'File edited: calculator.py',
+  });
+
+  it('does not fire before the threshold of failures', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    expect(maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb)).toBe(false);
+    expect(maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb)).toBe(false);
+    expect(state.editFailureCountByFile.get('calculator.py')).toBe(2);
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it('fires on the 3rd consecutive edit_file failure and steers to write_file', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    const fired = maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    expect(fired).toBe(true);
+    expect(state.messages).toHaveLength(1);
+    const text = (state.messages[0].content as { text: string }[])[0].text;
+    expect(text).toContain('STOP calling edit_file');
+    expect(text).toContain('write_file');
+    expect(text).toContain('COMPLETE file');
+  });
+
+  it('only steers once per file', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 5; i++) maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    expect(state.messages).toHaveLength(1);
+  });
+
+  it('a successful edit resets the failure streak', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    maybeSteerEditToWrite([edit('calculator.py')], [editOk()], state, cb); // reset
+    expect(state.editFailureCountByFile.has('calculator.py')).toBe(false);
+    expect(maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb)).toBe(false); // count=1 again
+  });
+
+  it('is disabled when editToWriteSteerEnabled is false', () => {
+    const state = stubLoopState({ config: { editToWriteSteerEnabled: false } as never });
+    const cb = stubCallbacks();
+    for (let i = 0; i < 5; i++) maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it('counts failures per file independently', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    maybeSteerEditToWrite([edit('a.py')], [editErr()], state, cb);
+    maybeSteerEditToWrite([edit('b.py')], [editErr()], state, cb);
+    expect(state.editFailureCountByFile.get('a.py')).toBe(1);
+    expect(state.editFailureCountByFile.get('b.py')).toBe(1);
+    expect(state.messages).toHaveLength(0);
   });
 });
 

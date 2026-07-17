@@ -71,6 +71,13 @@ export function applyIsolateRewriteNudge(
   for (const tu of pendingToolUses) {
     const path = writeFilePath(tu);
     if (!path) continue;
+    // Don't fight the edit→write steer. If maybeSteerEditToWrite deliberately
+    // redirected this file to write_file (because edit_file was failing on it),
+    // nudging it back to "targeted edits" ping-pongs the model between tools —
+    // observed on gemma4's calculator CLI turn, where a syntax-broken write and
+    // this nudge bounced it until it gave up. The corrective steer outranks this
+    // advisory nudge; a later SUCCESSFUL edit clears the flag and re-enables it.
+    if (state.escalatedEditToWriteByFile.has(path)) continue;
     const prior = state.fullRewriteCountByFile.get(path) ?? 0;
     const count = prior + 1;
     state.fullRewriteCountByFile.set(path, count);

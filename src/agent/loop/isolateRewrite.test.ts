@@ -46,6 +46,16 @@ describe('applyIsolateRewriteNudge', () => {
     expect(mutated).toBe(true);
   });
 
+  it('does NOT nudge a file the edit→write steer deliberately redirected (no ping-pong)', () => {
+    const state = stubLoopState();
+    state.filesReadThisRun.add('gui.py'); // would normally nudge
+    state.escalatedEditToWriteByFile.add('gui.py'); // but we steered it to write_file
+    const cb = stubCallbacks();
+    const mutated = applyIsolateRewriteNudge(state, [writeFile('gui.py')], cb);
+    expect(mutated).toBe(false);
+    expect(state.messages).toHaveLength(0);
+  });
+
   it('never nudges edit_file — that is the technique we want', () => {
     const state = stubLoopState();
     const cb = stubCallbacks();

@@ -44,6 +44,8 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     bounceCounts: new Map(),
     planRef: { plan: null },
     escalatedRewriteByFile: new Set(),
+    editFailureCountByFile: new Map(),
+    escalatedEditToWriteByFile: new Set(),
     enforceEditBlocksByFile: new Map(),
     stubFixRetries: 0,
     actionRepromptCount: 0,

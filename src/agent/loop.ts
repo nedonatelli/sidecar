@@ -25,6 +25,7 @@ import {
   clearTrackingForDeletedFiles,
   captureLastFailureOutput,
   maybeEscalateBlockedRewrite,
+  maybeSteerEditToWrite,
   maybeReleaseEnforceLock,
 } from './loop/circularRewrite.js';
 import {
@@ -773,6 +774,11 @@ export async function runAgentLoop(
       // rewrite" reprompt that surfaces that failure inline so it sees what to fix.
       captureLastFailureOutput(pendingToolUses, toolResults, state);
       maybeEscalateBlockedRewrite(pendingToolUses, toolResults, state, callbacks);
+
+      // The mirror: if edit_file keeps FAILING on a file (weak model echoing
+      // existing content into the insert fields, never producing the delta),
+      // steer it to rewrite the whole file with write_file — the shape it can do.
+      maybeSteerEditToWrite(pendingToolUses, toolResults, state, callbacks);
 
       // If the model keeps trying to rewrite an enforce-locked file and ignores
       // the escalation, release the lock after a few blocks so a rewrite-oriented

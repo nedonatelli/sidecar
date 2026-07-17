@@ -259,6 +259,74 @@ export function maybeEscalateBlockedRewrite(
   return false;
 }
 
+/**
+ * The mirror of maybeEscalateBlockedRewrite. That one fires when write_file is
+ * repeatedly BLOCKED and pushes the model toward edit_file; this one fires when
+ * edit_file repeatedly FAILS and pushes the model toward write_file.
+ *
+ * The failure it targets (measured on gemma4's calculator build): a weak model
+ * asked to ADD code to an existing file echoes the file's existing functions into
+ * edit_file's insert fields instead of producing the new code — every call varies
+ * (both insert fields → missing search → repeated anchor) so the verbatim tracker
+ * never fires, and it thrashes to the iteration cap having written nothing. The
+ * same model authors the whole file correctly via write_file (probe: 3/3). So
+ * after N failed edit_file calls on a path, redirect it to rewrite the file whole.
+ *
+ * Counts ANY edit_file error per path (signature-agnostic — that's the point) and
+ * resets a path's count on a successful edit. Bounded to once per file via
+ * escalatedEditToWriteByFile. Returns true if a steer was injected.
+ */
+export function maybeSteerEditToWrite(
+  pendingToolUses: ToolUseContentBlock[],
+  toolResults: ToolResultContentBlock[],
+  state: LoopState,
+  callbacks: AgentCallbacks,
+): boolean {
+  if (state.config.editToWriteSteerEnabled === false) return false;
+  const threshold = Math.max(state.config.editToWriteSteerThreshold ?? 3, 2);
+
+  for (let i = 0; i < pendingToolUses.length; i++) {
+    const tu = pendingToolUses[i];
+    if (tu.name !== 'edit_file') continue;
+    const input = tu.input as Record<string, unknown>;
+    const filePath = (input.path ?? input.file_path) as string | undefined;
+    if (!filePath) continue;
+
+    // A success anywhere this turn resets the file's failure streak and clears
+    // any prior steer, so a later genuine failure is judged fresh.
+    if (isSuccessfulEdit(toolResults[i])) {
+      state.editFailureCountByFile.delete(filePath);
+      state.escalatedEditToWriteByFile.delete(filePath);
+      continue;
+    }
+    if (!toolResults[i]?.is_error) continue; // not an edit failure
+
+    const count = (state.editFailureCountByFile.get(filePath) ?? 0) + 1;
+    state.editFailureCountByFile.set(filePath, count);
+    if (count < threshold || state.escalatedEditToWriteByFile.has(filePath)) continue;
+
+    state.escalatedEditToWriteByFile.add(filePath);
+    const base = filePath.split('/').pop();
+    callbacks.onText(`\n🛑 edit_file keeps failing on ${base} — rewrite the whole file with write_file instead.\n`);
+    state.messages.push({
+      role: 'user',
+      content: [
+        {
+          type: 'text' as const,
+          text:
+            `STOP calling edit_file on \`${filePath}\` — it has failed ${count} times in a row and repeating it will ` +
+            `not work. Switch approach: call write_file(path="${filePath}", content=<the COMPLETE file>) with the ` +
+            `entire file contents — the code that is already there PLUS the new code you were trying to add, as one ` +
+            `whole file. If you are unsure of the current contents, call read_file(path="${filePath}") first, then ` +
+            `write_file with everything. Put ALL the code in \`content\`; do not use edit_file for this file again.`,
+        },
+      ],
+    });
+    return true;
+  }
+  return false;
+}
+
 /** Remove every entry of a Set/Map whose key shares `filePath`'s basename. */
 function purgeByBasename(
   coll: { keys(): IterableIterator<string>; delete(k: string): boolean },
@@ -303,6 +371,8 @@ export function clearTrackingForDeletedFiles(
     // would never re-fire.
     purgeByBasename(state.enforceEditBlocksByFile, p);
     purgeByBasename(state.escalatedRewriteByFile, p);
+    purgeByBasename(state.editFailureCountByFile, p);
+    purgeByBasename(state.escalatedEditToWriteByFile, p);
   }
 }
 
