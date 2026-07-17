@@ -22,11 +22,7 @@
 
 import { describe, it } from 'vitest';
 import { pickBackend, pickModel } from './backend.js';
-import {
-  buildFixtureHarness,
-  runGoldenQuery,
-  type EvalHit,
-} from '../../src/test/retrieval-eval/harness.js';
+import { buildFixtureHarness, runGoldenQuery, type EvalHit } from '../../src/test/retrieval-eval/harness.js';
 import { GOLDEN_CASES } from '../../src/test/retrieval-eval/goldenCases.js';
 import { FIXTURE_FILES } from '../../src/test/retrieval-eval/fixture.js';
 import { judgeHitRelevance, judgeAnswerRelevancy, type JudgeHit } from './retrievalJudge.js';
@@ -86,10 +82,7 @@ describe('retrieval LLM-eval (v0.62 e.3)', () => {
         const s = await judgeHitRelevance(c.query, h, backend, model);
         perHitScores.push(s);
       }
-      const precision =
-        perHitScores.length === 0
-          ? 0
-          : perHitScores.reduce((a, b) => a + b, 0) / perHitScores.length;
+      const precision = perHitScores.length === 0 ? 0 : perHitScores.reduce((a, b) => a + b, 0) / perHitScores.length;
 
       const answerScore = await judgeAnswerRelevancy(c.query, judgeHits, backend, model);
 

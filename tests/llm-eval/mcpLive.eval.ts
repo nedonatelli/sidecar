@@ -126,11 +126,11 @@ d('llm-eval :: live MCP probe (memory server)', () => {
 
     const dump = path.join(TRAJECTORY_DIR, 'mcp-live-silent-write.json');
     fs.writeFileSync(dump, JSON.stringify(result, null, 2));
-    const gateFired = result.trajectory.some(
-      (e) => e.type === 'text' && e.text.includes('Verifying external writes'),
-    );
+    const gateFired = result.trajectory.some((e) => e.type === 'text' && e.text.includes('Verifying external writes'));
     console.log(`[mcp-live] trajectory → ${dump}`);
-    console.log(`[mcp-live] passed=${result.passed} gateFired=${gateFired} failures=${JSON.stringify(result.failures)}`);
+    console.log(
+      `[mcp-live] passed=${result.passed} gateFired=${gateFired} failures=${JSON.stringify(result.failures)}`,
+    );
 
     const infra = result.failures.filter((f) => /Unknown tool|runAgentLoop threw/.test(f));
     expect(infra).toEqual([]);
@@ -165,9 +165,7 @@ d('llm-eval :: live MCP probe (memory server)', () => {
     expect(infra).toEqual([]);
     // The false-positive the read-verb fallback exists to prevent: a pure
     // read run must not end with the mutation-verify reprompt in history.
-    const gateFired = result.trajectory.some(
-      (e) => e.type === 'text' && e.text.includes('Unverified external write'),
-    );
+    const gateFired = result.trajectory.some((e) => e.type === 'text' && e.text.includes('Unverified external write'));
     expect(gateFired).toBe(false);
     expect(result.passed).toBe(true);
   });

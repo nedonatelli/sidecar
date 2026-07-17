@@ -9,8 +9,7 @@ import * as path from 'path';
  * Cleared on the first call per process, then appended.
  */
 
-const REPORT_PATH =
-  process.env.SIDECAR_EVAL_REPORT ?? path.join(process.cwd(), 'eval-failures.md');
+const REPORT_PATH = process.env.SIDECAR_EVAL_REPORT ?? path.join(process.cwd(), 'eval-failures.md');
 
 let cleared = false;
 

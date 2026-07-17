@@ -33,7 +33,8 @@ import type { AgentEvalCase } from './agentTypes.js';
 export const THINKING_CASES: AgentEvalCase[] = [
   {
     id: 'thinking-cross-file-causality',
-    description: 'Bug is in the caller (args swapped), not the callee — model must read both files and fix the right one',
+    description:
+      'Bug is in the caller (args swapped), not the callee — model must read both files and fix the right one',
     tags: ['edit', 'reasoning', 'multi-file'],
     workspace: {
       'src/utils.ts':
@@ -62,9 +63,7 @@ export const THINKING_CASES: AgentEvalCase[] = [
       ],
       // Fix must be in app.ts: args corrected to (amount, currency).
       files: {
-        contain: [
-          { path: 'src/app.ts', substrings: ['formatCurrency(amount, currency)'] },
-        ],
+        contain: [{ path: 'src/app.ts', substrings: ['formatCurrency(amount, currency)'] }],
         // utils.ts must remain untouched — the bug is in the caller.
         equal: [
           {
@@ -85,7 +84,8 @@ export const THINKING_CASES: AgentEvalCase[] = [
 
   {
     id: 'thinking-semantic-version-compare',
-    description: 'String comparison used for semver — "10.0.0" < "9.0.0" lexicographically; model must reason through why and fix it',
+    description:
+      'String comparison used for semver — "10.0.0" < "9.0.0" lexicographically; model must reason through why and fix it',
     tags: ['edit', 'reasoning', 'semantics'],
     workspace: {
       'src/version.ts':
@@ -111,9 +111,7 @@ export const THINKING_CASES: AgentEvalCase[] = [
           },
         ],
         // The naive string comparison must be gone.
-        notContain: [
-          { path: 'src/version.ts', substrings: ['return version >= minimum'] },
-        ],
+        notContain: [{ path: 'src/version.ts', substrings: ['return version >= minimum'] }],
       },
     },
     softExpect: {
@@ -125,7 +123,8 @@ export const THINKING_CASES: AgentEvalCase[] = [
 
   {
     id: 'thinking-missing-await-in-loop',
-    description: 'Missing await inside a for-loop pushes Promise objects instead of resolved strings — model must identify and fix all occurrences',
+    description:
+      'Missing await inside a for-loop pushes Promise objects instead of resolved strings — model must identify and fix all occurrences',
     tags: ['edit', 'reasoning', 'async'],
     workspace: {
       'src/downloader.ts':
@@ -148,9 +147,7 @@ export const THINKING_CASES: AgentEvalCase[] = [
     expect: {
       toolsCalled: ['read_file', 'edit_file'],
       files: {
-        contain: [
-          { path: 'src/downloader.ts', substrings: ['await fetch(url)'] },
-        ],
+        contain: [{ path: 'src/downloader.ts', substrings: ['await fetch(url)'] }],
         notContain: [
           // The un-awaited call must be gone.
           { path: 'src/downloader.ts', substrings: ['results.push(fetch(url))'] },
@@ -164,7 +161,8 @@ export const THINKING_CASES: AgentEvalCase[] = [
 
   {
     id: 'thinking-aliased-mutation',
-    description: 'Object.assign mutates the shared DEFAULTS singleton — model must reason about object aliasing and fix to spread into a new object',
+    description:
+      'Object.assign mutates the shared DEFAULTS singleton — model must reason about object aliasing and fix to spread into a new object',
     tags: ['edit', 'reasoning', 'state'],
     workspace: {
       'src/settings.ts':

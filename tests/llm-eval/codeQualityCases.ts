@@ -87,7 +87,8 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
 
   {
     id: 'no-stub-class-with-methods',
-    description: 'Agent creates a class with constructor + three methods; no method may throw not-implemented or have a TODO body',
+    description:
+      'Agent creates a class with constructor + three methods; no method may throw not-implemented or have a TODO body',
     tags: ['write', 'stub-validator', 'regression'],
     workspace: {
       'README.md': '# Eval sandbox\n',
@@ -131,7 +132,8 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
 
   {
     id: 'no-stub-implement-interface',
-    description: 'Agent implements a TypeScript interface as a class; every method must have a real body not just a stub throw',
+    description:
+      'Agent implements a TypeScript interface as a class; every method must have a real body not just a stub throw',
     tags: ['write', 'stub-validator', 'regression'],
     workspace: {
       'src/types.ts':
@@ -214,7 +216,7 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
               'FIXME',
               '// implement',
               'placeholder',
-              '  return 0;',  // the original stub return must be gone
+              '  return 0;', // the original stub return must be gone
             ],
           },
         ],
@@ -227,10 +229,7 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
     description: 'Agent adds a new function to an existing module; the new function must be fully implemented',
     tags: ['edit', 'stub-validator', 'regression'],
     workspace: {
-      'src/math.ts':
-        'export function add(a: number, b: number): number {\n' +
-        '  return a + b;\n' +
-        '}\n',
+      'src/math.ts': 'export function add(a: number, b: number): number {\n' + '  return a + b;\n' + '}\n',
     },
     userMessage:
       'Add a `multiply(a: number, b: number): number` function to src/math.ts that returns the product of a and b. ' +
@@ -261,10 +260,7 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
     description: 'Agent adds error handling to a function using real try/catch, not a TODO comment',
     tags: ['edit', 'stub-validator', 'regression'],
     workspace: {
-      'src/parser.ts':
-        'export function parseJson(raw: string): unknown {\n' +
-        '  return JSON.parse(raw);\n' +
-        '}\n',
+      'src/parser.ts': 'export function parseJson(raw: string): unknown {\n' + '  return JSON.parse(raw);\n' + '}\n',
     },
     userMessage:
       'Add error handling to the `parseJson` function in src/parser.ts. ' +
@@ -303,10 +299,7 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       // The value 42 is specific enough that the agent can't guess;
       // it must read to see the mismatch.
       'src/answer.ts':
-        '// Returns the answer to everything.\n' +
-        'export function getAnswer(): string {\n' +
-        '  return 42;\n' +
-        '}\n',
+        '// Returns the answer to everything.\n' + 'export function getAnswer(): string {\n' + '  return 42;\n' + '}\n',
     },
     userMessage:
       'The return type annotation on `getAnswer` in src/answer.ts is wrong — it says `string` but the function returns a number. ' +
@@ -420,7 +413,8 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
 
   {
     id: 'fix-two-independent-bugs',
-    description: 'Agent fixes two independent bugs in the same file; both must be corrected and unrelated code must be untouched',
+    description:
+      'Agent fixes two independent bugs in the same file; both must be corrected and unrelated code must be untouched',
     tags: ['edit', 'bugfix', 'regression'],
     workspace: {
       // Two bugs: (1) divide returns a - b instead of a / b,
@@ -454,12 +448,7 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
         contain: [
           {
             path: 'src/ops.ts',
-            substrings: [
-              'return a / b',
-              'n % 2 === 0',
-              'function square',
-              'return n * n',
-            ],
+            substrings: ['return a / b', 'n % 2 === 0', 'function square', 'return n * n'],
           },
         ],
         notContain: [

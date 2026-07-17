@@ -122,8 +122,7 @@ export const MULTI_TURN_CASES: AgentEvalCase[] = [
       },
     ],
     setupMessagesRequired: true,
-    userMessage:
-      'The config has changed since then. Read the app config file again and tell me which port is set now.',
+    userMessage: 'The config has changed since then. Read the app config file again and tell me which port is set now.',
     maxIterations: 5,
     expect: {
       // Latch = repeating the remembered 3000 instead of re-reading.

@@ -48,11 +48,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       'Completion gate forces run_tests after a bug fix — agent cannot declare done without verifying the edit',
     tags: ['gate', 'run-tests', 'system-infra', 'trajectory'],
     workspace: {
-      'package.json': JSON.stringify(
-        { name: 'eval-sandbox', scripts: { test: 'node src/divide.test.js' } },
-        null,
-        2,
-      ),
+      'package.json': JSON.stringify({ name: 'eval-sandbox', scripts: { test: 'node src/divide.test.js' } }, null, 2),
       'src/divide.js':
         'function divide(a, b) {\n' +
         '  return a + b; // BUG: should be a / b\n' +
@@ -63,7 +59,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       'src/divide.test.js':
         "const { divide } = require('./divide.js');\n" +
         'const result = divide(10, 2);\n' +
-        "if (result !== 5) throw new Error(`Expected 5, got ${result}`);\n" +
+        'if (result !== 5) throw new Error(`Expected 5, got ${result}`);\n' +
         "console.log('ok');\n",
     },
     userMessage: 'The divide function in src/divide.js has a bug. Fix it.',
@@ -102,17 +98,17 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
         "'use strict';\n" +
         '\n' +
         'function isValidEmail(str) {\n' +
-        "  // TODO: implement email validation\n" +
+        '  // TODO: implement email validation\n' +
         "  throw new Error('not implemented');\n" +
         '}\n' +
         '\n' +
         'function isValidPhone(str) {\n' +
-        "  // TODO: implement phone validation\n" +
+        '  // TODO: implement phone validation\n' +
         "  throw new Error('not implemented');\n" +
         '}\n' +
         '\n' +
         'function isPositiveInteger(n) {\n' +
-        "  // TODO: implement\n" +
+        '  // TODO: implement\n' +
         "  throw new Error('not implemented');\n" +
         '}\n' +
         '\n' +
@@ -129,12 +125,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
         notContain: [
           {
             path: 'src/validators.js',
-            substrings: [
-              '// TODO',
-              "throw new Error('not implemented')",
-              '// implement',
-              '// placeholder',
-            ],
+            substrings: ['// TODO', "throw new Error('not implemented')", '// implement', '// placeholder'],
           },
         ],
         // Each function must have real logic — a return statement that
@@ -182,7 +173,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       'src/fileReader.js':
         "const fs = require('fs');\n" +
         "const path = require('path');\n" +
-        'const DATA_DIR = path.join(__dirname, \'../data\');\n' +
+        "const DATA_DIR = path.join(__dirname, '../data');\n" +
         '\n' +
         '/**\n' +
         ' * Reads a file from the data directory by filename.\n' +
@@ -190,7 +181,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
         ' * @returns {string}\n' +
         ' */\n' +
         'function readDataFile(filename) {\n' +
-        "  // TODO: implement\n" +
+        '  // TODO: implement\n' +
         "  throw new Error('not implemented');\n" +
         '}\n' +
         '\n' +
@@ -210,9 +201,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
         matchesRegex: [
           {
             path: 'src/fileReader.js',
-            patterns: [
-              /\.\.|path\.normalize|path\.resolve|basename|indexOf\s*\(\s*['"]\.\./,
-            ],
+            patterns: [/\.\.|path\.normalize|path\.resolve|basename|indexOf\s*\(\s*['"]\.\./],
           },
         ],
         notContain: [
@@ -252,10 +241,7 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
         '<!-- @paths: src/**/*.js -->\n\n' +
         'All functions that can throw errors must include a `@throws` JSDoc comment ' +
         'describing what errors may be thrown and under what conditions.\n',
-      'src/config.js':
-        "'use strict';\n" +
-        '\n' +
-        'module.exports = {};\n',
+      'src/config.js': "'use strict';\n" + '\n' + 'module.exports = {};\n',
     },
     userMessage:
       'Add a `parseConfig` function to src/config.js. ' +
@@ -267,21 +253,15 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       files: {
         exist: ['src/config.js'],
         // SIDECAR.md requires @throws for throwing functions
-        contain: [
-          { path: 'src/config.js', substrings: ['@throws', 'parseConfig'] },
-        ],
+        contain: [{ path: 'src/config.js', substrings: ['@throws', 'parseConfig'] }],
         // Must have a real JSON.parse call
-        matchesRegex: [
-          { path: 'src/config.js', patterns: [/JSON\.parse/] },
-        ],
+        matchesRegex: [{ path: 'src/config.js', patterns: [/JSON\.parse/] }],
       },
     },
     softExpect: {
       // The function should handle the error case
       files: {
-        matchesRegex: [
-          { path: 'src/config.js', patterns: [/try|catch|SyntaxError/] },
-        ],
+        matchesRegex: [{ path: 'src/config.js', patterns: [/try|catch|SyntaxError/] }],
       },
     },
   },

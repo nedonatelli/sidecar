@@ -272,7 +272,9 @@ async function listAllFiles(dir: string, rootForRelative: string): Promise<strin
 /** Recursively read every file under `dir`, returning a flat fixture-shaped map. */
 async function walk(dir: string, rootForRelative: string): Promise<WorkspaceFixture> {
   const out: WorkspaceFixture = {};
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [] as Array<{ name: string; isDirectory: () => boolean }>);
+  const entries = await fs
+    .readdir(dir, { withFileTypes: true })
+    .catch(() => [] as Array<{ name: string; isDirectory: () => boolean }>);
   for (const entry of entries) {
     const abs = path.join(dir, entry.name);
     if (entry.isDirectory()) {

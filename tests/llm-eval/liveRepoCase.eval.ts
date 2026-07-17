@@ -20,14 +20,9 @@ import { renderAgentReport } from './agentScorers.js';
 import type { AgentCaseResult, AgentEvalCase } from './agentTypes.js';
 import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
 
-const SRC = (rel: string): string =>
-  nodeFs.readFileSync(nodePath.join(import.meta.dirname, '../../src', rel), 'utf-8');
+const SRC = (rel: string): string => nodeFs.readFileSync(nodePath.join(import.meta.dirname, '../../src', rel), 'utf-8');
 
-const FAKE_PKG = JSON.stringify(
-  { name: 'sidecar-ai', scripts: { test: 'node -e "process.exit(0)"' } },
-  null,
-  2,
-);
+const FAKE_PKG = JSON.stringify({ name: 'sidecar-ai', scripts: { test: 'node -e "process.exit(0)"' } }, null, 2);
 
 // ---------------------------------------------------------------------------
 // Case 1: deep finalize.ts refactor (existing case, kept as-is)
@@ -49,7 +44,7 @@ const LIVE_CASE = {
     'Make two changes: ' +
     '(1) Replace `hadErrors` with a numeric `errorCount` — increment it for each `is_error` tool result — ' +
     'and update the suggestion to include the count, e.g. "2 tool calls failed — Review errors and retry". ' +
-    'The test in `finalize.test.ts` checks for the substring \'Review errors\' (capital R) so keep those words in the message. ' +
+    "The test in `finalize.test.ts` checks for the substring 'Review errors' (capital R) so keep those words in the message. " +
     '(2) Replace `wroteFiles` with a numeric `filesWritten` — increment it for each `write_file` or `edit_file` call — ' +
     'and update the diff suggestion to include the count, e.g. "Review 3 changed files before committing". ' +
     'Also update the "Run tests" suggestion to say how many files were changed. ' +
@@ -353,8 +348,7 @@ const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim()
 // ---------------------------------------------------------------------------
 
 const finalizeCaseMatchesFilter =
-  !CASE_FILTER ||
-  CASE_FILTER.some((f) => LIVE_CASE.id.includes(f) || PLAN_CASE.id.includes(f));
+  !CASE_FILTER || CASE_FILTER.some((f) => LIVE_CASE.id.includes(f) || PLAN_CASE.id.includes(f));
 
 const finalizeCaseMatchesTagFilter =
   !TAG_FILTER ||

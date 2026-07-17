@@ -26,17 +26,14 @@ export const GIT_CASES: AgentEvalCase[] = [
     description: 'Agent uses git_diff (not run_command git diff) to show unstaged changes',
     tags: ['git', 'tool-preference', 'trajectory'],
     workspace: {
-      'src/math.ts':
-        'export function add(a: number, b: number): number {\n' +
-        '  return a + b;\n' +
-        '}\n',
+      'src/math.ts': 'export function add(a: number, b: number): number {\n' + '  return a + b;\n' + '}\n',
     },
     setupCommands: [
       ...GIT_INIT_CMDS,
       'git add .',
       "git commit -m 'initial commit'",
       // Modify the file after the initial commit so there is a real diff
-      'node -e "const fs=require(\'fs\'); fs.appendFileSync(\'src/math.ts\', \'\\nexport function subtract(a: number, b: number): number {\\n  return a - b;\\n}\\n\')"',
+      "node -e \"const fs=require('fs'); fs.appendFileSync('src/math.ts', '\\nexport function subtract(a: number, b: number): number {\\n  return a - b;\\n}\\n')\"",
     ],
     userMessage: 'Show me what changes have been made to the repository since the last commit.',
     expect: {
@@ -67,7 +64,7 @@ export const GIT_CASES: AgentEvalCase[] = [
       'git add src/utils.ts',
       "git commit -m 'add utils'",
       // helper.ts is untracked; modify utils.ts so there is also a modified file
-      'node -e "const fs=require(\'fs\'); fs.writeFileSync(\'src/utils.ts\', \'export const VERSION = \\"1.0.1\\";\\n\')"',
+      "node -e \"const fs=require('fs'); fs.writeFileSync('src/utils.ts', 'export const VERSION = \\\"1.0.1\\\";\\n')\"",
     ],
     userMessage: 'What is the current git status of this repository?',
     expect: {
@@ -93,7 +90,7 @@ export const GIT_CASES: AgentEvalCase[] = [
       ...GIT_INIT_CMDS,
       'git add .',
       "git commit -m 'feat: initial app setup'",
-      'node -e "const fs=require(\'fs\'); fs.appendFileSync(\'src/app.ts\', \'export const VERSION = \\"0.1.0\\";\\n\')"',
+      "node -e \"const fs=require('fs'); fs.appendFileSync('src/app.ts', 'export const VERSION = \\\"0.1.0\\\";\\n')\"",
       'git add .',
       "git commit -m 'feat: add version constant'",
     ],

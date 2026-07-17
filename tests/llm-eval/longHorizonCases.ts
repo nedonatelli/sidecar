@@ -205,7 +205,8 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
 
   {
     id: 'lh-calculator-session',
-    description: 'A realistic incremental calculator build across turns — the practical "can you develop with this model" test',
+    description:
+      'A realistic incremental calculator build across turns — the practical "can you develop with this model" test',
     tags: ['long-horizon', 'coding', 'calculator', 'multi-turn'],
     // The PRACTICAL question, not a synthetic memory-stress test: can the model
     // sustain a real development loop across turns — reading its own prior work,

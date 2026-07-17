@@ -53,7 +53,9 @@ function parseCompareModels(): ModelSpec[] | null {
     const model = trimmed.slice(colon + 1);
     const backend = AGENT_BACKENDS[backendName];
     if (!backend) {
-      console.warn(`[eval:compare] Unknown backend "${backendName}" in entry "${trimmed}" — valid: ollama, anthropic, openai`);
+      console.warn(
+        `[eval:compare] Unknown backend "${backendName}" in entry "${trimmed}" — valid: ollama, anthropic, openai`,
+      );
       continue;
     }
     specs.push({ label: trimmed, backend, model });
@@ -229,10 +231,7 @@ function renderComparisonReport(
 
     const tagTopBorder = '┌' + ['─'.repeat(tagColW + 2), ...tagModelColW.map((w) => '─'.repeat(w + 2))].join('┬') + '┐';
     const tagBotBorder = '└' + ['─'.repeat(tagColW + 2), ...tagModelColW.map((w) => '─'.repeat(w + 2))].join('┴') + '┘';
-    const tagSepRow =
-      '├' +
-      ['─'.repeat(tagColW + 2), ...tagModelColW.map((w) => '─'.repeat(w + 2))].join('┼') +
-      '┤';
+    const tagSepRow = '├' + ['─'.repeat(tagColW + 2), ...tagModelColW.map((w) => '─'.repeat(w + 2))].join('┼') + '┤';
     const tagRow = (cells: string[]) => {
       const parts = [pad(cells[0], tagColW)];
       for (let i = 0; i < specs.length; i++) parts.push(pad(cells[i + 1] ?? '', tagModelColW[i]));

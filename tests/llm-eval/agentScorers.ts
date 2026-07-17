@@ -249,7 +249,9 @@ function collectFailures(
   if (expect.trajectoryHasThinking === true) {
     const hasThinking = run.trajectory.some((e) => e.type === 'thinking');
     if (!hasThinking) {
-      out.push(`trajectoryHasThinking: expected at least one thinking event, but none observed (model may not support extended thinking)`);
+      out.push(
+        `trajectoryHasThinking: expected at least one thinking event, but none observed (model may not support extended thinking)`,
+      );
     }
   }
 }
@@ -377,7 +379,9 @@ export function renderAgentReport(results: AgentCaseResult[]): string {
   for (const r of results) {
     const mark = r.passed ? '✅' : r.apiUnavailable ? '⚠️' : '❌';
     lines.push(`## ${mark} ${r.id} — ${r.description}`);
-    lines.push(`*Duration: ${r.durationMs}ms · Iterations: ${r.iterationsUsed} · Trajectory events: ${r.trajectory.length}*`);
+    lines.push(
+      `*Duration: ${r.durationMs}ms · Iterations: ${r.iterationsUsed} · Trajectory events: ${r.trajectory.length}*`,
+    );
     if (r.failures.length > 0) {
       lines.push('');
       lines.push('Failures:');

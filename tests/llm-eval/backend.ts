@@ -140,7 +140,13 @@ class OpenAICompatEvalBackend implements ModelBackend {
   readonly defaultModelId: string;
   private readonly chatPath: string;
 
-  constructor(name: string, baseUrl: string, apiKeyEnv: string, defaultModelId: string, chatPath = '/v1/chat/completions') {
+  constructor(
+    name: string,
+    baseUrl: string,
+    apiKeyEnv: string,
+    defaultModelId: string,
+    chatPath = '/v1/chat/completions',
+  ) {
     this.name = name;
     this.baseUrl = baseUrl;
     this.apiKeyEnv = apiKeyEnv;

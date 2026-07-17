@@ -39,7 +39,10 @@ const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
 const MODEL = process.env.SIDECAR_SWE_MODEL || 'gemma4:e4b';
 const OUT = process.env.SIDECAR_SWE_OUT || path.join(os.tmpdir(), 'sidecar-swe');
-const REPOS = (process.env.SIDECAR_SWE_REPOS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const REPOS = (process.env.SIDECAR_SWE_REPOS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 // Deterministic task sharding for process-level parallelism. Each shard process
 // handles tasks where (index % SHARD_COUNT === SHARD_INDEX), so N sharded
 // processes cover the slice with no overlap and no shared in-process state (the
@@ -85,7 +88,8 @@ function prepareRepo(task: SweTask): string {
   git(['reset', '--hard', '--quiet', task.base_commit], dir);
   git(['clean', '-fdxq'], dir);
   const head = git(['rev-parse', 'HEAD'], dir).trim();
-  if (head !== task.base_commit) throw new Error(`checkout mismatch for ${task.instance_id}: ${head} != ${task.base_commit}`);
+  if (head !== task.base_commit)
+    throw new Error(`checkout mismatch for ${task.instance_id}: ${head} != ${task.base_commit}`);
   return dir;
 }
 
@@ -163,7 +167,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // loops until cycle detection bails. This is the same hook installSandbox uses.
     restoreMock = mountWorkspaceRoot(dir);
     const toolRuntime = new ToolRuntime(dir);
-    const client = new SideCarClient(MODEL, normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434', 'ollama');
+    const client = new SideCarClient(
+      MODEL,
+      normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
+      'ollama',
+    );
     client.updateSystemPrompt(
       buildBaseSystemPrompt({
         isLocal: true,
@@ -210,7 +218,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       confirmFn: async () => 'Allow',
       config: { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) },
     };
-    const messages: ChatMessage[] = [{ role: 'user', content: buildTaskPrompt(task, buildRetrievalContext(dir, task)) }];
+    const messages: ChatMessage[] = [
+      { role: 'user', content: buildTaskPrompt(task, buildRetrievalContext(dir, task)) },
+    ];
     try {
       await runAgentLoop(client, messages, callbacks, abort.signal, options);
     } finally {
@@ -301,7 +311,9 @@ describe('SWE-bench Verified — prediction generation', () => {
             predictions.push(p);
             fs.appendFileSync(metaPath, JSON.stringify(p) + '\n');
             // eslint-disable-next-line no-console
-            console.info(`[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} (${Math.round(p.durationMs / 1000)}s)`);
+            console.info(
+              `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} (${Math.round(p.durationMs / 1000)}s)`,
+            );
           }
         }
       } finally {
