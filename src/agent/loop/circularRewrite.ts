@@ -282,7 +282,7 @@ export function maybeSteerEditToWrite(
   state: LoopState,
   callbacks: AgentCallbacks,
 ): boolean {
-  if (state.config.editToWriteSteerEnabled === false) return false;
+  if (state.config.editToWriteSteerEnabled !== true) return false; // opt-in: unproven benefit, ships default-off
   const threshold = Math.max(state.config.editToWriteSteerThreshold ?? 3, 2);
 
   for (let i = 0; i < pendingToolUses.length; i++) {

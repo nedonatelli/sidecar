@@ -264,9 +264,19 @@ describe('maybeSteerEditToWrite', () => {
     tool_use_id: 'id',
     content: 'File edited: calculator.py',
   });
+  // The steer ships default-OFF (unproven benefit), so tests of the firing logic
+  // must opt in explicitly; a config without the flag must NOT fire (see below).
+  const ENABLED = { config: { editToWriteSteerEnabled: true } as never };
+
+  it('is OFF by default — a config without the flag never fires', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 5; i++) maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
+    expect(state.messages).toHaveLength(0);
+  });
 
   it('does not fire before the threshold of failures', () => {
-    const state = stubLoopState();
+    const state = stubLoopState(ENABLED);
     const cb = stubCallbacks();
     expect(maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb)).toBe(false);
     expect(maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb)).toBe(false);
@@ -275,7 +285,7 @@ describe('maybeSteerEditToWrite', () => {
   });
 
   it('fires on the 3rd consecutive edit_file failure and steers to write_file', () => {
-    const state = stubLoopState();
+    const state = stubLoopState(ENABLED);
     const cb = stubCallbacks();
     maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
     maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
@@ -289,14 +299,14 @@ describe('maybeSteerEditToWrite', () => {
   });
 
   it('only steers once per file', () => {
-    const state = stubLoopState();
+    const state = stubLoopState(ENABLED);
     const cb = stubCallbacks();
     for (let i = 0; i < 5; i++) maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
     expect(state.messages).toHaveLength(1);
   });
 
   it('a successful edit resets the failure streak', () => {
-    const state = stubLoopState();
+    const state = stubLoopState(ENABLED);
     const cb = stubCallbacks();
     maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
     maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
@@ -313,7 +323,7 @@ describe('maybeSteerEditToWrite', () => {
   });
 
   it('counts failures per file independently', () => {
-    const state = stubLoopState();
+    const state = stubLoopState(ENABLED);
     const cb = stubCallbacks();
     maybeSteerEditToWrite([edit('a.py')], [editErr()], state, cb);
     maybeSteerEditToWrite([edit('b.py')], [editErr()], state, cb);
