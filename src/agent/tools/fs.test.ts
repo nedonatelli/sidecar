@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { writeFile, editFile, readFile } from './fs.js';
+import { writeFile, editFile, readFile, applyReadView } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
 import { workspace } from 'vscode';
@@ -20,6 +20,42 @@ const editMsg = async (...args: Parameters<typeof editFile>): Promise<string> =>
  */
 const writeMsg = async (...args: Parameters<typeof writeFile>): Promise<string> =>
   writeFile(...args).catch((e: Error) => e.message);
+
+describe('applyReadView — line ranges + mode', () => {
+  const file = 'line1\nline2\nline3\nline4\nline5';
+
+  it('returns the full text when no range or mode is given', () => {
+    expect(applyReadView(file, undefined)).toBe(file);
+  });
+
+  it('returns a 1-based inclusive line range with NO line-number prefixes', () => {
+    expect(applyReadView(file, undefined, 2, 4)).toBe('line2\nline3\nline4');
+  });
+
+  it('start_line alone reads to end of file', () => {
+    expect(applyReadView(file, undefined, 4)).toBe('line4\nline5');
+  });
+
+  it('end_line alone reads from line 1', () => {
+    expect(applyReadView(file, undefined, undefined, 2)).toBe('line1\nline2');
+  });
+
+  it('clamps an end_line past EOF instead of erroring', () => {
+    expect(applyReadView(file, undefined, 4, 999)).toBe('line4\nline5');
+  });
+
+  it('reports a start_line past EOF rather than returning empty', () => {
+    expect(applyReadView(file, undefined, 99, 100)).toContain('past the end');
+  });
+
+  it('reports an inverted range', () => {
+    expect(applyReadView(file, undefined, 4, 2)).toContain('empty range');
+  });
+
+  it('a line range takes precedence over mode (raw lines, not outlined)', () => {
+    expect(applyReadView(file, 'outline', 1, 2)).toBe('line1\nline2');
+  });
+});
 
 describe('writeFile audit mode', () => {
   let buf: AuditBuffer;

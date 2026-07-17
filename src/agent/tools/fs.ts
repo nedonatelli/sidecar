@@ -446,7 +446,8 @@ export const readFileDef: ToolDefinition = {
     'Binary files (images, PDFs, compiled artifacts) return unreadable output; prefer `list_directory` to confirm the file type first. ' +
     'Modes: `full` (default) returns the raw file. `compact` strips block comments, full-line // and # comments, trailing whitespace, and runs of blank lines — use it when reading a large file just to understand what it does, before editing. `outline` returns only top-level signatures (imports, classes, functions, types) — use it for a high-level map of a large file you do NOT plan to edit. ' +
     'If you plan to call `edit_file` after reading, use `full` mode — the `search` argument has to match the file verbatim, and compact/outline strip text that might be inside your search string. ' +
-    'Example: `read_file(path="src/utils.ts")` for full contents, `read_file(path="src/large.ts", mode="compact")` for a leaner read.',
+    'To read only part of a large file, pass `start_line` and/or `end_line` (1-based, inclusive) — the returned text is the raw lines with NO line-number prefixes, so you can copy it straight into an `edit_file` `search`. A line range takes precedence over `mode`. ' +
+    'Example: `read_file(path="src/utils.ts")` for full contents, `read_file(path="src/large.ts", mode="compact")` for a leaner read, `read_file(path="src/big.ts", start_line=40, end_line=55)` for just those lines.',
   input_schema: {
     type: 'object',
     properties: {
@@ -455,7 +456,16 @@ export const readFileDef: ToolDefinition = {
         type: 'string',
         enum: ['full', 'compact', 'outline'],
         description:
-          'Output mode. `full` (default) returns raw file contents. `compact` strips comments and blank-line runs. `outline` returns signatures only.',
+          'Output mode. `full` (default) returns raw file contents. `compact` strips comments and blank-line runs. `outline` returns signatures only. Ignored when a line range is given.',
+      },
+      start_line: {
+        type: 'integer',
+        description:
+          'First line to return (1-based, inclusive). Omit to start at line 1. Use with end_line to read a range from a large file.',
+      },
+      end_line: {
+        type: 'integer',
+        description: 'Last line to return (1-based, inclusive). Omit to read to end of file.',
       },
     },
     required: ['path'],
@@ -575,6 +585,8 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
     return `Warning: "${filePath}" appears to contain secrets or credentials. Reading this file would send its contents to the LLM provider. Use read_file on a non-sensitive file instead, or ask the user to provide the needed information directly.`;
   }
   const mode = input.mode as string | undefined;
+  const startLine = toLineNum(input.start_line);
+  const endLine = toLineNum(input.end_line);
 
   // Audit Mode read-through: if the agent previously wrote this file
   // during the same session, return the buffered content rather than
@@ -586,9 +598,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
         throw new Error(`Error: File not found (${filePath}) — deleted in Audit Buffer pending review.`);
       }
       const text = bufState.content ?? '';
-      if (mode === 'compact') return compactSourceFile(text);
-      if (mode === 'outline') return outlineSourceFile(text);
-      return text;
+      return applyReadView(text, mode, startLine, endLine);
     }
     // Not buffered — fall through to real disk.
   }
@@ -667,6 +677,35 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   const text = Buffer.from(bytes).toString('utf-8');
   // Track this file as read so editFile knows the model has current content.
   context?.filesReadThisTurn?.add(path.posix.normalize(filePath.split(path.sep).join('/')));
+  return applyReadView(text, mode, startLine, endLine);
+}
+
+/** Coerce a line-number input (number or numeric string, as weak models send
+ *  either) to a positive integer, or undefined if it isn't one. */
+function toLineNum(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : undefined;
+}
+
+/**
+ * Apply the requested view to raw file text. A line range (start_line/end_line,
+ * 1-based inclusive) takes precedence over mode and returns the raw lines with NO
+ * line-number prefix, so the slice can be copied verbatim into an edit_file
+ * `search`. Without a range, mode selects full/compact/outline.
+ */
+export function applyReadView(text: string, mode: string | undefined, startLine?: number, endLine?: number): string {
+  if (startLine !== undefined || endLine !== undefined) {
+    const lines = text.split('\n');
+    const start = Math.max(1, startLine ?? 1);
+    const end = Math.min(lines.length, endLine ?? lines.length);
+    if (start > lines.length) {
+      return `(file has ${lines.length} line${lines.length === 1 ? '' : 's'}; requested start_line ${start} is past the end)`;
+    }
+    if (start > end) {
+      return `(empty range: start_line ${start} is after end_line ${end})`;
+    }
+    return lines.slice(start - 1, end).join('\n');
+  }
   if (mode === 'compact') return compactSourceFile(text);
   if (mode === 'outline') return outlineSourceFile(text);
   return text;
