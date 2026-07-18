@@ -406,7 +406,9 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     // Validate text-form calls against THIS iteration's catalog, not the full
     // set — otherwise a text-form call to a tool that plan mode has removed is
     // still parsed and recorded as a call. See resolveIterationTools.
-    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, resolveIterationTools(state));
+    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, resolveIterationTools(state), {
+      callExpressions: state.config.codeAsTextRecoveryEnabled === true,
+    });
     for (const tu of parsed) {
       pendingToolUses.push(tu);
       state.logger?.logToolCall(tu.name, tu.input);

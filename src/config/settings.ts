@@ -179,6 +179,8 @@ export interface SideCarConfig {
   editToWriteSteerEnabled: boolean;
   /** Consecutive failed edit_file calls on one file before the edit→write steer fires (min 2). */
   editToWriteSteerThreshold: number;
+  /** Code-as-text recovery package, aimed at the qwen2.5-coder pattern of doing the work in chat text instead of tool calls. Two coupled halves: (1) when the action reprompt fires on a turn containing an edit-shaped code fence or a fabricated <tool_output> wrapper, it uses targeted wording ("that code was NOT saved — call write_file(path=…, content=<complete file>)") instead of the generic nudge; (2) textParsing additionally recognizes call-expression syntax — `write_file(path="x", content="…")` — emitted as prose, which is exactly the shape the targeted wording elicits (observed live: the model answered the reprompt by printing the complete, correct call as text). Default OFF until the package is A/B-proven. */
+  codeAsTextRecoveryEnabled: boolean;
   keepBestOverEngineerBytes: number;
   /** Repeats of the same tool+file (normalized signature — content-aware,
    *  see cycleDetection.ts) before the loop bails as a stuck cycle. Also
@@ -554,6 +556,7 @@ function readConfig(): SideCarConfig {
     editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),
+    codeAsTextRecoveryEnabled: cfg.get<boolean>('recovery.codeAsText', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
     // Provider-aware default: an empty `critic.model` historically meant

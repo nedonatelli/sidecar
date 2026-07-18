@@ -15,7 +15,7 @@ import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { isAuditModeActive } from './auditHelper.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 import { computeLineDiff } from './diffUtils.js';
-import { editWouldBreakSyntax, canParseSyntax } from './syntaxCheck.js';
+import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
 import { delimiterBalance, balanceEquals } from '../delimiters.js';
 
 /**
@@ -741,7 +741,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
       `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to write to this file.`,
     );
   }
-  const content = input.content as string;
+  let content = input.content as string;
 
   // --- Rewrite-thrash guards (per-run state threaded via context) ---
 
@@ -842,12 +842,27 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // reported success. An absent file reads as empty, which parses clean, so the
   // same rule covers creation. Fails open when no grammar applies (md, json…).
   const syntax = await editWouldBreakSyntax(filePath, original ?? '', content);
+  let escapeRecoveryNote = '';
   if (syntax.refuse) {
-    throw new Error(
-      (syntax.message ?? '').replace('edit_file refused this edit to', 'write_file refused this write to') +
-        `\n\nTo change part of a file, prefer edit_file(path, search, replace) — it edits in place instead of ` +
-        `replacing the whole file.`,
-    );
+    // Code-as-text recovery: content serialized with literal \n escapes
+    // (llama3.2's signature failure) decodes to valid source — apply the
+    // decoded variant only when the parse gate proves it, and disclose.
+    const recovered =
+      context?.config?.codeAsTextRecoveryEnabled === true
+        ? await tryLiteralEscapeRecovery(filePath, original ?? '', content)
+        : null;
+    if (recovered === null) {
+      throw new Error(
+        (syntax.message ?? '').replace('edit_file refused this edit to', 'write_file refused this write to') +
+          `\n\nTo change part of a file, prefer edit_file(path, search, replace) — it edits in place instead of ` +
+          `replacing the whole file.`,
+      );
+    }
+    content = recovered;
+    escapeRecoveryNote =
+      `\n[note: your content contained literal \\n escape sequences where line breaks belong. They were ` +
+      `decoded to real newlines and the decoded file parses cleanly. Send content with real line breaks, ` +
+      `not \\n escapes.]`;
   }
 
   if (context?.editTimeline && !context.cwd) {
@@ -862,7 +877,43 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     if (patch) context.onOutput(DIFF_PREFIX + patch);
   }
 
-  return `File written: ${filePath}`;
+  return `File written: ${filePath}` + escapeRecoveryNote;
+}
+
+/**
+ * Split a fused anchor+content insertion: the longest leading run of full
+ * lines that appears verbatim in the file is the anchor; the rest (non-empty)
+ * is the content to insert. Null when no split works — the caller keeps its
+ * normal missing-search error. Pure; exported for tests.
+ */
+export function splitFusedAnchor(fileText: string, insertion: string): { anchor: string; remainder: string } | null {
+  const lines = insertion.split('\n');
+  for (let k = lines.length - 1; k >= 1; k--) {
+    const anchor = lines.slice(0, k).join('\n');
+    if (anchor.trim() === '' || !fileText.includes(anchor)) continue;
+    const remainder = lines.slice(k).join('\n');
+    if (remainder.trim() === '') return null; // pure anchor echo — nothing to insert
+    return { anchor, remainder };
+  }
+  return null;
+}
+
+/**
+ * Directive error for `search: ""`. The old path fell through to the
+ * multiple-match branch — an empty string "appears" at every character, so the
+ * model was told "search appears 69 times, add more surrounding context",
+ * which is unactionable when there is no string to add context to. Observed
+ * as qwen2.5-coder's and llama3.2's standard add-code move on the calculator
+ * session: search="" + the new functions in replace. Name the two calls that
+ * actually do what they want.
+ */
+function emptySearchError(filePath: string): string {
+  return (
+    `Error: edit_file failed — 'search' is empty. edit_file replaces an EXACT existing string, so 'search' must ` +
+    `contain the current text you want to replace. The file was NOT modified. To ADD new code instead: call ` +
+    `edit_file(path="${filePath}", search=<an existing line to anchor on, copied verbatim>, insert_after=<the new ` +
+    `code>), or write_file(path="${filePath}", content=<the COMPLETE file including your new code>).`
+  );
 }
 
 export async function editFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
@@ -904,6 +955,27 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       throw new Error(`Error: edit_file received both 'insert_before' and 'insert_after'. Use one.`);
     }
     if (search === undefined) {
+      // FUSED-ANCHOR RECOVERY (code-as-text package). qwen2.5-coder's insert
+      // move on the calculator session: everything in `insert_after`, no
+      // `search` — and the value STARTS with the existing anchor block
+      // (`def subtract…` verbatim) followed by the new code. The longest
+      // leading line-prefix that appears verbatim in the file IS the anchor;
+      // the remainder is the insertion. Split, dispatch, disclose. The inner
+      // editFile still enforces anchor uniqueness and the syntax guard.
+      if (insertAfter !== undefined && context?.config?.codeAsTextRecoveryEnabled === true) {
+        const currentText = isAuditModeActive(context)
+          ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)) ?? '')
+          : ((await readDiskViaWorkspace(context, filePath)) ?? '');
+        const split = splitFusedAnchor(currentText, insertAfter);
+        if (split) {
+          return editFile({ path: filePath, search: split.anchor, insert_after: split.remainder }, context).then(
+            (r) =>
+              `[note: 'search' was missing and your 'insert_after' began with text already in the file. That ` +
+              `leading text was used as the anchor and only the remainder was inserted after it. Pass the anchor ` +
+              `in 'search' and ONLY the new code in 'insert_after'.]\n${r}`,
+          );
+        }
+      }
       throw new Error(
         `Error: edit_file needs 'search' — the existing text to insert ${insertBefore !== undefined ? 'before' : 'after'} — ` +
           `alongside '${insertBefore !== undefined ? 'insert_before' : 'insert_after'}'. Call read_file(path="${filePath}") ` +
@@ -1196,6 +1268,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
       );
     }
+    if (search === '') {
+      throw new Error(emptySearchError(filePath));
+    }
     const matchCount = currentText.split(search).length - 1;
     if (matchCount > 1) {
       throw new Error(
@@ -1360,6 +1435,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
     );
   }
+  if (search === '') {
+    throw new Error(`${unreadPrefix}${emptySearchError(filePath)}`);
+  }
   const matchCount = text.split(search).length - 1;
   if (matchCount > 1) {
     throw new Error(
@@ -1438,9 +1516,25 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   const syntax = await editWouldBreakSyntax(filePath, text, newText);
+  let escapeRecoveryNote = '';
   if (syntax.refuse) {
-    recordEditFailure(context, filePath, search, replace);
-    throw new Error(`${unreadPrefix}${syntax.message}`);
+    // Same code-as-text escape recovery as write_file — the replace text
+    // arrived as an escaped string (`def multiply(a, b):\n    return a * b`
+    // with literal backslash-n). Decode, and keep it only if the parse gate
+    // proves the decode fixed the file.
+    const recovered =
+      context?.config?.codeAsTextRecoveryEnabled === true
+        ? await tryLiteralEscapeRecovery(filePath, text, newText)
+        : null;
+    if (recovered === null) {
+      recordEditFailure(context, filePath, search, replace);
+      throw new Error(`${unreadPrefix}${syntax.message}`);
+    }
+    newText = recovered;
+    escapeRecoveryNote =
+      `\n[note: your replace text contained literal \\n escape sequences where line breaks belong. They were ` +
+      `decoded to real newlines and the decoded file parses cleanly. Send replace text with real line breaks, ` +
+      `not \\n escapes.]`;
   }
 
   const patch = computeLineDiff(text, newText, filePath);
@@ -1470,7 +1564,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // model can see — and self-verify — the outcome. Bounded because extra context
   // can overwhelm a weak model (LOCAL_MAX_SYSTEM_CHARS); the char cap is the config
   // value, and the A/B decides whether it helps or is just noise.
-  return `${duplicateTrimNote}File edited: ${filePath}${partialReplaceWarning}${editDiffSuffix(patch, context)}`;
+  return `${duplicateTrimNote}File edited: ${filePath}${partialReplaceWarning}${escapeRecoveryNote}${editDiffSuffix(patch, context)}`;
 }
 
 /**

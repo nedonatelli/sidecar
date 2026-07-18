@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { checkSyntax, editWouldBreakSyntax, __setParserForTests, __resetParserCache } from './syntaxCheck.js';
+import {
+  checkSyntax,
+  editWouldBreakSyntax,
+  tryLiteralEscapeRecovery,
+  __setParserForTests,
+  __resetParserCache,
+} from './syntaxCheck.js';
 
 // Unit tests have no extension host, so no grammars path — the real parser is
 // unavailable and every check must FAIL OPEN. The error-detecting behaviour is
@@ -107,5 +113,34 @@ describe('editWouldBreakSyntax', () => {
   it('fails open for a language with no grammar', async () => {
     const verdict = await editWouldBreakSyntax('notes.md', '# hi', '### ( not code');
     expect(verdict.refuse).toBe(false);
+  });
+});
+
+describe('tryLiteralEscapeRecovery (code-as-text escape contamination)', () => {
+  it('decodes the llama3.2 calculator shape — literal \\n between statements — when the decode parses', async () => {
+    // Verbatim failure shape from the steer A/B (r1-on): content arrived as an
+    // escaped string; every write was refused; the run died with the model's
+    // code complete but undeliverable.
+    const contaminated =
+      'import math\\n\\ndef add(a, b):\\n    return a + b\\n\\ndef subtract(a, b):\\n    return a - b\\n';
+    const recovered = await tryLiteralEscapeRecovery('calculator.py', '', contaminated);
+    expect(recovered).not.toBeNull();
+    expect(recovered).toContain('import math\n\ndef add(a, b):\n    return a + b');
+    expect(recovered).not.toContain('\\n');
+  });
+
+  it('returns null when the content has no literal escapes', async () => {
+    expect(await tryLiteralEscapeRecovery('a.py', '', 'def broken(:\n    pass\n')).toBeNull();
+  });
+
+  it('returns null when decoding does not fix the parse', async () => {
+    // Broken def stays broken after decode; an in-string \n that decodes to a
+    // real newline inside quotes only adds to the damage. No rescue.
+    const contaminated = "def f(:\\n    x = 'a\\nb'\\n";
+    expect(await tryLiteralEscapeRecovery('a.py', '', contaminated)).toBeNull();
+  });
+
+  it('returns null for a grammarless file — no positive parse, no rescue', async () => {
+    expect(await tryLiteralEscapeRecovery('notes.md', '', 'line one\\nline two')).toBeNull();
   });
 });

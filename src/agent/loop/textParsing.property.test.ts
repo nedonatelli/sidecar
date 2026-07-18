@@ -61,11 +61,22 @@ describe('coerceArgValue — properties', () => {
     );
   });
 
-  it('strips a matching pair of double quotes → the inner string verbatim', () => {
-    const inner = fc.stringMatching(/^[^"]*$/);
+  it('strips a matching pair of double quotes → the inner string verbatim (no escapes)', () => {
+    // Backslash-free only: a double-quoted literal WITH escapes is JSON-decoded
+    // (code-as-text recovery — `content="a\nb"` must yield a real newline), so
+    // verbatim-strip is the contract only when no escape sequences are present.
+    const inner = fc.stringMatching(/^[^"\\]*$/);
     fc.assert(
       fc.property(inner, (s) => {
         expect(coerceArgValue(`"${s}"`)).toBe(s);
+      }),
+    );
+  });
+
+  it('JSON-decodes any JSON-encodable string: coerceArgValue(JSON.stringify(s)) === s', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        expect(coerceArgValue(JSON.stringify(s))).toBe(s);
       }),
     );
   });

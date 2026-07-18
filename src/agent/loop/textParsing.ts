@@ -89,7 +89,20 @@ export function splitTopLevelArgs(s: string): string[] {
 /** Coerce a raw Python-kwarg value token to a JS value (string/number/bool/null). Exported for tests. */
 export function coerceArgValue(raw: string): unknown {
   const t = raw.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+  if (t.startsWith('"') && t.endsWith('"')) {
+    // A double-quoted literal is usually a valid JSON string carrying \n / \"
+    // escapes the model MEANS as newlines and quotes — write_file content
+    // emitted as `content="def add(a, b):\n  return a + b"` must land on disk
+    // with real newlines, not literal backslash-n. Fall back to a bare slice
+    // when the literal isn't valid JSON (e.g. contains real newlines, which
+    // are already what the model intended).
+    try {
+      return JSON.parse(t);
+    } catch {
+      return t.slice(1, -1);
+    }
+  }
+  if (t.startsWith("'") && t.endsWith("'")) {
     return t.slice(1, -1);
   }
   if (t === 'true' || t === 'True') return true;
@@ -172,12 +185,19 @@ export function isDegenerateText(text: string): boolean {
  * (text-only rehydration) the JSON stubs were most of what the user saw
  * ("outputs don't seem to be stored" — they were, drowned in call syntax).
  */
+export interface TextParseOpts {
+  /** Also recognize call-expression syntax emitted as prose — `write_file(path="x", content="…")`.
+   *  Part of the code-as-text recovery package (`recovery.codeAsText`), opt-in until proven. */
+  callExpressions?: boolean;
+}
+
 export function parseTextToolCallsCleaned(
   text: string,
   tools: ToolDefinition[],
+  opts?: TextParseOpts,
 ): { calls: ToolUseContentBlock[]; cleanedText: string } {
   const spans: Array<[number, number]> = [];
-  const calls = parseTextToolCallsInternal(text, tools, spans);
+  const calls = parseTextToolCallsInternal(text, tools, spans, opts);
   if (spans.length === 0) return { calls, cleanedText: text };
   spans.sort((a, b) => a[0] - b[0]);
   let cleaned = '';
@@ -191,14 +211,15 @@ export function parseTextToolCallsCleaned(
   return { calls, cleanedText: cleaned.replace(/\n{3,}/g, '\n\n').trim() };
 }
 
-export function parseTextToolCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
-  return parseTextToolCallsInternal(text, tools);
+export function parseTextToolCalls(text: string, tools: ToolDefinition[], opts?: TextParseOpts): ToolUseContentBlock[] {
+  return parseTextToolCallsInternal(text, tools, undefined, opts);
 }
 
 function parseTextToolCallsInternal(
   text: string,
   tools: ToolDefinition[],
   spans?: Array<[number, number]>,
+  opts?: TextParseOpts,
 ): ToolUseContentBlock[] {
   const toolNames = new Set(tools.map((t) => t.name));
   const results: ToolUseContentBlock[] = [];
@@ -397,7 +418,145 @@ function parseTextToolCallsInternal(
     }
   }
 
+  // Pattern 5 (opt-in, lowest priority): call-expression syntax as prose —
+  // `write_file(path="calculator.py", content="def add…")`. This is EXACTLY the
+  // shape the code-as-text reprompt elicits from qwen2.5-coder:7b (observed
+  // live on the calculator session: told "emit the tool call", it printed the
+  // complete, correct call in backticks — and the turn was discarded as text).
+  // Only fires when every other pattern found nothing: it is a rescue for an
+  // otherwise text-only turn, same family as paramRemap / toolNameAlias.
+  if (firstType === null && results.length === 0 && opts?.callExpressions) {
+    for (const call of parseCallExpressions(text, toolNames)) {
+      spans?.push(call.span);
+      results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name: call.name, input: call.input });
+    }
+  }
+
   return results;
+}
+
+/** Fence languages that denote source code, where call syntax is ordinary code
+ *  (`calculator.divide(10, 2)`) rather than an intended tool call. Kwarg-form +
+ *  known-name checks already reject most of it; skipping these fences removes
+ *  the rest. sh/json/unlabelled fences stay scannable — models put calls there. */
+const SOURCE_FENCE_LANGS = new Set([
+  'javascript',
+  'js',
+  'jsx',
+  'typescript',
+  'ts',
+  'tsx',
+  'python',
+  'py',
+  'go',
+  'rust',
+  'rs',
+  'java',
+  'c',
+  'cpp',
+  'c++',
+  'csharp',
+  'cs',
+  'ruby',
+  'rb',
+  'php',
+  'swift',
+  'kotlin',
+  'scala',
+]);
+
+/** Max call expressions accepted from one turn — a plan of a few steps is
+ *  intent; dozens of matches is a document, not a call list. */
+const MAX_CALL_EXPRESSIONS = 5;
+
+/** End index of the `)` closing the paren opened at `openParen`, honoring
+ *  quoted strings (double/single, backslash escapes). -1 when unterminated. */
+function findCallParenEnd(text: string, openParen: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  const limit = Math.min(text.length, openParen + 50_000);
+  for (let i = openParen; i < limit; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === '\\')
+        i++; // skip the escaped char
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '(') depth++;
+    else if (c === ')') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Extract tool calls written as call expressions in prose. Requirements that
+ * keep prose mentions from dispatching: the name must be a dispatchable tool,
+ * not attribute access (`x.read_file(…)` is code, not a call), every argument
+ * must be kwarg-form (`key=value` — positional calls are code or hand-waving),
+ * at least one kwarg must be present, and source-language fences are skipped
+ * entirely. Duplicate name+args pairs collapse to one call (models often print
+ * the call once as narration and once as "let's proceed").
+ */
+export function parseCallExpressions(
+  text: string,
+  toolNames: Set<string>,
+): Array<{ name: string; input: Record<string, unknown>; span: [number, number] }> {
+  // Spans of source-language fenced blocks — candidates inside are skipped.
+  const excluded: Array<[number, number]> = [];
+  const fence = /```([\w+#]*)\s*\n[\s\S]*?(?:```|$)/g;
+  let fm: RegExpExecArray | null;
+  while ((fm = fence.exec(text)) !== null) {
+    if (SOURCE_FENCE_LANGS.has(fm[1].toLowerCase())) excluded.push([fm.index, fm.index + fm[0].length]);
+  }
+  const inExcluded = (i: number) => excluded.some(([s, e]) => i >= s && i < e);
+
+  const out: Array<{ name: string; input: Record<string, unknown>; span: [number, number] }> = [];
+  const seen = new Set<string>();
+  const candidate = /\b([A-Za-z_]\w*)\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = candidate.exec(text)) !== null && out.length < MAX_CALL_EXPRESSIONS) {
+    const name = m[1];
+    const nameStart = m.index;
+    if (inExcluded(nameStart)) continue;
+    if (nameStart > 0 && (text[nameStart - 1] === '.' || /\w/.test(text[nameStart - 1]))) continue; // attribute access
+    if (!isDispatchableName(name, toolNames)) continue;
+    const openParen = m.index + m[0].length - 1;
+    const closeParen = findCallParenEnd(text, openParen);
+    if (closeParen === -1) continue;
+    const inner = text.slice(openParen + 1, closeParen);
+    // Every top-level argument must be kwarg-form; bail on positional/empty.
+    const parts = splitTopLevelArgs(inner);
+    if (parts.length === 0 || !parts.every((p) => /^\s*[A-Za-z_]\w*\s*=/.test(p))) continue;
+    const parsed = parseMangledToolName(text.slice(nameStart, closeParen + 1));
+    if (!parsed || Object.keys(parsed.input).length === 0) continue;
+    // Placeholder echo: a model answering the code-as-text reprompt sometimes
+    // copies its call template verbatim, placeholder included — observed live:
+    // write_file(content="<the COMPLETE file — everything already in it PLUS
+    // your new code>"). An angle-bracketed value is a template slot, not an
+    // argument; dispatching it wrote garbage that only the syntax guard caught.
+    const hasPlaceholderArg = Object.values(parsed.input).some(
+      (v) => typeof v === 'string' && /^<[^<>]*>$/.test(v.trim()),
+    );
+    if (hasPlaceholderArg) continue;
+    const key = `${parsed.name}:${JSON.stringify(parsed.input)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Strip wrapping backticks along with the call so no stray ` survives.
+    let s: number = nameStart;
+    let e: number = closeParen + 1;
+    if (text[s - 1] === '`' && text[e] === '`') {
+      s--;
+      e++;
+    }
+    out.push({ name: parsed.name, input: parsed.input, span: [s, e] });
+    candidate.lastIndex = closeParen + 1;
+  }
+  return out;
 }
 
 /**

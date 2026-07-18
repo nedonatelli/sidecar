@@ -90,7 +90,8 @@ describe.skipIf(!backend)('llm-eval :: long-horizon', () => {
       const passedTurns = r.turns.filter((t) => t.passed).length;
       lines.push(
         `  ${status.padEnd(11)} ${r.caseId.padEnd(26)} ${passedTurns}/${r.turns.length} turns  ` +
-          `compaction=${r.compressionCount}  history=${r.finalHistoryLength}  editDiffShown=${r.editDiffShownCount}`,
+          `compaction=${r.compressionCount}  history=${r.finalHistoryLength}  editDiffShown=${r.editDiffShownCount}  ` +
+          `steer=${r.steerFiredCount}  reprompt=${r.actionRepromptFiredCount}`,
       );
     }
     // eslint-disable-next-line no-console -- intentional report output

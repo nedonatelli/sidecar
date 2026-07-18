@@ -273,6 +273,41 @@ export async function editWouldBreakSyntax(
   };
 }
 
+/**
+ * Escape-contamination recovery (code-as-text package): when proposed content
+ * contains literal `\n` / `\t` two-char sequences and fails the syntax guard,
+ * try the variant with those escapes decoded to real whitespace. Returns the
+ * normalized content ONLY when the parse gate proves the decode fixed it —
+ * normalized parses with no more errors than the file had before — else null.
+ *
+ * The failure this targets (llama3.2, lh-calculator-session, steer A/B r1):
+ * every write_file/edit_file carried content like `import math\n\ndef add…`
+ * with LITERAL backslash-n between statements — the model serialized its code
+ * as an escaped string. Every attempt was correctly refused by the guard and
+ * the run died with the model's code complete but undeliverable.
+ *
+ * The parse gate is what makes blanket decoding safe: decoding a legitimate
+ * in-string `"a\nb"` escape puts a real newline inside a quoted literal, which
+ * fails to parse in Python/JS strings — so a harmful decode rejects itself.
+ * (Triple-quoted / template literals accept the newline but render the same
+ * string, so the survivors are semantics-preserving.) No positive parse, no
+ * rescue; unchecked grammars never rescue.
+ */
+export async function tryLiteralEscapeRecovery(
+  filePath: string,
+  before: string,
+  after: string,
+): Promise<string | null> {
+  if (!/\\[nt]/.test(after)) return null;
+  const normalized = after.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  if (normalized === after) return null;
+  const normCheck = await checkSyntax(filePath, normalized);
+  if (!normCheck.checked) return null;
+  const beforeCheck = await checkSyntax(filePath, before);
+  if (!beforeCheck.checked) return null;
+  return normCheck.errorCount <= beforeCheck.errorCount ? normalized : null;
+}
+
 /** Test seam: inject a parser (or null) for a grammar without touching disk. */
 export function __setParserForTests(grammar: string, parser: TsParser | null): void {
   parserCache.set(grammar, parser);

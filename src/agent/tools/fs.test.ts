@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { writeFile, editFile, readFile, applyReadView } from './fs.js';
+import { writeFile, editFile, readFile, applyReadView, splitFusedAnchor } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
 import { workspace } from 'vscode';
@@ -134,6 +134,24 @@ describe('editFile audit mode', () => {
       (e: Error) => e.message,
     );
     expect(err).toContain('edit_file failed');
+  });
+
+  it('empty search gets the directive add-code error, not "appears N times"', async () => {
+    // search:"" fell through to the multiple-match branch — an empty string
+    // "appears" at every character, so the model was told "appears 69 times,
+    // add more surrounding context": unactionable with no string to add
+    // context to. qwen2.5-coder's and llama3.2's standard add-code move on
+    // the calculator session (search="" + new functions in replace).
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('src/calc.py', 'def add(a, b):\n    return a + b\n', async () => undefined);
+    const err = await editMsg({ path: 'src/calc.py', search: '', replace: 'def multiply(a, b):' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(err).toContain("'search' is empty");
+    expect(err).toContain('insert_after');
+    expect(err).toContain('write_file');
+    expect(err).not.toContain('appears');
+    expect(buf.read('src/calc.py').content).toBe('def add(a, b):\n    return a + b\n');
   });
 
   it('returns error when search string appears multiple times in buffered content', async () => {
@@ -1165,6 +1183,37 @@ describe('write_file syntax guard (edit_file bypass)', () => {
 
     const result = await writeFile({ path: 'src/new.ts', content: 'export const x = 1;\n' });
     expect(result).toContain('File written');
+  });
+});
+
+describe('splitFusedAnchor (fused anchor+content recovery)', () => {
+  const file = 'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n';
+
+  it('splits the live qwen2.5-coder shape: anchor block followed by new code', () => {
+    const insertion = 'def subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b';
+    const split = splitFusedAnchor(file, insertion);
+    expect(split).not.toBeNull();
+    // Greedy split may keep the trailing blank line with the anchor — same insert.
+    expect(split!.anchor.trimEnd()).toBe('def subtract(a, b):\n    return a - b');
+    expect(split!.remainder).toContain('def multiply(a, b):');
+    expect(split!.remainder).not.toContain('subtract');
+  });
+
+  it('returns null when nothing leads with existing text', () => {
+    expect(splitFusedAnchor(file, 'def multiply(a, b):\n    return a * b')).toBeNull();
+  });
+
+  it('returns null for a pure anchor echo with no new content', () => {
+    expect(splitFusedAnchor(file, 'def subtract(a, b):\n    return a - b\n\n')).toBeNull();
+  });
+
+  it('prefers the LONGEST matching prefix as the anchor', () => {
+    // Both 1-line and 2-line prefixes exist in the file; the 2-line one wins so
+    // the remainder contains only genuinely new code.
+    const insertion = 'def add(a, b):\n    return a + b\n\ndef half(a):\n    return a / 2';
+    const split = splitFusedAnchor(file, insertion)!;
+    expect(split.anchor.trimEnd()).toBe('def add(a, b):\n    return a + b');
+    expect(split.remainder).not.toContain('return a + b');
   });
 });
 

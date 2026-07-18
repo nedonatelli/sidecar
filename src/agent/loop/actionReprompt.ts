@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
+import { hasEditShapedCodeBlock } from './unappliedEdit.js';
 
 // ---------------------------------------------------------------------------
 // Action-request reprompt — onEmptyResponse policy.
@@ -79,8 +80,10 @@ function lastUserMessageText(messages: ChatMessage[]): string {
             .join(' ');
     // Tool results and other text-free blocks carry no intent.
     if (raw.trim() === '') continue;
-    // Skip synthetic gate injections — they start with '[Completion gate'
-    // or '[You have not read'. Only the user's original intent counts.
+    // Skip synthetic loop injections — gate reprompts, and this hook's own
+    // messages, all start with '['. Only the user's original intent counts;
+    // without this the reprompt's own injection masked the user's request and
+    // disarmed every firing after the first.
     if (raw.startsWith('[')) continue;
     return raw;
   }
@@ -106,9 +109,44 @@ export function looksLikeDeferredAction(text: string): boolean {
 }
 
 /**
+ * True when the model's text contains a fabricated tool-interaction wrapper —
+ * `<tool_output …>` / `<tool_response>` written by the model itself. Real tool
+ * results only ever appear in tool_result blocks the loop sends back; an
+ * assistant emitting the wrapper is roleplaying the result of a call it never
+ * made, and now BELIEVES the action happened. Observed live (qwen2.5-coder:7b,
+ * lh-calculator-session): it printed `<tool_response><tool_output
+ * tool="edit_file">{…args…}` as text, concluded the edit landed, and terminated
+ * with the file unchanged. This is the strongest "thinks it acted, didn't"
+ * signal there is.
+ */
+export function hasFakeToolOutput(text: string): boolean {
+  return /<tool_(?:output|response)\b/i.test(text);
+}
+
+/** First workspace-file reference in `text`, or null — names the write target
+ *  in the code-as-text reprompt so the model gets a concrete call to make. */
+function extractTargetPath(text: string): string | null {
+  const m = FILE_PATH_RE.exec(text);
+  return m ? m[0] : null;
+}
+
+/**
  * Inject a reprompt when the model responded with text but no tool calls
  * on what looks like an action request. Returns true when a reprompt was
  * injected (caller should `continue` the loop).
+ *
+ * Two firing shapes:
+ *   - generic: the model narrated instead of acting — "use tools".
+ *   - code-as-text: the model printed the finished code in a fenced block (or
+ *     fabricated a <tool_output> wrapper) and believes the work is done. The
+ *     generic wording measured 0-for-3 converting qwen2.5-coder:7b on the
+ *     calculator session; the targeted wording names the exact call to make and
+ *     tells it the printed code was never saved.
+ *
+ * Both injected texts start with '[' so lastUserMessageText skips them —
+ * without that, the reprompt's own injection became "the user's last message",
+ * matched neither trigger, and disarmed the second firing exactly when the
+ * model doubled down on fake output (observed live on qwen2.5-coder:7b).
  */
 export function maybeInjectActionReprompt(state: LoopState, fullText: string, callbacks: AgentCallbacks): boolean {
   const maxActionReprompts = state.scaffoldingProfile?.maxActionReprompts ?? MAX_ACTION_REPROMPTS;
@@ -116,28 +154,46 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   if (!fullText) return false;
   if (state.tools.length === 0) return false;
 
+  // codeAsText / fakeOutput pick the WORDING, not the trigger — a code fence on
+  // a plain question is a legitimate final answer, so firing still requires an
+  // action-request user message or announced-but-unexecuted intent. Targeted
+  // wording is opt-in (unproven) — see codeAsTextRecoveryEnabled in settings.ts.
+  const wordingEnabled = state.config.codeAsTextRecoveryEnabled === true;
+  const codeAsText = wordingEnabled && hasEditShapedCodeBlock(fullText);
+  const fakeOutput = wordingEnabled && hasFakeToolOutput(fullText);
   const userText = lastUserMessageText(state.messages);
   const triggered = isActionRequest(userText) || looksLikeDeferredAction(fullText);
   if (!triggered) return false;
 
   state.actionRepromptCount++;
+  const shape = codeAsText || fakeOutput ? 'code-as-text' : 'generic';
   state.logger?.info(
-    `Action-request reprompt fired (#${state.actionRepromptCount}/${maxActionReprompts}): ` +
+    `Action-request reprompt fired (#${state.actionRepromptCount}/${maxActionReprompts}, ${shape}): ` +
       `model responded with text only on an action request`,
   );
   callbacks.onText('\n\n⚙️ No tool calls detected — re-prompting to use tools...\n');
-  state.messages.push({
-    role: 'user',
-    content: [
-      {
-        type: 'text' as const,
-        text:
-          'Your last response was text only — you described what to do but did not call any tools. ' +
-          'The request requires you to actually use tools to make changes. ' +
-          'Call the appropriate tools now (read_file, edit_file, run_command, etc.) ' +
-          'rather than explaining what you would do.',
-      },
-    ],
-  });
+
+  let text: string;
+  if (codeAsText || fakeOutput) {
+    const target = extractTargetPath(userText);
+    const pathArg = target ? `path="${target}"` : 'path=<the file the task names>';
+    const fakeNote = fakeOutput
+      ? ' The <tool_output>/<tool_response> block you wrote yourself is fiction — real tool results only arrive ' +
+        'after you emit an actual tool call.'
+      : '';
+    text =
+      `[Code not applied] The code you printed was NOT saved — chat text never modifies a file.${fakeNote} ` +
+      `Apply it now with a real tool call: write_file(${pathArg}, content=<the COMPLETE file — everything ` +
+      `already in it PLUS your new code>). If you are unsure of the current contents, call ` +
+      `read_file(${pathArg}) first, then write_file with everything. Emit the tool call directly — do not ` +
+      `print the code as chat text again.`;
+  } else {
+    text =
+      '[No tools called] Your last response was text only — you described what to do but did not call any tools. ' +
+      'The request requires you to actually use tools to make changes. ' +
+      'Call the appropriate tools now (read_file, edit_file, run_command, etc.) ' +
+      'rather than explaining what you would do.';
+  }
+  state.messages.push({ role: 'user', content: [{ type: 'text' as const, text }] });
   return true;
 }

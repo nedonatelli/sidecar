@@ -666,3 +666,124 @@ describe('parseTextToolCallsCleaned — excises the dispatched call from the tex
     expect(cleanedText).toContain('That is it.');
   });
 });
+
+describe('parseCallExpressions (pattern 5 — code-as-text recovery, opt-in)', () => {
+  const tools = defineTools('read_file', 'write_file', 'edit_file', 'run_tests');
+  const opts = { callExpressions: true };
+
+  it('parses the live qwen2.5-coder shape: a complete write_file call in backticks', () => {
+    // Verbatim shape from the lh-calculator-session trajectory (2026-07-17):
+    // told "emit the tool call", the model printed the complete correct call as prose.
+    const text =
+      "Let's proceed with these steps directly:\n" +
+      '1. `write_file(path="calculator.py", content="def add(a, b):\\n  return a + b\\n\\ndef divide(a, b):\\n  if b == 0:\\n  raise ValueError(\\"Cannot divide by zero\\")\\n  return a / b")`\n';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('write_file');
+    expect(calls[0].input.path).toBe('calculator.py');
+    // Escapes decode to REAL newlines and quotes — the file must not land as one line of \n literals.
+    expect(calls[0].input.content).toContain('def add(a, b):\n  return a + b');
+    expect(calls[0].input.content).toContain('raise ValueError("Cannot divide by zero")');
+  });
+
+  it('parses multiple calls as a plan, in order', () => {
+    const text =
+      '1. `edit_file(path="calculator.py", search="def add", replace="def add2")`\n' +
+      '2. `run_tests(file="test_calculator.py")`';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls.map((c) => c.name)).toEqual(['edit_file', 'run_tests']);
+    expect(calls[1].input).toEqual({ file: 'test_calculator.py' });
+  });
+
+  it('collapses the narrated call and the "let us proceed" duplicate into one', () => {
+    const text =
+      'I will run `run_tests(file="test_calculator.py")`.\n\nProceeding:\nrun_tests(file="test_calculator.py")';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('is OFF by default — the same text parses to nothing without the opt', () => {
+    const text = '`write_file(path="a.py", content="x = 1")`';
+    expect(parseTextToolCalls(text, tools)).toEqual([]);
+  });
+
+  it('never fires when another pattern already matched (rescue-only priority)', () => {
+    const text =
+      '```json\n{"name": "read_file", "arguments": {"path": "a.py"}}\n```\n' +
+      'Then `write_file(path="a.py", content="x")`.';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('read_file');
+  });
+
+  it('ignores calls inside source-language fences — that is code, not a tool call', () => {
+    const text = '```python\nresult = read_file(path="data.csv")\n```';
+    expect(parseTextToolCalls(text, tools, opts)).toEqual([]);
+  });
+
+  it('still parses calls inside sh and unlabelled fences', () => {
+    const text = '```sh\nrun_tests(file="test_calculator.py")\n```';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('run_tests');
+  });
+
+  it('rejects attribute access, positional args, unknown names, and empty calls', () => {
+    const tests = [
+      'calculator.read_file(path="x.py") is how the module loads it', // attribute access
+      'call read_file("x.py") to load it', // positional
+      'not_a_tool(path="x.py")', // unknown name
+      'read_file() returns the contents', // no args
+    ];
+    for (const text of tests) {
+      expect(parseTextToolCalls(text, tools, opts)).toEqual([]);
+    }
+  });
+
+  it('handles parens and escaped quotes inside string arguments', () => {
+    const text = 'write_file(path="a.py", content="print(\\"hi (there)\\")\\n")';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].input.content).toBe('print("hi (there)")\n');
+  });
+
+  it('excises the call (and wrapping backticks) from the cleaned text', () => {
+    const text = 'Applying now:\n`write_file(path="a.py", content="x = 1")`\nDone.';
+    const { calls, cleanedText } = parseTextToolCallsCleaned(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(cleanedText).not.toContain('write_file');
+    expect(cleanedText).not.toContain('`');
+    expect(cleanedText).toContain('Applying now:');
+    expect(cleanedText).toContain('Done.');
+  });
+
+  it('caps runaway matches at 5 calls', () => {
+    const text = Array.from({ length: 9 }, (_, i) => `read_file(path="f${i}.py")`).join('\n');
+    expect(parseTextToolCalls(text, tools, opts)).toHaveLength(5);
+  });
+
+  it('resolves aliased names so create_file still dispatches', () => {
+    const text = 'create_file(path="new.py", content="x = 1")';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('create_file'); // alias preserved; executor discloses the canonical name
+  });
+});
+
+describe('parseCallExpressions — placeholder echo rejection', () => {
+  const tools = defineTools('write_file', 'read_file');
+  const opts = { callExpressions: true };
+
+  it('rejects a call whose arg is an angle-bracket template slot (live reprompt echo)', () => {
+    const text =
+      'write_file(path="calculator.py", content="<the COMPLETE file — everything already in it PLUS your new code>")';
+    expect(parseTextToolCalls(text, tools, opts)).toEqual([]);
+  });
+
+  it('still accepts real content that merely contains angle brackets', () => {
+    const text = 'write_file(path="index.html", content="<html>\\n<body>hi</body>\\n</html>")';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].input.content).toContain('<body>hi</body>');
+  });
+});

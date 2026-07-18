@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isActionRequest, looksLikeDeferredAction, maybeInjectActionReprompt } from './actionReprompt.js';
+import {
+  isActionRequest,
+  looksLikeDeferredAction,
+  hasFakeToolOutput,
+  maybeInjectActionReprompt,
+} from './actionReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
 describe('isActionRequest', () => {
@@ -98,11 +103,29 @@ describe('looksLikeDeferredAction', () => {
   });
 });
 
+describe('hasFakeToolOutput', () => {
+  it('detects a fabricated <tool_output> wrapper', () => {
+    expect(hasFakeToolOutput('<tool_output tool="edit_file"> {"path": "a.py"} </tool_output>')).toBe(true);
+  });
+
+  it('detects a fabricated <tool_response> wrapper', () => {
+    expect(hasFakeToolOutput('done!\n<tool_response>\nFile edited: a.py\n</tool_response>')).toBe(true);
+  });
+
+  it('does not match ordinary prose or code', () => {
+    expect(hasFakeToolOutput('The tool output shows the file was edited.')).toBe(false);
+    expect(hasFakeToolOutput('```python\nprint("hi")\n```')).toBe(false);
+  });
+});
+
 describe('maybeInjectActionReprompt', () => {
   function makeState(userMessage: string, tools = true) {
     const state = stubLoopState({
       tools: tools ? ([{ name: 'read_file' }] as never) : [],
       messages: [{ role: 'user', content: userMessage }],
+      // The code-as-text tests below assert the targeted wording; the flag is
+      // read with `=== true` so states without it exercise the generic path.
+      config: { codeAsTextRecoveryEnabled: true } as never,
     });
     return state;
   }
@@ -180,6 +203,8 @@ describe('maybeInjectActionReprompt', () => {
     expect(text.type).toBe('text');
     expect(text.text).toMatch(/text only/i);
     expect(text.text).toMatch(/call the appropriate tools/i);
+    // '['-prefixed so lastUserMessageText skips it on the next firing check.
+    expect(text.text.startsWith('[')).toBe(true);
   });
 
   it('does not fire when there is no user message at all', () => {
@@ -279,6 +304,89 @@ describe('maybeInjectActionReprompt', () => {
     const narrated = '```typescript\n/** Greets someone. */\nexport function welcome(name: string) {}\n```';
     expect(maybeInjectActionReprompt(state, narrated, cb)).toBe(true);
     expect(state.actionRepromptCount).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Code-as-text shape (qwen2.5-coder:7b, lh-calculator-session, 2026-07-17).
+  //
+  // The live trajectory: the model printed the complete updated file in a
+  // ```python fence ("Let's write this to calculator.py using the edit_file
+  // tool"), got the generic reprompt, then emitted a FABRICATED
+  // <tool_response><tool_output tool="edit_file"> block and terminated believing
+  // the edit landed. Two defects: the generic wording never told it the printed
+  // code wasn't saved, and the reprompt's own injection became "the last user
+  // message" — matching neither trigger — so the second firing was disarmed at
+  // the exact moment the model doubled down.
+  // -------------------------------------------------------------------------
+
+  it('uses the targeted code-as-text wording when the model printed the code in a fence', () => {
+    const state = makeState('Create calculator.py with two fully-implemented functions: add and subtract.');
+    const cb = stubCallbacks();
+    const narrated =
+      "Here is the updated content:\n```python\ndef add(a, b):\n  return a + b\n```\nLet's save the file.";
+    expect(maybeInjectActionReprompt(state, narrated, cb)).toBe(true);
+    const text = (state.messages[state.messages.length - 1].content as { text: string }[])[0].text;
+    expect(text.startsWith('[')).toBe(true);
+    expect(text).toContain('NOT saved');
+    expect(text).toContain('write_file(path="calculator.py"');
+  });
+
+  it('calls out the fabricated <tool_output> when the model roleplays a tool result', () => {
+    const state = makeState('Now add multiply and divide to calculator.py.');
+    const cb = stubCallbacks();
+    const fake =
+      '<tool_response> <tool_output tool="edit_file"> {"path": "calculator.py"} </tool_output> </tool_response>';
+    expect(maybeInjectActionReprompt(state, fake, cb)).toBe(true);
+    const text = (state.messages[state.messages.length - 1].content as { text: string }[])[0].text;
+    expect(text).toMatch(/fiction/);
+    expect(text).toContain('write_file(path="calculator.py"');
+  });
+
+  it('fires a SECOND time on fake tool output with no intent phrasing — the first injection must not mask the user request', () => {
+    const state = makeState('Now add multiply and divide to calculator.py.');
+    const cb = stubCallbacks();
+    expect(
+      maybeInjectActionReprompt(state, 'Here is the code:\n```python\ndef multiply(a, b):\n  return a * b\n```', cb),
+    ).toBe(true);
+    // Second turn: pure fabricated output, no "I will…" phrasing. Before the
+    // '['-prefix fix, lastUserMessageText returned the first injection here,
+    // isActionRequest was false, and this did NOT fire.
+    const fake = '<tool_output tool="edit_file"> {"path": "calculator.py", "search": ""} </tool_output>';
+    expect(maybeInjectActionReprompt(state, fake, cb)).toBe(true);
+    expect(state.actionRepromptCount).toBe(2);
+  });
+
+  it('keeps the generic wording when codeAsTextRecoveryEnabled is off (the A/B off-arm)', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'write_file' }] as never,
+      messages: [{ role: 'user', content: 'Create calculator.py with add and subtract functions.' }],
+    });
+    const cb = stubCallbacks();
+    const narrated = 'Here is the file:\n```python\ndef add(a, b):\n  return a + b\n```';
+    expect(maybeInjectActionReprompt(state, narrated, cb)).toBe(true);
+    const text = (state.messages[state.messages.length - 1].content as { text: string }[])[0].text;
+    expect(text).toMatch(/call the appropriate tools/i);
+    expect(text).not.toContain('NOT saved');
+  });
+
+  it('a code fence on a plain question does not fire — code-as-text picks wording, not the trigger', () => {
+    const state = makeState('how would a divide-by-zero guard look in Python?');
+    const cb = stubCallbacks();
+    const answer = '```python\ndef divide(a, b):\n  if b == 0:\n    raise ValueError()\n  return a / b\n```';
+    expect(maybeInjectActionReprompt(state, answer, cb)).toBe(false);
+  });
+
+  it('falls back to a generic target when the user message names no file', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'write_file' }] as never,
+      messages: [{ role: 'user', content: 'implement the discount computation module' }],
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    const cb = stubCallbacks();
+    const narrated = "I'll write the module:\n```python\ndef discount(p):\n  return p * 0.9\n```";
+    expect(maybeInjectActionReprompt(state, narrated, cb)).toBe(true);
+    const text = (state.messages[state.messages.length - 1].content as { text: string }[])[0].text;
+    expect(text).toContain('path=<the file the task names>');
   });
 
   it('skips synthetic gate messages when finding the last user message', () => {

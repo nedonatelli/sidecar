@@ -91,6 +91,18 @@ export interface LongHorizonResult {
    * never dumped. Verify the mechanism, don't assume it.
    */
   editDiffShownCount: number;
+  /**
+   * How many times the edit→write steer fired (maybeSteerEditToWrite's onText
+   * marker) across the run — the mechanism-fired signal for the
+   * `editFile.steerToWrite` A/B. Same rationale as editDiffShownCount: a null
+   * A/B result is worthless until firing counts prove the arm was live.
+   */
+  steerFiredCount: number;
+  /**
+   * How many times the action reprompt fired (maybeInjectActionReprompt's onText
+   * marker) across the run — observable evidence for the code-as-text guard A/B.
+   */
+  actionRepromptFiredCount: number;
 }
 
 /**
@@ -285,6 +297,18 @@ export function summarizeLongHorizon(input: {
     0,
   );
 
+  // Mechanism-fired counters for the guard A/Bs — same rationale: a null result
+  // is uninterpretable until the firing count proves the arm was live. Markers
+  // match the guards' onText notifications (maybeSteerEditToWrite in
+  // circularRewrite.ts, maybeInjectActionReprompt in actionReprompt.ts).
+  const countTextMarker = (marker: string) =>
+    input.turns.reduce(
+      (n, t) => n + t.trajectory.filter((e) => e.type === 'text' && e.text.includes(marker)).length,
+      0,
+    );
+  const steerFiredCount = countTextMarker('🛑 edit_file keeps failing');
+  const actionRepromptFiredCount = countTextMarker('⚙️ No tool calls detected');
+
   return {
     caseId: input.caseId,
     passed: allTurnsPassed && !vacuous && !input.apiUnavailable,
@@ -295,5 +319,7 @@ export function summarizeLongHorizon(input: {
     apiUnavailable: input.apiUnavailable,
     durationMs: input.durationMs,
     editDiffShownCount,
+    steerFiredCount,
+    actionRepromptFiredCount,
   };
 }
