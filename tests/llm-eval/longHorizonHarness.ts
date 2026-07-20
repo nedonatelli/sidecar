@@ -122,22 +122,11 @@ export async function runLongHorizonCase(
   const model = modelOverride ?? backend.defaultModel();
   const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
 
-  let systemPrompt = buildBaseSystemPrompt({
-    isLocal: backend.name === 'ollama',
-    extensionVersion: '0.0.0-eval',
-    repoUrl: '',
-    docsUrl: '',
-    root: sandbox.root,
-    approvalMode: 'autonomous',
-  });
-  if (lhCase.workspace['SIDECAR.md']) {
-    systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${lhCase.workspace['SIDECAR.md']}`;
-  }
-  client.updateSystemPrompt(systemPrompt);
-
   // SIDECAR_EVAL_CONFIG_OVERRIDES lets a run toggle a scaffold without editing
   // cases — e.g. testing whether plan.externalized (which re-injects plan state
   // every turn to survive compaction) fixes the long-horizon memory failures.
+  // Computed BEFORE the system prompt so prompt-level strategies
+  // (wholeFileRewriteStrategyEnabled) are overridable per-run too.
   const envOverrides = (() => {
     const raw = process.env.SIDECAR_EVAL_CONFIG_OVERRIDES;
     if (!raw) return {};
@@ -148,6 +137,20 @@ export async function runLongHorizonCase(
     }
   })();
   let baseConfig = { ...getConfig(), sandboxEnabled: false, ...lhCase.configOverrides, ...envOverrides };
+
+  let systemPrompt = buildBaseSystemPrompt({
+    isLocal: backend.name === 'ollama',
+    extensionVersion: '0.0.0-eval',
+    repoUrl: '',
+    docsUrl: '',
+    root: sandbox.root,
+    approvalMode: 'autonomous',
+    wholeFileRewrite: baseConfig.wholeFileRewriteStrategyEnabled === true,
+  });
+  if (lhCase.workspace['SIDECAR.md']) {
+    systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${lhCase.workspace['SIDECAR.md']}`;
+  }
+  client.updateSystemPrompt(systemPrompt);
   if (hasProblematicThinking(model)) baseConfig = { ...baseConfig, ollamaDisableThinking: true };
   // NB: cold-start models (gemma4) perform worse WITH prior context — but a
   // long-horizon test is prior context by definition, so we deliberately do NOT

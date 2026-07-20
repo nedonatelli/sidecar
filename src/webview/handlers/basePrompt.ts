@@ -5,6 +5,17 @@ export interface SystemPromptParams {
   docsUrl: string;
   root: string;
   approvalMode: string;
+  /**
+   * Weak-model edit strategy (`sidecar.editStrategy.wholeFileRewrite`): tell
+   * the model to modify small files by rewriting them whole with write_file
+   * instead of using edit_file. The measured basis: models that fail every
+   * edit_file shape on add-code-to-existing-file tasks (qwen2.5-coder:7b,
+   * llama3.2 — 0/25 case passes across three A/B rounds, all dying on the
+   * add-to-existing turn) author complete small files correctly. Proactive
+   * form of the reactive edit→write steer. Stable within a session, so the
+   * cacheable-prefix constraint holds.
+   */
+  wholeFileRewrite?: boolean;
 }
 
 /**
@@ -298,6 +309,19 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
       '- Tests needed: yes, the new callback test file\n' +
       '```\n\n' +
       'After presenting the plan, the user can approve, revise, or reject it before execution begins.';
+  }
+
+  if (p.wholeFileRewrite) {
+    prompt +=
+      '\n\n## Edit Strategy: Whole-File Rewrite\n\n' +
+      'To modify an existing file, rewrite it completely instead of editing it in place:\n\n' +
+      '1. Call `read_file(path)` to get the CURRENT contents.\n' +
+      '2. Call `write_file(path, content=<the COMPLETE updated file>)` — everything that should be in the file: ' +
+      'all existing code that stays, plus your changes, as one whole file. Keep every existing function, import, ' +
+      'and definition that the task does not ask you to remove.\n' +
+      '3. Verify with `get_diagnostics` or by running the tests before moving on.\n\n' +
+      'Follow this for every file change in this session. (Avoid `edit_file` — the read-then-rewrite flow above ' +
+      'replaces it.)';
   }
 
   return prompt;

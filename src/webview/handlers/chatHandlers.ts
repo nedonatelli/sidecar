@@ -177,6 +177,7 @@ async function buildSystemPromptForRun(
     docsUrl: 'https://nedonatelli.github.io/sidecar/',
     root,
     approvalMode: effectiveApprovalMode,
+    wholeFileRewrite: config.wholeFileRewriteStrategyEnabled === true,
   });
 
   if (resolvedSystemPrompt) {

@@ -67,6 +67,10 @@ export function applyIsolateRewriteNudge(
   pendingToolUses: ToolUseContentBlock[],
   callbacks: AgentCallbacks,
 ): boolean {
+  // The whole-file-rewrite strategy TELLS the model to rewrite files whole —
+  // nudging it back toward targeted edits would contradict the system prompt
+  // it was just given. One strategy at a time.
+  if (state.config.wholeFileRewriteStrategyEnabled === true) return false;
   const overwritten: string[] = [];
   for (const tu of pendingToolUses) {
     const path = writeFilePath(tu);
