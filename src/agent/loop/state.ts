@@ -229,6 +229,14 @@ export interface LoopState {
   actionRepromptCount: number;
 
   /**
+   * How many write_file calls the code-as-text recovery synthesized from a
+   * printed code fence this run (synthesizeFenceWrite). Capped at 2 so a
+   * model that keeps printing wrong fences can't be driven through endless
+   * synthesized writes; the write-side guards bound each one individually.
+   */
+  fenceWriteCoercions: number;
+
+  /**
    * Files successfully read via read_file during this loop run.
    * Persists across iterations so that a file read in iteration N is
    * still "known" in iteration N+1 when the model tries to edit it.
@@ -366,6 +374,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
+    fenceWriteCoercions: 0,
     filesReadThisRun: new Set<string>(),
     criticInjectionsByFile: new Map<string, number>(),
     criticInjectionsByTestHash: new Map<string, number>(),

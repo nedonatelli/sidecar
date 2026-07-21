@@ -59,16 +59,35 @@ function salvageToolName(raw: string, toolNames: Set<string>): string | null {
 export function splitTopLevelArgs(s: string): string[] {
   const parts: string[] = [];
   let depth = 0;
-  let quote: string | null = null;
+  let quote: string | null = null; // '"', "'", or the triple forms '"""' / "'''"
   let cur = '';
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (quote) {
+      if (quote.length === 3) {
+        if (s.startsWith(quote, i)) {
+          cur += quote;
+          i += 2;
+          quote = null;
+          continue;
+        }
+        cur += c;
+        continue;
+      }
       cur += c;
       if (c === quote && s[i - 1] !== '\\') quote = null;
       continue;
     }
     if (c === '"' || c === "'") {
+      // Python triple-quoted string — observed live: qwen emits
+      // write_file(content='''def add…''') inside a python fence.
+      const triple = c.repeat(3);
+      if (s.startsWith(triple, i)) {
+        quote = triple;
+        cur += triple;
+        i += 2;
+        continue;
+      }
       quote = c;
       cur += c;
       continue;
@@ -89,6 +108,11 @@ export function splitTopLevelArgs(s: string): string[] {
 /** Coerce a raw Python-kwarg value token to a JS value (string/number/bool/null). Exported for tests. */
 export function coerceArgValue(raw: string): unknown {
   const t = raw.trim();
+  // Python triple-quoted literals carry their content raw (real newlines).
+  // Checked before the double-quote branch, which would otherwise swallow """…""".
+  if (t.length >= 6 && ((t.startsWith("'''") && t.endsWith("'''")) || (t.startsWith('"""') && t.endsWith('"""')))) {
+    return t.slice(3, -3);
+  }
   if (t.startsWith('"') && t.endsWith('"')) {
     // A double-quoted literal is usually a valid JSON string carrying \n / \"
     // escapes the model MEANS as newlines and quotes — write_file content
@@ -473,18 +497,32 @@ const MAX_CALL_EXPRESSIONS = 5;
  *  quoted strings (double/single, backslash escapes). -1 when unterminated. */
 function findCallParenEnd(text: string, openParen: number): number {
   let depth = 0;
-  let quote: string | null = null;
+  let quote: string | null = null; // single char, or a 3-char triple-quote token
   const limit = Math.min(text.length, openParen + 50_000);
   for (let i = openParen; i < limit; i++) {
     const c = text[i];
     if (quote) {
+      if (quote.length === 3) {
+        if (text.startsWith(quote, i)) {
+          i += 2;
+          quote = null;
+        }
+        continue;
+      }
       if (c === '\\')
         i++; // skip the escaped char
       else if (c === quote) quote = null;
       continue;
     }
-    if (c === '"' || c === "'") quote = c;
-    else if (c === '(') depth++;
+    if (c === '"' || c === "'") {
+      const triple = c.repeat(3);
+      if (text.startsWith(triple, i)) {
+        quote = triple;
+        i += 2;
+      } else {
+        quote = c;
+      }
+    } else if (c === '(') depth++;
     else if (c === ')') {
       depth--;
       if (depth === 0) return i;
@@ -506,12 +544,20 @@ export function parseCallExpressions(
   text: string,
   toolNames: Set<string>,
 ): Array<{ name: string; input: Record<string, unknown>; span: [number, number] }> {
-  // Spans of source-language fenced blocks — candidates inside are skipped.
+  // Spans of source-language fenced blocks — candidates inside are skipped,
+  // UNLESS the fence body itself begins with a known tool call: models that
+  // think in Python put the call inside a ```python fence (observed live:
+  // ```python\nwrite_file(path="calculator.py", content='''…''')```). Real
+  // source files do not open with a tool-call expression, so a fence whose
+  // first statement is one is a call carrier, not code to protect.
   const excluded: Array<[number, number]> = [];
-  const fence = /```([\w+#]*)\s*\n[\s\S]*?(?:```|$)/g;
+  const fence = /```([\w+#]*)\s*\n([\s\S]*?)(?:```|$)/g;
   let fm: RegExpExecArray | null;
   while ((fm = fence.exec(text)) !== null) {
-    if (SOURCE_FENCE_LANGS.has(fm[1].toLowerCase())) excluded.push([fm.index, fm.index + fm[0].length]);
+    if (!SOURCE_FENCE_LANGS.has(fm[1].toLowerCase())) continue;
+    const opener = /^\s*([A-Za-z_]\w*)\s*\(/.exec(fm[2]);
+    if (opener && isDispatchableName(opener[1], toolNames)) continue;
+    excluded.push([fm.index, fm.index + fm[0].length]);
   }
   const inExcluded = (i: number) => excluded.some(([s, e]) => i >= s && i < e);
 
@@ -557,6 +603,94 @@ export function parseCallExpressions(
     candidate.lastIndex = closeParen + 1;
   }
   return out;
+}
+
+/** Fence language ↔ file extension sanity map for the fence-write synthesizer. */
+const LANG_TO_EXTS: Record<string, string[]> = {
+  python: ['py'],
+  py: ['py'],
+  javascript: ['js', 'mjs', 'cjs', 'jsx'],
+  js: ['js', 'mjs', 'cjs', 'jsx'],
+  typescript: ['ts', 'tsx'],
+  ts: ['ts', 'tsx'],
+  go: ['go'],
+  rust: ['rs'],
+  rs: ['rs'],
+  ruby: ['rb'],
+  rb: ['rb'],
+  java: ['java'],
+};
+
+/** Workspace-file references (same shape as actionReprompt's FILE_PATH_RE, global). */
+const FILE_REF_RE = /\b[\w./-]*\w+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cpp|c|rb|sh|yaml|yml|json|toml)\b/g;
+
+/** Real-code heuristic shared with unappliedEdit: a keyword/operator plus ≥2 lines. */
+const FENCE_CODE_STRUCTURE = /\b(function|const|let|var|def|class|return|import|export|if|for|while)\b|=>|[;{}]/;
+
+/**
+ * Synthesize the write_file call a code-as-text turn described but never made.
+ *
+ * The campaign corpus (30 qwen pairs, 2026-07-21): 20/27 on-arm failures die
+ * on a turn whose text contains the COMPLETE, CORRECT target file in a
+ * ```python fence plus "now let's write this to the file" — and zero tool
+ * calls. Reprompting converts that shape ~10% of the time; using the fence
+ * directly converts it deterministically. Fires only when the intent is
+ * unambiguous:
+ *   - the user's message names exactly ONE workspace file, and
+ *   - the turn has an edit-shaped source fence (largest one wins), and
+ *   - the fence language agrees with the file's extension (when both known).
+ * The synthesized write still passes every write_file guard (syntax gate,
+ * verify-before-rewrite, enforce-edit locks), so a partial snippet that would
+ * corrupt the file is refused there, not written blind.
+ */
+export function synthesizeFenceWrite(
+  text: string,
+  userText: string,
+  toolNames: Set<string>,
+): { name: 'write_file'; input: { path: string; content: string } } | null {
+  if (!toolNames.has('write_file')) return null;
+  const refs = [...new Set(userText.match(FILE_REF_RE) ?? [])];
+  if (refs.length !== 1) return null; // zero or ambiguous targets — do not guess
+  const path = refs[0];
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+
+  let best: { lang: string; body: string } | null = null;
+  const fence = /```([\w+#]*)\s*\n([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = fence.exec(text)) !== null) {
+    const lang = m[1].toLowerCase();
+    const body = m[2];
+    if (!SOURCE_FENCE_LANGS.has(lang)) continue;
+    const lines = body.split('\n').filter((l) => l.trim().length > 0);
+    if (lines.length < 2 || !FENCE_CODE_STRUCTURE.test(body)) continue; // not edit-shaped
+    if (/^\s*[A-Za-z_]\w*\s*\(/.test(body)) continue; // call carrier — pattern 5's job
+    const exts = LANG_TO_EXTS[lang];
+    if (exts && !exts.includes(ext)) continue; // fence/target language mismatch
+    if (contentImportsTarget(body, path)) continue; // a consumer of the target is not the target
+    if (!best || body.length > best.body.length) best = { lang, body };
+  }
+  if (!best) return null;
+  return { name: 'write_file', input: { path, content: best.body.replace(/\s+$/, '') + '\n' } };
+}
+
+/**
+ * True when `body` imports the module `path` names — `from calculator import…`
+ * / `import calculator` / `require('./calculator')` for calculator.py. Content
+ * that CONSUMES the target file cannot BE the target file. Observed live
+ * (probe r1, 2026-07-21): asked to extend calculator.py, the model printed the
+ * unittest file it planned to write NEXT, and the synthesizer wrote test code
+ * over the calculator module — a clean parse, a clean extension match, and a
+ * clobbered file. This is the check that stops it.
+ */
+function contentImportsTarget(body: string, targetPath: string): boolean {
+  const base = targetPath.split('/').pop() ?? targetPath;
+  const mod = base.slice(0, base.lastIndexOf('.') === -1 ? undefined : base.lastIndexOf('.'));
+  if (!mod) return false;
+  const esc = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `^\\s*(?:from\\s+${esc}\\b|import\\s+${esc}\\b)|require\\(['"]\\.?/?${esc}['"]\\)|from\\s+['"]\\.?/?${esc}(?:\\.js)?['"]`,
+    'm',
+  ).test(body);
 }
 
 /**

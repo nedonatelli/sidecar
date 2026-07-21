@@ -67,7 +67,7 @@ const DEFERRED_ACTION_RE =
  * A message with no text is not a user message. Skip it, and keep walking back
  * to the real one.
  */
-function lastUserMessageText(messages: ChatMessage[]): string {
+export function lastUserMessageText(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'user') continue;

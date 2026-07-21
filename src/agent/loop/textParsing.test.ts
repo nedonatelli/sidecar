@@ -6,6 +6,7 @@ import {
   parseMangledToolName,
   splitTopLevelArgs,
   coerceArgValue,
+  synthesizeFenceWrite,
 } from './textParsing.js';
 import type { ToolDefinition, ChatMessage } from '../../ollama/types.js';
 
@@ -785,5 +786,104 @@ describe('parseCallExpressions — placeholder echo rejection', () => {
     const calls = parseTextToolCalls(text, tools, opts);
     expect(calls).toHaveLength(1);
     expect(calls[0].input.content).toContain('<body>hi</body>');
+  });
+});
+
+describe('triple-quoted strings + fence-carrier calls (campaign corpus shapes)', () => {
+  const tools = defineTools('write_file', 'read_file');
+  const opts = { callExpressions: true };
+
+  it('parses the r20 shape: write_file with triple-quoted content inside a python fence', () => {
+    const text =
+      "Now, let's write this to the file:\n```python\nwrite_file(path=\"calculator.py\", content='''def add(a, b):\n  return a + b\n\ndef divide(a, b):\n  if b == 0:\n    raise ValueError(\"Cannot divide by zero\")\n  return a / b''')\n```";
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('write_file');
+    expect(calls[0].input.path).toBe('calculator.py');
+    expect(calls[0].input.content).toContain('def add(a, b):\n  return a + b');
+    expect(calls[0].input.content).toContain('raise ValueError("Cannot divide by zero")');
+  });
+
+  it('still protects a python fence that is real code, not a call carrier', () => {
+    const text = '```python\nx = 1\nresult = read_file(path="data.csv")\n```';
+    expect(parseTextToolCalls(text, tools, opts)).toEqual([]);
+  });
+
+  it('coerceArgValue unwraps triple-quoted literals raw', () => {
+    expect(coerceArgValue("'''line1\nline2'''")).toBe('line1\nline2');
+    expect(coerceArgValue('"""a "quoted" bit"""')).toBe('a "quoted" bit');
+  });
+
+  it('splitTopLevelArgs does not split on commas inside triple quotes', () => {
+    const parts = splitTopLevelArgs("path=\"a.py\", content='''f(a, b)\ng(c, d)'''");
+    expect(parts).toHaveLength(2);
+  });
+});
+
+describe('synthesizeFenceWrite (campaign shape: complete file printed, nothing called)', () => {
+  const toolNames = new Set(['write_file', 'read_file']);
+  const userMsg = 'Now add multiply(a, b) and divide(a, b) to calculator.py. divide must raise ValueError.';
+  const fenceTurn =
+    "Let's update `calculator.py`:\n```python\ndef add(a, b):\n  return a + b\n\ndef multiply(a, b):\n  return a * b\n```\nNow, let's write this to the file:\n```python\n```\n";
+
+  it('synthesizes write_file from the largest edit-shaped fence when the target is unambiguous', () => {
+    const synth = synthesizeFenceWrite(fenceTurn, userMsg, toolNames);
+    expect(synth).not.toBeNull();
+    expect(synth!.input.path).toBe('calculator.py');
+    expect(synth!.input.content).toContain('def multiply(a, b):');
+    expect(synth!.input.content.endsWith('\n')).toBe(true);
+  });
+
+  it('does not fire when the user message names no file or several files', () => {
+    expect(synthesizeFenceWrite(fenceTurn, 'add the functions please', toolNames)).toBeNull();
+    expect(synthesizeFenceWrite(fenceTurn, 'update calculator.py and test_calculator.py', toolNames)).toBeNull();
+  });
+
+  it('does not fire on a fence whose language disagrees with the target extension', () => {
+    const tsFence = '```typescript\nexport const x = 1;\nexport const y = 2;\n```';
+    expect(synthesizeFenceWrite(tsFence, 'update calculator.py with constants', toolNames)).toBeNull();
+  });
+
+  it('leaves call-carrier fences to the call-expression parser', () => {
+    const carrier = '```python\nwrite_file(path="calculator.py", content="x = 1")\n```';
+    expect(synthesizeFenceWrite(carrier, 'update calculator.py', toolNames)).toBeNull();
+  });
+
+  it('does not fire without write_file in the catalog', () => {
+    expect(synthesizeFenceWrite(fenceTurn, userMsg, new Set(['read_file']))).toBeNull();
+  });
+});
+
+describe('synthesizeFenceWrite — self-import clobber guard (probe r1, 2026-07-21)', () => {
+  const toolNames = new Set(['write_file']);
+
+  it('rejects a fence that imports the target module — test code is not the module', () => {
+    const testFence =
+      '```python\nimport unittest\nfrom calculator import add, subtract, multiply, divide\n\nclass TestCalculator(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 3), 5)\n```';
+    expect(synthesizeFenceWrite(testFence, 'Now add multiply and divide to calculator.py.', toolNames)).toBeNull();
+  });
+
+  it('rejects the JS require/import forms too', () => {
+    const jsFence = "```javascript\nconst { add } = require('./stats');\nconsole.log(add(1, 2));\n```";
+    expect(synthesizeFenceWrite(jsFence, 'extend stats.js with a mean function', toolNames)).toBeNull();
+    const esmFence = "```javascript\nimport { add } from './stats.js';\nconsole.log(add(1, 2));\n```";
+    expect(synthesizeFenceWrite(esmFence, 'extend stats.js with a mean function', toolNames)).toBeNull();
+  });
+
+  it('still accepts the module itself — defining code does not import itself', () => {
+    const moduleFence = '```python\ndef add(a, b):\n  return a + b\n\ndef multiply(a, b):\n  return a * b\n```';
+    const synth = synthesizeFenceWrite(moduleFence, 'Now add multiply to calculator.py.', toolNames);
+    expect(synth).not.toBeNull();
+    expect(synth!.input.path).toBe('calculator.py');
+  });
+
+  it('falls back to a non-importing fence when both are present', () => {
+    const both =
+      '```python\ndef add(a, b):\n  return a + b\n\ndef multiply(a, b):\n  return a * b\n```\nand the tests:\n' +
+      '```python\nimport unittest\nfrom calculator import add\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n```';
+    const synth = synthesizeFenceWrite(both, 'Now add multiply to calculator.py.', toolNames);
+    expect(synth).not.toBeNull();
+    expect(synth!.input.content).toContain('def multiply');
+    expect(synth!.input.content).not.toContain('unittest');
   });
 });

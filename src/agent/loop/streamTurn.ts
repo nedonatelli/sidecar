@@ -4,7 +4,8 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
-import { parseTextToolCallsCleaned, stripRepeatedContent } from './textParsing.js';
+import { parseTextToolCallsCleaned, stripRepeatedContent, synthesizeFenceWrite } from './textParsing.js';
+import { lastUserMessageText, isActionRequest } from './actionReprompt.js';
 import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
@@ -406,7 +407,8 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     // Validate text-form calls against THIS iteration's catalog, not the full
     // set — otherwise a text-form call to a tool that plan mode has removed is
     // still parsed and recorded as a call. See resolveIterationTools.
-    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, resolveIterationTools(state), {
+    const iterationTools = resolveIterationTools(state);
+    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, iterationTools, {
       callExpressions: state.config.codeAsTextRecoveryEnabled === true,
     });
     for (const tu of parsed) {
@@ -417,6 +419,35 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     if (parsed.length > 0) {
       stopReason = 'tool_use';
       fullText = cleanedText;
+    } else if (state.config.codeAsTextRecoveryEnabled === true && state.fenceWriteCoercions < 2) {
+      // Code-as-text last resort: the turn printed the complete target file in
+      // a source fence ("now let's write this to the file") and called nothing.
+      // The campaign corpus put this at 20/27 of the remaining on-arm failures,
+      // with the fence content correct every time sampled — synthesize the
+      // write_file the model described. Only on an action-request turn with an
+      // unambiguous single target; every write_file guard still applies.
+      const userText = lastUserMessageText(state.messages);
+      const synth = isActionRequest(userText)
+        ? synthesizeFenceWrite(fullText, userText, new Set(iterationTools.map((t) => t.name)))
+        : null;
+      if (synth) {
+        state.fenceWriteCoercions++;
+        const tu: ToolUseContentBlock = {
+          type: 'tool_use',
+          id: `fence_write_${state.fenceWriteCoercions}`,
+          name: synth.name,
+          input: synth.input,
+        };
+        pendingToolUses.push(tu);
+        stopReason = 'tool_use';
+        state.logger?.info(
+          `Fence-write coercion (${state.fenceWriteCoercions}/2): synthesized write_file(${synth.input.path}) ` +
+            `from a printed code fence with no tool call`,
+        );
+        callbacks.onText(`\n✍️ No tool call was made — writing the code block you printed to ${synth.input.path}.\n`);
+        state.logger?.logToolCall(tu.name, tu.input);
+        callbacks.onToolCall(tu.name, tu.input, tu.id);
+      }
     }
   }
 
