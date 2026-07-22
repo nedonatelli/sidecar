@@ -667,6 +667,7 @@ export function synthesizeFenceWrite(
     const exts = LANG_TO_EXTS[lang];
     if (exts && !exts.includes(ext)) continue; // fence/target language mismatch
     if (contentImportsTarget(body, path)) continue; // a consumer of the target is not the target
+    if (!contentFitsTestTarget(body, path)) continue; // module code is not a test file
     if (!best || body.length > best.body.length) best = { lang, body };
   }
   if (!best) return null;
@@ -682,6 +683,23 @@ export function synthesizeFenceWrite(
  * over the calculator module — a clean parse, a clean extension match, and a
  * clobbered file. This is the check that stops it.
  */
+/**
+ * When the target is a test file (`test_X.*` / `X.test.*` / `X_test.*`), the
+ * fence must LOOK like tests — a test definition, an assertion, or a reference
+ * to the module under test. The mirror of contentImportsTarget: observed live
+ * (campaign 3, ministral r1-on), asked to write test_calculator.py the model
+ * printed the CALCULATOR MODULE in its fence and the synthesizer wrote module
+ * code into the test file. Non-test targets always pass this check.
+ */
+function contentFitsTestTarget(body: string, targetPath: string): boolean {
+  const base = (targetPath.split('/').pop() ?? targetPath).toLowerCase();
+  const m = /^test[_-](.+)\.\w+$|^(.+?)[._-]tests?\.\w+$/.exec(base);
+  if (!m) return true; // not a test file — no constraint
+  const subject = (m[1] ?? m[2] ?? '').replace(/\.\w+$/, '');
+  if (/\b(?:def\s+test|it\(|test\(|describe\(|assert|unittest|TestCase|expect\()/i.test(body)) return true;
+  return subject.length > 0 && body.toLowerCase().includes(subject);
+}
+
 function contentImportsTarget(body: string, targetPath: string): boolean {
   const base = targetPath.split('/').pop() ?? targetPath;
   const mod = base.slice(0, base.lastIndexOf('.') === -1 ? undefined : base.lastIndexOf('.'));

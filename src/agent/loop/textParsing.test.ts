@@ -887,3 +887,33 @@ describe('synthesizeFenceWrite — self-import clobber guard (probe r1, 2026-07-
     expect(synth!.input.content).not.toContain('unittest');
   });
 });
+
+describe('synthesizeFenceWrite — test-target coherence (campaign 3, ministral r1-on)', () => {
+  const toolNames = new Set(['write_file']);
+
+  it('rejects module code aimed at a test file', () => {
+    // Live shape: asked to write test_calculator.py, the model printed the
+    // calculator MODULE; the synthesizer wrote module code into the test file.
+    const moduleFence = '```python\ndef add(a, b):\n  return a + b\n\ndef subtract(a, b):\n  return a - b\n```';
+    expect(
+      synthesizeFenceWrite(moduleFence, 'Write test_calculator.py with one test per operation.', toolNames),
+    ).toBeNull();
+  });
+
+  it('accepts a real test fence for a test target', () => {
+    const testFence = '```python\nimport calculator\n\ndef test_add():\n    assert calculator.add(2, 3) == 5\n```';
+    const synth = synthesizeFenceWrite(testFence, 'Write test_calculator.py with one test per operation.', toolNames);
+    expect(synth).not.toBeNull();
+    expect(synth!.input.path).toBe('test_calculator.py');
+  });
+
+  it('accepts a fence that references the subject module even without test keywords', () => {
+    const fence = '```python\nfrom calculator import add\nprint(add(1, 2) == 3)\n```';
+    expect(synthesizeFenceWrite(fence, 'Write test_calculator.py checks.', toolNames)).not.toBeNull();
+  });
+
+  it('applies no constraint to non-test targets', () => {
+    const moduleFence = '```python\ndef add(a, b):\n  return a + b\n\ndef mul(a, b):\n  return a * b\n```';
+    expect(synthesizeFenceWrite(moduleFence, 'update calculator.py with the functions', toolNames)).not.toBeNull();
+  });
+});
