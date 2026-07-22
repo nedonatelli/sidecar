@@ -181,7 +181,7 @@ export interface SideCarConfig {
   editToWriteSteerThreshold: number;
   /** Weak-model edit strategy: system prompt directs the model to modify files by read_file → write_file(<complete file>) instead of edit_file, and the isolate-rewrite nudge stands down. Proactive form of the edit→write steer, based on the measured fact that models failing every edit_file shape on add-code tasks author complete small files correctly. Default OFF until A/B-proven. */
   wholeFileRewriteStrategyEnabled: boolean;
-  /** Code-as-text recovery package, aimed at the qwen2.5-coder pattern of doing the work in chat text instead of tool calls. Two coupled halves: (1) when the action reprompt fires on a turn containing an edit-shaped code fence or a fabricated <tool_output> wrapper, it uses targeted wording ("that code was NOT saved — call write_file(path=…, content=<complete file>)") instead of the generic nudge; (2) textParsing additionally recognizes call-expression syntax — `write_file(path="x", content="…")` — emitted as prose, which is exactly the shape the targeted wording elicits (observed live: the model answered the reprompt by printing the complete, correct call as text). Default OFF until the package is A/B-proven. */
+  /** Code-as-text recovery package, aimed at the qwen2.5-coder pattern of doing the work in chat text instead of tool calls. Two coupled halves: (1) when the action reprompt fires on a turn containing an edit-shaped code fence or a fabricated <tool_output> wrapper, it uses targeted wording ("that code was NOT saved — call write_file(path=…, content=<complete file>)") instead of the generic nudge; (2) textParsing additionally recognizes call-expression syntax — `write_file(path="x", content="…")` — emitted as prose, which is exactly the shape the targeted wording elicits (observed live: the model answered the reprompt by printing the complete, correct call as text). Default ON — proven 2026-07-21: 3-arm paired campaign (30 triples, lh-calculator-session, qwen2.5-coder:7b) measured bare 0/28 vs recovery 11/27; McNemar discordants 0–11, p=0.001, ≥6-discordant honesty gate passed. Low-risk for capable models by construction: every layer is a rescue path that stays dormant unless its failure shape occurs. */
   codeAsTextRecoveryEnabled: boolean;
   keepBestOverEngineerBytes: number;
   /** Repeats of the same tool+file (normalized signature — content-aware,
@@ -558,7 +558,7 @@ function readConfig(): SideCarConfig {
     editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),
-    codeAsTextRecoveryEnabled: cfg.get<boolean>('recovery.codeAsText', false),
+    codeAsTextRecoveryEnabled: cfg.get<boolean>('recovery.codeAsText', true),
     wholeFileRewriteStrategyEnabled: cfg.get<boolean>('editStrategy.wholeFileRewrite', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
