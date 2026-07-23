@@ -96,10 +96,20 @@ export function remapParamSynonyms(input: unknown, schema: ToolInputSchema | und
   let out: Record<string, unknown> | null = null;
   const notes: string[] = [];
 
+  // `new_text` alongside an insert field is the V2 insert convention (anchor
+  // in insert_after/insert_before, payload in new_text) — canonical, not a
+  // synonym. Remapping it to `replace` here rewrote gemma4's PERFECT V2 calls
+  // into replace+insert_after, which the executor rejects as mutually
+  // exclusive (campaign 5 r1–r3: every V2-taught call bounced, 100% stuck).
+  // Without an insert field, new_text→replace remains the right recovery for
+  // Claude-style old_string/new_string emissions.
+  const v2Insert = ('insert_after' in obj || 'insert_before' in obj) && 'new_text' in obj;
+
   for (const key of candidates) {
     if (obj[key] !== undefined && obj[key] !== null) continue;
     for (const syn of SYNONYMS[key] ?? []) {
       if (syn in declared) continue;
+      if (syn === 'new_text' && v2Insert) continue;
       const value = (out ?? obj)[syn];
       if (value === undefined || value === null) continue;
       out ??= { ...obj };

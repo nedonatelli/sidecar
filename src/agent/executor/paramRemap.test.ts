@@ -181,3 +181,35 @@ describe('coerceParamTypes (string → array, the recurring ask_user bounce)', (
     expect(out.notes).toEqual([]);
   });
 });
+
+describe('V2 insert convention protection (campaign 5 regression)', () => {
+  // The edit_file V1 schema — new_text is NOT declared, replace is.
+  const v1Schema = {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      search: { type: 'string' },
+      replace: { type: 'string' },
+      insert_before: { type: 'string' },
+      insert_after: { type: 'string' },
+    },
+    required: ['path'],
+  } as never;
+
+  it('never remaps new_text when an insert field is present — that is the V2 call, verbatim', () => {
+    // gemma4's PERFECT V2 emission: remapping new_text→replace turned it into
+    // replace+insert_after, rejected as mutually exclusive. 100% stuck rate.
+    const input = { path: 'calc.py', insert_after: 'def subtract(a, b):', new_text: 'def multiply(a, b):' };
+    const { input: out, notes } = remapParamSynonyms(input, v1Schema);
+    expect(out).toEqual(input);
+    expect(notes).toEqual([]);
+  });
+
+  it('still remaps new_text to replace for Claude-style search/replace emissions', () => {
+    const input = { path: 'calc.py', search: 'old line', new_text: 'new line' };
+    const { input: out, notes } = remapParamSynonyms(input, v1Schema);
+    expect(out.replace).toBe('new line');
+    expect(out.new_text).toBeUndefined();
+    expect(notes.length).toBe(1);
+  });
+});
