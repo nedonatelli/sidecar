@@ -16,6 +16,13 @@ export interface SystemPromptParams {
    * cacheable-prefix constraint holds.
    */
   wholeFileRewrite?: boolean;
+  /**
+   * Teach the V2 insert convention (`editFile.insertApiV2`): `insert_after` /
+   * `insert_before` hold the EXISTING anchor (matching the field name's plain
+   * English), `new_text` holds the code to add. Must match the advertised
+   * edit_file schema — examples and schemas move in lockstep.
+   */
+  insertApiV2?: boolean;
 }
 
 /**
@@ -209,16 +216,31 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '`run_command(command="node -e \\"console.log(Date.now())\\"")` — no temp file needed.',
     '`run_command(command="python3 -c \\"import json,sys; d=json.load(open(\'a.json\')); print(len(d))\\"")` — inline JSON inspection.',
     '',
-    'User asks "add a hello function to utils.ts" (ADDING code — use insert_after, NOT replace):',
-    '1. `run_command(command="grep -n \\"export function greet\\" src/utils.ts")` — find an existing function to anchor after',
-    '2. `read_file(path="src/utils.ts", start_line=N, end_line=M)` — copy the exact text of that existing function',
-    '3. `edit_file(path="src/utils.ts", search=<the existing function, verbatim>, insert_after=<ONLY the new hello function>)`',
-    '   The `search` holds the EXISTING anchor; `insert_after` holds ONLY the NEW code. Do NOT put the anchor in `insert_after`, and do NOT fill `replace` — inserting keeps the anchor automatically.',
-    '4. `get_diagnostics(path="src/utils.ts")` to verify',
-    '',
-    '**Adding vs. replacing — pick the right field:**',
-    '- ADD new code next to existing code → `edit_file(search=<existing anchor>, insert_after=<new code only>)` (or `insert_before`). The anchor stays; you supply only what is new.',
-    '- CHANGE existing code → `edit_file(search=<old text>, replace=<new text>)`. Never combine `replace` with `insert_after`/`insert_before`, and never fill more than one of the three.',
+    ...(p.insertApiV2
+      ? [
+          'User asks "add a hello function to utils.ts" (ADDING code — use insert_after + new_text, NOT replace):',
+          '1. `run_command(command="grep -n \\"export function greet\\" src/utils.ts")` — find an existing function to anchor after',
+          '2. `read_file(path="src/utils.ts", start_line=N, end_line=M)` — copy the exact text of that existing function',
+          '3. `edit_file(path="src/utils.ts", insert_after=<the existing function, verbatim>, new_text=<ONLY the new hello function>)`',
+          '   `insert_after` holds the EXISTING text to insert after; `new_text` holds ONLY the NEW code. Do NOT repeat the anchor in `new_text`, and do NOT fill `replace` — inserting keeps the anchor automatically.',
+          '4. `get_diagnostics(path="src/utils.ts")` to verify',
+          '',
+          '**Adding vs. replacing — pick the right fields:**',
+          '- ADD new code next to existing code → `edit_file(insert_after=<existing anchor>, new_text=<new code only>)` (or `insert_before`). The anchor stays; you supply only what is new.',
+          '- CHANGE existing code → `edit_file(search=<old text>, replace=<new text>)`. Never combine `replace` with the insert fields.',
+        ]
+      : [
+          'User asks "add a hello function to utils.ts" (ADDING code — use insert_after, NOT replace):',
+          '1. `run_command(command="grep -n \\"export function greet\\" src/utils.ts")` — find an existing function to anchor after',
+          '2. `read_file(path="src/utils.ts", start_line=N, end_line=M)` — copy the exact text of that existing function',
+          '3. `edit_file(path="src/utils.ts", search=<the existing function, verbatim>, insert_after=<ONLY the new hello function>)`',
+          '   The `search` holds the EXISTING anchor; `insert_after` holds ONLY the NEW code. Do NOT put the anchor in `insert_after`, and do NOT fill `replace` — inserting keeps the anchor automatically.',
+          '4. `get_diagnostics(path="src/utils.ts")` to verify',
+          '',
+          '**Adding vs. replacing — pick the right field:**',
+          '- ADD new code next to existing code → `edit_file(search=<existing anchor>, insert_after=<new code only>)` (or `insert_before`). The anchor stays; you supply only what is new.',
+          '- CHANGE existing code → `edit_file(search=<old text>, replace=<new text>)`. Never combine `replace` with `insert_after`/`insert_before`, and never fill more than one of the three.',
+        ]),
     '',
     'User asks "Run node src/app.js and fix any errors":',
     '1. `run_command(command="node src/app.js")` — run it first, observe the output',

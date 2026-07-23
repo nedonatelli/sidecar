@@ -264,6 +264,23 @@ describe('tools.ts', () => {
       expect(on).toContain('update_plan');
       expect(off).not.toContain('update_plan');
     });
+
+    it('insertApiV2 swaps the edit_file schema: new_text appears, insert_after becomes the anchor', () => {
+      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
+      const v2 = getToolDefinitions(undefined, { ...base, insertApiV2Enabled: true } as never).find(
+        (d) => d.name === 'edit_file',
+      )!;
+      const v1 = getToolDefinitions(undefined, { ...base, insertApiV2Enabled: false } as never).find(
+        (d) => d.name === 'edit_file',
+      )!;
+      expect(v2.input_schema.properties.new_text).toBeDefined();
+      expect((v2.input_schema.properties.insert_after as { description: string }).description).toContain(
+        'EXISTING text',
+      );
+      expect(v2.description).toContain('new_text');
+      expect(v1.input_schema.properties.new_text).toBeUndefined();
+      expect(v1.description).not.toContain('new_text');
+    });
   });
 
   describe('getToolDefinitions', () => {

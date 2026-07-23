@@ -321,6 +321,10 @@ export async function runAgentCase(
   const toolRuntime = new ToolRuntime(sandbox.root);
   const model = modelOverride ?? backend.defaultModel();
   const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
+  const promptConfig = { ...getConfig(), ...evalCase.configOverrides, ...ENV_CONFIG_OVERRIDES } as Record<
+    string,
+    unknown
+  >;
   let systemPrompt = buildBaseSystemPrompt({
     isLocal: backend.name === 'ollama',
     extensionVersion: '0.0.0-eval',
@@ -328,6 +332,8 @@ export async function runAgentCase(
     docsUrl: '',
     root: sandbox.root,
     approvalMode: evalCase.approvalMode || 'autonomous',
+    wholeFileRewrite: promptConfig.wholeFileRewriteStrategyEnabled === true,
+    insertApiV2: promptConfig.insertApiV2Enabled === true,
   });
   // Inject SIDECAR.md when present in the workspace fixture, mirroring
   // what injectSystemContext does in production for real workspaces.

@@ -539,6 +539,62 @@ export const editFileDef: ToolDefinition = {
   },
 };
 
+/**
+ * V2 insert-API variant of the edit_file definition (`editFile.insertApiV2`).
+ * Same tool, same executor — the SCHEMA teaches the convention whose naive
+ * English reading matches its semantics: `insert_after`/`insert_before` hold
+ * the EXISTING anchor ("insert after THIS"), `new_text` holds the code to add.
+ * Campaigns 3/4: gemma4 read the V1 field names as positions every single run
+ * (anchor in `insert_after`, payload nowhere) and fast-stuck on it; field
+ * names are prompt surface and must survive the naive parse. The executor
+ * accepts both conventions regardless of which definition is advertised.
+ */
+export const editFileDefV2: ToolDefinition = {
+  ...editFileDef,
+  description:
+    'Edit an existing file by replacing an exact search string with a replacement. ' +
+    'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
+    'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
+    'Not for multi-location changes in one call — call `edit_file` once per location, each with a unique search string. ' +
+    'The `search` argument must match exactly one location in the file; if it appears multiple times the call returns an error — add more surrounding lines to make it unique. ' +
+    'Match is byte-exact: whitespace, indentation, and trailing spaces must match the file verbatim. When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
+    'To ADD text rather than replace it: put the EXISTING text to insert next to in `insert_after` (or `insert_before`), and the NEW code in `new_text`. ' +
+    'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
+    'Insert example: `edit_file(path="src/utils.ts", insert_after="export function greet(name) {\\n  return name;\\n}", new_text="export function farewell(name) {\\n  return \'bye \' + name;\\n}")`.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Relative file path from the project root' },
+      search: {
+        type: 'string',
+        description:
+          'Exact text to find in the file — whitespace and indentation must match the file byte-for-byte. Must appear exactly once. Used with `replace` to substitute text.',
+      },
+      replace: {
+        type: 'string',
+        description:
+          'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error.',
+      },
+      insert_after: {
+        type: 'string',
+        description:
+          'EXISTING text from the file — the anchor to insert after. The new code goes in `new_text`, which is inserted immediately after this anchor; the anchor itself is kept unchanged. Mutually exclusive with `replace` and `insert_before`.',
+      },
+      insert_before: {
+        type: 'string',
+        description:
+          'EXISTING text from the file — the anchor to insert before. The new code goes in `new_text`, which is inserted immediately before this anchor; the anchor itself is kept unchanged. Mutually exclusive with `replace` and `insert_after`.',
+      },
+      new_text: {
+        type: 'string',
+        description:
+          'The NEW code to add when inserting. Required alongside `insert_after` or `insert_before`. Contains ONLY the new text — never repeat the anchor.',
+      },
+    },
+    required: ['path'],
+  },
+};
+
 export const deleteFileDef: ToolDefinition = {
   name: 'delete_file',
   description:
@@ -943,16 +999,45 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // commonest edits there is, so it gets a first-class form. Rewriting it into
   // search/replace here keeps every guard — uniqueness, token boundaries,
   // structural balance, syntax — applying unchanged.
+  const newTextArg = typeof input.new_text === 'string' ? (input.new_text as string) : undefined;
   const insertion = insertBefore ?? insertAfter;
+  if (newTextArg !== undefined && insertion === undefined) {
+    throw new Error(
+      `Error: edit_file received 'new_text' with no position. Put the EXISTING text to insert next to in ` +
+        `'insert_after' (or 'insert_before'), and the new code in 'new_text'.`,
+    );
+  }
   if (insertion !== undefined) {
     if (rawReplace !== undefined) {
       throw new Error(
         `Error: edit_file received both 'replace' and an insert argument. Use 'replace' to SUBSTITUTE text, ` +
-          `or 'insert_before'/'insert_after' to ADD text around the 'search' anchor — not both.`,
+          `or 'insert_before'/'insert_after' to ADD text — not both.`,
       );
     }
     if (insertBefore !== undefined && insertAfter !== undefined) {
       throw new Error(`Error: edit_file received both 'insert_before' and 'insert_after'. Use one.`);
+    }
+    // V2 CONVENTION (insert-API redesign): `insert_after`/`insert_before` hold
+    // the EXISTING anchor — the plain-English reading of the field name — and
+    // `new_text` holds the code to add. Accepted unconditionally (the flag
+    // only controls which convention the schema TEACHES), so both V1 and V2
+    // emissions dispatch deterministically:
+    //   insert_* + new_text            → V2: anchor = insert_*, payload = new_text
+    //   insert_* + search (no new_text) → V1: anchor = search,  payload = insert_*
+    //   insert_* alone                  → recovery / teaching errors below
+    if (newTextArg !== undefined) {
+      const anchor = insertion;
+      const joined = insertBefore !== undefined ? `${newTextArg}\n${anchor}` : `${anchor}\n${newTextArg}`;
+      if (newTextArg.trim() === '') {
+        throw new Error(`Error: 'new_text' is empty — there is nothing to add.`);
+      }
+      if (newTextArg.trim() === anchor.trim()) {
+        throw new Error(
+          `Error: 'new_text' is identical to your anchor — you repeated the existing text instead of giving the ` +
+            `NEW code to add. Put ONLY the new code in 'new_text'.`,
+        );
+      }
+      return editFile({ path: filePath, search: anchor, replace: joined }, context);
     }
     if (search === undefined) {
       const currentText = isAuditModeActive(context)
@@ -984,12 +1069,30 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       // happened; name it, instead of implying the payload was fine.
       if (insertion.trim() !== '' && currentText.includes(insertion.trim())) {
         const which = insertBefore !== undefined ? 'insert_before' : 'insert_after';
+        // Under the V2 teaching this emission is HALF RIGHT — the anchor is in
+        // the right field, only the payload is missing. Ask for exactly that.
+        if (context?.config?.insertApiV2Enabled === true) {
+          throw new Error(
+            `Error: '${which}' names the position, but there is no new code to add — pass it in 'new_text'. ` +
+              `Resend as: edit_file(path="${filePath}", ${which}=<that same existing text>, new_text=<the NEW ` +
+              `code to add>). The file was NOT modified.`,
+          );
+        }
         throw new Error(
           `Error: your '${which}' value is text that is ALREADY IN ${filePath} — you gave the position, but not ` +
             `the new code. '${which}' must contain the NEW text to add; the existing text it goes ` +
             `${insertBefore !== undefined ? 'before' : 'after'} belongs in 'search'. Resend as: ` +
             `edit_file(path="${filePath}", search=<that existing text>, ${which}=<the NEW code to add>). ` +
             `The file was NOT modified.`,
+        );
+      }
+      if (context?.config?.insertApiV2Enabled === true) {
+        const which = insertBefore !== undefined ? 'insert_before' : 'insert_after';
+        throw new Error(
+          `Error: edit_file's '${which}' must be EXISTING text from ${filePath} (the anchor to insert ` +
+            `${insertBefore !== undefined ? 'before' : 'after'}), and your value is not in the file. Put the ` +
+            `anchor in '${which}' and the NEW code in 'new_text'. Call read_file(path="${filePath}") and copy ` +
+            `the anchor verbatim.`,
         );
       }
       throw new Error(

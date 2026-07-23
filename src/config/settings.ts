@@ -179,6 +179,8 @@ export interface SideCarConfig {
   editToWriteSteerEnabled: boolean;
   /** Consecutive failed edit_file calls on one file before the edit→write steer fires (min 2). */
   editToWriteSteerThreshold: number;
+  /** Teach the V2 insert API in the edit_file schema and prompt examples: `insert_after`/`insert_before` hold the EXISTING anchor text (the plain-English reading — "insert after THIS") and `new_text` holds the code to add. The executor accepts both conventions unconditionally regardless of this flag (deterministic disambiguation); the flag only changes which convention the model is TAUGHT. Motivated by campaign 3/4: gemma4 consistently reads the V1 field names as positions (anchor in `insert_after`, payload nowhere) — field names are prompt surface and must survive the naive English parse. Default OFF pending the gemma4-targeted A/B. */
+  insertApiV2Enabled: boolean;
   /** Weak-model edit strategy: system prompt directs the model to modify files by read_file → write_file(<complete file>) instead of edit_file, and the isolate-rewrite nudge stands down. Proactive form of the edit→write steer, based on the measured fact that models failing every edit_file shape on add-code tasks author complete small files correctly. Default OFF until A/B-proven. */
   wholeFileRewriteStrategyEnabled: boolean;
   /** Code-as-text recovery package, aimed at the qwen2.5-coder pattern of doing the work in chat text instead of tool calls. Two coupled halves: (1) when the action reprompt fires on a turn containing an edit-shaped code fence or a fabricated <tool_output> wrapper, it uses targeted wording ("that code was NOT saved — call write_file(path=…, content=<complete file>)") instead of the generic nudge; (2) textParsing additionally recognizes call-expression syntax — `write_file(path="x", content="…")` — emitted as prose, which is exactly the shape the targeted wording elicits (observed live: the model answered the reprompt by printing the complete, correct call as text). Default ON — proven 2026-07-21: 3-arm paired campaign (30 triples, lh-calculator-session, qwen2.5-coder:7b) measured bare 0/28 vs recovery 11/27; McNemar discordants 0–11, p=0.001, ≥6-discordant honesty gate passed. Low-risk for capable models by construction: every layer is a rescue path that stays dormant unless its failure shape occurs. */
@@ -560,6 +562,7 @@ function readConfig(): SideCarConfig {
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),
     codeAsTextRecoveryEnabled: cfg.get<boolean>('recovery.codeAsText', true),
     wholeFileRewriteStrategyEnabled: cfg.get<boolean>('editStrategy.wholeFileRewrite', false),
+    insertApiV2Enabled: cfg.get<boolean>('editFile.insertApiV2', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
     // Provider-aware default: an empty `critic.model` historically meant

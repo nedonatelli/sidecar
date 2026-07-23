@@ -1221,6 +1221,91 @@ describe('insert_after position-not-payload teaching error (gemma4 shape)', () =
   });
 });
 
+describe('insert API V2: insert_after = anchor, new_text = payload', () => {
+  let buf: AuditBuffer;
+  beforeEach(() => {
+    buf = new AuditBuffer();
+    __setDefaultAuditBufferForTests(buf);
+  });
+  afterEach(() => __setDefaultAuditBufferForTests(null));
+  const FILE = 'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n';
+
+  it('inserts new_text after the insert_after anchor (V2 canonical call)', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('calc.py', FILE, async () => undefined);
+    const result = await editMsg(
+      {
+        path: 'calc.py',
+        insert_after: 'def subtract(a, b):\n    return a - b',
+        new_text: 'def multiply(a, b):\n    return a * b',
+      },
+      context,
+    );
+    expect(result).toContain('File edited');
+    const after = buf.read('calc.py').content!;
+    expect(after).toContain('def subtract(a, b):\n    return a - b\ndef multiply(a, b):');
+    expect(after).toContain('def add');
+  });
+
+  it('inserts new_text before the insert_before anchor', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('calc.py', FILE, async () => undefined);
+    await editMsg({ path: 'calc.py', insert_before: 'def add(a, b):', new_text: '# math helpers' }, context);
+    expect(buf.read('calc.py').content).toContain('# math helpers\ndef add(a, b):');
+  });
+
+  it('still honors the V1 convention: search = anchor, insert_after = payload', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('calc.py', FILE, async () => undefined);
+    const result = await editMsg(
+      { path: 'calc.py', search: '    return a - b', insert_after: 'def half(a):\n    return a / 2' },
+      context,
+    );
+    expect(result).toContain('File edited');
+    expect(buf.read('calc.py').content).toContain('    return a - b\ndef half(a):');
+  });
+
+  it('rejects new_text with no position field', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('calc.py', FILE, async () => undefined);
+    const err = await editMsg({ path: 'calc.py', new_text: 'def half(a):\n    return a / 2' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(err).toContain("'new_text' with no position");
+  });
+
+  it('rejects new_text that repeats the anchor (V2 inversion guard)', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('calc.py', FILE, async () => undefined);
+    const err = await editMsg(
+      { path: 'calc.py', insert_after: '    return a - b', new_text: '    return a - b' },
+      context,
+    ).catch((e: Error) => e.message);
+    expect(err).toContain('repeated the existing text');
+  });
+
+  it('asks for new_text when V2 teaching is on and only the position was given', async () => {
+    const context = { config: { agentMode: 'audit', insertApiV2Enabled: true } as never };
+    await buf.write('calc.py', FILE, async () => undefined);
+    const err = await editMsg({ path: 'calc.py', insert_after: '    return a - b' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(err).toContain("pass it in 'new_text'");
+    expect(err).toContain('edit_file(path="calc.py", insert_after=<that same existing text>');
+  });
+
+  it('teaches the V2 anchor rule when the anchor is not in the file', async () => {
+    const context = { config: { agentMode: 'audit', insertApiV2Enabled: true } as never };
+    await buf.write('calc.py', FILE, async () => undefined);
+    const err = await editMsg(
+      { path: 'calc.py', insert_after: 'def multiply(a, b):\n    return a * b' },
+      context,
+    ).catch((e: Error) => e.message);
+    expect(err).toContain('must be EXISTING text');
+    expect(err).toContain("the NEW code in 'new_text'");
+  });
+});
+
 describe('splitFusedAnchor (fused anchor+content recovery)', () => {
   const file = 'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n';
 
