@@ -2,7 +2,7 @@
 title: Extending SideCar
 layout: docs
 nav_order: 1
-nav_section: "Extend"
+nav_section: 'Extend'
 ---
 
 # Extending SideCar
@@ -10,18 +10,18 @@ nav_section: "Extend"
 Five extension surfaces — ordered by increasing power and increasing trust requirement:
 
 1. **[Skills](#skills)** — markdown prompt fragments that inject into the system prompt when triggered. No code; no approval gate needed (content is just more text for the model). Best for: coding conventions, domain context, command templates.
-2. **[Facets](#facets)** — *(new in v0.66)* named sub-agents with their own tool allowlist, preferred model, and system prompt. Dispatched as specialists via `SideCar: Facets: Dispatch Specialists` and run in isolated Shadow Workspaces. Best for: role-scoped work like test authoring, security review, or DSP design, especially when you want a different model per role.
+2. **[Facets](#facets)** — _(new in v0.66)_ named sub-agents with their own tool allowlist, preferred model, and system prompt. Dispatched as specialists via `SideCar: Facets: Dispatch Specialists` and run in isolated Shadow Workspaces. Best for: role-scoped work like test authoring, security review, or DSP design, especially when you want a different model per role.
 3. **[Custom tools](#custom-tools)** — user-defined shell commands surfaced to the agent as callable tools. Simple to author, full shell privileges, always requires approval per call. Best for: internal CLIs, build / deploy wrappers, project-specific scripts.
 4. **[MCP servers](#mcp-servers)** — external processes or HTTP endpoints that expose tools via the Model Context Protocol. SDK-based; own lifecycle. Best for: integrating with GitHub / Linear / Postgres / custom data sources, or any tool you want to share across Claude Code + SideCar + other MCP clients.
 5. **[Policy hooks](#policy-hooks)** — TypeScript-level extension of the agent loop's `HookBus`. Full access to loop state; runs in-process. Best for: custom completion gates, domain-specific validators, regression guards.
 
-| Surface | Authoring effort | Trust required | Sharable across clients |
-| --- | --- | --- | --- |
-| Skill | Minimal (markdown) | Workspace trust for project-local skills | ✅ (Claude Code compatible) |
-| Facet | Low (markdown + YAML frontmatter) | Workspace trust for project-local facets | ❌ SideCar-specific |
-| Custom tool | Low (one shell command + JSON schema) | Per-call approval + workspace trust | ❌ SideCar-specific |
-| MCP server | Medium (separate codebase + SDK) | Workspace trust for stdio transport | ✅ (any MCP client) |
-| Policy hook | High (TypeScript, in-process) | Only shipped via the extension's own code or a fork | ❌ SideCar-specific |
+| Surface     | Authoring effort                      | Trust required                                      | Sharable across clients     |
+| ----------- | ------------------------------------- | --------------------------------------------------- | --------------------------- |
+| Skill       | Minimal (markdown)                    | Workspace trust for project-local skills            | ✅ (Claude Code compatible) |
+| Facet       | Low (markdown + YAML frontmatter)     | Workspace trust for project-local facets            | ❌ SideCar-specific         |
+| Custom tool | Low (one shell command + JSON schema) | Per-call approval + workspace trust                 | ❌ SideCar-specific         |
+| MCP server  | Medium (separate codebase + SDK)      | Workspace trust for stdio transport                 | ✅ (any MCP client)         |
+| Policy hook | High (TypeScript, in-process)         | Only shipped via the extension's own code or a fork | ❌ SideCar-specific         |
 
 Pick the lowest-power option that covers your use case.
 
@@ -51,6 +51,7 @@ description: Triggers a thorough code review with security + perf focus
 You are reviewing code for production readiness.
 
 Focus on:
+
 - Security (injection, auth bypass, secret handling)
 - Performance (N+1 queries, quadratic algorithms)
 - Correctness (off-by-one, null handling, error paths)
@@ -86,7 +87,7 @@ See [`src/agent/skillLoader.ts`](../src/agent/skillLoader.ts) for the loader imp
 
 ## Facets
 
-*New in v0.66.* A facet is a named specialist — a display name, preferred model, tool allowlist, system prompt, optional dependency graph, optional RPC schema. The user dispatches one or more facets against a shared task via `SideCar: Facets: Dispatch Specialists` in the Command Palette; each one runs in its own isolated Shadow Workspace with its own allowed toolset, and the resulting diffs are collected into a single aggregated review flow at the end.
+_New in v0.66._ A facet is a named specialist — a display name, preferred model, tool allowlist, system prompt, optional dependency graph, optional RPC schema. The user dispatches one or more facets against a shared task via `SideCar: Facets: Dispatch Specialists` in the Command Palette; each one runs in its own isolated Shadow Workspace with its own allowed toolset, and the resulting diffs are collected into a single aggregated review flow at the end.
 
 Facets are distinct from Skills: a skill injects text into the system prompt for the main agent turn, while a facet spawns a new agent run with its own context, shadow worktree, and tool permissions. Pick a facet when you want the specialist's boundary enforced — it can only call the tools you grant it, its writes only land in its shadow, its model is what you picked — not just "I want a different voice in the prompt."
 
@@ -105,7 +106,7 @@ Scanned in order (later sources override earlier on id collision):
 id: api-contract-tester
 displayName: API Contract Tester
 preferredModel: claude-haiku-4-5
-toolAllowlist: ["read_file", "grep", "run_tests", "edit_file", "write_file"]
+toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
 dependsOn: []
 rpcSchema:
   review:
@@ -168,9 +169,9 @@ Schema (`CustomToolConfig` in [`src/config/settings.ts`](../src/config/settings.
 
 ```typescript
 interface CustomToolConfig {
-  name: string;        // tool name surfaced to the agent
+  name: string; // tool name surfaced to the agent
   description: string; // description the LLM uses to decide when to call
-  command: string;     // shell command; `$SIDECAR_INPUT` interpolates the LLM's arg
+  command: string; // shell command; `$SIDECAR_INPUT` interpolates the LLM's arg
 }
 ```
 
@@ -276,7 +277,7 @@ Credentials are stored in the `env` block per server, not in SecretStorage — k
 
 ## Policy hooks
 
-The agent loop's [`HookBus`](../src/agent/loop/policyHook.ts) is an extensibility point for authors who want to inject behavior *inside* the loop itself — gating turn completion, running post-tool validators, or pushing synthetic user messages to steer the agent.
+The agent loop's [`HookBus`](../src/agent/loop/policyHook.ts) is an extensibility point for authors who want to inject behavior _inside_ the loop itself — gating turn completion, running post-tool validators, or pushing synthetic user messages to steer the agent.
 
 Today this surface is available to first-party code (the four built-in hooks + `sidecar.regressionGuards` config) and to callers who construct `AgentOptions.extraPolicyHooks` directly. There is **no packaged-plugin API** yet — hooks ship either in the SideCar repo itself or in a fork.
 
@@ -309,12 +310,12 @@ The `state` parameter is the mutable `LoopState` — hooks can push messages int
 
 The four built-ins registered by `defaultPolicyHooks()`:
 
-| Hook | Phase | What it does |
-| --- | --- | --- |
-| `auto-fix` | afterToolResults | Detects common post-edit errors (lint, tsc, missing imports) and pushes a follow-up message asking the agent to fix them |
-| `stub-validator` | afterToolResults | Rejects placeholder code (`TODO`, `// implement me`) in fresh writes |
-| `critic` | afterToolResults | Adversarial LLM review of the turn's edits; pushes a blocking injection on high-severity findings |
-| `completion-gate` | afterToolResults + emptyResponse | Tracks whether the agent ran lint / tests after claiming to be done; reprompts if not |
+| Hook              | Phase                            | What it does                                                                                                             |
+| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `auto-fix`        | afterToolResults                 | Detects common post-edit errors (lint, tsc, missing imports) and pushes a follow-up message asking the agent to fix them |
+| `stub-validator`  | afterToolResults                 | Rejects placeholder code (`TODO`, `// implement me`) in fresh writes                                                     |
+| `critic`          | afterToolResults                 | Adversarial LLM review of the turn's edits; pushes a blocking injection on high-severity findings                        |
+| `completion-gate` | afterToolResults + emptyResponse | Tracks whether the agent ran lint / tests after claiming to be done; reprompts if not                                    |
 
 See [`src/agent/loop/builtInHooks.ts`](../src/agent/loop/builtInHooks.ts) for the adapters.
 
@@ -369,6 +370,45 @@ No third-party packaged-plugin API exists today. A hypothetical plugin system wo
 - Isolation: plugins can see and mutate `LoopState`, which includes user prompts and tool arguments. Untrusted third-party code with that level of access is not something to enable casually.
 
 Until that lands, custom hooks ship via fork or by contributing upstream. If you have a strong use case, [open an issue](https://github.com/nedonatelli/sidecar/issues) — real demand can move this up the roadmap.
+
+## SDK extensions (other VS Code extensions)
+
+A separate VS Code extension can register agent tools through SideCar's
+first-party API (shipped v0.74). SideCar exports `SideCarSdkApi` from its
+extension activation; declare `"extensionDependencies": ["nedonatelli.sidecar"]`
+in your extension's `package.json` and register on activate:
+
+```ts
+import * as vscode from 'vscode';
+import type { SideCarSdkApi } from 'nedonatelli.sidecar';
+
+export function activate(context: vscode.ExtensionContext) {
+  const sidecar = vscode.extensions.getExtension<SideCarSdkApi>('nedonatelli.sidecar');
+  if (!sidecar?.isActive) return;
+
+  const disposable = sidecar.exports.registerTool(
+    {
+      name: 'greet',
+      description: 'Return a friendly greeting for the given name.',
+      input_schema: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'The name to greet' } },
+        required: ['name'],
+      },
+    },
+    async (input) => `Hello, ${(input.name as string) ?? 'world'}!`,
+    { requiresApproval: false },
+  );
+  context.subscriptions.push(disposable);
+}
+```
+
+Registered tools join the agent catalog like built-ins: they appear in the
+tool list, dispatch through the same approval gates (`requiresApproval`
+controls the default), and are removed when your disposable is disposed.
+Trust semantics: an SDK tool runs with your extension's privileges — SideCar
+treats it as pre-trusted by installation, unlike workspace-configured custom
+tools which pass `checkWorkspaceConfigTrust`.
 
 ## See also
 
