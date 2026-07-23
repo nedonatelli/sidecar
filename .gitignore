@@ -42,3 +42,4 @@ eval-failures.md
 # recreated on every run). Stryker ignores them internally, git did not —
 # a `git add -A` after a run swept 1117 sandbox files into a commit.
 .stryker-tmp/
+/CLAUDE.md
