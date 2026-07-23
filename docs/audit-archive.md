@@ -8,7 +8,7 @@ nav_order: 21
 
 Historical quality-audit findings from the Cycle-4 pass (post-v0.79.0, 2026-04-21). Items resolved in v0.80–v1.0 are annotated ✅. All v1.0 ROADMAP items are now complete; remaining open items (Lance backend, per-hunk audit review, inline edit enhancements) are deferred to post-v1.0 and tracked in [docs/feature-specs.md](feature-specs.md).
 
-→ [Back to ROADMAP](../ROADMAP.md)
+→ [Back to CHANGELOG](../CHANGELOG.md)
 
 Twenty-eight-track audit launched after v0.79.0. All 28 tracks completed 2026-04-21. Findings folded into v0.80 refactor beat and individual backlog items below.
 

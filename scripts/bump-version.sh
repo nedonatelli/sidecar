@@ -8,7 +8,7 @@
 # What it does:
 #   1. Runs tests and collects pass counts
 #   2. Counts tools and skills from source
-#   3. Updates: package.json, CHANGELOG.md, ROADMAP.md, README.md,
+#   3. Updates: package.json, CHANGELOG.md, README.md,
 #      docs/index.html, docs/agent-mode.md, docs/troubleshooting.md
 #   4. Prints a summary of changes for review before committing
 #
@@ -96,9 +96,7 @@ echo ""
 echo "Updating package.json..."
 sed -i '' "s/\"version\": \"$OLD_VERSION\"/\"version\": \"$NEW_VERSION\"/" package.json
 
-# --- 3. Update ROADMAP.md ---
-echo "Updating ROADMAP.md..."
-sed -i '' "s/Last updated: .* (v$OLD_VERSION)/Last updated: $TODAY (v$NEW_VERSION)/" ROADMAP.md
+# --- 3. ROADMAP.md retired (2026-07-24): working plan lives in internal/roadmap.md (gitignored) ---
 
 # --- 4. Update docs/index.html (landing page stats) ---
 echo "Updating docs/index.html..."
