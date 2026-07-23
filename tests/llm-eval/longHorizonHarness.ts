@@ -103,6 +103,21 @@ export interface LongHorizonResult {
    * marker) across the run — observable evidence for the code-as-text guard A/B.
    */
   actionRepromptFiredCount: number;
+  /**
+   * HOW the case failed — a model that eventually reaches the solution is a
+   * different animal from one that can't ever reach it, and PASS/FAIL at a
+   * fixed budget conflates them (campaigns 3/4: three "failing" models were
+   * convergent runs executed by the 480s case budget mid-flight; doubling the
+   * budget flipped them to passers with no code change).
+   *
+   *   converged   — passed
+   *   progressing — failed with the failing turn EMPTY or cut off mid-work
+   *                 (budget/abort artifact, not a capability verdict)
+   *   stuck       — failing turn shows ≥3 errors from one tool on one target
+   *                 (the repeat-thrash signature; more budget won't help)
+   *   diverged    — failed while actively doing the wrong thing
+   */
+  failureMode: 'converged' | 'progressing' | 'stuck' | 'diverged';
 }
 
 /**
@@ -312,9 +327,12 @@ export function summarizeLongHorizon(input: {
   const steerFiredCount = countTextMarker('🛑 edit_file keeps failing');
   const actionRepromptFiredCount = countTextMarker('⚙️ No tool calls detected');
 
+  const passed = allTurnsPassed && !vacuous && !input.apiUnavailable;
+  const failureMode = classifyFailureMode(passed, input.turns);
+
   return {
     caseId: input.caseId,
-    passed: allTurnsPassed && !vacuous && !input.apiUnavailable,
+    passed,
     turns: input.turns,
     compressionCount: input.compressionCount,
     finalHistoryLength: input.finalHistoryLength,
@@ -324,5 +342,31 @@ export function summarizeLongHorizon(input: {
     editDiffShownCount,
     steerFiredCount,
     actionRepromptFiredCount,
+    failureMode,
   };
+}
+
+/**
+ * Classify HOW a failed run failed, from signals the harness already records.
+ * Pure so the boundaries are unit-testable. See LongHorizonResult.failureMode.
+ */
+export function classifyFailureMode(passed: boolean, turns: LongHorizonTurnResult[]): LongHorizonResult['failureMode'] {
+  if (passed) return 'converged';
+  const failing = turns.find((t) => !t.passed);
+  if (!failing) return 'progressing'; // no turn even ran — aborted before start
+  const events = failing.trajectory.filter((e) => e.type !== 'done');
+  if (events.length === 0) return 'progressing'; // budget killed the turn before it began
+  // Repeat-thrash signature: ≥3 errors from the same tool in the failing turn.
+  const errorsByTool = new Map<string, number>();
+  for (const e of events) {
+    if (e.type === 'tool_result' && e.isError) {
+      errorsByTool.set(e.name, (errorsByTool.get(e.name) ?? 0) + 1);
+    }
+  }
+  if ([...errorsByTool.values()].some((n) => n >= 3)) return 'stuck';
+  // Active work, few/no errors, still failed: either mid-flight when the
+  // budget hit (last event is a call with no result) or genuinely wrong.
+  const last = events[events.length - 1];
+  if (last.type === 'tool_call') return 'progressing'; // cut off awaiting a result
+  return 'diverged';
 }

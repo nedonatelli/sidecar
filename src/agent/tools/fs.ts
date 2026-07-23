@@ -955,6 +955,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       throw new Error(`Error: edit_file received both 'insert_before' and 'insert_after'. Use one.`);
     }
     if (search === undefined) {
+      const currentText = isAuditModeActive(context)
+        ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)) ?? '')
+        : ((await readDiskViaWorkspace(context, filePath)) ?? '');
       // FUSED-ANCHOR RECOVERY (code-as-text package). qwen2.5-coder's insert
       // move on the calculator session: everything in `insert_after`, no
       // `search` — and the value STARTS with the existing anchor block
@@ -963,9 +966,6 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       // the remainder is the insertion. Split, dispatch, disclose. The inner
       // editFile still enforces anchor uniqueness and the syntax guard.
       if (insertAfter !== undefined && context?.config?.codeAsTextRecoveryEnabled === true) {
-        const currentText = isAuditModeActive(context)
-          ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)) ?? '')
-          : ((await readDiskViaWorkspace(context, filePath)) ?? '');
         const split = splitFusedAnchor(currentText, insertAfter);
         if (split) {
           return editFile({ path: filePath, search: split.anchor, insert_after: split.remainder }, context).then(
@@ -975,6 +975,22 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
               `in 'search' and ONLY the new code in 'insert_after'.]\n${r}`,
           );
         }
+      }
+      // POSITION-NOT-PAYLOAD teaching error. gemma4 reads `insert_after` as
+      // plain English — "insert after THIS TEXT" — and sends the ANCHOR in it
+      // with the new code nowhere (campaign 3/4: `insert_after: "    return
+      // a - b"`, six identical bounces per run on the generic error). When the
+      // value exists VERBATIM in the file we know exactly which misreading
+      // happened; name it, instead of implying the payload was fine.
+      if (insertion.trim() !== '' && currentText.includes(insertion.trim())) {
+        const which = insertBefore !== undefined ? 'insert_before' : 'insert_after';
+        throw new Error(
+          `Error: your '${which}' value is text that is ALREADY IN ${filePath} — you gave the position, but not ` +
+            `the new code. '${which}' must contain the NEW text to add; the existing text it goes ` +
+            `${insertBefore !== undefined ? 'before' : 'after'} belongs in 'search'. Resend as: ` +
+            `edit_file(path="${filePath}", search=<that existing text>, ${which}=<the NEW code to add>). ` +
+            `The file was NOT modified.`,
+        );
       }
       throw new Error(
         `Error: edit_file needs 'search' — the existing text to insert ${insertBefore !== undefined ? 'before' : 'after'} — ` +

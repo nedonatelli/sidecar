@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summarizeLongHorizon, type LongHorizonTurnResult } from './longHorizonHarness.js';
+import { summarizeLongHorizon, type LongHorizonTurnResult, classifyFailureMode } from './longHorizonHarness.js';
 
 const turn = (index: number, passed: boolean): LongHorizonTurnResult => ({
   index,
@@ -113,5 +113,44 @@ describe('summarizeLongHorizon — editDiffShownCount (verify the diff flag fire
       turns: [turnWithTraj([{ name: 'edit_file', result: 'File edited: a.ts' }])],
     });
     expect(r.editDiffShownCount).toBe(0);
+  });
+});
+
+describe('classifyFailureMode (reachability vs time-to-solution)', () => {
+  const turn = (passed: boolean, trajectory: unknown[]) =>
+    ({ index: 0, label: 't', passed, failures: [], trajectory }) as never;
+  const err = (name: string) => ({ type: 'tool_result', name, result: 'Error: x', isError: true });
+  const call = (name: string) => ({ type: 'tool_call', name, input: {}, id: 'i' });
+  const ok = (name: string) => ({ type: 'tool_result', name, result: 'done', isError: false });
+
+  it('a passed run is converged', () => {
+    expect(classifyFailureMode(true, [turn(true, [])])).toBe('converged');
+  });
+
+  it('an empty failing turn is progressing — the budget killed it before it began', () => {
+    expect(classifyFailureMode(false, [turn(false, [])])).toBe('progressing');
+  });
+
+  it('a turn cut off awaiting a tool result is progressing', () => {
+    expect(classifyFailureMode(false, [turn(false, [call('read_file'), ok('read_file'), call('write_file')])])).toBe(
+      'progressing',
+    );
+  });
+
+  it('three errors from one tool is stuck — the gemma4 insert-thrash signature', () => {
+    const t = turn(false, [
+      call('edit_file'),
+      err('edit_file'),
+      call('edit_file'),
+      err('edit_file'),
+      call('edit_file'),
+      err('edit_file'),
+    ]);
+    expect(classifyFailureMode(false, [t])).toBe('stuck');
+  });
+
+  it('active work that completes but fails assertions is diverged', () => {
+    const t = turn(false, [call('write_file'), ok('write_file'), { type: 'text', text: 'done!' }]);
+    expect(classifyFailureMode(false, [t])).toBe('diverged');
   });
 });

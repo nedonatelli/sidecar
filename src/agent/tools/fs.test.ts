@@ -1186,6 +1186,41 @@ describe('write_file syntax guard (edit_file bypass)', () => {
   });
 });
 
+describe('insert_after position-not-payload teaching error (gemma4 shape)', () => {
+  let buf: AuditBuffer;
+  beforeEach(() => {
+    buf = new AuditBuffer();
+    __setDefaultAuditBufferForTests(buf);
+  });
+  afterEach(() => __setDefaultAuditBufferForTests(null));
+
+  it('names the misreading when insert_after is text already in the file', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write(
+      'calc.py',
+      'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n',
+      async () => undefined,
+    );
+    const err = await editMsg({ path: 'calc.py', insert_after: '    return a - b' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(err).toContain('ALREADY IN calc.py');
+    expect(err).toContain('you gave the position, but not the new code');
+    expect(err).toContain('search=<that existing text>');
+  });
+
+  it('keeps the generic missing-search error when the value is genuinely new code', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('calc.py', 'def add(a, b):\n    return a + b\n', async () => undefined);
+    const err = await editMsg(
+      { path: 'calc.py', insert_after: 'def multiply(a, b):\n    return a * b' },
+      context,
+    ).catch((e: Error) => e.message);
+    expect(err).toContain("needs 'search'");
+    expect(err).not.toContain('ALREADY IN');
+  });
+});
+
 describe('splitFusedAnchor (fused anchor+content recovery)', () => {
   const file = 'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n';
 
