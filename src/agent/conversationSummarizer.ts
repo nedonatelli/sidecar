@@ -158,6 +158,25 @@ export function extractStandingInstructions(
             .map((b) => (b as { text: string }).text)
             .join(' ');
     const text = raw.trim();
+    // RE-LATCH before the synthetic skip: a prior summary message carries its
+    // own `## Standing instructions` section AND starts with '[Earlier
+    // conversation summary…]' — skipping it as a synthetic injection killed
+    // every latched instruction at the SECOND compaction (found live:
+    // memory-recall forces several compactions; latched=0 in final history).
+    // Same self-masking class as the v0.120 action-reprompt '[' bug.
+    const sectionMatch = /## Standing instructions\n((?:- [^\n]+\n?)+)/.exec(text);
+    if (sectionMatch) {
+      for (const line of sectionMatch[1].split('\n')) {
+        const entry = line.replace(/^- /, '').trim();
+        if (entry === '') continue;
+        const key = entry.toLowerCase();
+        if (seen.has(key) || used + entry.length > total) continue;
+        seen.add(key);
+        out.push(entry);
+        used += entry.length;
+      }
+      continue; // the rest of a summary message is compressed prose, not user intent
+    }
     if (text === '' || text.startsWith('[')) continue; // synthetic injections carry no user intent
     for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
       const t = sentence.trim();

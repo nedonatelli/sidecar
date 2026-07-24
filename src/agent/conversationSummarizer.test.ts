@@ -792,3 +792,56 @@ describe('durable-context package: standing-instruction latch', () => {
     expect(JSON.stringify(result.messages)).not.toContain('## Standing instructions');
   });
 });
+
+describe('durable-context: the latch must not depend on the summarizer model (LLM path)', () => {
+  it('force-prepends the standing section when the LLM omits it', async () => {
+    // The summarizer model ignores the section instruction — the exact
+    // failure the package exists to fix; the floor must be code-side.
+    const summarizer = new ConversationSummarizer({
+      complete: async () => '## Facts established\n- lots of facts, no standing section',
+    } as never);
+    const mk = (i: number, extra = '') => [
+      { role: 'user', content: `question ${i}${extra} ` + 'filler '.repeat(60) },
+      { role: 'assistant', content: `answer ${i} ` + 'filler '.repeat(60) },
+    ];
+    const messages = [
+      ...mk(1, ' — remember the magic word is pineapple.'),
+      ...mk(2),
+      ...mk(3),
+      ...mk(4),
+      ...mk(5),
+      ...mk(6),
+      ...mk(7),
+    ].flat() as never;
+    const result = await summarizer.summarize(messages, {
+      keepRecentTurns: 2,
+      minCharsToSave: 1,
+      maxSummaryLength: 300, // force the LLM path (structured won't fit)
+      durableInstructions: true,
+    });
+    const text = JSON.stringify(result.messages);
+    expect(text).toContain('## Standing instructions');
+    expect(text).toContain('pineapple');
+  });
+});
+
+describe('durable-context: instructions survive RE-compaction (the second-summary mask)', () => {
+  it('re-latches bullets from a prior summary message despite its [ prefix', () => {
+    // The summary carrier is role:'user' and starts with '[Earlier conversation
+    // summary…]' — the synthetic-injection skip must not mask it, or every
+    // standing instruction dies at the SECOND compaction (memory-recall forces
+    // several). Same self-masking class as the v0.120 action-reprompt bug.
+    const msgs = [
+      {
+        role: 'user',
+        content:
+          '[Earlier conversation summary (turns 1–6)]\n## Standing instructions\n- Remember the magic word is pineapple.\n- every numeric config value MUST be even\n\n## Facts established\n- stuff happened',
+      },
+      { role: 'assistant', content: 'Understood.' },
+      { role: 'user', content: 'now do more work' },
+    ] as never;
+    const out = extractStandingInstructions(msgs);
+    expect(out).toContain('Remember the magic word is pineapple.');
+    expect(out.some((l) => l.includes('MUST be even'))).toBe(true);
+  });
+});
