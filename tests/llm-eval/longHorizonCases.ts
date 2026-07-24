@@ -43,8 +43,15 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     turns: [
       {
         label: 'state the constraint',
+        // The rule is APPLICATION-SCOPED by its own text: it governs values the
+        // model is asked to write, never existing ones. The first wording
+        // ("every numeric config value MUST be even") made eager retroactive
+        // fixing a defensible reading — haiku changed retries 3→2 unprompted
+        // during an unrelated edit, and the case punished it four turns later
+        // via an indirect assertion. A case must not penalize a defensible
+        // interpretation; the contract has to have one correct reading.
         userMessage:
-          'Important for everything that follows: in this project, every numeric config value MUST be even. Just acknowledge, do not change anything yet.',
+          'A rule to remember for any change I ask you to make later: every numeric config value you WRITE must be even. It only applies to values I ask you to change — leave existing values exactly as they are unless I ask. Just acknowledge.',
         expect: { files: { notContain: [{ path: 'src/config.ts', substrings: ['retries: 4', 'retries: 2'] }] } },
       },
       {
@@ -62,7 +69,13 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       {
         label: 'filler: add timeout',
         userMessage: 'Add a `timeout` config value set to 10 in src/config.ts.',
-        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['timeout'] }] } },
+        expect: {
+          files: {
+            contain: [{ path: 'src/config.ts', substrings: ['timeout'] }],
+            // retries stays 3 — the rule scopes itself to REQUESTED changes.
+            notContain: [{ path: 'src/config.ts', substrings: ['retries: 2', 'retries: 4'] }],
+          },
+        },
       },
       {
         label: 'filler: describe timeout',
@@ -72,7 +85,12 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       {
         label: 'filler: add logLevel',
         userMessage: 'Add a `logLevel` config value set to 2 in src/config.ts.',
-        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['logLevel'] }] } },
+        expect: {
+          files: {
+            contain: [{ path: 'src/config.ts', substrings: ['logLevel'] }],
+            notContain: [{ path: 'src/config.ts', substrings: ['retries: 2', 'retries: 4'] }],
+          },
+        },
       },
       {
         label: 'unrelated read',
@@ -86,7 +104,7 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       {
         label: 'apply the turn-1 constraint from memory',
         userMessage:
-          'Now change `retries` to the smallest valid value greater than 3 that satisfies the rule I gave you at the start.',
+          'Now change `retries` to the smallest value greater than 3 that satisfies the rule I gave you at the start.',
         // The rule was "must be even", so the answer is 4 — only reachable by
         // recalling turn 1. A model that lost the constraint will write 4 anyway
         // by coincidence OR pick 3.x; the discriminator is that it must be even AND > 3.
