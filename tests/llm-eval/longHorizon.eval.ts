@@ -91,7 +91,7 @@ describe.skipIf(!backend)('llm-eval :: long-horizon', () => {
       lines.push(
         `  ${status.padEnd(11)} ${r.caseId.padEnd(26)} ${passedTurns}/${r.turns.length} turns  ` +
           `compaction=${r.compressionCount}  history=${r.finalHistoryLength}  editDiffShown=${r.editDiffShownCount}  ` +
-          `steer=${r.steerFiredCount}  reprompt=${r.actionRepromptFiredCount}  mode=${r.failureMode}  latched=${r.standingInstructionsInSummary}`,
+          `steer=${r.steerFiredCount}  reprompt=${r.actionRepromptFiredCount}  mode=${r.failureMode}  latched=${r.standingInstructionsInSummary}  splices=${r.summarySpliceCount}`,
       );
     }
     // eslint-disable-next-line no-console -- intentional report output

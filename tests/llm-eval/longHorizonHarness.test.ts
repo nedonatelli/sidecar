@@ -50,15 +50,34 @@ describe('summarizeLongHorizon — the verdict honesty rules', () => {
     expect(r.passed).toBe(false);
   });
 
-  it('a compression-required case that DID compact and passed every turn is a real pass', () => {
+  it('a compression-required case that REALLY summarized (splice present) is a real pass', () => {
     const r = summarizeLongHorizon({
       ...base,
       requiresCompression: true,
       compressionCount: 2,
+      finalMessages: [
+        { role: 'user', content: '[Earlier conversation summary (turns 1–6)]\n## Facts established\n- x' },
+        { role: 'assistant', content: 'Understood.' },
+      ] as never,
       turns: [turn(0, true), turn(1, true), turn(2, true)],
     });
     expect(r.vacuous).toBe(false);
     expect(r.passed).toBe(true);
+  });
+
+  it('token-drop "compaction" WITHOUT a summary splice is vacuous — truncation is not summarization', () => {
+    // Found live: tool-result truncation dropped tokens, the heuristic counted
+    // compaction=2, and the summarizer never ran (splices=0) — the case was
+    // passing its compression requirement on a false pretext.
+    const r = summarizeLongHorizon({
+      ...base,
+      requiresCompression: true,
+      compressionCount: 2,
+      finalMessages: [{ role: 'user', content: 'no summary here' }] as never,
+      turns: [turn(0, true), turn(1, true), turn(2, true)],
+    });
+    expect(r.vacuous).toBe(true);
+    expect(r.passed).toBe(false);
   });
 
   it('api-unavailable is neither pass nor fail', () => {

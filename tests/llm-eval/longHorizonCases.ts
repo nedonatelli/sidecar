@@ -42,16 +42,31 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
         expect: { files: { notContain: [{ path: 'src/config.ts', substrings: ['retries: 4', 'retries: 2'] }] } },
       },
       {
-        // BULK turn — generate enough context that compaction actually fires
-        // before the constraint is applied. Without this the conversation stays
-        // short, compaction never triggers, and the case is VACUOUS (proves
-        // nothing about recall-THROUGH-compaction). agentMaxTokens alone was not
-        // enough: the summarizer also bails below minCharsToSave, so the window
-        // must genuinely fill.
-        label: 'bulk context to force compaction',
-        userMessage:
-          'Read src/config.ts and describe, in exhaustive detail and at length, every field it could plausibly contain for a production web service, what each is for, sensible ranges, and how a wrong value would manifest. Be thorough — several paragraphs.',
+        // MANY SMALL turns, not one bulk turn. The summarizer no-ops below 10
+        // messages (a sane guard for real sessions), so a few bulky turns force
+        // only tool-result TRUNCATION — token counts drop, the old heuristic
+        // said "compaction fired", and the summarizer never ran (found live:
+        // splices=0 on every run; the durable-instructions arm was dead).
+        // Distinct small tasks accumulate the message count PAST the guard so
+        // real summarization fires before the recall turn.
+        label: 'filler: describe retries',
+        userMessage: 'In one paragraph: what does a retries setting do, and what are sensible values?',
         expect: {},
+      },
+      {
+        label: 'filler: add timeout',
+        userMessage: 'Add a `timeout` config value set to 10 in src/config.ts.',
+        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['timeout'] }] } },
+      },
+      {
+        label: 'filler: describe timeout',
+        userMessage: 'In one paragraph: what does the timeout value govern at runtime?',
+        expect: {},
+      },
+      {
+        label: 'filler: add logLevel',
+        userMessage: 'Add a `logLevel` config value set to 2 in src/config.ts.',
+        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['logLevel'] }] } },
       },
       {
         label: 'unrelated read',
@@ -61,11 +76,6 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
         // the memory this case rewards; requiring read_file would penalize the
         // right behavior. (This is why sonnet "failed" the first pass.)
         expect: { finalTextContains: ['3'] },
-      },
-      {
-        label: 'unrelated add',
-        userMessage: 'Add a second config value `timeout` set to 10 in src/config.ts.',
-        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['timeout'] }] } },
       },
       {
         label: 'apply the turn-1 constraint from memory',
@@ -181,18 +191,31 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     },
     turns: [
       {
-        label: 'give a durable instruction, then generate bulk context',
-        userMessage:
-          'Remember this for later: the magic word is "pineapple". Now read src/greeter.ts and describe in detail, line by line, everything it does and every edge case you can think of.',
-        // Setup turn: establish the instruction + generate bulk context to force
-        // compaction. The outcome — the magic word surviving compaction — is
-        // asserted on the final turn, not here.
+        label: 'give the durable instruction',
+        userMessage: 'Remember this for later: the magic word is "pineapple". Just acknowledge.',
+        expect: {},
+      },
+      // Small distinct turns (not bulk): the summarizer no-ops below 10
+      // messages, so the window must fill with MESSAGES, not just tokens —
+      // see the memory-recall comment.
+      {
+        label: 'filler: read greeter',
+        userMessage: 'Read src/greeter.ts and say in two sentences what it does.',
         expect: {},
       },
       {
-        label: 'more bulk to push the window past the compaction threshold',
-        userMessage:
-          'Now enumerate ten different ways the greet function could be extended, describing each in a full paragraph.',
+        label: 'filler: extension idea',
+        userMessage: 'Suggest one way to extend greet(), in a short paragraph.',
+        expect: {},
+      },
+      {
+        label: 'filler: edge cases',
+        userMessage: 'List three edge cases greet() should handle, one line each.',
+        expect: {},
+      },
+      {
+        label: 'filler: naming',
+        userMessage: 'Propose a better name for greet() and justify it in a sentence.',
         expect: {},
       },
       {

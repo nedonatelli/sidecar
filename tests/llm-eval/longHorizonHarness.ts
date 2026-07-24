@@ -109,6 +109,10 @@ export interface LongHorizonResult {
    * (the latch writes into the summary message, which the harness returns).
    */
   standingInstructionsInSummary: number;
+  /** '[Earlier conversation summary' splices in final history — distinguishes
+   *  REAL summarization from the token-drop heuristic's false positives
+   *  (tool-result truncation alone also drops tokens). */
+  summarySpliceCount: number;
   /**
    * HOW the case failed — a model that eventually reaches the solution is a
    * different animal from one that can't ever reach it, and PASS/FAIL at a
@@ -312,7 +316,17 @@ export function summarizeLongHorizon(input: {
   /** Final threaded message history — scanned for mechanism markers (standing-instructions sections). */
   finalMessages?: ChatMessage[];
 }): LongHorizonResult {
-  const vacuous = input.requiresCompression && input.compressionCount === 0;
+  // Vacuity keys on REAL summarization (summary splices in final history), not
+  // the token-drop heuristic — tool-result truncation also drops tokens, and
+  // counting it as "compaction" let requiresCompression cases pass while the
+  // summarizer never ran (found live: compaction=2, splices=0).
+  const preSplices = input.finalMessages
+    ? input.finalMessages.reduce((n, m) => {
+        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        return n + (text.includes('[Earlier conversation summary') ? 1 : 0);
+      }, 0)
+    : 0;
+  const vacuous = input.requiresCompression && preSplices === 0;
   const allTurnsPassed =
     input.turns.length === input.totalTurns && input.turns.length > 0 && input.turns.every((r) => r.passed);
 
@@ -340,6 +354,12 @@ export function summarizeLongHorizon(input: {
   const steerFiredCount = countTextMarker('🛑 edit_file keeps failing');
   const actionRepromptFiredCount = countTextMarker('⚙️ No tool calls detected');
 
+  const summarySpliceCount = input.finalMessages
+    ? input.finalMessages.reduce((n, m) => {
+        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        return n + (text.includes('[Earlier conversation summary') ? 1 : 0);
+      }, 0)
+    : 0;
   const standingInstructionsInSummary = input.finalMessages
     ? input.finalMessages.reduce((n, m) => {
         const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
@@ -367,6 +387,7 @@ export function summarizeLongHorizon(input: {
     actionRepromptFiredCount,
     failureMode,
     standingInstructionsInSummary,
+    summarySpliceCount,
   };
 }
 
