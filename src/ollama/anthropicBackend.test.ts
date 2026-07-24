@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AnthropicBackend, buildSystemBlocks, prepareMessagesForCache } from './anthropicBackend.js';
+import {
+  AnthropicBackend,
+  buildSystemBlocks,
+  prepareMessagesForCache,
+  repairDanglingToolUses,
+} from './anthropicBackend.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -630,5 +635,48 @@ describe('AnthropicBackend', () => {
         expect(usageEvent.usage.outputTokens).toBe(0);
       }
     });
+  });
+});
+
+describe('repairDanglingToolUses (strict pairing safety net)', () => {
+  it('inserts a synthetic tool_result after a dangling tool_use', () => {
+    const messages = [
+      { role: 'user', content: 'do the thing' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'fence_write_1', name: 'write_file', input: {} }] },
+      { role: 'user', content: 'next real request' },
+    ] as never;
+    const out = repairDanglingToolUses(messages);
+    expect(out).toHaveLength(4);
+    expect(out[2].role).toBe('user');
+    const blocks = out[2].content as Array<{ type: string; tool_use_id?: string; content?: string }>;
+    expect(blocks[0].type).toBe('tool_result');
+    expect(blocks[0].tool_use_id).toBe('fence_write_1');
+    expect(blocks[0].content).toContain('interrupted');
+    expect(out[3].content).toBe('next real request');
+  });
+
+  it('merges the synthetic result into an adjacent partial tool_result carrier', () => {
+    const messages = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'a', name: 'read_file', input: {} },
+          { type: 'tool_use', id: 'b', name: 'read_file', input: {} },
+        ],
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'ok' }] },
+    ] as never;
+    const out = repairDanglingToolUses(messages);
+    expect(out).toHaveLength(2);
+    const blocks = out[1].content as Array<{ tool_use_id?: string }>;
+    expect(blocks.map((b) => b.tool_use_id)).toEqual(['b', 'a']);
+  });
+
+  it('returns the input untouched when every pair is intact', () => {
+    const messages = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'x', name: 't', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] },
+    ] as never;
+    expect(repairDanglingToolUses(messages)).toBe(messages);
   });
 });

@@ -123,6 +123,57 @@ export function prepareToolsForCache(tools: ToolDefinition[]): ToolDefinition[] 
  * normalized from string → text-block form on the marked message so
  * cache_control can attach to a block.
  */
+/**
+ * Repair dangling tool_use blocks before the strict Anthropic pairing check.
+ *
+ * The API 400s ("tool_use ids were found without tool_result blocks
+ * immediately after") when an assistant tool_use is not answered by a
+ * tool_result in the very next message. Dangles are real in long histories:
+ * an aborted loop run can end on an unanswered call, and history threading
+ * (multi-turn evals, session restore) then buries it under the next user
+ * message — found live 2026-07-24 as four opaque API-UNAVAIL evals (a
+ * synthesized fence_write_1 call separated from its result). Ollama tolerates
+ * the shape, so it ships silently until a cloud backend rejects it.
+ *
+ * For each dangling id, a synthetic tool_result ("[result unavailable — the
+ * call was interrupted before completing]") is inserted immediately after,
+ * merged into an existing adjacent tool_result carrier when one exists.
+ * Disclosed via console.warn so the dangle SOURCE stays observable — this is
+ * a safety net, not a license for upstream code to emit broken pairs.
+ */
+export function repairDanglingToolUses(messages: ChatMessage[]): ChatMessage[] {
+  let out: ChatMessage[] | null = null;
+  for (let i = 0; i < messages.length; i++) {
+    const msg = (out ?? messages)[i];
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    const ids = msg.content.filter((b) => b.type === 'tool_use').map((b) => (b as { id: string }).id);
+    if (ids.length === 0) continue;
+    const next = (out ?? messages)[i + 1];
+    const answered = new Set<string>(
+      next && next.role === 'user' && Array.isArray(next.content)
+        ? next.content.filter((b) => b.type === 'tool_result').map((b) => (b as { tool_use_id: string }).tool_use_id)
+        : [],
+    );
+    const missing = ids.filter((id) => !answered.has(id));
+    if (missing.length === 0) continue;
+    // eslint-disable-next-line no-console -- deliberate: dangle sources must stay visible
+    console.warn(`[anthropic] repaired ${missing.length} dangling tool_use id(s): ${missing.join(', ')}`);
+    out ??= messages.slice();
+    const synthetic = missing.map((id) => ({
+      type: 'tool_result' as const,
+      tool_use_id: id,
+      content: '[result unavailable — the call was interrupted before completing]',
+    }));
+    if (next && next.role === 'user' && Array.isArray(next.content) && answered.size > 0) {
+      out[i + 1] = { ...next, content: [...synthetic, ...next.content] as ChatMessage['content'] };
+    } else {
+      out.splice(i + 1, 0, { role: 'user', content: synthetic as unknown as ChatMessage['content'] });
+      i++; // skip the message we just inserted
+    }
+  }
+  return out ?? messages;
+}
+
 export function prepareMessagesForCache(messages: ChatMessage[]): ChatMessage[] {
   if (messages.length < 3) return messages;
 
@@ -204,7 +255,7 @@ export class AnthropicBackend implements ApiBackend {
     const body: Record<string, unknown> = {
       model,
       max_tokens: maxOutputTokens,
-      messages: prepareMessagesForCache(pruned.messages),
+      messages: prepareMessagesForCache(repairDanglingToolUses(pruned.messages)),
       stream: true,
       ...(supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
     };

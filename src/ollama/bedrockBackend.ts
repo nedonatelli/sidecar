@@ -8,7 +8,7 @@ import { sidecarFetch } from './sidecarFetch.js';
 import { spendTracker } from './spendTracker.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
-import { maxOutputTokensForModel, supportsTemperature } from './anthropicBackend.js';
+import { maxOutputTokensForModel, supportsTemperature, repairDanglingToolUses } from './anthropicBackend.js';
 import { translateAnthropicStream } from './anthropicStreamTranslate.js';
 import { signRequest, canonicalizePath, type AwsCredentials, canonicalizeQuery } from './awsSigV4.js';
 import { resolveAwsCredentials } from './awsCredentials.js';
@@ -146,7 +146,7 @@ export class BedrockBackend implements ApiBackend {
     const body: Record<string, unknown> = {
       anthropic_version: 'bedrock-2023-05-31',
       max_tokens: maxOutputTokens,
-      messages: pruned.messages,
+      messages: repairDanglingToolUses(pruned.messages),
       ...(supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
     };
     if (pruned.systemPrompt) body.system = pruned.systemPrompt;
