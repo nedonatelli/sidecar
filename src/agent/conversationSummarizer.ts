@@ -96,8 +96,18 @@ function extractErrors(turns: Array<ChatMessage[]>): string[] {
  * detected code-change entries, and distinct errors hit. Omits sections
  * that have no content so the summary never includes empty headers.
  */
-function assembleStructuredSummary(factLines: string[], codeChanges: string[], errors: string[] = []): string {
+function assembleStructuredSummary(
+  factLines: string[],
+  codeChanges: string[],
+  errors: string[] = [],
+  standingInstructions: string[] = [],
+): string {
   const parts: string[] = [];
+  if (standingInstructions.length > 0) {
+    // First section — the most durable content leads, so even a downstream
+    // truncation keeps the user's standing rules.
+    parts.push('## Standing instructions\n' + standingInstructions.map((l) => `- ${l}`).join('\n'));
+  }
   if (factLines.length > 0) {
     parts.push('## Facts established\n' + factLines.map((l) => `- ${l}`).join('\n'));
   }
@@ -108,6 +118,60 @@ function assembleStructuredSummary(factLines: string[], codeChanges: string[], e
     parts.push('## Errors hit\n' + errors.join('\n'));
   }
   return parts.join('\n\n');
+}
+
+/**
+ * Durable-instruction markers. The naive-English test: would a reader call
+ * this sentence a standing rule rather than a one-off request? Validated
+ * against the long-horizon cases' real phrasings ("remember the magic word is
+ * pineapple", "all results must be even") — extend from dogfood corpus, not
+ * invented fixtures.
+ */
+const STANDING_INSTRUCTION_RE =
+  /\b(?:always|never|must(?:\s+not)?|remember|from now on|do not|don't|make sure|ensure that|every time|going forward|keep in mind|only use|use only|no matter what)\b/i;
+
+/**
+ * Deterministic latch for the durable-context package: pull instruction-shaped
+ * sentences out of the USER messages being compacted away, verbatim. The
+ * ceiling run proved the failure is structural — even a frontier summarizer
+ * drops "the answer must be even" through the four-section prompt because no
+ * section owns it — so the floor must not depend on any model. Skips synthetic
+ * '['-prefixed loop injections and tool-result carriers. Per-entry and total
+ * caps bound the token cost that made unscoped verbatim preservation a wash.
+ */
+export function extractStandingInstructions(
+  messages: ChatMessage[],
+  opts: { perEntryChars?: number; totalChars?: number } = {},
+): string[] {
+  const perEntry = opts.perEntryChars ?? 200;
+  const total = opts.totalChars ?? 800;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let used = 0;
+  for (const msg of messages) {
+    if (msg.role !== 'user') continue;
+    const raw =
+      typeof msg.content === 'string'
+        ? msg.content
+        : msg.content
+            .filter((b) => b.type === 'text')
+            .map((b) => (b as { text: string }).text)
+            .join(' ');
+    const text = raw.trim();
+    if (text === '' || text.startsWith('[')) continue; // synthetic injections carry no user intent
+    for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
+      const t = sentence.trim();
+      if (t.length < 8 || !STANDING_INSTRUCTION_RE.test(t)) continue;
+      const entry = t.length > perEntry ? t.slice(0, perEntry) + '…' : t;
+      const key = entry.toLowerCase();
+      if (seen.has(key)) continue;
+      if (used + entry.length > total) return out;
+      seen.add(key);
+      out.push(entry);
+      used += entry.length;
+    }
+  }
+  return out;
 }
 
 /**
@@ -154,6 +218,13 @@ export interface SummarizeOptions {
   maxCharsPerTurn?: number;
   /** Timeout for the summarization LLM call (ms). Default: 10000 */
   summaryTimeoutMs?: number;
+  /**
+   * Durable-context package (`sidecar.compaction.durableInstructions`):
+   * deterministically latch instruction-shaped user sentences into a leading
+   * `## Standing instructions` section, and instruct the LLM path to carry
+   * the section too. Off (false) preserves pre-package behavior exactly.
+   */
+  durableInstructions?: boolean;
   /**
    * Max chars of user messages preserved VERBATIM above the model summary.
    * User turns are short, so this is cheap; it is how standing instructions and
@@ -276,7 +347,13 @@ export class ConversationSummarizer {
 
     // Try to summarize the old turns
     try {
-      const summary = await this.generateSummary(oldTurns, maxSummaryLength, maxCharsPerTurn, summaryTimeoutMs);
+      const summary = await this.generateSummary(
+        oldTurns,
+        maxSummaryLength,
+        maxCharsPerTurn,
+        summaryTimeoutMs,
+        options.durableInstructions === true,
+      );
 
       // Preserve the user's OWN messages verbatim, ABOVE the model summary.
       //
@@ -398,6 +475,7 @@ export class ConversationSummarizer {
     maxLength: number,
     maxCharsPerTurn: number,
     timeoutMs: number,
+    durableInstructions = false,
   ): Promise<string> {
     // Budget the user query and the assistant reply to roughly half the
     // per-turn cap each. The final trim after join ensures the assembled
@@ -443,10 +521,11 @@ export class ConversationSummarizer {
     // the LLM path identically.
     const codeChanges = extractCodeChanges(oldTurns);
     const errors = extractErrors(oldTurns);
+    const standing = durableInstructions ? extractStandingInstructions(oldTurns.flat()) : [];
 
     // Fast path: if the structured assembly fits, return it as-is and skip
     // the LLM round-trip entirely.
-    const structured = assembleStructuredSummary(facts, codeChanges, errors);
+    const structured = assembleStructuredSummary(facts, codeChanges, errors, standing);
     if (structured.length <= maxLength) {
       return structured;
     }
@@ -459,9 +538,15 @@ export class ConversationSummarizer {
       errors.length > 0 ? 60 + errors.join('\n').length : 0,
     ].reduce((a, b) => a + b, 0);
     const factBudget = Math.max(100, maxLength - verbatimTail);
+    const standingBlock =
+      standing.length > 0
+        ? "## Standing instructions\n(Use the latched list provided below verbatim — these are the user's durable rules; never drop or reword them.)\n\n"
+        : durableInstructions
+          ? '## Standing instructions\n- <ONLY durable rules the user stated that still apply — "always/never/must/remember" style constraints, copied near-verbatim. Omit this section entirely when there are none. Never invent one.>\n\n'
+          : '';
     const prompt = `Compress the raw conversation turns below into a Markdown document with this exact structure:
 
-## Facts established
+${standingBlock}## Facts established
 - <concise bullet — one finding, decision, or key insight per line>
 - ...
 
@@ -478,7 +563,7 @@ Constraints:
 Raw turns:
 ${facts.join('\n')}
 
-${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n') + '\n\n' : ''}${errors.length > 0 ? 'Errors hit (verbatim):\n' + errors.join('\n') + '\n\n' : ''}Structured summary:`;
+${standing.length > 0 ? 'Latched standing instructions (verbatim):\n' + standing.map((l) => `- ${l}`).join('\n') + '\n\n' : ''}${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n') + '\n\n' : ''}${errors.length > 0 ? 'Errors hit (verbatim):\n' + errors.join('\n') + '\n\n' : ''}Structured summary:`;
 
     try {
       const summarizeMessages: ChatMessage[] = [{ role: 'user', content: prompt }];
@@ -519,7 +604,7 @@ ${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n')
             resolve(
               hasExpectedHeader
                 ? clean.slice(0, maxLength)
-                : assembleStructuredSummary(facts, codeChanges, errors).slice(0, maxLength),
+                : assembleStructuredSummary(facts, codeChanges, errors, standing).slice(0, maxLength),
             );
           })
           .catch(reject);
@@ -530,7 +615,7 @@ ${codeChanges.length > 0 ? 'Code changes (verbatim):\n' + codeChanges.join('\n')
       // On LLM failure / timeout, return the deterministic structured form
       // clamped to the caller's budget. Worst case: a tail-truncated but
       // still structurally-valid summary.
-      return assembleStructuredSummary(facts, codeChanges, errors).slice(0, maxLength);
+      return assembleStructuredSummary(facts, codeChanges, errors, standing).slice(0, maxLength);
     }
   }
 }

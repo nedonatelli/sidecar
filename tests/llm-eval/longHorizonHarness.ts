@@ -104,6 +104,12 @@ export interface LongHorizonResult {
    */
   actionRepromptFiredCount: number;
   /**
+   * `## Standing instructions` sections present in the FINAL message history —
+   * the mechanism-fired signal for the compaction.durableInstructions A/B
+   * (the latch writes into the summary message, which the harness returns).
+   */
+  standingInstructionsInSummary: number;
+  /**
    * HOW the case failed — a model that eventually reaches the solution is a
    * different animal from one that can't ever reach it, and PASS/FAIL at a
    * fixed budget conflates them (campaigns 3/4: three "failing" models were
@@ -277,6 +283,7 @@ export async function runLongHorizonCase(
     turns: turnResults,
     compressionCount,
     finalHistoryLength: messages.length,
+    finalMessages: messages,
     apiUnavailable,
     durationMs: Date.now() - start,
   });
@@ -302,6 +309,8 @@ export function summarizeLongHorizon(input: {
   durationMs: number;
   /** The case's wall-clock budget — lets the failure-mode classifier detect budget exhaustion. */
   timeoutMs?: number;
+  /** Final threaded message history — scanned for mechanism markers (standing-instructions sections). */
+  finalMessages?: ChatMessage[];
 }): LongHorizonResult {
   const vacuous = input.requiresCompression && input.compressionCount === 0;
   const allTurnsPassed =
@@ -331,6 +340,13 @@ export function summarizeLongHorizon(input: {
   const steerFiredCount = countTextMarker('🛑 edit_file keeps failing');
   const actionRepromptFiredCount = countTextMarker('⚙️ No tool calls detected');
 
+  const standingInstructionsInSummary = input.finalMessages
+    ? input.finalMessages.reduce((n, m) => {
+        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        return n + (text.includes('## Standing instructions') ? 1 : 0);
+      }, 0)
+    : 0;
+
   const passed = allTurnsPassed && !vacuous && !input.apiUnavailable;
   const failureMode = classifyFailureMode(passed, input.turns, {
     durationMs: input.durationMs,
@@ -350,6 +366,7 @@ export function summarizeLongHorizon(input: {
     steerFiredCount,
     actionRepromptFiredCount,
     failureMode,
+    standingInstructionsInSummary,
   };
 }
 

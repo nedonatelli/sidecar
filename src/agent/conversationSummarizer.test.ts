@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ConversationSummarizer, extractUserMessagesVerbatim } from './conversationSummarizer.js';
+import {
+  ConversationSummarizer,
+  extractUserMessagesVerbatim,
+  extractStandingInstructions,
+} from './conversationSummarizer.js';
 import type { ChatMessage } from '../ollama/types.js';
 
 /**
@@ -704,5 +708,87 @@ describe('extractUserMessagesVerbatim — standing instructions survive compacti
   it('returns empty string when there are no real user messages', () => {
     expect(extractUserMessagesVerbatim([toolResultTurn()], 1500)).toBe('');
     expect(extractUserMessagesVerbatim([], 1500)).toBe('');
+  });
+});
+
+describe('durable-context package: standing-instruction latch', () => {
+  it("latches the long-horizon cases' real phrasings verbatim", () => {
+    const msgs = [
+      { role: 'user', content: 'Remember the magic word is pineapple.' },
+      { role: 'assistant', content: 'Noted.' },
+      { role: 'user', content: 'From here on, every result you produce must be even. Now compute 3+4 and round up.' },
+    ] as never;
+    const out = extractStandingInstructions(msgs);
+    expect(out).toContain('Remember the magic word is pineapple.');
+    expect(out.some((l) => l.includes('must be even'))).toBe(true);
+    expect(out.some((l) => l.includes('compute 3+4'))).toBe(false); // one-off request, not a rule
+  });
+
+  it('skips synthetic loop injections and tool-result carriers', () => {
+    const msgs = [
+      { role: 'user', content: '[Completion gate — attempt 1] You must run the tests now.' },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'always fails here' }] },
+    ] as never;
+    expect(extractStandingInstructions(msgs)).toEqual([]);
+  });
+
+  it('caps per-entry and total budgets and deduplicates', () => {
+    const rule = 'Always ' + 'x'.repeat(400);
+    const msgs = [
+      { role: 'user', content: rule },
+      { role: 'user', content: rule },
+    ] as never;
+    const out = extractStandingInstructions(msgs, { perEntryChars: 100, totalChars: 150 });
+    expect(out).toHaveLength(1);
+    expect(out[0].length).toBeLessThanOrEqual(101);
+  });
+
+  it('fast-path summary leads with the standing-instructions section when enabled', async () => {
+    const summarizer = new ConversationSummarizer({ complete: async () => 'unused' } as never);
+    const mk = (i: number, extra = '') => [
+      { role: 'user', content: `question ${i}${extra}` },
+      { role: 'assistant', content: `answer ${i}` },
+    ];
+    const messages = [
+      ...mk(1, ' — remember the magic word is pineapple'),
+      ...mk(2),
+      ...mk(3),
+      ...mk(4),
+      ...mk(5),
+      ...mk(6),
+      ...mk(7),
+    ].flat() as never;
+    const result = await summarizer.summarize(messages, {
+      keepRecentTurns: 2,
+      minCharsToSave: 1,
+      maxSummaryLength: 2000,
+      durableInstructions: true,
+    });
+    const text = JSON.stringify(result.messages);
+    expect(text).toContain('## Standing instructions');
+    expect(text).toContain('pineapple');
+  });
+
+  it('flag off preserves pre-package output exactly (no section, no latch)', async () => {
+    const summarizer = new ConversationSummarizer({ complete: async () => 'unused' } as never);
+    const mk = (i: number, extra = '') => [
+      { role: 'user', content: `question ${i}${extra}` },
+      { role: 'assistant', content: `answer ${i}` },
+    ];
+    const messages = [
+      ...mk(1, ' — remember the magic word is pineapple'),
+      ...mk(2),
+      ...mk(3),
+      ...mk(4),
+      ...mk(5),
+      ...mk(6),
+      ...mk(7),
+    ].flat() as never;
+    const result = await summarizer.summarize(messages, {
+      keepRecentTurns: 2,
+      minCharsToSave: 1,
+      maxSummaryLength: 2000,
+    });
+    expect(JSON.stringify(result.messages)).not.toContain('## Standing instructions');
   });
 });

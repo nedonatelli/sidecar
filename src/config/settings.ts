@@ -173,6 +173,8 @@ export interface SideCarConfig {
   planExternalizedEnabled: boolean;
   /** Chars of user messages preserved verbatim through compaction so standing instructions survive (0 disables). */
   summarizerVerbatimUserChars: number;
+  /** Durable-context package: deterministically latch instruction-shaped user sentences ("always/never/must/remember…") into a leading `## Standing instructions` summary section at compaction, plus an LLM-path section instruction. Root cause proven at the ceiling tier (2026-07-24): even a frontier summarizer drops standing constraints through the four-section prompt — no section owns them. Default OFF pending the gemma4 A/B. */
+  durableInstructionsEnabled: boolean;
   /** Append a bounded diff of the change to edit_file's success result so the model can SEE what its edit did (outcome-visibility). 0 disables; N = max chars of diff. */
   editResultDiffChars: number;
   /** After N failed edit_file calls on one file, inject a steer redirecting the model to rewrite the whole file with write_file — the mirror of the write→edit escalation. Weak models that echo existing content into edit_file's insert fields (never producing the delta) recover here because they CAN author a whole file. Default OFF: unit-tested + mechanically verified but the pass-rate benefit is unproven (A/B was vacuous — steer fired too rarely), so it ships opt-in until measured. */
@@ -557,6 +559,7 @@ function readConfig(): SideCarConfig {
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', true),
     planExternalizedEnabled: cfg.get<boolean>('plan.externalized', false),
     summarizerVerbatimUserChars: cfg.get<number>('compaction.verbatimUserChars', 0),
+    durableInstructionsEnabled: cfg.get<boolean>('compaction.durableInstructions', false),
     editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),

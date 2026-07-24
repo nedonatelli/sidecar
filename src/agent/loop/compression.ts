@@ -354,6 +354,7 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
       // gate `summarizerVerbatimUserChars` (0 disables) so the off/on effect is
       // measurable; default 1500 keeps it on.
       maxVerbatimUserChars: state.config.summarizerVerbatimUserChars ?? 0,
+      durableInstructions: state.config.durableInstructionsEnabled === true,
     });
     if (summarized.freedChars > 0) {
       state.messages.splice(0, state.messages.length, ...summarized.messages);
