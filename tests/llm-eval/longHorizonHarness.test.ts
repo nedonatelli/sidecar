@@ -154,3 +154,27 @@ describe('classifyFailureMode (reachability vs time-to-solution)', () => {
     expect(classifyFailureMode(false, [t])).toBe('diverged');
   });
 });
+
+describe('classifyFailureMode — budget exhaustion dominates (sleep-clip regression)', () => {
+  const activeTurn = {
+    index: 0,
+    label: 't',
+    passed: false,
+    failures: ['x'],
+    trajectory: [
+      { type: 'text', text: 'I will start' },
+      { type: 'tool_call', name: 'read_file', input: {}, id: 'i' },
+      { type: 'tool_result', name: 'read_file', result: 'ok', isError: false, id: 'i' },
+    ],
+  } as never;
+
+  it('a run that consumed its wall-clock budget is progressing, whatever its last event was', () => {
+    // Live miss: a machine-sleep-clipped haiku turn (3 events, 996s of a
+    // 1000s budget, last event a tool_result) read as diverged.
+    expect(classifyFailureMode(false, [activeTurn], { durationMs: 996_000, timeoutMs: 1_000_000 })).toBe('progressing');
+  });
+
+  it('the same trajectory with clock to spare is judged on its events', () => {
+    expect(classifyFailureMode(false, [activeTurn], { durationMs: 200_000, timeoutMs: 1_000_000 })).toBe('diverged');
+  });
+});

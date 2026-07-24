@@ -271,6 +271,7 @@ export async function runLongHorizonCase(
 
   return summarizeLongHorizon({
     caseId: lhCase.id,
+    timeoutMs,
     totalTurns: lhCase.turns.length,
     requiresCompression: Boolean(lhCase.requiresCompression),
     turns: turnResults,
@@ -299,6 +300,8 @@ export function summarizeLongHorizon(input: {
   finalHistoryLength: number;
   apiUnavailable: boolean;
   durationMs: number;
+  /** The case's wall-clock budget — lets the failure-mode classifier detect budget exhaustion. */
+  timeoutMs?: number;
 }): LongHorizonResult {
   const vacuous = input.requiresCompression && input.compressionCount === 0;
   const allTurnsPassed =
@@ -329,7 +332,10 @@ export function summarizeLongHorizon(input: {
   const actionRepromptFiredCount = countTextMarker('⚙️ No tool calls detected');
 
   const passed = allTurnsPassed && !vacuous && !input.apiUnavailable;
-  const failureMode = classifyFailureMode(passed, input.turns);
+  const failureMode = classifyFailureMode(passed, input.turns, {
+    durationMs: input.durationMs,
+    timeoutMs: input.timeoutMs ?? Number.POSITIVE_INFINITY,
+  });
 
   return {
     caseId: input.caseId,
@@ -351,8 +357,18 @@ export function summarizeLongHorizon(input: {
  * Classify HOW a failed run failed, from signals the harness already records.
  * Pure so the boundaries are unit-testable. See LongHorizonResult.failureMode.
  */
-export function classifyFailureMode(passed: boolean, turns: LongHorizonTurnResult[]): LongHorizonResult['failureMode'] {
+export function classifyFailureMode(
+  passed: boolean,
+  turns: LongHorizonTurnResult[],
+  budget?: { durationMs: number; timeoutMs: number },
+): LongHorizonResult['failureMode'] {
   if (passed) return 'converged';
+  // Wall-clock exhaustion dominates every other signal: a run that died with
+  // its budget consumed is a budget artifact regardless of what its last
+  // event was. Live miss (haiku ceiling, 2026-07-24): a machine-sleep-clipped
+  // turn showed 3 events for 996s and read as 'diverged' — the frozen clock,
+  // not the model, was the story.
+  if (budget && budget.durationMs >= budget.timeoutMs * 0.98) return 'progressing';
   const failing = turns.find((t) => !t.passed);
   if (!failing) return 'progressing'; // no turn even ran — aborted before start
   const events = failing.trajectory.filter((e) => e.type !== 'done');
