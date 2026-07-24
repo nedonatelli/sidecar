@@ -63,6 +63,16 @@ export interface LongHorizonCase {
    */
   seedSmallTalkChars?: number;
   /**
+   * Inject this many chars of seed exposition INTO the running history after
+   * the turn at this index completes. Ordering matters: a leading seed gets
+   * summarized while the turn-1 constraint is still in the keep-recent window
+   * (observed: splices=1, latched=0 — the compaction consumed only the seed).
+   * A mid-seed lands AFTER the constraint, so the next compaction must carry
+   * the constraint through summarization — the thing the case tests.
+   */
+  midSeedAfterTurn?: number;
+  midSeedChars?: number;
+  /**
    * When true, the case CLAIMS to exercise compression: the run is only
    * meaningful if compression actually fired at least once. Reported vacuous
    * otherwise, never a silent pass.
@@ -167,10 +177,10 @@ const SMALL_TALK: Array<[string, string]> = [
 ];
 
 /** Build alternating user/assistant small-talk until ~targetChars of content. */
-export function buildSmallTalkSeed(targetChars: number): ChatMessage[] {
+export function buildSmallTalkSeed(targetChars: number, partOffset = 0): ChatMessage[] {
   const out: ChatMessage[] = [];
   let used = 0;
-  let i = 0;
+  let i = partOffset;
   while (used < targetChars) {
     const [q, a] = SMALL_TALK[i % SMALL_TALK.length];
     const stamp = i >= SMALL_TALK.length ? ` (part ${Math.floor(i / SMALL_TALK.length) + 1})` : '';
@@ -277,6 +287,12 @@ export async function runLongHorizonCase(
       const options: AgentOptions = {
         approvalMode: 'autonomous',
         maxIterations: 8,
+        // The loop's compression budget reads ONLY options.maxTokens (default
+        // 100k) — config.agentMaxTokens caps backend OUTPUT tokens, not this.
+        // Without this wire the 70% threshold sat at 70k tokens and REAL
+        // summarization never fired in any long-horizon eval; every prior
+        // "compaction" was tool-result truncation + the token-drop heuristic.
+        maxTokens: (baseConfig.agentMaxTokens as number | undefined) ?? 100_000,
         toolRuntime,
         confirmFn: async () => 'Allow',
         clarifyFn: async () => 'Yes — go ahead and answer based on what you found.',
@@ -323,6 +339,9 @@ export async function runLongHorizonCase(
         // A failed turn poisons everything downstream (the conversation diverges),
         // so stop and report — continuing would score noise.
         break;
+      }
+      if (lhCase.midSeedAfterTurn === t && lhCase.midSeedChars) {
+        messages.push(...buildSmallTalkSeed(lhCase.midSeedChars, /* partOffset */ 100));
       }
     }
   } finally {
