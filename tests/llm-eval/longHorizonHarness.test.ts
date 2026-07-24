@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { summarizeLongHorizon, type LongHorizonTurnResult, classifyFailureMode } from './longHorizonHarness.js';
+import {
+  summarizeLongHorizon,
+  type LongHorizonTurnResult,
+  classifyFailureMode,
+  buildSmallTalkSeed,
+} from './longHorizonHarness.js';
 
 const turn = (index: number, passed: boolean): LongHorizonTurnResult => ({
   index,
@@ -195,5 +200,27 @@ describe('classifyFailureMode — budget exhaustion dominates (sleep-clip regres
 
   it('the same trajectory with clock to spare is judged on its events', () => {
     expect(classifyFailureMode(false, [activeTurn], { durationMs: 200_000, timeoutMs: 1_000_000 })).toBe('diverged');
+  });
+});
+
+describe('buildSmallTalkSeed (context-mass forcing without semantics)', () => {
+  it('reaches the char target with alternating user/assistant pairs', () => {
+    const seed = buildSmallTalkSeed(10000);
+    const chars = seed.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
+    expect(chars).toBeGreaterThanOrEqual(10000);
+    expect(seed.length % 2).toBe(0);
+    expect(seed[0].role).toBe('user');
+    expect(seed[1].role).toBe('assistant');
+  });
+
+  it('contains no instruction-shaped text that would pollute the latch', async () => {
+    const { extractStandingInstructions } = await import('../../src/agent/conversationSummarizer.js');
+    expect(extractStandingInstructions(buildSmallTalkSeed(20000))).toEqual([]);
+  });
+
+  it('repeats with part stamps so later pairs are not byte-identical (dedup/prune safety)', () => {
+    const seed = buildSmallTalkSeed(20000);
+    const userTexts = seed.filter((m) => m.role === 'user').map((m) => m.content);
+    expect(new Set(userTexts).size).toBe(userTexts.length);
   });
 });

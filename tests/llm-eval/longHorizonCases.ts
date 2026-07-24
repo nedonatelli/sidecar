@@ -30,6 +30,10 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     // off/on validation of the verbatim fix showed compaction=0 on every
     // memory-recall run, making the fix dormant and the comparison meaningless.
     configOverrides: { agentMaxTokens: 3000 },
+    // ~10k chars of canned small talk ≈ 2.5k tokens: the very first budget
+    // check crosses the 70% threshold, so REAL summarization fires regardless
+    // of how terse the model under test is.
+    seedSmallTalkChars: 10000,
     requiresCompression: true,
     workspace: {
       'src/config.ts': '// App configuration.\nexport const settings = {\n  retries: 3,\n};\n',
@@ -184,6 +188,7 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     tags: ['long-horizon', 'compression', 'multi-turn'],
     // Force compaction early so it actually fires within a short conversation.
     configOverrides: { agentMaxTokens: 3000 },
+    seedSmallTalkChars: 10000,
     requiresCompression: true,
     workspace: {
       'src/greeter.ts': 'export function greet(name: string): string {\n  return `Hi ${name}`;\n}\n',

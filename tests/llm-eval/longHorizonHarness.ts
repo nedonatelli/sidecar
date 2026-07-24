@@ -54,6 +54,15 @@ export interface LongHorizonCase {
   /** Per-turn overrides (e.g. a low compression threshold to force it early). */
   configOverrides?: Record<string, unknown>;
   /**
+   * Prepend this many characters of canned small-talk exchanges to the history
+   * before turn 1. Model-independent compaction forcing: bulky/many case turns
+   * both failed to cross the token threshold on terse models (haiku, ministral,
+   * qwen — verbosity moves the target), while a static seed's token mass is
+   * exact. Pure chit-chat by construction: no instruction-shaped text (latch
+   * pollution), no file references (task pollution).
+   */
+  seedSmallTalkChars?: number;
+  /**
    * When true, the case CLAIMS to exercise compression: the run is only
    * meaningful if compression actually fired at least once. Reported vacuous
    * otherwise, never a silent pass.
@@ -131,6 +140,49 @@ export interface LongHorizonResult {
 }
 
 /**
+ * Canned seed pairs: calculator-app DESIGN exposition. On-topic prose is the
+ * realistic hard case for the summarizer — topically relevant content
+ * competing with the constraint — unlike throwaway chit-chat. Still
+ * deliberately instruction-free (nothing matches the standing-instruction
+ * markers), and it names no workspace files or config values any case
+ * asserts on, so the seed adds tokens and messages, never semantics.
+ */
+const SMALL_TALK: Array<[string, string]> = [
+  [
+    'Before we get into tasks — how would you sketch the overall design of a small calculator app?',
+    'A clean split is three layers: a tokenizer that turns the input string into numbers and operator symbols, a parser that applies precedence to build a tiny expression tree, and an evaluator that walks the tree to produce a result. Keeping the layers separate makes each one easy to reason about, and the evaluator stays a few dozen lines. A thin presentation layer — CLI or buttons — sits on top and stays ignorant of the math underneath.',
+  ],
+  [
+    'How does operator precedence usually get handled in a design like that?',
+    'The classic options are recursive descent with one function per precedence level, or the shunting-yard algorithm producing postfix output. Recursive descent reads naturally for a fixed grammar: an expression is a sum of terms, a term is a product of factors, a factor is a number or a parenthesized expression. Precedence falls out of the call structure rather than a table, which keeps surprises low for a calculator-sized grammar.',
+  ],
+  [
+    'What is worth thinking about for the display and formatting side of a calculator?',
+    'Formatting is sneakily deep: floating-point results want rounding to a sensible number of significant digits, very large and very small values read better in scientific notation, and trailing zeros are noise to most eyes. A formatting helper that owns those choices keeps the evaluator pure. Locale is a further wrinkle — decimal commas versus points — though a small app can reasonably pick one and note it.',
+  ],
+  [
+    'How would the history or memory feature of a calculator typically work?',
+    'A simple append-only list of entry/result pairs covers most needs: recall shows recent computations, and an ans reference lets the next expression reuse the last result. Persistence can be a small file the app reads at startup and writes on exit. The interesting design choice is whether history entries store the raw input, the normalized expression, or both — both is cheap and keeps replay honest.',
+  ],
+];
+
+/** Build alternating user/assistant small-talk until ~targetChars of content. */
+export function buildSmallTalkSeed(targetChars: number): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  let used = 0;
+  let i = 0;
+  while (used < targetChars) {
+    const [q, a] = SMALL_TALK[i % SMALL_TALK.length];
+    const stamp = i >= SMALL_TALK.length ? ` (part ${Math.floor(i / SMALL_TALK.length) + 1})` : '';
+    out.push({ role: 'user', content: q + stamp });
+    out.push({ role: 'assistant', content: a });
+    used += q.length + a.length;
+    i++;
+  }
+  return out;
+}
+
+/**
  * Drive one long-horizon case as a real conversation. Reuses the single-turn
  * setup (sandbox, client, system prompt, thinking/cold-start handling) and adds
  * the turn loop + threaded history that make it long-horizon.
@@ -183,7 +235,7 @@ export async function runLongHorizonCase(
   // strip history here the way the single-turn harness does. If gemma4 degrades
   // across turns, that degradation IS the finding, not a harness artifact to hide.
 
-  let messages: ChatMessage[] = [];
+  let messages: ChatMessage[] = lhCase.seedSmallTalkChars ? buildSmallTalkSeed(lhCase.seedSmallTalkChars) : [];
   const turnResults: LongHorizonTurnResult[] = [];
   let compressionCount = 0;
   let peakTokens = 0;
