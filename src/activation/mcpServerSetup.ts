@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { env, window, type ExtensionContext } from 'vscode';
 import { getConfig } from '../config/settings.js';
 import { McpAgentServer } from '../mcpServer/agentServer.js';
+import { SidecarDir } from '../config/sidecarDir.js';
+import { DurableMemoryStore } from '../agent/memory/durableMemory.js';
 
 // ---------------------------------------------------------------------------
 // MCP Agent Server activation — wires the lifecycle of the
@@ -34,7 +36,9 @@ export async function initMcpServer(context: ExtensionContext): Promise<void> {
     tokenWasGenerated = true;
   }
 
+  const sidecarDir = new SidecarDir();
   const server = new McpAgentServer({
+    durableMemoryStore: new DurableMemoryStore(sidecarDir.getPath('memory')),
     port: config.mcpServerPort,
     authToken: authToken ?? null,
     requireAuth,

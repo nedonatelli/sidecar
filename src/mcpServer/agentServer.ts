@@ -3,6 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { runAgentLoop } from '../agent/loop.js';
+import { DurableMemoryStore, renderDurableMemorySection } from '../agent/memory/durableMemory.js';
 import type { AgentCallbacks } from '../agent/loop.js';
 import { createClient } from '../ollama/factory.js';
 import type { ChatMessage } from '../ollama/types.js';
@@ -42,6 +43,8 @@ const MCP_APPROVAL_MODE_MAP: Record<string, ApprovalMode> = {
 };
 
 export interface McpAgentServerOptions {
+  /** Cross-session durable-instruction store — MCP tasks form and recall memory like chat sessions (parity, v0.121). */
+  durableMemoryStore?: DurableMemoryStore;
   port: number;
   authToken: string | null;
   requireAuth: boolean;
@@ -259,9 +262,21 @@ export class McpAgentServer {
     const messages: ChatMessage[] = [{ role: 'user', content: task }];
     const client = createClient();
 
+    // Memory parity with the chat path (v0.121): remembered instructions are
+    // injected into the task's system prompt, and instructions latched at
+    // compaction during this task persist for future sessions. Without this,
+    // MCP-driven tasks silently bypassed the durable-context defaults.
+    const memStore = this.options.durableMemoryStore;
+    if (memStore) {
+      await memStore.load();
+      const section = renderDurableMemorySection(memStore.getEntries());
+      if (section) client.updateSystemPrompt(client.getSystemPrompt() + section);
+    }
+
     await runAgentLoop(client, messages, callbacks, controller.signal, {
       approvalMode: resolvedApprovalMode,
       maxIterations: clampedMaxIterations,
+      durableMemoryStore: memStore,
     });
 
     const output = textParts.join('').trim();
