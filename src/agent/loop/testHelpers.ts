@@ -22,6 +22,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     logger: undefined,
     changelog: undefined,
     mcpManager: undefined,
+    durableMemoryStore: undefined,
     messages: [],
     iteration: 1,
     totalChars: 0,

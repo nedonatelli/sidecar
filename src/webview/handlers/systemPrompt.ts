@@ -5,6 +5,7 @@ import type { ChatState } from '../chatState.js';
 import { getConfig } from '../../config/settings.js';
 import { logger } from '../../system/logger.js';
 import { charsToTokens } from '../../config/tokenEstimation.js';
+import { renderDurableMemorySection } from '../../agent/memory/durableMemory.js';
 import {
   getWorkspaceContext,
   getWorkspaceEnabled,
@@ -233,6 +234,16 @@ export async function injectSystemContext(
       prompt += `\n\n## Pinned Memory\n<!-- Always-included context — survives compaction and context pruning -->${pinnedLines.join('')}`;
     }
   }
+  // Remembered instructions — the cross-session durable-context sink.
+  // Rendered by the shared pure helper so the eval harness injects
+  // byte-identical semantics; entries are injection-screened at render.
+  if (state.durableMemoryStore?.isReady()) {
+    const section = renderDurableMemorySection(state.durableMemoryStore.getEntries());
+    if (section && prompt.length + section.length < maxSystemChars) {
+      prompt = ensureBoundary(prompt) + section;
+    }
+  }
+
   sizes['Pinned memory'] = prompt.length - prevLen;
   prevLen = prompt.length;
   timings['Pinned memory'] = Date.now() - prevT;

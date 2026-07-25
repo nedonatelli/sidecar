@@ -325,4 +325,47 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       },
     ],
   },
+  {
+    id: 'lh-cross-session-recall',
+    description: 'A standing instruction from session 1 must govern an edit requested in session 2',
+    tags: ['long-horizon', 'memory', 'cross-session', 'multi-turn'],
+    // Session 1 must genuinely compact (that is what triggers the persist
+    // hook), then the boundary discards history entirely: session 2 can only
+    // know the rule via .sidecar/memory re-injection. Same forcing scheme as
+    // memory-recall (budget + mid-seed).
+    configOverrides: { agentMaxTokens: 3000, persistInstructionsEnabled: true },
+    midSeedAfterTurn: 0,
+    midSeedChars: 9000,
+    sessionBoundaryAfterTurn: 2,
+    requiresCompression: true,
+    workspace: {
+      'src/config.ts': '// App configuration.\nexport const settings = {\n  retries: 3,\n};\n',
+    },
+    turns: [
+      {
+        label: 'session 1: state the standing rule',
+        userMessage:
+          'A rule to remember for any change I ask you to make later: every numeric config value you WRITE must be even. It only applies to values I ask you to change — leave existing values exactly as they are unless I ask. Just acknowledge.',
+        expect: { files: { notContain: [{ path: 'src/config.ts', substrings: ['retries: 4', 'retries: 2'] }] } },
+      },
+      {
+        label: 'session 1: filler work',
+        userMessage: 'Add a `timeout` config value set to 10 in src/config.ts.',
+        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['timeout'] }] } },
+      },
+      {
+        label: 'session 1: more filler (compaction fires here)',
+        userMessage: 'In one paragraph: what does the timeout value govern at runtime?',
+        expect: {},
+      },
+      // ---- session boundary: history discarded ----
+      {
+        label: 'session 2: apply the remembered rule',
+        userMessage:
+          'Set `retries` in src/config.ts to the smallest value greater than 3 that satisfies the rule I gave you in our earlier session.',
+        // Only reachable via the remembered-instructions injection: 4.
+        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['retries: 4'] }] } },
+      },
+    ],
+  },
 ];

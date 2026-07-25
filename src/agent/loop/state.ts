@@ -71,6 +71,7 @@ export interface LoopState {
   readonly logger: AgentLogger | undefined;
   readonly changelog: ChangeLog | undefined;
   readonly mcpManager: MCPManager | undefined;
+  readonly durableMemoryStore: import('../memory/durableMemory.js').DurableMemoryStore | undefined;
 
   // --- Mutable state across iterations ---
   messages: ChatMessage[];
@@ -343,6 +344,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     logger: options.logger,
     changelog: options.changelog,
     mcpManager: options.mcpManager,
+    durableMemoryStore: options.durableMemoryStore,
 
     messages: copiedMessages,
     iteration: 0,

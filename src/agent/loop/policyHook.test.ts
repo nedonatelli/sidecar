@@ -29,6 +29,7 @@ function makeState(logger?: AgentLogger): LoopState {
     logger: logger,
     changelog: undefined,
     mcpManager: undefined,
+    durableMemoryStore: undefined,
     messages: [],
     iteration: 0,
     totalChars: 0,

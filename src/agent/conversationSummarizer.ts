@@ -217,6 +217,8 @@ export interface SummaryResult {
     turnsCount: number;
     turnsSummarized: number;
     summaryLength: number;
+    /** Standing instructions the durable-context latch extracted (empty when the flag is off). */
+    standingInstructions: string[];
   };
 }
 
@@ -322,6 +324,7 @@ export class ConversationSummarizer {
         metadata: {
           turnsCount: 1,
           turnsSummarized: 0,
+          standingInstructions: [],
           summaryLength: 0,
         },
       };
@@ -337,6 +340,7 @@ export class ConversationSummarizer {
         metadata: {
           turnsCount: turns.length,
           turnsSummarized: 0,
+          standingInstructions: [],
           summaryLength: 0,
         },
       };
@@ -359,6 +363,7 @@ export class ConversationSummarizer {
         metadata: {
           turnsCount: turns.length,
           turnsSummarized: 0,
+          standingInstructions: [],
           summaryLength: 0,
         },
       };
@@ -366,7 +371,7 @@ export class ConversationSummarizer {
 
     // Try to summarize the old turns
     try {
-      const summary = await this.generateSummary(
+      const { summary, standing } = await this.generateSummary(
         oldTurns,
         maxSummaryLength,
         maxCharsPerTurn,
@@ -423,6 +428,7 @@ export class ConversationSummarizer {
         metadata: {
           turnsCount: turns.length,
           turnsSummarized: oldTurns.length,
+          standingInstructions: standing,
           summaryLength: summary.length,
         },
       };
@@ -435,6 +441,7 @@ export class ConversationSummarizer {
         metadata: {
           turnsCount: turns.length,
           turnsSummarized: 0,
+          standingInstructions: [],
           summaryLength: 0,
         },
       };
@@ -495,7 +502,7 @@ export class ConversationSummarizer {
     maxCharsPerTurn: number,
     timeoutMs: number,
     durableInstructions = false,
-  ): Promise<string> {
+  ): Promise<{ summary: string; standing: string[] }> {
     // Budget the user query and the assistant reply to roughly half the
     // per-turn cap each. The final trim after join ensures the assembled
     // line never exceeds maxCharsPerTurn even with the "Turn N: " prefix.
@@ -546,7 +553,7 @@ export class ConversationSummarizer {
     // the LLM round-trip entirely.
     const structured = assembleStructuredSummary(facts, codeChanges, errors, standing);
     if (structured.length <= maxLength) {
-      return structured;
+      return { summary: structured, standing };
     }
 
     // Slow path: ask the LLM to compress the fact lines into fewer, denser
@@ -629,12 +636,12 @@ ${standing.length > 0 ? 'Latched standing instructions (verbatim):\n' + standing
           .catch(reject);
       });
 
-      return await summaryPromise;
+      return { summary: await summaryPromise, standing };
     } catch {
       // On LLM failure / timeout, return the deterministic structured form
       // clamped to the caller's budget. Worst case: a tail-truncated but
       // still structurally-valid summary.
-      return assembleStructuredSummary(facts, codeChanges, errors, standing).slice(0, maxLength);
+      return { summary: assembleStructuredSummary(facts, codeChanges, errors, standing).slice(0, maxLength), standing };
     }
   }
 }

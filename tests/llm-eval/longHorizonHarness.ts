@@ -34,6 +34,7 @@ import { scoreAgentCase } from './agentScorers.js';
 import type { AgentEvalBackend } from './agentHarness.js';
 import { DEFAULT_CASE_TIMEOUT_MS } from './agentHarness.js';
 import type { AgentExpectations, TrajectoryEvent } from './agentTypes.js';
+import { DurableMemoryStore, renderDurableMemorySection } from '../../src/agent/memory/durableMemory.js';
 
 export interface LongHorizonTurn {
   /** What the user says on this turn. */
@@ -72,6 +73,13 @@ export interface LongHorizonCase {
    */
   midSeedAfterTurn?: number;
   midSeedChars?: number;
+  /**
+   * Session boundary: after the turn at this index completes, the message
+   * history is DISCARDED (fresh session) — only the system prompt survives,
+   * including the remembered-instructions section rendered from the sandbox's
+   * durable-memory store. Cross-session recall cases hinge on this.
+   */
+  sessionBoundaryAfterTurn?: number;
   /**
    * When true, the case CLAIMS to exercise compression: the run is only
    * meaningful if compression actually fired at least once. Reported vacuous
@@ -128,6 +136,8 @@ export interface LongHorizonResult {
    * (the latch writes into the summary message, which the harness returns).
    */
   standingInstructionsInSummary: number;
+  /** Durable-memory entries on disk at case end — the cross-session persist counter. */
+  durableMemoryEntries: number;
   /** '[Earlier conversation summary' splices in final history — distinguishes
    *  REAL summarization from the token-drop heuristic's false positives
    *  (tool-result truncation alone also drops tokens). */
@@ -206,6 +216,8 @@ export async function runLongHorizonCase(
   const start = Date.now();
   const sandbox = await installSandbox(lhCase.workspace, lhCase.id);
   const toolRuntime = new ToolRuntime(sandbox.root);
+  const durableMemoryStore = new DurableMemoryStore(`${sandbox.root}/.sidecar/memory`);
+  await durableMemoryStore.load();
   const model = modelOverride ?? backend.defaultModel();
   const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
 
@@ -294,6 +306,7 @@ export async function runLongHorizonCase(
         // summarization never fired in any long-horizon eval; every prior
         // "compaction" was tool-result truncation + the token-drop heuristic.
         maxTokens: (baseConfig.agentMaxTokens as number | undefined) ?? 100_000,
+        durableMemoryStore,
         toolRuntime,
         confirmFn: async () => 'Allow',
         clarifyFn: async () => 'Yes — go ahead and answer based on what you found.',
@@ -349,6 +362,14 @@ export async function runLongHorizonCase(
       if (lhCase.midSeedAfterTurn === t && lhCase.midSeedChars) {
         messages.push(...buildSmallTalkSeed(lhCase.midSeedChars, /* partOffset */ 100));
       }
+      if (lhCase.sessionBoundaryAfterTurn === t) {
+        // New session: history gone; remembered instructions re-enter ONLY via
+        // the system prompt, exactly as production injects them.
+        messages = [];
+        await durableMemoryStore.load();
+        const memorySection = renderDurableMemorySection(durableMemoryStore.getEntries());
+        client.updateSystemPrompt(systemPrompt + memorySection);
+      }
     }
   } finally {
     clearTimeout(timer);
@@ -365,6 +386,7 @@ export async function runLongHorizonCase(
     compressionCount,
     finalHistoryLength: messages.length,
     finalMessages: messages,
+    durableMemoryEntries: durableMemoryStore.size(),
     apiUnavailable,
     durationMs: Date.now() - start,
   });
@@ -392,6 +414,7 @@ export function summarizeLongHorizon(input: {
   timeoutMs?: number;
   /** Final threaded message history — scanned for mechanism markers (standing-instructions sections). */
   finalMessages?: ChatMessage[];
+  durableMemoryEntries?: number;
 }): LongHorizonResult {
   // Vacuity keys on REAL summarization (summary splices in final history), not
   // the token-drop heuristic — tool-result truncation also drops tokens, and
@@ -465,6 +488,7 @@ export function summarizeLongHorizon(input: {
     failureMode,
     standingInstructionsInSummary,
     summarySpliceCount,
+    durableMemoryEntries: input.durableMemoryEntries ?? 0,
   };
 }
 

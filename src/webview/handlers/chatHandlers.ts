@@ -482,6 +482,7 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     const updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, state.abortController.signal, {
       logger: state.agentLogger,
       changelog: state.changelog,
+      durableMemoryStore: state.durableMemoryStore ?? undefined,
       mcpManager: state.mcpManager,
       approvalMode: effectiveApprovalMode,
       maxIterations: matchedSkill?.maxIterations ?? config.agentMaxIterations,

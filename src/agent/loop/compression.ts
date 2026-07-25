@@ -357,6 +357,17 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
       durableInstructions: state.config.durableInstructionsEnabled === true,
     });
     if (summarized.freedChars > 0) {
+      // Cross-session sink (memory.persistInstructions): the same latch that
+      // put standing instructions into the summary persists them so the NEXT
+      // session re-injects them. Await-ed: a fire-and-forget write could race
+      // session teardown and lose the entry.
+      const standingOut = summarized.metadata.standingInstructions;
+      if (state.config.persistInstructionsEnabled === true && state.durableMemoryStore && standingOut.length > 0) {
+        const added = await state.durableMemoryStore.addAll(standingOut);
+        state.logger?.info(
+          `Durable memory: persisted ${standingOut.length} standing instruction(s) (${added} new) at compaction`,
+        );
+      }
       state.messages.splice(0, state.messages.length, ...summarized.messages);
 
       // Enhance the assistant acknowledgment (messages[1]) with a concrete

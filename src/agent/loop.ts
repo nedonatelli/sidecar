@@ -169,6 +169,8 @@ export interface AgentCallbacks {
 }
 
 export interface AgentOptions {
+  /** Cross-session durable-instruction store (memory.persistInstructions). Compaction persists latched instructions here when present. */
+  durableMemoryStore?: import('./memory/durableMemory.js').DurableMemoryStore;
   maxIterations?: number;
   maxTokens?: number;
   /** Seed the externalized plan (S1) — used by crash-resume to restore step state. */

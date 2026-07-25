@@ -20,6 +20,7 @@ import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
+import { DurableMemoryStore } from '../agent/memory/durableMemory.js';
 import { TeamMemoryStore } from '../agent/memory/teamMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import type { ContextProviderManager } from '../context/contextProviderManager.js';
@@ -119,6 +120,7 @@ export class ChatState {
   agentMemory: AgentMemory | null = null;
   episodicMemoryStore: import('../agent/episodicMemory.js').EpisodicMemoryStore | null = null;
   pinnedMemoryStore: PinnedMemoryStore | null = null;
+  durableMemoryStore: DurableMemoryStore | null = null;
   teamMemoryStore: TeamMemoryStore | null = null;
   auditLog: AuditLog | null = null;
   contextProviderManager: ContextProviderManager | null = null;

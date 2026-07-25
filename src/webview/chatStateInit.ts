@@ -18,6 +18,7 @@ import { SidecarMdIndex } from '../agent/sidecarMdIndex.js';
 import { AgentMemory } from '../agent/agentMemory.js';
 import { EpisodicMemoryStore } from '../agent/episodicMemory.js';
 import { PinnedMemoryStore } from '../agent/memory/pinnedMemory.js';
+import { DurableMemoryStore } from '../agent/memory/durableMemory.js';
 import { TeamMemoryStore } from '../agent/memory/teamMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import type { AgentLogger } from '../agent/logger.js';
@@ -82,6 +83,13 @@ export function initializeChatSubsystems(
     state.pinnedMemoryStore = new PinnedMemoryStore(sidecarDir.getPath());
     state.pinnedMemoryStore.load().catch((err) => {
       logger.warn('Failed to load pinned memory:', err);
+    });
+  }
+
+  if (sidecarDir) {
+    state.durableMemoryStore = new DurableMemoryStore(`${sidecarDir.getPath()}/memory`);
+    state.durableMemoryStore.load().catch((err) => {
+      logger.warn('Failed to load durable memory:', err);
     });
   }
 
