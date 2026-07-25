@@ -6,6 +6,7 @@ import { runAgentLoop } from '../agent/loop.js';
 import { DurableMemoryStore, renderDurableMemorySection } from '../agent/memory/durableMemory.js';
 import type { AgentCallbacks } from '../agent/loop.js';
 import { createClient } from '../ollama/factory.js';
+import { getConfig } from '../config/settings.js';
 import type { ChatMessage } from '../ollama/types.js';
 import type { ApprovalMode } from '../agent/executor.js';
 
@@ -277,6 +278,11 @@ export class McpAgentServer {
       approvalMode: resolvedApprovalMode,
       maxIterations: clampedMaxIterations,
       durableMemoryStore: memStore,
+      // Parity with the chat path: without this the loop's compression budget
+      // defaults to 100k tokens and MCP tasks essentially never compact —
+      // silently disabling the durable-context chain on this surface (same
+      // unwired-budget class as the eval-harness bug).
+      maxTokens: getConfig().agentMaxTokens,
     });
 
     const output = textParts.join('').trim();
