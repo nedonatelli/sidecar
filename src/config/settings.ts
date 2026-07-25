@@ -175,7 +175,7 @@ export interface SideCarConfig {
   summarizerVerbatimUserChars: number;
   /** Durable-context package: deterministically latch instruction-shaped user sentences ("always/never/must/remember…") into a leading `## Standing instructions` summary section at compaction, plus an LLM-path section instruction. Root cause proven at the ceiling tier (2026-07-24): even a frontier summarizer drops standing constraints through the four-section prompt — no section owns them. Default ON — proven 2026-07-24: gemma4 paired A/B on lh-memory-recall, off 0/8 vs on 8/8, McNemar 0–8 discordant, p=0.0078 (every pair flipped with the mechanism; latched= 0/8 vs 8/8); ceiling discrimination confirmed on haiku; no-regression cells clean. */
   durableInstructionsEnabled: boolean;
-  /** Cross-session sink of the durable-context package: instructions latched at compaction are ALSO persisted to `.sidecar/memory/durable-instructions.json` and re-injected (injection-screened, budget-capped) into the system prompt of later sessions. Write path is the compaction hook (voluntary tool adoption measures ~0 on local models). Default OFF pending the cross-session A/B. */
+  /** Cross-session sink of the durable-context package: instructions latched at compaction are ALSO persisted to `.sidecar/memory/durable-instructions.json` and re-injected (injection-screened, budget-capped) into the system prompt of later sessions. Write path is the compaction hook (voluntary tool adoption measures ~0 on local models). Default ON — proven 2026-07-25: gemma4 paired A/B on lh-cross-session-recall, off 0/7 vs on 7/7 clean pairs, McNemar 0–7 discordant, p=0.0156; ceiling discrimination on haiku both directions; no-regression cells clean. Known precision item: LLM-reworded re-latch occasionally duplicates an entry (1/8 runs, bounded by cap + reinforcement ranking). */
   persistInstructionsEnabled: boolean;
   /** Append a bounded diff of the change to edit_file's success result so the model can SEE what its edit did (outcome-visibility). 0 disables; N = max chars of diff. */
   editResultDiffChars: number;
@@ -562,7 +562,7 @@ function readConfig(): SideCarConfig {
     planExternalizedEnabled: cfg.get<boolean>('plan.externalized', false),
     summarizerVerbatimUserChars: cfg.get<number>('compaction.verbatimUserChars', 0),
     durableInstructionsEnabled: cfg.get<boolean>('compaction.durableInstructions', true),
-    persistInstructionsEnabled: cfg.get<boolean>('memory.persistInstructions', false),
+    persistInstructionsEnabled: cfg.get<boolean>('memory.persistInstructions', true),
     editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),
