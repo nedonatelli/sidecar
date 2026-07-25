@@ -237,14 +237,16 @@ export async function injectSystemContext(
   // Remembered instructions — the cross-session durable-context sink.
   // Rendered by the shared pure helper so the eval harness injects
   // byte-identical semantics; entries are injection-screened at render.
+  sizes['Pinned memory'] = prompt.length - prevLen;
+  prevLen = prompt.length;
+
   if (state.durableMemoryStore?.isReady()) {
     const section = renderDurableMemorySection(state.durableMemoryStore.getEntries());
     if (section && prompt.length + section.length < maxSystemChars) {
       prompt = ensureBoundary(prompt) + section;
     }
   }
-
-  sizes['Pinned memory'] = prompt.length - prevLen;
+  sizes['Remembered instructions'] = prompt.length - prevLen;
   prevLen = prompt.length;
   timings['Pinned memory'] = Date.now() - prevT;
   prevT = Date.now();
