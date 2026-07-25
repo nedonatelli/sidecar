@@ -264,6 +264,10 @@ export async function runLongHorizonCase(
   let apiUnavailable = false;
   let apiUnavailableReason: string | undefined;
 
+  let carriedSplices = 0;
+  let carriedLatched = 0;
+  let memoryInjected = false;
+
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
 
@@ -364,10 +368,19 @@ export async function runLongHorizonCase(
       }
       if (lhCase.sessionBoundaryAfterTurn === t) {
         // New session: history gone; remembered instructions re-enter ONLY via
-        // the system prompt, exactly as production injects them.
+        // the system prompt, exactly as production injects them. Mechanism
+        // counters (splices/latched) are CARRIED from the discarded history —
+        // the boundary is the point of the test, not an accounting hole
+        // (found live: session 1 compacted, final-history scan said VACUOUS).
+        for (const m of messages) {
+          const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+          if (text.includes('[Earlier conversation summary')) carriedSplices++;
+          if (text.includes('## Standing instructions')) carriedLatched++;
+        }
         messages = [];
         await durableMemoryStore.load();
         const memorySection = renderDurableMemorySection(durableMemoryStore.getEntries());
+        memoryInjected = memorySection !== '';
         client.updateSystemPrompt(systemPrompt + memorySection);
       }
     }
@@ -387,6 +400,9 @@ export async function runLongHorizonCase(
     finalHistoryLength: messages.length,
     finalMessages: messages,
     durableMemoryEntries: durableMemoryStore.size(),
+    carriedSplices,
+    carriedLatched,
+    memoryInjected,
     apiUnavailable,
     durationMs: Date.now() - start,
   });
@@ -415,6 +431,9 @@ export function summarizeLongHorizon(input: {
   /** Final threaded message history — scanned for mechanism markers (standing-instructions sections). */
   finalMessages?: ChatMessage[];
   durableMemoryEntries?: number;
+  carriedSplices?: number;
+  carriedLatched?: number;
+  memoryInjected?: boolean;
 }): LongHorizonResult {
   // Vacuity keys on REAL summarization (summary splices in final history), not
   // the token-drop heuristic — tool-result truncation also drops tokens, and
@@ -426,7 +445,7 @@ export function summarizeLongHorizon(input: {
         return n + (text.includes('[Earlier conversation summary') ? 1 : 0);
       }, 0)
     : 0;
-  const vacuous = input.requiresCompression && preSplices === 0;
+  const vacuous = input.requiresCompression && preSplices + (input.carriedSplices ?? 0) === 0;
   const allTurnsPassed =
     input.turns.length === input.totalTurns && input.turns.length > 0 && input.turns.every((r) => r.passed);
 
@@ -454,18 +473,23 @@ export function summarizeLongHorizon(input: {
   const steerFiredCount = countTextMarker('🛑 edit_file keeps failing');
   const actionRepromptFiredCount = countTextMarker('⚙️ No tool calls detected');
 
-  const summarySpliceCount = input.finalMessages
-    ? input.finalMessages.reduce((n, m) => {
-        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        return n + (text.includes('[Earlier conversation summary') ? 1 : 0);
-      }, 0)
-    : 0;
-  const standingInstructionsInSummary = input.finalMessages
-    ? input.finalMessages.reduce((n, m) => {
-        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        return n + (text.includes('## Standing instructions') ? 1 : 0);
-      }, 0)
-    : 0;
+  const summarySpliceCount =
+    (input.carriedSplices ?? 0) +
+    (input.finalMessages
+      ? input.finalMessages.reduce((n, m) => {
+          const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+          return n + (text.includes('[Earlier conversation summary') ? 1 : 0);
+        }, 0)
+      : 0);
+  const carriedLatchedCount = input.carriedLatched ?? 0;
+  const standingInstructionsInSummary =
+    carriedLatchedCount +
+    ((input.finalMessages
+      ? input.finalMessages.reduce((n, m) => {
+          const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+          return n + (text.includes('## Standing instructions') ? 1 : 0);
+        }, 0)
+      : 0) ?? 0);
 
   const passed = allTurnsPassed && !vacuous && !input.apiUnavailable;
   const failureMode = classifyFailureMode(passed, input.turns, {
