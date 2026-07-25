@@ -36,9 +36,13 @@ export async function initMcpServer(context: ExtensionContext): Promise<void> {
     tokenWasGenerated = true;
   }
 
+  // SidecarDir.getPath throws before initialize() — calling it eagerly crashed
+  // initMcpServer inside a void-ed promise and the server silently never
+  // bound (caught by the live-build test before a single session ran).
   const sidecarDir = new SidecarDir();
+  const sidecarReady = await sidecarDir.initialize();
   const server = new McpAgentServer({
-    durableMemoryStore: new DurableMemoryStore(sidecarDir.getPath('memory')),
+    durableMemoryStore: sidecarReady ? new DurableMemoryStore(sidecarDir.getPath('memory')) : undefined,
     port: config.mcpServerPort,
     authToken: authToken ?? null,
     requireAuth,
