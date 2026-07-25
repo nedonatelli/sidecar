@@ -73,3 +73,16 @@ describe('renderDurableMemorySection', () => {
     expect(s).not.toContain('... (truncated)');
   });
 });
+
+describe('addAll return shape (disclosure support)', () => {
+  it('reports which texts were NEWLY added — re-latches are not re-announced', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    const first = await store.addAll(['Always run the linter.']);
+    expect(first.added).toBe(1);
+    expect(first.addedTexts).toEqual(['Always run the linter.']);
+    const second = await store.addAll(['Always run the linter.', 'Never push to main.']);
+    expect(second.added).toBe(1);
+    expect(second.addedTexts).toEqual(['Never push to main.']);
+  });
+});

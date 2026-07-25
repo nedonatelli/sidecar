@@ -78,8 +78,9 @@ export class DurableMemoryStore {
    * `lastSeen`/`seenCount` instead of duplicating. Oldest least-reinforced
    * entries are evicted past MAX_DURABLE_ENTRIES.
    */
-  async addAll(texts: string[], now = Date.now()): Promise<number> {
+  async addAll(texts: string[], now = Date.now()): Promise<{ added: number; addedTexts: string[] }> {
     let added = 0;
+    const addedTexts: string[] = [];
     for (const raw of texts) {
       const text = raw.trim();
       if (text === '') continue;
@@ -91,13 +92,14 @@ export class DurableMemoryStore {
       } else {
         this.entries.push({ id, text, source: 'compaction-extraction', firstSeen: now, lastSeen: now, seenCount: 1 });
         added++;
+        addedTexts.push(text);
       }
     }
     if (this.entries.length > MAX_DURABLE_ENTRIES) {
       this.entries = this.getEntries().slice(0, MAX_DURABLE_ENTRIES);
     }
     if (added > 0 || texts.length > 0) await this.persist();
-    return added;
+    return { added, addedTexts };
   }
 
   async remove(id: string): Promise<void> {

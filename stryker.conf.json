@@ -41,7 +41,9 @@
     "src/agent/tools/pythonIndent.ts",
     "src/agent/modelPerformance.ts",
     "src/agent/failureTaxonomy.ts",
-    "src/agent/scaffoldingProfile.ts"
+    "src/agent/scaffoldingProfile.ts",
+    "src/agent/memory/durableMemory.ts",
+    "src/agent/conversationSummarizer.ts"
   ],
   "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "perTest",

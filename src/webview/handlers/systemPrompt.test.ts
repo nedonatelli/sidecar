@@ -673,3 +673,40 @@ describe('enrichAndPruneMessages', () => {
     );
   });
 });
+
+describe('injectSystemContext — remembered instructions (production path)', () => {
+  // The v0.121 lesson, applied preemptively: the harness injects the section
+  // through its own wiring; THIS is the path real users' prompts take, and it
+  // must be exercised, not assumed (paramRemap and the maxTokens wire both
+  // broke exactly where the tested path diverged from the production path).
+  const entry = (text: string) => ({
+    id: 'e1',
+    text,
+    source: 'compaction-extraction',
+    firstSeen: 1,
+    lastSeen: 1,
+    seenCount: 1,
+  });
+
+  it('appends the screened remembered-instructions section when the store has entries', async () => {
+    const state = makeState({
+      durableMemoryStore: {
+        isReady: () => true,
+        getEntries: () => [entry('Every numeric config value you WRITE must be even.')],
+      },
+    });
+    const { prompt } = await injectSystemContext('BASE', 200_000, state, makeConfig(), 'user text', false);
+    expect(prompt).toContain('## Remembered Instructions');
+    expect(prompt).toContain('must be even');
+    expect(prompt).toContain('EARLIER sessions');
+  });
+
+  it('omits the section entirely when the store is empty or absent', async () => {
+    const empty = makeState({ durableMemoryStore: { isReady: () => true, getEntries: () => [] } });
+    const { prompt: p1 } = await injectSystemContext('BASE', 200_000, empty, makeConfig(), 'user text', false);
+    expect(p1).not.toContain('## Remembered Instructions');
+    const absent = makeState();
+    const { prompt: p2 } = await injectSystemContext('BASE', 200_000, absent, makeConfig(), 'user text', false);
+    expect(p2).not.toContain('## Remembered Instructions');
+  });
+});

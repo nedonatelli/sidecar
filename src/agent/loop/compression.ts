@@ -325,7 +325,11 @@ function enhancePostCompressionAck(summaryText: string): string {
  * budget-exceeded notification. Returns `'ok'` in every other case
  * (including "we didn't need to compress").
  */
-export async function applyBudgetCompression(client: SideCarClient, state: LoopState): Promise<CompressionOutcome> {
+export async function applyBudgetCompression(
+  client: SideCarClient,
+  state: LoopState,
+  callbacks?: { onText: (text: string) => void },
+): Promise<CompressionOutcome> {
   // Prefer actual token count from the last API usage event; fall back to
   // script-type-aware char-based estimation when we don't have it yet.
   let estimatedTokens = state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
@@ -363,10 +367,17 @@ export async function applyBudgetCompression(client: SideCarClient, state: LoopS
       // session teardown and lose the entry.
       const standingOut = summarized.metadata.standingInstructions;
       if (state.config.persistInstructionsEnabled === true && state.durableMemoryStore && standingOut.length > 0) {
-        const added = await state.durableMemoryStore.addAll(standingOut);
+        const { added, addedTexts } = await state.durableMemoryStore.addAll(standingOut);
         state.logger?.info(
           `Durable memory: persisted ${standingOut.length} standing instruction(s) (${added} new) at compaction`,
         );
+        // Memory formation must be VISIBLE — a standing instruction silently
+        // becoming permanent workspace state is exactly the surprise that
+        // erodes trust in a memory feature. Disclose each NEW entry once.
+        for (const text of addedTexts) {
+          const shown = text.length > 90 ? text.slice(0, 90) + '…' : text;
+          callbacks?.onText(`\n📌 Remembered for future sessions: "${shown}"\n`);
+        }
       }
       state.messages.splice(0, state.messages.length, ...summarized.messages);
 
