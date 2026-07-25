@@ -143,6 +143,49 @@ export function prepareToolsForCache(tools: ToolDefinition[]): ToolDefinition[] 
  */
 export function repairDanglingToolUses(messages: ChatMessage[]): ChatMessage[] {
   let out: ChatMessage[] | null = null;
+  // Pass 1 — ORPHANED RESULTS: a tool_result whose id has no tool_use in the
+  // previous assistant message (the mirror 400: "unexpected tool_use_id found
+  // in tool_result blocks"). Found live 2026-07-25, again on a synthesized
+  // fence_write id: compaction can summarize away the assistant half of a
+  // pair while the result half survives at the kept boundary — including
+  // results this very repair inserted on an earlier request. The orphan is
+  // downgraded to a text block so its information survives without violating
+  // the pairing schema; both passes together make the invariant total.
+  for (let i = 0; i < messages.length; i++) {
+    const msg = (out ?? messages)[i];
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+    const prev = (out ?? messages)[i - 1];
+    const prevIds = new Set<string>(
+      prev && prev.role === 'assistant' && Array.isArray(prev.content)
+        ? prev.content.filter((b) => b.type === 'tool_use').map((b) => (b as { id: string }).id)
+        : [],
+    );
+    const orphans = msg.content.filter(
+      (b) => b.type === 'tool_result' && !prevIds.has((b as { tool_use_id: string }).tool_use_id),
+    );
+    if (orphans.length === 0) continue;
+    // eslint-disable-next-line no-console -- deliberate: orphan sources must stay visible
+    console.warn(
+      `[anthropic] downgraded ${orphans.length} orphaned tool_result(s): ${orphans
+        .map((b) => (b as { tool_use_id: string }).tool_use_id)
+        .join(', ')}`,
+    );
+    out ??= messages.slice();
+    out[i] = {
+      ...msg,
+      content: msg.content.map((b) => {
+        if (b.type !== 'tool_result' || prevIds.has((b as { tool_use_id: string }).tool_use_id)) return b;
+        const inner = (b as { content?: unknown }).content;
+        const text = typeof inner === 'string' ? inner : JSON.stringify(inner ?? '');
+        return {
+          type: 'text' as const,
+          text: `[earlier tool result]
+${text.slice(0, 2000)}`,
+        };
+      }) as ChatMessage['content'],
+    };
+  }
+  // Pass 2 — DANGLING USES (original repair).
   for (let i = 0; i < messages.length; i++) {
     const msg = (out ?? messages)[i];
     if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;

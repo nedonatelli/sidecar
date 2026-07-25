@@ -680,3 +680,50 @@ describe('repairDanglingToolUses (strict pairing safety net)', () => {
     expect(repairDanglingToolUses(messages)).toBe(messages);
   });
 });
+
+describe('repairDanglingToolUses — orphaned-result pass (the mirror 400)', () => {
+  it('downgrades a tool_result with no matching tool_use to a text block', () => {
+    const messages = [
+      { role: 'user', content: 'earlier context' },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'fence_write_1', content: 'File written: config.ts' },
+          { type: 'text', text: 'next request' },
+        ],
+      },
+    ] as never;
+    const out = repairDanglingToolUses(messages);
+    const blocks = out[1].content as Array<{ type: string; text?: string }>;
+    expect(blocks[0].type).toBe('text');
+    expect(blocks[0].text).toContain('File written: config.ts');
+    expect(blocks.some((b) => b.type === 'tool_result')).toBe(false);
+  });
+
+  it('keeps results whose tool_use exists; downgrades only the orphan', () => {
+    const messages = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'good', name: 't', input: {} }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'good', content: 'ok' },
+          { type: 'tool_result', tool_use_id: 'orphan', content: 'lost pair' },
+        ],
+      },
+    ] as never;
+    const out = repairDanglingToolUses(messages);
+    const blocks = out[1].content as Array<{ type: string; tool_use_id?: string; text?: string }>;
+    expect(blocks[0].type).toBe('tool_result');
+    expect(blocks[1].type).toBe('text');
+    expect(blocks[1].text).toContain('lost pair');
+  });
+
+  it('is idempotent — a repaired history passes through unchanged', () => {
+    const messages = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 't', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'ok' }] },
+    ] as never;
+    const once = repairDanglingToolUses(messages);
+    expect(repairDanglingToolUses(once)).toBe(once);
+  });
+});
