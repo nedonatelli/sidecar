@@ -97,6 +97,56 @@ describe('executeTool', () => {
     expect(result.content).toContain('"required":["entities"]');
   });
 
+  it('write_file({}) gets the directive empty-args addendum, not just the schema dump', async () => {
+    // qwen2.5-coder probe r6: write_file called with args entirely absent.
+    // The schema dump alone doesn't reroute weak models (edit_file-addendum
+    // precedent); the error must say exactly what to send and that chat-printed
+    // code never landed.
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'write_file',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' }, content: { type: 'string' } },
+          required: ['path', 'content'],
+        },
+      },
+      executor: async () => 'ok',
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { write_file: 'allow' } });
+
+    const result = await executeTool(makeToolUse('write_file'));
+
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain('write_file with NO arguments');
+    expect(result.content).toContain('COMPLETE file text');
+    expect(result.content).toContain('NOT saved');
+  });
+
+  it('write_file with a partial-but-invalid input does NOT get the empty-args addendum', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'write_file',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { path: { type: 'string' }, content: { type: 'string' } },
+          required: ['path', 'content'],
+        },
+      },
+      executor: async () => 'ok',
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { write_file: 'allow' } });
+
+    const result = await executeTool(makeToolUse('write_file', { path: 'a.ts' }));
+
+    expect(result.is_error).toBe(true);
+    expect(result.content).not.toContain('NO arguments');
+  });
+
   it('bounces a verbatim replay of the description example without running the executor', async () => {
     // Live failure: on a no-signal turn ("hi"), the model emitted the
     // ask_user example from the tool description character-for-character,

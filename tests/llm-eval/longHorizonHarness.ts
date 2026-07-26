@@ -254,6 +254,7 @@ export async function runLongHorizonCase(
     approvalMode: 'autonomous',
     wholeFileRewrite: baseConfig.wholeFileRewriteStrategyEnabled === true,
     insertApiV2: baseConfig.insertApiV2Enabled === true,
+    nativeToolCallNote: baseConfig.nativeToolCallNoteEnabled === true,
   });
   if (lhCase.workspace['SIDECAR.md']) {
     systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${lhCase.workspace['SIDECAR.md']}`;

@@ -179,6 +179,7 @@ async function buildSystemPromptForRun(
     approvalMode: effectiveApprovalMode,
     wholeFileRewrite: config.wholeFileRewriteStrategyEnabled === true,
     insertApiV2: config.insertApiV2Enabled === true,
+    nativeToolCallNote: config.nativeToolCallNoteEnabled === true,
   });
 
   if (resolvedSystemPrompt) {

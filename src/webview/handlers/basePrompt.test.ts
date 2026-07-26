@@ -46,3 +46,34 @@ describe('insert API V2 prompt variant', () => {
     expect(p).not.toContain('search=<the existing function, verbatim>, insert_after=<ONLY');
   });
 });
+
+describe('native tool-call note (notation vs emission)', () => {
+  const base = {
+    isLocal: true,
+    extensionVersion: '0.0.0',
+    repoUrl: '',
+    docsUrl: '',
+    root: '/w',
+    approvalMode: 'autonomous',
+  };
+
+  it('is absent by default', () => {
+    expect(buildBaseSystemPrompt(base)).not.toContain('## How to emit tool calls');
+  });
+
+  it('states the notation/emission distinction with a worked mapping when enabled', () => {
+    const p = buildBaseSystemPrompt({ ...base, nativeToolCallNote: true });
+    expect(p).toContain('## How to emit tool calls');
+    expect(p).toContain('shorthand notation');
+    expect(p).toContain('never write a tool call as text in your reply');
+    // Worked mapping: shorthand on one side, arguments-object on the other.
+    expect(p).toContain('edit_file(path="src/app.ts", search="old", replace="new")');
+    expect(p).toContain('{"path": "src/app.ts", "search": "old", "replace": "new"}');
+    expect(p).toContain('only emitted function calls run');
+  });
+
+  it('composes with whole-file rewrite — both blocks present, note first', () => {
+    const p = buildBaseSystemPrompt({ ...base, nativeToolCallNote: true, wholeFileRewrite: true });
+    expect(p.indexOf('## How to emit tool calls')).toBeLessThan(p.indexOf('## Edit Strategy: Whole-File Rewrite'));
+  });
+});

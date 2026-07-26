@@ -216,13 +216,20 @@ export async function executeTool(
       toolUse.name === 'edit_file'
         ? '\nIf you are trying to CREATE a new file, use write_file(path="...", content="...") instead — edit_file only modifies existing files.'
         : '';
+    // qwen2.5-coder emits write_file({}) — args entirely absent (probe r6).
+    // The schema dump doesn't reroute it; say exactly what to send, and tie in
+    // the code-as-text reality that whatever it printed in chat never landed.
+    const emptyWriteAddendum =
+      toolUse.name === 'write_file' && Object.keys(toolUse.input as Record<string, unknown>).length === 0
+        ? '\nYou called write_file with NO arguments. Call it again with BOTH fields: path (the file to write) and content (the COMPLETE file text). If you already printed the code in chat, it was NOT saved — pass it as content.'
+        : '';
     const bounces = recordBounce(bounceCounts, toolUse.name, 'schema');
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
       content:
         `Error: invalid input for tool '${toolUse.name}' — ${schemaError}. ` +
-        `Retry with input matching this schema:\n${capped}${editFileAddendum}` +
+        `Retry with input matching this schema:\n${capped}${editFileAddendum}${emptyWriteAddendum}` +
         escalationSuffix(bounces, toolUse.name),
       is_error: true,
     };
