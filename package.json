@@ -2339,6 +2339,12 @@
           "when": "true"
         },
         {
+          "id": "sidecar.rememberedInstructions",
+          "name": "Remembered Instructions",
+          "icon": "$(bookmark)",
+          "when": "true"
+        },
+        {
           "id": "sidecar.editTimeline",
           "name": "Agent Edit History",
           "icon": "$(history)",
@@ -3082,6 +3088,21 @@
         "title": "Show Pending Diff",
         "category": "SideCar",
         "icon": "$(diff)"
+      },
+      {
+        "command": "sidecar.memory.forgetInstruction",
+        "title": "SideCar: Forget Remembered Instruction",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sidecar.memory.clearInstructions",
+        "title": "SideCar: Forget All Remembered Instructions",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "sidecar.memory.refreshInstructions",
+        "title": "SideCar: Refresh Remembered Instructions",
+        "icon": "$(refresh)"
       }
     ],
     "keybindings": [
@@ -3277,6 +3298,16 @@
           "command": "sidecar.eval.openReport",
           "when": "view == sidecar.eval",
           "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.memory.refreshInstructions",
+          "when": "view == sidecar.rememberedInstructions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sidecar.memory.clearInstructions",
+          "when": "view == sidecar.rememberedInstructions",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -3323,6 +3354,11 @@
         {
           "command": "sidecar.sessions.delete",
           "when": "view == sidecar.sessions && viewItem == sessionEntry",
+          "group": "inline@1"
+        },
+        {
+          "command": "sidecar.memory.forgetInstruction",
+          "when": "view == sidecar.rememberedInstructions && viewItem == rememberedInstruction",
           "group": "inline@1"
         }
       ]

@@ -44,6 +44,7 @@ export class DurableMemoryStore {
   private entries: DurableInstructionEntry[] = [];
   private ready = false;
   private readonly file: string;
+  private _onChange: (() => void) | undefined;
 
   constructor(storeDir: string) {
     this.file = path.join(storeDir, 'durable-instructions.json');
@@ -61,6 +62,11 @@ export class DurableMemoryStore {
 
   isReady(): boolean {
     return this.ready;
+  }
+
+  /** UI hook — fired after any mutation (add/remove/clear). */
+  setOnChange(fn: () => void): void {
+    this._onChange = fn;
   }
 
   size(): number {
@@ -99,12 +105,21 @@ export class DurableMemoryStore {
       this.entries = this.getEntries().slice(0, MAX_DURABLE_ENTRIES);
     }
     if (added > 0 || texts.length > 0) await this.persist();
+    if (added > 0) this._onChange?.();
     return { added, addedTexts };
   }
 
   async remove(id: string): Promise<void> {
     this.entries = this.entries.filter((e) => e.id !== id);
     await this.persist();
+    this._onChange?.();
+  }
+
+  /** Forget everything. The management surface's nuclear option. */
+  async clear(): Promise<void> {
+    this.entries = [];
+    await this.persist();
+    this._onChange?.();
   }
 
   private async persist(): Promise<void> {

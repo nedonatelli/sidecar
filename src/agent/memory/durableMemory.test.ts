@@ -157,3 +157,33 @@ describe('mutation-hardening: boundaries the first suite missed', () => {
     expect(s).not.toContain('never ');
   });
 });
+
+describe('management surface support', () => {
+  it('clear() forgets everything and persists the empty state', async () => {
+    const a = new DurableMemoryStore(dir);
+    await a.load();
+    await a.addAll(['Always test.', 'Never skip CI.']);
+    await a.clear();
+    expect(a.size()).toBe(0);
+    const b = new DurableMemoryStore(dir);
+    await b.load();
+    expect(b.size()).toBe(0);
+  });
+
+  it('onChange fires on add, remove, and clear — but not on a no-op re-latch', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    let fired = 0;
+    store.setOnChange(() => fired++);
+    await store.addAll(['Always test.']);
+    expect(fired).toBe(1);
+    await store.addAll(['Always test.']); // re-latch: seenCount bump, no new entry
+    expect(fired).toBe(1);
+    const id = store.getEntries()[0].id;
+    await store.remove(id);
+    expect(fired).toBe(2);
+    await store.addAll(['Never skip CI.']);
+    await store.clear();
+    expect(fired).toBe(4);
+  });
+});

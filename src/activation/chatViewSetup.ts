@@ -6,6 +6,7 @@ import { registerJsDocSync } from '../docs/jsDocSyncProvider.js';
 import { registerReadmeSync } from '../docs/readmeSyncProvider.js';
 import { registerReviewPanel } from '../agent/reviewPanel.js';
 import { registerPinnedMemoryView } from '../views/pinnedMemoryView.js';
+import { registerDurableMemoryView } from '../views/durableMemoryView.js';
 import { registerBackgroundAgentsView } from '../views/backgroundAgentsView.js';
 import { registerMcpServersView } from '../views/mcpServersView.js';
 import { registerSessionsView } from '../views/sessionsView.js';
@@ -88,6 +89,7 @@ export function setupChatView(
   context.subscriptions.push(registerReadmeSync());
   context.subscriptions.push(registerReviewPanel(context, chatProvider.pendingEditStore, proposedContentProvider));
   context.subscriptions.push(registerPinnedMemoryView(context, chatProvider.state.pinnedMemoryStore));
+  context.subscriptions.push(registerDurableMemoryView(context, chatProvider.state.durableMemoryStore));
   context.subscriptions.push(registerEditTimelineView(context, chatProvider.state.editTimeline));
   agentModDecorationManager?.attach(chatProvider.state.editTimeline);
   context.subscriptions.push(registerBackgroundAgentsView(context, chatProvider.backgroundAgentManager));
