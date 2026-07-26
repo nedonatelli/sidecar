@@ -73,6 +73,12 @@ export interface LongHorizonCase {
    */
   midSeedAfterTurn?: number;
   midSeedChars?: number;
+  /** Multiple seed points — every session that must trigger compaction needs
+   *  its own forcing mass (found live: a supersession stated in un-seeded
+   *  session 2 never compacted, never persisted, and session 3 got the stale
+   *  rule). Each injection uses a distinct part-offset so entries never
+   *  collide with earlier seed text. */
+  midSeedsAfterTurns?: number[];
   /**
    * Session boundary: after the turn at this index completes, the message
    * history is DISCARDED (fresh session) — only the system prompt survives,
@@ -367,6 +373,10 @@ export async function runLongHorizonCase(
       }
       if (lhCase.midSeedAfterTurn === t && lhCase.midSeedChars) {
         messages.push(...buildSmallTalkSeed(lhCase.midSeedChars, /* partOffset */ 100));
+      }
+      const seedIdx = lhCase.midSeedsAfterTurns?.indexOf(t) ?? -1;
+      if (seedIdx >= 0 && lhCase.midSeedChars) {
+        messages.push(...buildSmallTalkSeed(lhCase.midSeedChars, /* partOffset */ 200 + seedIdx * 100));
       }
       if (lhCase.sessionBoundaryAfterTurn === t || lhCase.sessionBoundariesAfterTurns?.includes(t)) {
         // New session: history gone; remembered instructions re-enter ONLY via

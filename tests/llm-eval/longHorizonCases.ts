@@ -468,7 +468,7 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     // correct supersession answers 5, no memory fails outright. memEntries
     // must read 1 at the end (replaced, not accumulated).
     configOverrides: { agentMaxTokens: 3000, persistInstructionsEnabled: true },
-    midSeedAfterTurn: 0,
+    midSeedsAfterTurns: [0, 3],
     midSeedChars: 9000,
     sessionBoundariesAfterTurns: [2, 5],
     requiresCompression: true,
