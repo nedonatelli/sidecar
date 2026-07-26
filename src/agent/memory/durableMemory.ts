@@ -165,7 +165,10 @@ export function renderDurableMemorySection(
   // instruction scope on the user's behalf).
   return (
     '\n\n## Remembered Instructions\n' +
-    '<!-- Standing instructions the user gave in EARLIER sessions of this project, preserved verbatim. -->\n' +
+    '<!-- Standing instructions the user gave in EARLIER sessions of this project, preserved verbatim. ' +
+    'This IS your record of those sessions: when the user refers to something they told you before, ' +
+    'these entries are that information — use them directly rather than saying you lack access to ' +
+    'earlier conversations. -->\n' +
     lines.join('\n')
   );
 }

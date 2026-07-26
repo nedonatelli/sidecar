@@ -69,7 +69,9 @@ describe('renderDurableMemorySection', () => {
   it('caps the section without mid-chopping an entry', () => {
     const entries = Array.from({ length: 50 }, (_, i) => entry(`rule ${i}: always ${'x'.repeat(100)}`));
     const s = renderDurableMemorySection(entries, 500);
-    expect(s.length).toBeLessThan(800);
+    // Bound = entry budget + fixed header (the header grew an authority
+    // clause; entries are what the cap governs).
+    expect(s.length).toBeLessThan(1100);
     expect(s).not.toContain('... (truncated)');
   });
 });

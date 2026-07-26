@@ -380,9 +380,14 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     midSeedChars: 9000,
     sessionBoundaryAfterTurn: 2,
     requiresCompression: true,
+    // The workspace must NOT demonstrate the convention — the helper exists
+    // but nothing imports or uses it, so session-2 compliance can only come
+    // from the remembered rule, not local code style (ceiling caught the
+    // first version: off-arm passed by imitating app.ts's existing log()
+    // calls — the case tested style inference, not memory).
     workspace: {
       'src/log.ts': "export function log(msg: string): void {\n  process.stdout.write(msg + '\\n');\n}\n",
-      'src/app.ts': "import { log } from './log.js';\n\nexport function start(): void {\n  log('started');\n}\n",
+      'src/app.ts': 'export function start(): void {}\n',
     },
     turns: [
       {
@@ -432,24 +437,25 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
     turns: [
       {
         label: 'session 1: state the fact',
-        userMessage: 'Keep in mind: our deploy code is Kestrel-9. You will need it when I ask later. Just acknowledge.',
+        userMessage:
+          'Keep in mind: our project codename is Kestrel-9. You will need it when I ask later. Just acknowledge.',
         expect: {},
       },
       {
         label: 'session 1: filler work',
-        userMessage: 'Create notes/deploy.md with one sentence about what a deploy code is for.',
-        expect: { files: { exist: ['notes/deploy.md'] } },
+        userMessage: 'Create notes/naming.md with one sentence about why projects use codenames.',
+        expect: { files: { exist: ['notes/naming.md'] } },
       },
       {
         label: 'session 1: more filler (compaction fires here)',
-        userMessage: 'In one paragraph: what can go wrong when deploy credentials are shared informally?',
+        userMessage: 'In one paragraph: how do codenames help coordinate work across teams?',
         expect: {},
       },
       // ---- session boundary ----
       {
         label: 'session 2: reproduce the fact',
-        userMessage: 'Write the deploy code I gave you in our earlier session into deploy.txt.',
-        expect: { files: { contain: [{ path: 'deploy.txt', substrings: ['Kestrel-9'] }] } },
+        userMessage: 'Write the project codename I gave you in our earlier session into codename.txt.',
+        expect: { files: { contain: [{ path: 'codename.txt', substrings: ['Kestrel-9'] }] } },
       },
     ],
   },
