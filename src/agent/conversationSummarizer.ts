@@ -141,7 +141,7 @@ const STANDING_INSTRUCTION_RE =
  */
 export function extractStandingInstructions(
   messages: ChatMessage[],
-  opts: { perEntryChars?: number; totalChars?: number } = {},
+  opts: { perEntryChars?: number; totalChars?: number; directOnly?: boolean } = {},
 ): string[] {
   const perEntry = opts.perEntryChars ?? 200;
   const total = opts.totalChars ?? 800;
@@ -164,7 +164,7 @@ export function extractStandingInstructions(
     // every latched instruction at the SECOND compaction (found live:
     // memory-recall forces several compactions; latched=0 in final history).
     // Same self-masking class as the v0.120 action-reprompt '[' bug.
-    const sectionMatch = /## Standing instructions\n((?:- [^\n]+\n?)+)/.exec(text);
+    const sectionMatch = opts.directOnly ? null : /## Standing instructions\n((?:- [^\n]+\n?)+)/.exec(text);
     if (sectionMatch) {
       for (const line of sectionMatch[1].split('\n')) {
         const entry = line.replace(/^- /, '').trim();
@@ -219,6 +219,13 @@ export interface SummaryResult {
     summaryLength: number;
     /** Standing instructions the durable-context latch extracted (empty when the flag is off). */
     standingInstructions: string[];
+    /**
+     * DIRECT latches only — raw user text, never summary re-latch bullets
+     * (which the summarizer model may have reworded). The persist sink writes
+     * ONLY these, making stored entries verbatim-by-construction and killing
+     * the reworded-duplicate class at its source (observed ~1/8 runs).
+     */
+    persistableInstructions: string[];
   };
 }
 
@@ -325,6 +332,7 @@ export class ConversationSummarizer {
           turnsCount: 1,
           turnsSummarized: 0,
           standingInstructions: [],
+          persistableInstructions: [],
           summaryLength: 0,
         },
       };
@@ -341,6 +349,7 @@ export class ConversationSummarizer {
           turnsCount: turns.length,
           turnsSummarized: 0,
           standingInstructions: [],
+          persistableInstructions: [],
           summaryLength: 0,
         },
       };
@@ -364,6 +373,7 @@ export class ConversationSummarizer {
           turnsCount: turns.length,
           turnsSummarized: 0,
           standingInstructions: [],
+          persistableInstructions: [],
           summaryLength: 0,
         },
       };
@@ -371,7 +381,7 @@ export class ConversationSummarizer {
 
     // Try to summarize the old turns
     try {
-      const { summary, standing } = await this.generateSummary(
+      const { summary, standing, standingDirect } = await this.generateSummary(
         oldTurns,
         maxSummaryLength,
         maxCharsPerTurn,
@@ -429,6 +439,7 @@ export class ConversationSummarizer {
           turnsCount: turns.length,
           turnsSummarized: oldTurns.length,
           standingInstructions: standing,
+          persistableInstructions: standingDirect,
           summaryLength: summary.length,
         },
       };
@@ -442,6 +453,7 @@ export class ConversationSummarizer {
           turnsCount: turns.length,
           turnsSummarized: 0,
           standingInstructions: [],
+          persistableInstructions: [],
           summaryLength: 0,
         },
       };
@@ -502,7 +514,7 @@ export class ConversationSummarizer {
     maxCharsPerTurn: number,
     timeoutMs: number,
     durableInstructions = false,
-  ): Promise<{ summary: string; standing: string[] }> {
+  ): Promise<{ summary: string; standing: string[]; standingDirect: string[] }> {
     // Budget the user query and the assistant reply to roughly half the
     // per-turn cap each. The final trim after join ensures the assembled
     // line never exceeds maxCharsPerTurn even with the "Turn N: " prefix.
@@ -548,12 +560,15 @@ export class ConversationSummarizer {
     const codeChanges = extractCodeChanges(oldTurns);
     const errors = extractErrors(oldTurns);
     const standing = durableInstructions ? extractStandingInstructions(oldTurns.flat()) : [];
+    const standingDirect = durableInstructions
+      ? extractStandingInstructions(oldTurns.flat(), { directOnly: true })
+      : [];
 
     // Fast path: if the structured assembly fits, return it as-is and skip
     // the LLM round-trip entirely.
     const structured = assembleStructuredSummary(facts, codeChanges, errors, standing);
     if (structured.length <= maxLength) {
-      return { summary: structured, standing };
+      return { summary: structured, standing, standingDirect };
     }
 
     // Slow path: ask the LLM to compress the fact lines into fewer, denser
@@ -636,12 +651,16 @@ ${standing.length > 0 ? 'Latched standing instructions (verbatim):\n' + standing
           .catch(reject);
       });
 
-      return { summary: await summaryPromise, standing };
+      return { summary: await summaryPromise, standing, standingDirect };
     } catch {
       // On LLM failure / timeout, return the deterministic structured form
       // clamped to the caller's budget. Worst case: a tail-truncated but
       // still structurally-valid summary.
-      return { summary: assembleStructuredSummary(facts, codeChanges, errors, standing).slice(0, maxLength), standing };
+      return {
+        summary: assembleStructuredSummary(facts, codeChanges, errors, standing).slice(0, maxLength),
+        standing,
+        standingDirect,
+      };
     }
   }
 }

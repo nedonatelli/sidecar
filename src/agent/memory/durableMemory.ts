@@ -90,7 +90,16 @@ export class DurableMemoryStore {
     for (const raw of texts) {
       const text = raw.trim();
       if (text === '') continue;
-      const id = createHash('sha256').update(text.toLowerCase()).digest('hex').slice(0, 16);
+      // Punctuation/whitespace-insensitive hash: "the magic word is pineapple."
+      // and "The magic word is 'pineapple'" are one rule. Semantic-similarity
+      // merging is deliberately NOT attempted — lexical metrics cannot safely
+      // distinguish a paraphrase from a similar-but-different rule, and
+      // merging two different user rules is worse than a duplicate.
+      const normalized = text
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+      const id = createHash('sha256').update(normalized).digest('hex').slice(0, 16);
       const existing = this.entries.find((e) => e.id === id);
       if (existing) {
         existing.lastSeen = now;

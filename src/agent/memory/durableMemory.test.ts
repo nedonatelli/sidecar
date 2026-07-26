@@ -187,3 +187,22 @@ describe('management surface support', () => {
     expect(fired).toBe(4);
   });
 });
+
+describe('normalized content hashing (trivial-variant dedup)', () => {
+  it('punctuation and whitespace variants are one entry', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['The magic word is pineapple.']);
+    await store.addAll(["the magic  word is 'pineapple'"]);
+    expect(store.size()).toBe(1);
+    expect(store.getEntries()[0].seenCount).toBe(2);
+  });
+
+  it('a genuinely different rule sharing vocabulary stays separate', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['Every numeric value must be even.']);
+    await store.addAll(['Every numeric value must be positive.']);
+    expect(store.size()).toBe(2);
+  });
+});

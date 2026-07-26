@@ -365,7 +365,7 @@ export async function applyBudgetCompression(
       // put standing instructions into the summary persists them so the NEXT
       // session re-injects them. Await-ed: a fire-and-forget write could race
       // session teardown and lose the entry.
-      const standingOut = summarized.metadata.standingInstructions;
+      const standingOut = summarized.metadata.persistableInstructions;
       if (state.config.persistInstructionsEnabled === true && state.durableMemoryStore && standingOut.length > 0) {
         const { added, addedTexts } = await state.durableMemoryStore.addAll(standingOut);
         state.logger?.info(

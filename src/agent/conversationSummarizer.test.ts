@@ -845,3 +845,21 @@ describe('durable-context: instructions survive RE-compaction (the second-summar
     expect(out.some((l) => l.includes('MUST be even'))).toBe(true);
   });
 });
+
+describe('durable-context: persist provenance (reworded-duplicate kill)', () => {
+  it('directOnly extraction skips summary re-latch bullets — only raw user text persists', () => {
+    const msgs = [
+      {
+        role: 'user',
+        content:
+          '[Earlier conversation summary (turns 1–6)]\n## Standing instructions\n- All numeric values written must always be even (reworded by the summarizer)\n\n## Facts established\n- stuff',
+      },
+      { role: 'assistant', content: 'Understood.' },
+      { role: 'user', content: 'Remember the magic word is pineapple.' },
+    ] as never;
+    const all = extractStandingInstructions(msgs);
+    const direct = extractStandingInstructions(msgs, { directOnly: true });
+    expect(all.some((l) => l.includes('reworded by the summarizer'))).toBe(true); // in-session continuity keeps it
+    expect(direct).toEqual(['Remember the magic word is pineapple.']); // persist path gets verbatim only
+  });
+});
