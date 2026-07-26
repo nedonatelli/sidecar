@@ -368,4 +368,89 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       },
     ],
   },
+  {
+    id: 'lh-cross-session-prohibition',
+    description: 'A "never do X, do Y instead" convention from session 1 must govern code written in session 2',
+    tags: ['long-horizon', 'memory', 'cross-session', 'multi-turn'],
+    // Diversity vs lh-cross-session-recall: prohibition marker ("Never…")
+    // instead of "a rule to remember", and the constraint targets code
+    // CONTENT the model writes, not a numeric value. Same forcing mechanics.
+    configOverrides: { agentMaxTokens: 3000, persistInstructionsEnabled: true },
+    midSeedAfterTurn: 0,
+    midSeedChars: 9000,
+    sessionBoundaryAfterTurn: 2,
+    requiresCompression: true,
+    workspace: {
+      'src/log.ts': "export function log(msg: string): void {\n  process.stdout.write(msg + '\\n');\n}\n",
+      'src/app.ts': "import { log } from './log.js';\n\nexport function start(): void {\n  log('started');\n}\n",
+    },
+    turns: [
+      {
+        label: 'session 1: state the prohibition',
+        userMessage:
+          'Never use console.log in any code you write for me in this project — always use the log() helper from src/log.ts instead. Just acknowledge.',
+        expect: {},
+      },
+      {
+        label: 'session 1: filler work',
+        userMessage: 'Create notes/logging.md with one sentence about why centralized logging helps.',
+        expect: { files: { exist: ['notes/logging.md'] } },
+      },
+      {
+        label: 'session 1: more filler (compaction fires here)',
+        userMessage: 'In one paragraph: what tradeoffs come with routing all output through one helper?',
+        expect: {},
+      },
+      // ---- session boundary ----
+      {
+        label: 'session 2: write code the convention must govern',
+        userMessage: 'Add a function `greet(name: string)` to src/app.ts that prints a greeting for the given name.',
+        expect: {
+          files: {
+            contain: [{ path: 'src/app.ts', substrings: ['greet', 'log('] }],
+            notContain: [{ path: 'src/app.ts', substrings: ['console.log'] }],
+          },
+        },
+      },
+    ],
+  },
+
+  {
+    id: 'lh-cross-session-fact',
+    description: 'A "keep in mind" fact from session 1 must be reproducible in session 2',
+    tags: ['long-horizon', 'memory', 'cross-session', 'multi-turn'],
+    // Diversity: "keep in mind" marker and FACT recall (write the value back)
+    // rather than a constraint governing an edit.
+    configOverrides: { agentMaxTokens: 3000, persistInstructionsEnabled: true },
+    midSeedAfterTurn: 0,
+    midSeedChars: 9000,
+    sessionBoundaryAfterTurn: 2,
+    requiresCompression: true,
+    workspace: {
+      'README.md': '# Deploy notes\n',
+    },
+    turns: [
+      {
+        label: 'session 1: state the fact',
+        userMessage: 'Keep in mind: our deploy code is Kestrel-9. You will need it when I ask later. Just acknowledge.',
+        expect: {},
+      },
+      {
+        label: 'session 1: filler work',
+        userMessage: 'Create notes/deploy.md with one sentence about what a deploy code is for.',
+        expect: { files: { exist: ['notes/deploy.md'] } },
+      },
+      {
+        label: 'session 1: more filler (compaction fires here)',
+        userMessage: 'In one paragraph: what can go wrong when deploy credentials are shared informally?',
+        expect: {},
+      },
+      // ---- session boundary ----
+      {
+        label: 'session 2: reproduce the fact',
+        userMessage: 'Write the deploy code I gave you in our earlier session into deploy.txt.',
+        expect: { files: { contain: [{ path: 'deploy.txt', substrings: ['Kestrel-9'] }] } },
+      },
+    ],
+  },
 ];

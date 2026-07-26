@@ -863,3 +863,19 @@ describe('durable-context: persist provenance (reworded-duplicate kill)', () => 
     expect(direct).toEqual(['Remember the magic word is pineapple.']); // persist path gets verbatim only
   });
 });
+
+describe('latch coverage for the scenario-diverse case phrasings', () => {
+  it('matches the prohibition and keep-in-mind markers the new cases use', () => {
+    const msgs = [
+      {
+        role: 'user',
+        content:
+          'Never use console.log in any code you write for me in this project — always use the log() helper from src/log.ts instead.',
+      },
+      { role: 'user', content: 'Keep in mind: our deploy code is Kestrel-9. You will need it when I ask later.' },
+    ] as never;
+    const out = extractStandingInstructions(msgs);
+    expect(out.some((l) => l.includes('console.log'))).toBe(true);
+    expect(out.some((l) => l.includes('Kestrel-9'))).toBe(true);
+  });
+});
