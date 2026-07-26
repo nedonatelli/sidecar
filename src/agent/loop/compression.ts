@@ -367,16 +367,29 @@ export async function applyBudgetCompression(
       // session teardown and lose the entry.
       const standingOut = summarized.metadata.persistableInstructions;
       if (state.config.persistInstructionsEnabled === true && state.durableMemoryStore && standingOut.length > 0) {
-        const { added, addedTexts } = await state.durableMemoryStore.addAll(standingOut);
+        const { added, addedTexts, superseded, conflicts } = await state.durableMemoryStore.addAll(standingOut);
         state.logger?.info(
           `Durable memory: persisted ${standingOut.length} standing instruction(s) (${added} new) at compaction`,
         );
         // Memory formation must be VISIBLE — a standing instruction silently
         // becoming permanent workspace state is exactly the surprise that
         // erodes trust in a memory feature. Disclose each NEW entry once.
+        const clip = (t: string) => (t.length > 90 ? t.slice(0, 90) + '…' : t);
+        const supersededNew = new Set(superseded.map((sp) => sp.newText));
+        const conflictedNew = new Map(conflicts.map((c) => [c.newText, c.existingText]));
         for (const text of addedTexts) {
-          const shown = text.length > 90 ? text.slice(0, 90) + '…' : text;
-          callbacks?.onText(`\n📌 Remembered for future sessions: "${shown}"\n`);
+          if (supersededNew.has(text)) continue; // announced below with its replacement context
+          const conflict = conflictedNew.get(text);
+          callbacks?.onText(
+            conflict
+              ? `\n📌 Remembered for future sessions: "${clip(text)}"\n⚠️ May conflict with an earlier rule: "${clip(conflict)}" — use the Remembered Instructions view to forget whichever is outdated.\n`
+              : `\n📌 Remembered for future sessions: "${clip(text)}"\n`,
+          );
+        }
+        for (const sp of superseded) {
+          callbacks?.onText(
+            `\n📌 Updated remembered rule: "${clip(sp.newText)}"\n   replaces: "${clip(sp.oldText)}"\n`,
+          );
         }
       }
       state.messages.splice(0, state.messages.length, ...summarized.messages);

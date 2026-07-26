@@ -459,4 +459,64 @@ export const LONG_HORIZON_CASES: LongHorizonCase[] = [
       },
     ],
   },
+  {
+    id: 'lh-cross-session-supersede',
+    description: 'An "actually, change that rule" update in session 2 must replace the session-1 rule for session 3',
+    tags: ['long-horizon', 'memory', 'cross-session', 'supersession', 'multi-turn'],
+    // Three sessions: rule (even) → boundary → explicit update (odd) →
+    // boundary → apply. The discriminator is sharp: stale memory answers 4,
+    // correct supersession answers 5, no memory fails outright. memEntries
+    // must read 1 at the end (replaced, not accumulated).
+    configOverrides: { agentMaxTokens: 3000, persistInstructionsEnabled: true },
+    midSeedAfterTurn: 0,
+    midSeedChars: 9000,
+    sessionBoundariesAfterTurns: [2, 5],
+    requiresCompression: true,
+    workspace: {
+      'src/config.ts': '// App configuration.\nexport const settings = {\n  retries: 3,\n};\n',
+    },
+    turns: [
+      {
+        label: 'session 1: state the original rule',
+        userMessage:
+          'A rule to remember for any change I ask you to make later: every numeric config value you WRITE must be even. It only applies to values I ask you to change. Just acknowledge.',
+        expect: {},
+      },
+      {
+        label: 'session 1: filler',
+        userMessage: 'Create notes/rules.md with one sentence about why config conventions help.',
+        expect: { files: { exist: ['notes/rules.md'] } },
+      },
+      {
+        label: 'session 1: more filler (compaction persists the rule)',
+        userMessage: 'In one paragraph: how do teams keep config conventions consistent?',
+        expect: {},
+      },
+      // ---- boundary: session 2 ----
+      {
+        label: 'session 2: explicitly supersede the rule',
+        userMessage:
+          'Actually, change that rule: every numeric config value you WRITE must be odd from now on. Just acknowledge.',
+        expect: {},
+      },
+      {
+        label: 'session 2: filler',
+        userMessage: 'Create notes/update.md with one sentence noting the convention changed.',
+        expect: { files: { exist: ['notes/update.md'] } },
+      },
+      {
+        label: 'session 2: more filler (compaction persists the supersession)',
+        userMessage: 'In one paragraph: why is it worth announcing convention changes loudly?',
+        expect: {},
+      },
+      // ---- boundary: session 3 ----
+      {
+        label: 'session 3: apply the CURRENT rule',
+        userMessage:
+          'Set retries in src/config.ts to the smallest value greater than 3 that satisfies the current rule from our earlier sessions.',
+        // odd → 5. Stale memory (both rules or just the old one) yields 4.
+        expect: { files: { contain: [{ path: 'src/config.ts', substrings: ['retries: 5'] }] } },
+      },
+    ],
+  },
 ];

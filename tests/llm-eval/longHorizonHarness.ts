@@ -80,6 +80,8 @@ export interface LongHorizonCase {
    * durable-memory store. Cross-session recall cases hinge on this.
    */
   sessionBoundaryAfterTurn?: number;
+  /** Multiple boundaries (supersession cases need rule → boundary → update → boundary → apply). */
+  sessionBoundariesAfterTurns?: number[];
   /**
    * When true, the case CLAIMS to exercise compression: the run is only
    * meaningful if compression actually fired at least once. Reported vacuous
@@ -366,7 +368,7 @@ export async function runLongHorizonCase(
       if (lhCase.midSeedAfterTurn === t && lhCase.midSeedChars) {
         messages.push(...buildSmallTalkSeed(lhCase.midSeedChars, /* partOffset */ 100));
       }
-      if (lhCase.sessionBoundaryAfterTurn === t) {
+      if (lhCase.sessionBoundaryAfterTurn === t || lhCase.sessionBoundariesAfterTurns?.includes(t)) {
         // New session: history gone; remembered instructions re-enter ONLY via
         // the system prompt, exactly as production injects them. Mechanism
         // counters (splices/latched) are CARRIED from the discarded history —

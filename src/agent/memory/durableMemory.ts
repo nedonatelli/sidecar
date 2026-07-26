@@ -16,6 +16,32 @@ export interface DurableInstructionEntry {
   seenCount: number;
 }
 
+/**
+ * Explicit-supersession markers. The dedup work proved lexical similarity
+ * cannot DECIDE intent ("must be even"→"must be odd" should replace;
+ * "…even" vs "…positive" as independent rules should coexist — lexically
+ * identical situations). So similarity never decides: the USER decides via
+ * these markers, and overlap only picks WHICH existing entry they meant.
+ */
+const SUPERSESSION_RE =
+  /^(?:actually|instead|correction|update|scratch that|change of plans)\b|\b(?:change that rule|changing the rule|replaces? the (?:earlier|previous|old) (?:rule|instruction)|forget what i said about|no longer)\b/i;
+
+/** Word-set overlap in [0,1] — targeting/notice signal only, never a decision. */
+export function tokenOverlap(a: string, b: string): number {
+  const tok = (t: string) => new Set(t.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const ta = tok(a);
+  const tb = tok(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const w of ta) if (tb.has(w)) inter++;
+  return inter / (ta.size + tb.size - inter);
+}
+
+/** Overlap floor for picking a supersession target (user intent is already explicit). */
+const SUPERSEDE_TARGET_FLOOR = 0.3;
+/** Overlap at which a coexisting new rule earns a possible-conflict notice. */
+const CONFLICT_NOTICE_FLOOR = 0.5;
+
 /** Caps chosen against LOCAL_MAX_SYSTEM_CHARS pressure: the injected section
  *  must stay a footnote, not a second SIDECAR.md. */
 export const MAX_DURABLE_ENTRIES = 20;
@@ -84,9 +110,21 @@ export class DurableMemoryStore {
    * `lastSeen`/`seenCount` instead of duplicating. Oldest least-reinforced
    * entries are evicted past MAX_DURABLE_ENTRIES.
    */
-  async addAll(texts: string[], now = Date.now()): Promise<{ added: number; addedTexts: string[] }> {
+  async addAll(
+    texts: string[],
+    now = Date.now(),
+  ): Promise<{
+    added: number;
+    addedTexts: string[];
+    /** Explicit supersessions performed: the replaced entry's text alongside the new one. */
+    superseded: Array<{ oldText: string; newText: string }>;
+    /** Coexisting new entries that overlap an existing rule enough to warrant a notice. */
+    conflicts: Array<{ newText: string; existingText: string }>;
+  }> {
     let added = 0;
     const addedTexts: string[] = [];
+    const superseded: Array<{ oldText: string; newText: string }> = [];
+    const conflicts: Array<{ newText: string; existingText: string }> = [];
     for (const raw of texts) {
       const text = raw.trim();
       if (text === '') continue;
@@ -104,7 +142,30 @@ export class DurableMemoryStore {
       if (existing) {
         existing.lastSeen = now;
         existing.seenCount += 1;
+      } else if (SUPERSESSION_RE.test(text)) {
+        // Explicit supersession: replace the best-overlapping existing entry.
+        // Overlap picks the TARGET; the user's marker made the decision.
+        let best: DurableInstructionEntry | null = null;
+        let bestScore = SUPERSEDE_TARGET_FLOOR;
+        for (const e of this.entries) {
+          const score = tokenOverlap(text, e.text);
+          if (score > bestScore) {
+            best = e;
+            bestScore = score;
+          }
+        }
+        if (best) {
+          this.entries = this.entries.filter((e) => e.id !== best.id);
+          superseded.push({ oldText: best.text, newText: text });
+        }
+        this.entries.push({ id, text, source: 'compaction-extraction', firstSeen: now, lastSeen: now, seenCount: 1 });
+        added++;
+        addedTexts.push(text);
       } else {
+        // Coexist — but surface high-overlap tension for one-click resolution
+        // in the management view. A notice is safe where a merge is not.
+        const near = this.entries.find((e) => tokenOverlap(text, e.text) >= CONFLICT_NOTICE_FLOOR);
+        if (near) conflicts.push({ newText: text, existingText: near.text });
         this.entries.push({ id, text, source: 'compaction-extraction', firstSeen: now, lastSeen: now, seenCount: 1 });
         added++;
         addedTexts.push(text);
@@ -114,8 +175,8 @@ export class DurableMemoryStore {
       this.entries = this.getEntries().slice(0, MAX_DURABLE_ENTRIES);
     }
     if (added > 0 || texts.length > 0) await this.persist();
-    if (added > 0) this._onChange?.();
-    return { added, addedTexts };
+    if (added > 0 || superseded.length > 0) this._onChange?.();
+    return { added, addedTexts, superseded, conflicts };
   }
 
   async remove(id: string): Promise<void> {

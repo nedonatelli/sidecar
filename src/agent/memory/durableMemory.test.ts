@@ -208,3 +208,44 @@ describe('normalized content hashing (trivial-variant dedup)', () => {
     expect(store.size()).toBe(2);
   });
 });
+
+describe('explicit supersession (1+4 design)', () => {
+  it('an "actually…" rule replaces its best-overlap target — even→odd', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['A rule to remember: every numeric config value you WRITE must be even.']);
+    const r = await store.addAll(['Actually, change that rule: every numeric config value you WRITE must be odd.']);
+    expect(store.size()).toBe(1);
+    expect(store.getEntries()[0].text).toContain('odd');
+    expect(r.superseded).toHaveLength(1);
+    expect(r.superseded[0].oldText).toContain('even');
+  });
+
+  it('similarity NEVER decides: a similar rule without a marker coexists, with a conflict notice', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['Every numeric config value you WRITE must be even.']);
+    const r = await store.addAll(['Every numeric config value you WRITE must be positive.']);
+    expect(store.size()).toBe(2); // both rules kept — no silent data loss
+    expect(r.superseded).toHaveLength(0);
+    expect(r.conflicts).toHaveLength(1);
+    expect(r.conflicts[0].existingText).toContain('even');
+  });
+
+  it('a superseding rule with no plausible target just adds', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['Always run the linter before committing.']);
+    const r = await store.addAll(['Actually, never deploy on Fridays no matter what.']);
+    expect(store.size()).toBe(2);
+    expect(r.superseded).toHaveLength(0);
+  });
+
+  it('an unrelated new rule triggers no conflict notice', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['Always run the linter before committing.']);
+    const r = await store.addAll(['Remember the deploy codename is Kestrel-9.']);
+    expect(r.conflicts).toHaveLength(0);
+  });
+});
