@@ -367,7 +367,8 @@ export async function applyBudgetCompression(
       // session teardown and lose the entry.
       const standingOut = summarized.metadata.persistableInstructions;
       if (state.config.persistInstructionsEnabled === true && state.durableMemoryStore && standingOut.length > 0) {
-        const { added, addedTexts, superseded, conflicts } = await state.durableMemoryStore.addAll(standingOut);
+        const { added, addedTexts, superseded, conflicts, unmatchedUpdates } =
+          await state.durableMemoryStore.addAll(standingOut);
         state.logger?.info(
           `Durable memory: persisted ${standingOut.length} standing instruction(s) (${added} new) at compaction`,
         );
@@ -377,8 +378,15 @@ export async function applyBudgetCompression(
         const clip = (t: string) => (t.length > 90 ? t.slice(0, 90) + '…' : t);
         const supersededNew = new Set(superseded.map((sp) => sp.newText));
         const conflictedNew = new Map(conflicts.map((c) => [c.newText, c.existingText]));
+        const unmatchedNew = new Set(unmatchedUpdates);
         for (const text of addedTexts) {
           if (supersededNew.has(text)) continue; // announced below with its replacement context
+          if (unmatchedNew.has(text)) {
+            callbacks?.onText(
+              `\n📌 Remembered for future sessions: "${clip(text)}"\n⚠️ This sounded like an update, but no remembered rule matched it closely enough to replace — any earlier rule was kept too. Use the Remembered Instructions view to forget an outdated one.\n`,
+            );
+            continue;
+          }
           const conflict = conflictedNew.get(text);
           callbacks?.onText(
             conflict

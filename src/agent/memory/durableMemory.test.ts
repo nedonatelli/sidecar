@@ -232,13 +232,33 @@ describe('explicit supersession (1+4 design)', () => {
     expect(r.conflicts[0].existingText).toContain('even');
   });
 
-  it('a superseding rule with no plausible target just adds', async () => {
+  it('a superseding rule with no plausible target adds — and reports the unmatched update', async () => {
     const store = new DurableMemoryStore(dir);
     await store.load();
     await store.addAll(['Always run the linter before committing.']);
     const r = await store.addAll(['Actually, never deploy on Fridays no matter what.']);
     expect(store.size()).toBe(2);
     expect(r.superseded).toHaveLength(0);
+    // The user said "change" and nothing was replaced — silence here would
+    // leave two contradictory rules injected with no warning.
+    expect(r.unmatchedUpdates).toEqual(['Actually, never deploy on Fridays no matter what.']);
+  });
+
+  it('an update marker into an EMPTY store is not flagged — there was nothing to replace', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    const r = await store.addAll(['Actually, always use tabs from now on.']);
+    expect(r.unmatchedUpdates).toHaveLength(0);
+    expect(store.size()).toBe(1);
+  });
+
+  it('a successful supersession reports nothing unmatched', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['Every numeric config value you WRITE must be even.']);
+    const r = await store.addAll(['Actually, change that rule: every numeric config value you WRITE must be odd.']);
+    expect(r.superseded).toHaveLength(1);
+    expect(r.unmatchedUpdates).toHaveLength(0);
   });
 
   it('an unrelated new rule triggers no conflict notice', async () => {
@@ -247,5 +267,66 @@ describe('explicit supersession (1+4 design)', () => {
     await store.addAll(['Always run the linter before committing.']);
     const r = await store.addAll(['Remember the deploy codename is Kestrel-9.']);
     expect(r.conflicts).toHaveLength(0);
+  });
+});
+
+describe('v0.121 store migration (hash-scheme change)', () => {
+  const file = () => path.join(dir, 'durable-instructions.json');
+  const oldEntry = (id: string, text: string, seenCount = 1, lastSeen = 100) => ({
+    id,
+    text,
+    source: 'compaction-extraction',
+    firstSeen: 50,
+    lastSeen,
+    seenCount,
+  });
+
+  it('recomputes old-scheme IDs on load so a re-latch dedupes instead of duplicating', async () => {
+    await fs.writeFile(file(), JSON.stringify([oldEntry('0000deadbeef0000', 'Always run the linter.')]));
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['always run the linter']);
+    expect(store.size()).toBe(1);
+    expect(store.getEntries()[0].seenCount).toBe(2);
+  });
+
+  it('merges on-disk collisions: variants of one rule become one entry with summed reinforcement', async () => {
+    await fs.writeFile(
+      file(),
+      JSON.stringify([
+        oldEntry('aaaa000000000000', 'Always use tabs.', 3, 100),
+        oldEntry('bbbb000000000000', 'always use tabs', 2, 200),
+      ]),
+    );
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    expect(store.size()).toBe(1);
+    const e = store.getEntries()[0];
+    expect(e.seenCount).toBe(5);
+    expect(e.firstSeen).toBe(50);
+    expect(e.lastSeen).toBe(200);
+    expect(e.text).toBe('always use tabs'); // most recently seen variant wins
+  });
+
+  it('persists the migrated store — a second load needs no re-migration', async () => {
+    await fs.writeFile(file(), JSON.stringify([oldEntry('0000deadbeef0000', 'Never push to main.')]));
+    const a = new DurableMemoryStore(dir);
+    await a.load();
+    const onDisk = JSON.parse(await fs.readFile(file(), 'utf8')) as Array<{ id: string }>;
+    const b = new DurableMemoryStore(dir);
+    await b.load();
+    expect(b.getEntries()[0].id).toBe(onDisk[0].id);
+    expect(onDisk[0].id).not.toBe('0000deadbeef0000');
+  });
+
+  it('a current-scheme store loads unchanged — no rewrite, no data drift', async () => {
+    const a = new DurableMemoryStore(dir);
+    await a.load();
+    await a.addAll(['Every numeric config value you WRITE must be even.']);
+    const before = await fs.readFile(file(), 'utf8');
+    const b = new DurableMemoryStore(dir);
+    await b.load();
+    expect(await fs.readFile(file(), 'utf8')).toBe(before);
+    expect(b.size()).toBe(1);
   });
 });

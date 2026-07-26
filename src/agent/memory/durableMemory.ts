@@ -39,6 +39,19 @@ export function tokenOverlap(a: string, b: string): number {
 
 /** Overlap floor for picking a supersession target (user intent is already explicit). */
 const SUPERSEDE_TARGET_FLOOR = 0.3;
+
+/** Punctuation/whitespace-insensitive content address: "the magic word is
+ *  pineapple." and "The magic word is 'pineapple'" are one rule. Semantic
+ *  merging is deliberately NOT attempted — lexical metrics cannot safely
+ *  distinguish a paraphrase from a similar-but-different rule, and merging
+ *  two different user rules is worse than a duplicate. */
+function idOf(text: string): string {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+}
 /** Overlap at which a coexisting new rule earns a possible-conflict notice. */
 const CONFLICT_NOTICE_FLOOR = 0.5;
 
@@ -79,7 +92,32 @@ export class DurableMemoryStore {
   async load(): Promise<void> {
     try {
       const parsed: unknown = JSON.parse(await fs.readFile(this.file, 'utf8'));
-      if (Array.isArray(parsed)) this.entries = parsed as DurableInstructionEntry[];
+      if (Array.isArray(parsed)) {
+        // v0.121 stores hashed the exact text; the scheme is now normalized.
+        // Recompute every ID on load and merge collisions, otherwise a rule
+        // re-latched under the new scheme misses its own on-disk entry and
+        // duplicates — exactly what content-addressing exists to prevent.
+        const byId = new Map<string, DurableInstructionEntry>();
+        let migrated = false;
+        for (const e of parsed as DurableInstructionEntry[]) {
+          const id = idOf(e.text);
+          if (id !== e.id) migrated = true;
+          const prior = byId.get(id);
+          if (prior) {
+            migrated = true;
+            prior.seenCount += e.seenCount;
+            prior.firstSeen = Math.min(prior.firstSeen, e.firstSeen);
+            if (e.lastSeen > prior.lastSeen) {
+              prior.lastSeen = e.lastSeen;
+              prior.text = e.text;
+            }
+          } else {
+            byId.set(id, { ...e, id });
+          }
+        }
+        this.entries = [...byId.values()];
+        if (migrated) await this.persist();
+      }
     } catch {
       this.entries = [];
     }
@@ -120,24 +158,20 @@ export class DurableMemoryStore {
     superseded: Array<{ oldText: string; newText: string }>;
     /** Coexisting new entries that overlap an existing rule enough to warrant a notice. */
     conflicts: Array<{ newText: string; existingText: string }>;
+    /** Update-marker rules whose target couldn't be identified — added, nothing replaced.
+     *  The worst quadrant if silent: the user said "change that rule" and both
+     *  the old and new rule would be injected with no warning. */
+    unmatchedUpdates: string[];
   }> {
     let added = 0;
     const addedTexts: string[] = [];
     const superseded: Array<{ oldText: string; newText: string }> = [];
     const conflicts: Array<{ newText: string; existingText: string }> = [];
+    const unmatchedUpdates: string[] = [];
     for (const raw of texts) {
       const text = raw.trim();
       if (text === '') continue;
-      // Punctuation/whitespace-insensitive hash: "the magic word is pineapple."
-      // and "The magic word is 'pineapple'" are one rule. Semantic-similarity
-      // merging is deliberately NOT attempted — lexical metrics cannot safely
-      // distinguish a paraphrase from a similar-but-different rule, and
-      // merging two different user rules is worse than a duplicate.
-      const normalized = text
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ')
-        .trim();
-      const id = createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+      const id = idOf(text);
       const existing = this.entries.find((e) => e.id === id);
       if (existing) {
         existing.lastSeen = now;
@@ -157,6 +191,8 @@ export class DurableMemoryStore {
         if (best) {
           this.entries = this.entries.filter((e) => e.id !== best.id);
           superseded.push({ oldText: best.text, newText: text });
+        } else if (this.entries.length > 0) {
+          unmatchedUpdates.push(text);
         }
         this.entries.push({ id, text, source: 'compaction-extraction', firstSeen: now, lastSeen: now, seenCount: 1 });
         added++;
@@ -176,7 +212,7 @@ export class DurableMemoryStore {
     }
     if (added > 0 || texts.length > 0) await this.persist();
     if (added > 0 || superseded.length > 0) this._onChange?.();
-    return { added, addedTexts, superseded, conflicts };
+    return { added, addedTexts, superseded, conflicts, unmatchedUpdates };
   }
 
   async remove(id: string): Promise<void> {
