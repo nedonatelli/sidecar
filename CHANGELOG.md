@@ -30,7 +30,7 @@ Memory completeness — the release that makes remembered instructions visible, 
 
 ### Stats
 
-- 8287 total tests (444 test files)
+- 8289 total tests (444 test files)
 - 87 built-in tools, 11 skills
 
 ## [0.121.0] - 2026-07-25
