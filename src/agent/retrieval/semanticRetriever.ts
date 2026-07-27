@@ -3,6 +3,7 @@ import { logger, kv } from '../../system/logger';
 import { Retriever, RetrievalHit } from './retriever';
 import { enrichWithGraphWalk, type GraphWalkOptions, type EnrichedHit } from './graphExpansion';
 import type { SymbolSearchResult } from '../../config/symbolEmbeddingIndex';
+import { neutralizeInjections } from '../injectionGuard';
 
 /**
  * Retriever adapter for workspace files. Uses WorkspaceIndex's existing
@@ -115,6 +116,7 @@ export class SemanticRetriever implements Retriever {
     // symbols from the same file would otherwise split the same string
     // repeatedly, once per symbol.
     const lineCache = new Map<string, string[]>();
+    let fencedCount = 0;
     for (const r of expanded) {
       let lines = lineCache.get(r.filePath);
       if (!lines) {
@@ -128,10 +130,20 @@ export class SemanticRetriever implements Retriever {
         body.length > this.maxCharsPerSymbol
           ? body.slice(0, this.maxCharsPerSymbol) + '\n... (symbol truncated)'
           : body;
+      // Poisoning screen. A cloned repo can plant instruction-injection
+      // payloads in source that surface here looking like project
+      // documentation. This used to run at index time, dropping flagged
+      // symbols from the store — which hid them from semantic search without
+      // stopping the same lines reaching the model via `read_file`, grep, or
+      // graph-walk expansion. Screening at the point the body is assembled
+      // fences the payload as data instead, and covers the graph-expanded hits
+      // that never passed through the index at all.
+      const { text: safeBody, fenced } = neutralizeInjections(truncated, `${r.filePath} (workspace symbol)`);
+      if (fenced) fencedCount++;
       hits.push({
         id: `workspace-sym:${r.filePath}::${r.qualifiedName}`,
         score: r.score,
-        content: `### ${r.filePath}:${r.startLine}-${r.endLine} (${r.kind} ${r.qualifiedName}) [${r.relationship}]\n\`\`\`\n${truncated}\n\`\`\``,
+        content: `### ${r.filePath}:${r.startLine}-${r.endLine} (${r.kind} ${r.qualifiedName}) [${r.relationship}]\n\`\`\`\n${safeBody}\n\`\`\``,
         source: this.name,
         filePath: r.filePath,
       });
@@ -141,6 +153,7 @@ export class SemanticRetriever implements Retriever {
         direct: directResults.length,
         expanded: expanded.length,
         hits: hits.length,
+        fenced: fencedCount,
         top: directResults[0]?.similarity?.toFixed(3),
       })}`,
     );
@@ -159,10 +172,14 @@ export class SemanticRetriever implements Retriever {
         content.length > this.maxCharsPerFile
           ? content.slice(0, this.maxCharsPerFile) + '\n... (file truncated)'
           : content;
+      // Same screen as the symbol path. This route emitted whole file contents
+      // with no injection check at all, so a poisoned file the symbol path
+      // refused to index still reached the model in full through here.
+      const { text: safeContent } = neutralizeInjections(truncated, `${file.relativePath} (workspace file)`);
       hits.push({
         id: `workspace:${file.relativePath}`,
         score: file.score,
-        content: `### ${file.relativePath}\n\`\`\`\n${truncated}\n\`\`\``,
+        content: `### ${file.relativePath}\n\`\`\`\n${safeContent}\n\`\`\``,
         source: this.name,
         filePath: file.relativePath,
       });

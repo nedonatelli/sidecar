@@ -20,7 +20,6 @@ import type { SidecarDir } from './sidecarDir.js';
 import { FlatVectorStore, type VectorStore, type FlatStoreMeta } from './vectorStore.js';
 import { hashLeaf, type MerkleTree } from './merkleTree.js';
 import { MINILM_MODEL_ID as MODEL_ID, type EmbeddingPipeline, LazyEmbedder } from './hfPipeline.js';
-import { detectInjection } from '../agent/injectionGuard.js';
 const DIMENSION = 384;
 const SCHEMA_VERSION = 1;
 const META_FILE = 'cache/symbol-embeddings-meta.json';
@@ -45,10 +44,13 @@ export interface SymbolEmbedInput {
   endLine: number;
   /** Symbol body text (function body, class body, etc.) — what we embed. */
   body: string;
+  /** How many earlier symbols in this file share `qualifiedName`. Omit (or 0)
+   *  for the first/only one. Assign with `assignOrdinals`, never by hand. */
+  ordinal?: number;
 }
 
 export interface SymbolSearchResult {
-  /** Deterministic ID used as the primary key — `filePath::qualifiedName`. */
+  /** Deterministic ID used as the primary key — see `makeSymbolId`. */
   symbolId: string;
   filePath: string;
   qualifiedName: string;
@@ -102,6 +104,10 @@ export interface SymbolMetadata {
    * time the file re-indexes).
    */
   merkleHash?: string;
+  /** Same-name ordinal within the file — see `makeSymbolId`. Absent on
+   *  pre-v0.122.1 rows, which are all ordinal 0 by construction. Persisted so
+   *  `reconcile` can rebuild a row's ID from its metadata alone. */
+  ordinal?: number;
 }
 
 export class SymbolEmbeddingIndex implements Disposable {
@@ -152,10 +158,6 @@ export class SymbolEmbeddingIndex implements Disposable {
    * most-recent input wins when a file is updated twice in quick
    * succession (save-after-save coalesces).
    */
-  /** Symbols skipped by the injection-poisoning screen, so the warning fires
-   *  once per symbol instead of on every re-scan of a poisoned file. */
-  private injectionSkipWarned = new Set<string>();
-
   private pendingQueue = new Map<string, SymbolEmbedInput>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private drainedListeners: Array<() => void> = [];
@@ -304,38 +306,49 @@ export class SymbolEmbeddingIndex implements Disposable {
   }
 
   /**
-   * Drop every indexed symbol whose file is absent from `liveFilePaths`,
-   * and report how many went. Callers pass the symbol graph's indexed
-   * file set — the graph re-derives it from disk on every
-   * `SymbolIndexer.initialize`, so it's the authority on what still exists.
+   * Drop every indexed symbol absent from `liveSymbolIds`, and report how many
+   * went. Callers pass `SymbolIndexer.liveSymbolIds()` — the graph re-derives
+   * its symbols from disk on every `initialize`, so it's the authority on what
+   * still exists.
    *
-   * Without this the PKI only ever grew. `SymbolIndexer` prunes vanished
-   * files from the *graph*, but that prune never cascaded here, so
-   * anything indexed once stayed indexed forever. Dogfood: Stryker
-   * mutation runs copy the whole repo into `.stryker-tmp/sandbox-*`,
-   * which wasn't excluded — 161,433 of 166,938 entries (96.7%, 330 MB)
-   * pointed at sandbox paths that had been deleted months earlier.
+   * Without this the index only ever grew. `SymbolIndexer` prunes vanished
+   * files from the *graph*, but that prune never cascaded here, so anything
+   * indexed once stayed indexed forever. Dogfood: Stryker mutation runs copy
+   * the whole repo into `.stryker-tmp/sandbox-*`, which wasn't excluded —
+   * 161,433 of 166,938 entries (96.7%, 330 MB) pointed at sandbox paths
+   * deleted months earlier.
    *
-   * One pass plus one `removeWhere`, not `removeFile` per path — the
-   * latter rescans the whole store per call, which is O(files × entries).
+   * Keyed on symbol ID rather than file path so a symbol deleted or renamed
+   * *within* a surviving file is swept too. `updateFile` re-indexes a changed
+   * file's current symbols but never removes the previous version's rows, and
+   * only whole-file deletes call `removeFile` — so that was a second, slower
+   * leak on the same path, and the one that would compound if IDs ever
+   * incorporated line numbers.
+   *
+   * One pass plus one `removeWhere`, not `removeFile` per path — the latter
+   * rescans the whole store per call, which is O(files × entries).
    */
-  async reconcileFiles(liveFilePaths: ReadonlySet<string>): Promise<number> {
-    // Queued-but-not-yet-embedded symbols for dead files would land in the
-    // store on the next drain, undoing the sweep.
-    for (const [id, input] of this.pendingQueue.entries()) {
-      if (!liveFilePaths.has(input.filePath)) this.pendingQueue.delete(id);
+  async reconcile(liveSymbolIds: ReadonlySet<string>): Promise<number> {
+    const isLive = (meta: SymbolMetadata): boolean =>
+      liveSymbolIds.has(makeSymbolId(meta.filePath, meta.qualifiedName, meta.ordinal));
+
+    // Queued-but-not-yet-embedded orphans would land in the store on the next
+    // drain, undoing the sweep.
+    for (const id of [...this.pendingQueue.keys()]) {
+      if (!liveSymbolIds.has(id)) this.pendingQueue.delete(id);
     }
 
-    const orphanFiles = new Set<string>();
+    const orphanIds = new Set<string>();
     for (const entry of this.store.entries()) {
-      const { filePath } = entry.metadata;
-      if (!liveFilePaths.has(filePath)) orphanFiles.add(filePath);
+      if (!isLive(entry.metadata)) orphanIds.add(entry.id);
     }
-    if (orphanFiles.size === 0) return 0;
+    if (orphanIds.size === 0) return 0;
 
-    const removed = await this.store.removeWhere((meta) => !liveFilePaths.has(meta.filePath));
+    const removed = await this.store.removeWhere((meta) => !isLive(meta));
     if (this.merkleTree) {
-      for (const filePath of orphanFiles) this.merkleTree.removeFile(filePath);
+      // Leaf-level, not file-level: a file can lose one symbol and keep the
+      // rest, and `removeFile` would drop the survivors from the tree.
+      for (const id of orphanIds) this.merkleTree.removeLeaf(id);
       this.merkleDirty = true;
     }
     this.dirty = true;
@@ -359,27 +372,18 @@ export class SymbolEmbeddingIndex implements Disposable {
    * every unchanged symbol.
    */
   async indexSymbol(input: SymbolEmbedInput): Promise<void> {
-    const symbolId = makeSymbolId(input.filePath, input.qualifiedName);
+    const symbolId = makeSymbolId(input.filePath, input.qualifiedName, input.ordinal);
 
-    // Poisoning screen: symbol bodies are indexed verbatim — comments and
-    // docstrings included — so a cloned repo can plant instruction-injection
-    // payloads that later surface as top-K retrieval hits looking like
-    // project documentation. Run the same deterministic heuristic used at
-    // the tool-result boundary and refuse to index flagged bodies. Warned
-    // once per symbol so a poisoned file doesn't spam the log on every save.
-    const injections = detectInjection(input.body);
-    if (injections.length > 0) {
-      if (!this.injectionSkipWarned.has(symbolId)) {
-        this.injectionSkipWarned.add(symbolId);
-        logger.warn(
-          `[PKI] skipped indexing${kv({
-            symbol: `${input.filePath}::${input.qualifiedName}`,
-            signals: injections.map((f) => f.category).join(','),
-          })} — body matches prompt-injection patterns; it will not surface in retrieval`,
-        );
-      }
-      return;
-    }
+    // The poisoning screen used to live here, refusing to index any body that
+    // matched the injection heuristic. That was the wrong boundary: this index
+    // stores only vectors and metadata — never the body — so dropping a symbol
+    // removed it from semantic search while `read_file`, grep, the doc index
+    // and graph-walk expansion all still surfaced the same lines unfenced. It
+    // bought no safety and cost real retrieval: on this repo it blinded
+    // `registerDurableMemoryView`, `BedrockBackend` and `initMcpServer`, all
+    // first-party source. The screen now runs where the body is actually
+    // assembled for the prompt (`semanticRetriever`), which fences flagged
+    // content as untrusted data instead of hiding the symbol.
 
     const hash = hashBody(input.body);
     // v0.62 d.2: the Merkle leaf hash is derived from the full
@@ -430,6 +434,7 @@ export class SymbolEmbeddingIndex implements Disposable {
         endLine: input.endLine,
         hash,
         merkleHash,
+        ordinal: input.ordinal,
       },
     });
     this.dirty = true;
@@ -464,7 +469,7 @@ export class SymbolEmbeddingIndex implements Disposable {
    * version wins.
    */
   queueSymbol(input: SymbolEmbedInput): void {
-    const id = makeSymbolId(input.filePath, input.qualifiedName);
+    const id = makeSymbolId(input.filePath, input.qualifiedName, input.ordinal);
     this.pendingQueue.set(id, input);
     if (this.pendingQueue.size >= SymbolEmbeddingIndex.FLUSH_BATCH_SIZE && this.flushTimer) {
       // Queue already full — collapse the pending debounce to a 0ms tick
@@ -798,14 +803,42 @@ export class SymbolEmbeddingIndex implements Disposable {
 }
 
 /**
- * Deterministic ID for a symbol — stable across restarts as long as
- * the file path + qualified name haven't changed. Renames produce a
- * new ID, which means the old row becomes an orphan until the next
- * `removeFile(...)` sweep; acceptable since the vector cost of an
- * orphan is a few hundred bytes.
+ * Deterministic ID for a symbol — stable across restarts as long as the file
+ * path + qualified name haven't changed. Renames produce a new ID; the old row
+ * is swept by the next `reconcile(...)`.
+ *
+ * `ordinal` disambiguates same-named siblings in one file, which collide
+ * otherwise: on this repo 862 of 6,600 graph symbols (13%) shared a
+ * `filePath::qualifiedName` with an earlier symbol and silently overwrote it —
+ * 72 locals named `tool` in one test file collapsed to a single entry. Line
+ * numbers would disambiguate too, but they'd change the ID of every symbol
+ * below any inserted line, re-embedding most of a file on each save and
+ * orphaning the old rows. An ordinal only moves when same-named siblings are
+ * reordered, and ordinal 0 renders as the bare `filePath::qualifiedName`, so
+ * every already-stored ID stays byte-identical and nothing re-embeds.
  */
-export function makeSymbolId(filePath: string, qualifiedName: string): string {
-  return `${filePath}::${qualifiedName}`;
+export function makeSymbolId(filePath: string, qualifiedName: string, ordinal = 0): string {
+  const base = `${filePath}::${qualifiedName}`;
+  return ordinal > 0 ? `${base}#${ordinal}` : base;
+}
+
+/**
+ * Per-symbol ordinals for one file's symbols, in document order: how many
+ * earlier symbols share each qualified name. Zero for the overwhelming
+ * majority.
+ *
+ * The single authority for ordinal assignment. Every producer of a symbol ID —
+ * the live-edit path, the activation replay, and the reconcile sweep — routes
+ * through this over the same ordered list, because two sites disagreeing by one
+ * would make reconcile delete live rows that the next replay re-embeds, forever.
+ */
+export function assignOrdinals(qualifiedNames: readonly string[]): number[] {
+  const seen = new Map<string, number>();
+  return qualifiedNames.map((q) => {
+    const n = seen.get(q) ?? 0;
+    seen.set(q, n + 1);
+    return n;
+  });
 }
 
 function hashBody(body: string): string {

@@ -76,6 +76,46 @@ describe('SymbolIndexer', () => {
     expect(() => indexer.dispose()).not.toThrow();
   });
 
+  describe('liveSymbolIds', () => {
+    const sym = (qualifiedName: string, startLine: number) => ({
+      name: qualifiedName,
+      qualifiedName,
+      type: 'function' as const,
+      filePath: 'src/t.ts',
+      startLine,
+      endLine: startLine + 1,
+      exported: false,
+    });
+
+    it('numbers same-named siblings so they stop overwriting each other', () => {
+      const indexer = new SymbolIndexer(null);
+      indexer.getGraph().addFile('src/t.ts', [sym('tool', 1), sym('tool', 3), sym('other', 5)], [], 'h');
+
+      expect([...indexer.liveSymbolIds()].sort()).toEqual(['src/t.ts::other', 'src/t.ts::tool', 'src/t.ts::tool#1']);
+    });
+
+    it('agrees exactly with the IDs the replay queues', async () => {
+      // The load-bearing invariant. `reconcile` deletes anything in the index
+      // and not in this set, so if the two sides ever assigned ordinals
+      // differently, every start would delete live rows that the following
+      // replay re-embeds — forever.
+      const indexer = new SymbolIndexer(null);
+      const graph = indexer.getGraph();
+      graph.addFile('src/t.ts', [sym('tool', 1), sym('tool', 3), sym('tool', 5), sym('other', 7)], [], 'h');
+      graph.setFileContent('src/t.ts', Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n'));
+
+      const queued: Array<{ filePath: string; qualifiedName: string; ordinal?: number }> = [];
+      indexer.setSymbolEmbeddings({ queueSymbol: (i: never) => queued.push(i) } as never);
+      await indexer.replaySymbolsToEmbeddingIndex();
+
+      const { makeSymbolId } = await import('./symbolEmbeddingIndex.js');
+      const replayIds = queued.map((q) => makeSymbolId(q.filePath, q.qualifiedName, q.ordinal));
+      expect(replayIds).toHaveLength(4);
+      expect(new Set(replayIds).size).toBe(4); // no collisions
+      for (const id of replayIds) expect(indexer.liveSymbolIds().has(id)).toBe(true);
+    });
+  });
+
   describe('PKI symbol-embedding wiring', () => {
     it('setSymbolEmbeddings with null leaves embedder-related state unchanged', () => {
       const indexer = new SymbolIndexer(null);

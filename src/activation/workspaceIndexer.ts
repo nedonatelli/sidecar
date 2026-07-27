@@ -144,17 +144,17 @@ export function initWorkspaceIndex(
             // replay is the only thing that queues them.
             await symbolGraphReady;
 
-            // Drop symbols whose files are gone. The graph re-derives its file
-            // set from disk each initialize; the PKI never did, so it only grew
-            // (dogfood: 96.7% of a 330 MB index pointed at deleted
+            // Drop symbols the graph no longer justifies. The graph re-derives
+            // itself from disk each initialize; the PKI never did, so it only
+            // grew (dogfood: 96.7% of a 330 MB index pointed at deleted
             // `.stryker-tmp/sandbox-*` copies). Runs BEFORE the Merkle tree is
-            // wired so orphans never enter it. Skipped on an empty graph — a
-            // failed graph build must not be read as "every file vanished".
-            const liveFiles = new Set(symbolIndexer.getGraph().indexedFilePaths());
-            if (liveFiles.size > 0) {
-              const dropped = await symbolEmbeddings.reconcileFiles(liveFiles);
+            // wired so orphans never enter it. Skipped on an empty set — a
+            // failed graph build must not be read as "everything vanished".
+            const liveIds = symbolIndexer.liveSymbolIds();
+            if (liveIds.size > 0) {
+              const dropped = await symbolEmbeddings.reconcile(liveIds);
               if (dropped > 0) {
-                logger.info(`[PKI] reconciled${kv({ dropped, liveFiles: liveFiles.size })}`);
+                logger.info(`[PKI] reconciled${kv({ dropped, liveSymbols: liveIds.size })}`);
               }
             }
 

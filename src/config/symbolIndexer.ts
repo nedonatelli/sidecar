@@ -17,7 +17,7 @@ import {
   type TypeUseEdge,
 } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
-import type { SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
+import { assignOrdinals, makeSymbolId, type SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
 
 const CACHE_FILE = 'cache/symbol-graph.json';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -263,9 +263,9 @@ export class SymbolIndexer implements Disposable {
     // monopolize the embedder.
     if (this.symbolEmbeddings) {
       const lines = content.split('\n');
-      const cap = this.maxSymbolsPerFile;
-      const limited = symbols.length > cap ? symbols.slice(0, cap) : symbols;
-      for (const sym of limited) {
+      const limited = this.cappedSymbols(symbols);
+      const ordinals = assignOrdinals(limited.map((s) => s.qualifiedName));
+      for (const [i, sym] of limited.entries()) {
         const startIdx = Math.max(0, sym.startLine - 1);
         const endIdx = Math.min(lines.length, sym.endLine);
         if (endIdx <= startIdx) continue;
@@ -279,6 +279,7 @@ export class SymbolIndexer implements Disposable {
           startLine: sym.startLine,
           endLine: sym.endLine,
           body,
+          ordinal: ordinals[i],
         });
       }
     }
@@ -344,7 +345,6 @@ export class SymbolIndexer implements Disposable {
   async replaySymbolsToEmbeddingIndex(): Promise<ReplayResult> {
     const embeddings = this.symbolEmbeddings;
     if (!embeddings) return { queued: 0, filesRead: 0, filesSkipped: 0 };
-    const cap = this.maxSymbolsPerFile;
     const rootUri = workspace.workspaceFolders?.[0]?.uri;
     let queued = 0;
     let filesRead = 0;
@@ -370,10 +370,10 @@ export class SymbolIndexer implements Disposable {
           return;
         }
         filesRead++;
-        const symbols = this.graph.getSymbolsInFile(filePath);
-        const limited = symbols.length > cap ? symbols.slice(0, cap) : symbols;
+        const limited = this.cappedSymbols(this.graph.getSymbolsInFile(filePath));
+        const ordinals = assignOrdinals(limited.map((s) => s.qualifiedName));
         const lines = content.split('\n');
-        for (const sym of limited) {
+        for (const [i, sym] of limited.entries()) {
           const startIdx = Math.max(0, sym.startLine - 1);
           const endIdx = Math.min(lines.length, sym.endLine);
           if (endIdx <= startIdx) continue;
@@ -387,12 +387,45 @@ export class SymbolIndexer implements Disposable {
             startLine: sym.startLine,
             endLine: sym.endLine,
             body,
+            ordinal: ordinals[i],
           });
           queued++;
         }
       }),
     );
     return { queued, filesRead, filesSkipped };
+  }
+
+  /** The symbols of one file that are eligible for embedding, in document
+   *  order. Capped so a generated file with 50k declarations can't monopolize
+   *  the embedder — and applied identically everywhere, because the cap is
+   *  part of what fixes a symbol's ordinal. */
+  private cappedSymbols(symbols: SymbolEntry[]): SymbolEntry[] {
+    const cap = this.maxSymbolsPerFile;
+    return symbols.length > cap ? symbols.slice(0, cap) : symbols;
+  }
+
+  /**
+   * Every symbol ID the graph currently justifies, for `SymbolEmbeddingIndex.
+   * reconcile`. Anything in the index and not in here is an orphan.
+   *
+   * Deliberately derived from the same `cappedSymbols` + `assignOrdinals` pair
+   * the two queueing paths use: if this set and those disagreed by a single
+   * ordinal, reconcile would delete live rows that the next replay re-embeds,
+   * every start, forever. It is a superset of what's actually indexed — the
+   * queue paths additionally skip empty bodies — and a superset is safe here,
+   * since only absence from this set deletes anything.
+   */
+  liveSymbolIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const filePath of this.graph.indexedFilePaths()) {
+      const limited = this.cappedSymbols(this.graph.getSymbolsInFile(filePath));
+      const ordinals = assignOrdinals(limited.map((s) => s.qualifiedName));
+      for (const [i, sym] of limited.entries()) {
+        ids.add(makeSymbolId(filePath, sym.qualifiedName, ordinals[i]));
+      }
+    }
+    return ids;
   }
 
   /** Queue a file removal (debounced). */
