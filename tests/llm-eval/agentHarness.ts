@@ -333,7 +333,6 @@ export async function runAgentCase(
     root: sandbox.root,
     approvalMode: evalCase.approvalMode || 'autonomous',
     wholeFileRewrite: promptConfig.wholeFileRewriteStrategyEnabled === true,
-    nativeToolCallNote: promptConfig.nativeToolCallNoteEnabled === true,
     insertApiV2: promptConfig.insertApiV2Enabled === true,
   });
   // Inject SIDECAR.md when present in the workspace fixture, mirroring

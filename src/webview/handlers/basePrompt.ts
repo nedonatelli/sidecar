@@ -23,17 +23,6 @@ export interface SystemPromptParams {
    * edit_file schema — examples and schemas move in lockstep.
    */
   insertApiV2?: boolean;
-  /**
-   * Notation-reconciliation note (`sidecar.prompt.nativeToolCallNote`): this
-   * prompt teaches tool usage with backtick `tool(arg=...)` snippets, while a
-   * tools-native chat template (qwen2.5-coder's renders the catalog as a
-   * `<tools>` block and demands `<tool_call>` JSON "with NO other text")
-   * teaches a different EMISSION format. Nothing tells the model the snippets
-   * are notation, not the format to emit — the hypothesis behind qwen's
-   * code-as-text prose calls that recovery.codeAsText keeps rescuing. The
-   * note states the distinction once, with one worked mapping.
-   */
-  nativeToolCallNote?: boolean;
 }
 
 /**
@@ -342,19 +331,6 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
       '- Tests needed: yes, the new callback test file\n' +
       '```\n\n' +
       'After presenting the plan, the user can approve, revise, or reject it before execution begins.';
-  }
-
-  if (p.nativeToolCallNote) {
-    prompt +=
-      '\n\n## How to emit tool calls\n\n' +
-      'The backtick snippets in this prompt — `edit_file(search=..., replace=...)`, `read_file(path="...")` — are ' +
-      'shorthand notation telling you WHICH tool to use and WHICH fields to fill. They are NOT the format to emit. ' +
-      'Emit every tool call through your function-calling mechanism, exactly as your tool-calling format specifies — ' +
-      'never write a tool call as text in your reply.\n\n' +
-      'Example — this prompt writes the shorthand:\n' +
-      '`edit_file(path="src/app.ts", search="old", replace="new")`\n' +
-      'You emit it as a function call with arguments `{"path": "src/app.ts", "search": "old", "replace": "new"}` — ' +
-      'not as that text. Code or calls written in your reply text change NOTHING on disk; only emitted function calls run.';
   }
 
   if (p.wholeFileRewrite) {
