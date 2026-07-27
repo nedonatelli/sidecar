@@ -39,6 +39,12 @@ const PATTERNS: ReadonlyArray<{ category: InjectionCategory; re: RegExp }> = [
     category: 'instruction-override',
     re: /\b(?:ignore|disregard|forget|override)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|all|your)\b[^.\n]{0,30}\b(?:instruction|prompt|direction|rule|context|system)/i,
   },
+  // "ignore everything above", "disregard all prior" — the override verb aimed
+  // at the whole preceding context, without a trailing instruction-noun.
+  {
+    category: 'instruction-override',
+    re: /\b(?:ignore|disregard|forget)\b[^.\n]{0,20}\b(?:everything|all|what)\b[^.\n]{0,25}\b(?:above|below|before|previous|prior|earlier|said|told)\b/i,
+  },
   // "you are now X", "from now on you", "pretend to be", "act as DAN".
   {
     category: 'role-hijack',
@@ -54,10 +60,11 @@ const PATTERNS: ReadonlyArray<{ category: InjectionCategory; re: RegExp }> = [
     category: 'permission-manipulation',
     re: /\byou\s+(?:must|should|need\s+to|have\s+to)\b[^.\n]{0,40}\b(?:run|execute|delete|remove|disable|send|upload|curl|wget|rm\s+-rf|grant)/i,
   },
-  // Exfiltration lures — move secrets/env/keys outward.
+  // Exfiltration lures — move secrets/env/keys outward. Key names allow a
+  // space separator ("API key"), and SSH key files count as targets.
   {
     category: 'exfiltration-lure',
-    re: /\b(?:send|post|upload|email|exfiltrate|leak|curl|wget|fetch)\b[^.\n]{0,50}(?:secret|api[_-]?key|token|password|credential|\.env|private[_-]?key|ssh\s+key)\b/i,
+    re: /\b(?:send|post|upload|email|transmit|exfiltrate|leak|curl|wget|fetch)\b[^.\n]{0,50}(?:secret|api[\s_-]?key|token|password|credential|\.env|private[\s_-]?key|ssh[\s_-]?key|id_rsa|\.ssh)\b/i,
   },
 ];
 
