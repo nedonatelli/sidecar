@@ -27,10 +27,15 @@ Memory completeness — the release that makes remembered instructions visible, 
 - **A rule update that can't find its target is no longer silent.** "Actually, change that rule…" with no remembered rule overlapping enough to replace previously just added the new rule — the user asked for a replacement and got two contradictory rules injected with no warning. The store now reports unmatched updates and chat discloses them ("no remembered rule matched closely enough to replace — any earlier rule was kept too"). (`src/agent/memory/durableMemory.ts`, `src/agent/loop/compression.ts`)
 - **SECURITY.md records the widened trust boundary**: supersession upgrades the v0.121 residual risk from persistence-by-injection to deletion-by-injection (a hostile pasted passage could remove a user's own remembered rule); mitigations documented — user-text-only extraction, disclosed replacements with the replaced text shown, flag-on-unmatched, overlap-selects-but-never-initiates, and the management view.
 - **Two scenario-case validity defects, both ceiling-caught:** the prohibition case's off-arm passed by imitating the convention the workspace itself demonstrated (workspace neutralized so only memory can supply the rule), and the fact case's credential-flavored secret plus risk-priming filler tripped refusals unrelated to memory (neutral codename, neutral filler). (`tests/llm-eval/longHorizonCases.ts`)
+- **Prompt-injection detection hardened — three real gaps closed.** Building a standing attack corpus (see below) surfaced live-relevant misses in `detectInjection`: exfiltration lures spelled with a space ("API key") escaped `api[_-]?key`, SSH-key targets (`id_rsa`, `.ssh`) and the verb "transmit" weren't recognized, and an override aimed at the whole context ("ignore everything above", no trailing instruction-noun) slipped the pattern. Corpus coverage 20→23/28, zero false positives; the remaining 5 are honest heuristic limits (pure paraphrase, period-broken shell exfil) where fencing plus the data-not-instructions prompt rule are the backstop. (`src/agent/injectionGuard.ts`)
+
+### Testing
+
+- **Three standing non-functional/functional test gates**, each targeting a documented weak spot: an interface schema↔example consistency gate (`toolSchemaExamples.test.ts`) that fails CI on the tool schema/prompt-example drift class behind the v0.119 insert and paramRemap bugs; a versioned prompt-injection attack corpus (`injectionCorpus.test.ts`, `INJECTION_CORPUS_VERSION`) pinning detection outcomes in both directions; and a local-first egress guard (`localFirstEgress.test.ts`) defending the "no data leaves your machine" claim — activation warmup only ever touches localhost and no telemetry SDK ships. Guidelines captured in `internal/{functional,non-functional}-testing.md`.
 
 ### Stats
 
-- 8289 total tests (444 test files)
+- 8304 total tests (447 test files)
 - 87 built-in tools, 11 skills
 
 ## [0.121.0] - 2026-07-25
