@@ -26,6 +26,9 @@ const SCHEMA_VERSION = 1;
 const META_FILE = 'cache/symbol-embeddings-meta.json';
 const BIN_FILE = 'cache/symbol-embeddings.bin';
 const MAX_INPUT_CHARS = 4096; // symbols are usually smaller than files — 4k is generous
+/** Leaves replayed into a freshly-wired Merkle tree before yielding the
+ *  event loop. Keeps activation responsive on a large index. */
+const MERKLE_REPLAY_CHUNK = 2_000;
 
 export interface SymbolEmbedInput {
   /** Workspace-relative path where the symbol lives. */
@@ -260,14 +263,22 @@ export class SymbolEmbeddingIndex implements Disposable {
    * skipped on replay and populate lazily next time the file
    * re-indexes. No data loss, just a one-session warm-up.
    */
-  setMerkleTree(tree: MerkleTree | null): void {
+  async setMerkleTree(tree: MerkleTree | null): Promise<void> {
     this.merkleTree = tree;
     if (!tree) return;
 
-    // Replay persisted entries into the tree. This is O(n) over the
-    // stored count but SHA-256 + mean-pool is fast enough that a
-    // 10k-symbol workspace replays in <100 ms.
-    for (const entry of this.store.entries()) {
+    // Replay persisted entries into the tree. O(n) over the stored
+    // count, and SHA-256 + mean-pool is fast per leaf — but "fast per
+    // leaf" is not the same as "fast". A dogfooded 166,938-entry index
+    // froze the extension host for 32s here during activation, so the
+    // replay yields the event loop every chunk instead of running to
+    // completion in one synchronous burst.
+    //
+    // Snapshotted up front so a concurrent drain mutating the store
+    // across a yield boundary can't skip or duplicate leaves.
+    const snapshot = Array.from(this.store.entries());
+    let sinceYield = 0;
+    for (const entry of snapshot) {
       const metadata = entry.metadata;
       if (!metadata.merkleHash) continue;
       const vector = this.store.getVector(entry.id);
@@ -284,8 +295,52 @@ export class SymbolEmbeddingIndex implements Disposable {
           endLine: metadata.endLine,
         },
       });
+      if (++sinceYield >= MERKLE_REPLAY_CHUNK) {
+        sinceYield = 0;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
     tree.rebuild();
+  }
+
+  /**
+   * Drop every indexed symbol whose file is absent from `liveFilePaths`,
+   * and report how many went. Callers pass the symbol graph's indexed
+   * file set — the graph re-derives it from disk on every
+   * `SymbolIndexer.initialize`, so it's the authority on what still exists.
+   *
+   * Without this the PKI only ever grew. `SymbolIndexer` prunes vanished
+   * files from the *graph*, but that prune never cascaded here, so
+   * anything indexed once stayed indexed forever. Dogfood: Stryker
+   * mutation runs copy the whole repo into `.stryker-tmp/sandbox-*`,
+   * which wasn't excluded — 161,433 of 166,938 entries (96.7%, 330 MB)
+   * pointed at sandbox paths that had been deleted months earlier.
+   *
+   * One pass plus one `removeWhere`, not `removeFile` per path — the
+   * latter rescans the whole store per call, which is O(files × entries).
+   */
+  async reconcileFiles(liveFilePaths: ReadonlySet<string>): Promise<number> {
+    // Queued-but-not-yet-embedded symbols for dead files would land in the
+    // store on the next drain, undoing the sweep.
+    for (const [id, input] of this.pendingQueue.entries()) {
+      if (!liveFilePaths.has(input.filePath)) this.pendingQueue.delete(id);
+    }
+
+    const orphanFiles = new Set<string>();
+    for (const entry of this.store.entries()) {
+      const { filePath } = entry.metadata;
+      if (!liveFilePaths.has(filePath)) orphanFiles.add(filePath);
+    }
+    if (orphanFiles.size === 0) return 0;
+
+    const removed = await this.store.removeWhere((meta) => !liveFilePaths.has(meta.filePath));
+    if (this.merkleTree) {
+      for (const filePath of orphanFiles) this.merkleTree.removeFile(filePath);
+      this.merkleDirty = true;
+    }
+    this.dirty = true;
+    this.schedulePersist();
+    return removed;
   }
 
   /**

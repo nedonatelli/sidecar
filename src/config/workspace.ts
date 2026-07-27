@@ -29,7 +29,7 @@ export async function getWorkspaceContext(
 
     const uris = await workspace.findFiles(
       pattern,
-      `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`,
+      `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next,.stryker-tmp}/**`,
       maxFiles - files.length,
       token,
     );

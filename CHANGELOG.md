@@ -4,6 +4,26 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.122.1] - 2026-07-27
+
+### Fixed
+
+- **The Project Knowledge Index only ever grew — 96.7% of a dogfooded 330 MB index was dead.** Stryker mutation runs copy the whole repo into `.stryker-tmp/sandbox-*`, which is in `.gitignore` but was in none of SideCar's own exclude lists, so every run indexed hundreds of full repo copies as first-class workspace sources. `SymbolIndexer` prunes vanished files from the symbol _graph_ on each `initialize`, but that prune never cascaded to the PKI, so its entries outlived the files by months: 161,437 of 166,938 vectors pointed at sandbox paths deleted long ago (256 MB of vectors plus 74 MB of metadata carrying 5,501 live symbols). `.stryker-tmp` is now excluded in all three file-discovery paths, and the PKI reconciles against the graph's indexed file set on every start via a new `reconcileFiles` — one pass plus one `removeWhere`, not `removeFile` per path, which is O(files × entries). The sweep also drops queued-but-unembedded symbols for dead files so the next drain can't undo it, and is skipped on an empty graph so a failed graph build is never read as "every file vanished". (`src/config/symbolEmbeddingIndex.ts`, `symbolIndexer.ts`, `workspaceIndex.ts`, `workspace.ts`, `src/activation/workspaceIndexer.ts`)
+- **The Merkle replay froze the extension host for 32s during activation.** `setMerkleTree` replayed every stored entry into the tree in one synchronous burst — fine at the 10k-symbol scale its own comment assumed, 32s of blocked event loop at the 167k the bloat produced, which also starved the documentation indexer into a 199,704 ms build and stretched activation to 3m20s. The replay is now async, yielding every 2,000 leaves over an up-front snapshot so a concurrent drain can't skip or duplicate leaves across a yield boundary, and it runs _after_ reconciliation so orphans never enter the tree at all. (`src/config/symbolEmbeddingIndex.ts`, `src/activation/workspaceIndexer.ts`)
+
+### Added
+
+- **Disproportionate-index warning.** Activation warns when PKI vector count exceeds symbol-graph symbol count by more than 3×, naming the likely cause (an unexcluded directory of copied sources) and pointing at `SideCar: Rebuild Project Knowledge Index`. A backstop for the next orphan source reconciliation doesn't know about — this class of bug stayed invisible until an activation slow enough to notice forced a look. (`src/activation/workspaceIndexer.ts`)
+
+### Testing
+
+- Reconciliation gates: orphan drop with live-set preservation, no-op on a fully-live set, pending-queue sweep, and Merkle mirroring — plus a 2,500-entry chunk-boundary replay test so an off-by-one in the yield loop can't silently truncate a large index.
+
+### Stats
+
+- 8309 total tests (447 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.122.0] - 2026-07-26
 
 Memory completeness — the release that makes remembered instructions visible, manageable, duplicate-free, and updatable. v0.121 proved a rule stated once survives compaction and the session; v0.122 closes the lifecycle: a sidebar view shows every remembered instruction and lets you forget one or clear all; reworded duplicates are impossible by construction (only verbatim direct latches persist); an explicit "actually, change that rule…" update REPLACES the rule it targets instead of accumulating beside it — with the design rule that similarity never decides replacement, only the user's own marker words do; and the evidence base widened from one scenario to three memory shapes with an honest per-model capability map. Supersession was validated across the full ladder the same way everything here earns its keep: ceiling first (which caught an instrument defect before any local run — an un-seeded session never compacts, so nothing stated in it persists), then clean discriminating pairs on gemma4 and qwen3.5.

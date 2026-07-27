@@ -81,6 +81,7 @@ const EXCLUDE_DIRS = new Set([
   'Pods', // CocoaPods (Swift/ObjC)
   '.pytest_cache',
   'bower_components',
+  '.stryker-tmp', // Stryker mutation runs copy the whole repo per sandbox
 ]);
 
 export class SymbolIndexer implements Disposable {

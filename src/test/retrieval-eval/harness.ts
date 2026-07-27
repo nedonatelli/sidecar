@@ -134,7 +134,7 @@ export async function buildFixtureHarness(options: { withMerkle?: boolean } = {}
   let merkleTree: MerkleTree | null = null;
   if (options.withMerkle) {
     merkleTree = new MerkleTree();
-    index.setMerkleTree(merkleTree);
+    await index.setMerkleTree(merkleTree);
   }
 
   return { index, graph, merkleTree };

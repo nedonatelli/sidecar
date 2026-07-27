@@ -32,6 +32,7 @@ const DEFAULT_EXCLUDES = [
   '.next',
   '.turbo',
   '.cache',
+  '.stryker-tmp', // Stryker mutation runs copy the whole repo per sandbox
 ];
 const EXCLUDE_PATTERN = `**/{${DEFAULT_EXCLUDES.join(',')}}/**`;
 

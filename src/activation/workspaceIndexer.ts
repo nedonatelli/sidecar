@@ -8,6 +8,10 @@ import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SideCarConfig } from '../config/settings.js';
 import type { PkiTreeProvider } from '../views/pkiView.js';
 
+/** Vectors-per-graph-symbol above which the PKI is assumed to be indexing
+ *  something outside the workspace's real source tree. */
+const PKI_BLOAT_RATIO = 3;
+
 /**
  * Kick off workspace indexing (symbol graph + optional semantic/PKI embeddings)
  * in the background. Extracted from extension.ts to keep the entry point lean.
@@ -103,22 +107,12 @@ export function initWorkspaceIndex(
             setSymbolEmbeddings(symbolEmbeddings);
             workspaceIndex.setSymbolEmbeddings(symbolEmbeddings);
             pkiProvider?.setIndex(symbolEmbeddings, symbolIndexer, workspaceIndex);
-            if (config.merkleIndexEnabled) {
-              const { MerkleTree } = await import('../config/merkleTree.js');
-              const merkleTree = new MerkleTree();
-              symbolEmbeddings.setMerkleTree(merkleTree);
-              logger.info(
-                `[SideCar] Merkle tree wired: rootHash=${symbolEmbeddings.getMerkleRoot().slice(0, 8) || '(empty)'}`,
-              );
-            }
-            const cachedCount = symbolEmbeddings.getCount();
-            logger.info(`[SideCar] Symbol embedding index ready: ${cachedCount} cached symbol vectors`);
 
             // Show a progress indicator while symbols are being embedded.
             // On a cold start (no cache) this can take 30s–2min for large
             // workspaces, so we keep the status bar item visible until the
             // queue drains rather than letting it silently spin.
-            const wasFirstRun = cachedCount === 0;
+            const wasFirstRun = symbolEmbeddings.getCount() === 0;
             const pkiStatus = window.createStatusBarItem(StatusBarAlignment.Left, 0);
             pkiStatus.text = '$(loading~spin) SideCar: Indexing symbols…';
             context.subscriptions.push(pkiStatus);
@@ -142,12 +136,40 @@ export function initWorkspaceIndex(
             // immediately rather than only after the first batch fires.
             if (wasFirstRun) pkiStatus.show();
 
-            // Wait for the symbol graph to FINISH building before replaying it
-            // into the embedding queue — otherwise indexedFilePaths() is partial
-            // and most symbols never get queued. The graph's hash-match
-            // short-circuit means indexSymbol won't fire for cached/unchanged
-            // files, so this replay is the only thing that queues them.
+            // Wait for the symbol graph to FINISH building before touching it —
+            // otherwise indexedFilePaths() is partial, which would make the
+            // reconcile below delete live symbols and leave the replay with
+            // almost nothing to queue. The graph's hash-match short-circuit
+            // means indexSymbol won't fire for cached/unchanged files, so that
+            // replay is the only thing that queues them.
             await symbolGraphReady;
+
+            // Drop symbols whose files are gone. The graph re-derives its file
+            // set from disk each initialize; the PKI never did, so it only grew
+            // (dogfood: 96.7% of a 330 MB index pointed at deleted
+            // `.stryker-tmp/sandbox-*` copies). Runs BEFORE the Merkle tree is
+            // wired so orphans never enter it. Skipped on an empty graph — a
+            // failed graph build must not be read as "every file vanished".
+            const liveFiles = new Set(symbolIndexer.getGraph().indexedFilePaths());
+            if (liveFiles.size > 0) {
+              const dropped = await symbolEmbeddings.reconcileFiles(liveFiles);
+              if (dropped > 0) {
+                logger.info(`[PKI] reconciled${kv({ dropped, liveFiles: liveFiles.size })}`);
+              }
+            }
+
+            if (config.merkleIndexEnabled) {
+              const { MerkleTree } = await import('../config/merkleTree.js');
+              const merkleTree = new MerkleTree();
+              await symbolEmbeddings.setMerkleTree(merkleTree);
+              logger.info(
+                `[SideCar] Merkle tree wired: rootHash=${symbolEmbeddings.getMerkleRoot().slice(0, 8) || '(empty)'}`,
+              );
+            }
+
+            const cachedCount = symbolEmbeddings.getCount();
+            logger.info(`[SideCar] Symbol embedding index ready: ${cachedCount} cached symbol vectors`);
+
             const replay = await symbolIndexer.replaySymbolsToEmbeddingIndex();
             const graphSymbols = symbolIndexer.getGraph().symbolCount();
             const replayFields = kv({
@@ -160,6 +182,19 @@ export function initWorkspaceIndex(
               logger.warn(`[PKI] replay queued nothing despite a non-empty graph${replayFields}`);
             } else {
               logger.info(`[PKI] replay complete${replayFields}`);
+            }
+
+            // Backstop for the next orphan source reconcile doesn't know about.
+            // A healthy index tracks the graph within a small factor; a large
+            // multiple means something is seeding symbols the graph never saw.
+            if (graphSymbols > 0 && cachedCount > graphSymbols * PKI_BLOAT_RATIO) {
+              logger.warn(
+                `[PKI] index is disproportionate to the symbol graph${kv({
+                  vectors: cachedCount,
+                  graphSymbols,
+                  ratio: (cachedCount / graphSymbols).toFixed(1),
+                })} — likely an unexcluded directory of copied sources; run "SideCar: Rebuild Project Knowledge Index" if retrieval looks wrong`,
+              );
             }
             if (replay.queued > 0) {
               // A warm-cache reload after heavy repo churn can queue thousands

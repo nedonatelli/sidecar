@@ -302,7 +302,7 @@ describe('SymbolEmbeddingIndex', () => {
       await index.indexSymbol(makeInput({ qualifiedName: 'b', name: 'b' }));
 
       const tree = new MerkleTree();
-      index.setMerkleTree(tree);
+      await index.setMerkleTree(tree);
 
       expect(tree.getLeafCount()).toBe(2);
       expect(tree.getRootHash()).not.toBe('');
@@ -311,7 +311,7 @@ describe('SymbolEmbeddingIndex', () => {
     it('addLeaf mirrors every indexSymbol call when a tree is wired', async () => {
       const { MerkleTree } = await import('./merkleTree.js');
       const tree = new MerkleTree();
-      index.setMerkleTree(tree);
+      await index.setMerkleTree(tree);
 
       await index.indexSymbol(makeInput({ qualifiedName: 'new', name: 'new' }));
       tree.rebuild();
@@ -322,7 +322,7 @@ describe('SymbolEmbeddingIndex', () => {
     it('flushQueue fires tree.rebuild() after a batch drain', async () => {
       const { MerkleTree } = await import('./merkleTree.js');
       const tree = new MerkleTree();
-      index.setMerkleTree(tree);
+      await index.setMerkleTree(tree);
 
       index.queueSymbol(makeInput({ qualifiedName: 'a', name: 'a' }));
       index.queueSymbol(makeInput({ qualifiedName: 'b', name: 'b' }));
@@ -337,7 +337,7 @@ describe('SymbolEmbeddingIndex', () => {
     it('removeSymbol and removeFile mirror into the tree', async () => {
       const { MerkleTree } = await import('./merkleTree.js');
       const tree = new MerkleTree();
-      index.setMerkleTree(tree);
+      await index.setMerkleTree(tree);
 
       await index.indexSymbol(makeInput({ qualifiedName: 'a', name: 'a', filePath: 'foo.ts' }));
       await index.indexSymbol(makeInput({ qualifiedName: 'b', name: 'b', filePath: 'foo.ts' }));
@@ -362,7 +362,7 @@ describe('SymbolEmbeddingIndex', () => {
     it('search uses Merkle descent when a tree is wired and populated', async () => {
       const { MerkleTree } = await import('./merkleTree.js');
       const tree = new MerkleTree();
-      index.setMerkleTree(tree);
+      await index.setMerkleTree(tree);
 
       // Index symbols across 4 distinct files so descent has real
       // candidates to prune.
@@ -396,7 +396,7 @@ describe('SymbolEmbeddingIndex', () => {
       // even after attach. (setMerkleTree's replay populates it
       // from persisted state, so we put nothing in the store
       // until after attach to simulate an empty-tree edge case.)
-      index.setMerkleTree(tree);
+      await index.setMerkleTree(tree);
 
       // Now index — this should add to the tree too.
       await index.indexSymbol(makeInput({ qualifiedName: 'foo', name: 'foo' }));
@@ -404,7 +404,7 @@ describe('SymbolEmbeddingIndex', () => {
       // its file-node layer. search() should detect the empty tree
       // and fall through to the full scan.
       const freshTree = new MerkleTree(); // truly empty
-      index.setMerkleTree(freshTree);
+      await index.setMerkleTree(freshTree);
 
       const results = await index.search('query', 5);
       // With a truly-empty tree, descent is skipped. Our single
@@ -451,10 +451,106 @@ describe('SymbolEmbeddingIndex', () => {
       });
 
       const tree = new MerkleTree();
-      legacyIndex.setMerkleTree(tree);
+      await legacyIndex.setMerkleTree(tree);
 
       // Replay skipped — no leaves added.
       expect(tree.getLeafCount()).toBe(0);
+    });
+
+    it('replays entries past the chunk boundary', async () => {
+      // The replay yields the event loop every MERKLE_REPLAY_CHUNK leaves.
+      // An off-by-one in that loop would silently truncate a large index —
+      // exactly the case the chunking exists for — so seed past one boundary.
+      const { MerkleTree } = await import('./merkleTree.js');
+      const { FlatVectorStore } = await import('./vectorStore.js');
+      const store = new FlatVectorStore<import('./symbolEmbeddingIndex.js').SymbolMetadata>(null, {
+        dimension: 384,
+        version: 1,
+        binFile: 'cache/chunk.bin',
+        metaFile: 'cache/chunk.json',
+      });
+      const bigIndex = new SymbolEmbeddingIndex(null, store);
+      bigIndex.setPipelineForTests(fakePipeline() as never);
+
+      const TOTAL = 2_500; // > the 2,000-leaf chunk size
+      for (let i = 0; i < TOTAL; i++) {
+        const vector = new Float32Array(384);
+        vector[i % 384] = 1;
+        await store.upsert({
+          id: `src/f${i}.ts::sym`,
+          vector,
+          metadata: {
+            filePath: `src/f${i}.ts`,
+            qualifiedName: 'sym',
+            name: 'sym',
+            kind: 'function',
+            startLine: 1,
+            endLine: 5,
+            hash: `h${i}`,
+            merkleHash: `m${i}`.padEnd(64, '0'),
+          },
+        });
+      }
+
+      const tree = new MerkleTree();
+      await bigIndex.setMerkleTree(tree);
+
+      expect(tree.getLeafCount()).toBe(TOTAL);
+    });
+  });
+
+  describe('reconcileFiles', () => {
+    it('drops symbols whose file is absent from the live set', async () => {
+      await index.indexSymbol(makeInput({ filePath: 'src/live.ts', qualifiedName: 'keep', name: 'keep' }));
+      await index.indexSymbol(makeInput({ filePath: 'src/gone.ts', qualifiedName: 'a', name: 'a' }));
+      await index.indexSymbol(makeInput({ filePath: 'src/gone.ts', qualifiedName: 'b', name: 'b' }));
+      expect(index.getCount()).toBe(3);
+
+      const dropped = await index.reconcileFiles(new Set(['src/live.ts']));
+
+      expect(dropped).toBe(2);
+      expect(index.getCount()).toBe(1);
+      expect(index.getSymbolMeta(makeSymbolId('src/live.ts', 'keep'))).not.toBeNull();
+      expect(index.getSymbolMeta(makeSymbolId('src/gone.ts', 'a'))).toBeNull();
+    });
+
+    it('returns 0 and keeps everything when every indexed file is live', async () => {
+      await index.indexSymbol(makeInput({ filePath: 'src/a.ts', qualifiedName: 'a', name: 'a' }));
+      await index.indexSymbol(makeInput({ filePath: 'src/b.ts', qualifiedName: 'b', name: 'b' }));
+
+      const dropped = await index.reconcileFiles(new Set(['src/a.ts', 'src/b.ts', 'src/never-indexed.ts']));
+
+      expect(dropped).toBe(0);
+      expect(index.getCount()).toBe(2);
+    });
+
+    it('drops queued-but-unindexed symbols for dead files', async () => {
+      // Otherwise the next drain re-indexes the file we just swept.
+      index.queueSymbol(makeInput({ filePath: 'src/gone.ts', qualifiedName: 'ghost', name: 'ghost' }));
+      index.queueSymbol(makeInput({ filePath: 'src/live.ts', qualifiedName: 'real', name: 'real' }));
+
+      await index.reconcileFiles(new Set(['src/live.ts']));
+      await index.flushQueueForTests();
+
+      expect(index.getCount()).toBe(1);
+      expect(index.getSymbolMeta(makeSymbolId('src/live.ts', 'real'))).not.toBeNull();
+      expect(index.getSymbolMeta(makeSymbolId('src/gone.ts', 'ghost'))).toBeNull();
+    });
+
+    it('mirrors removals into a wired Merkle tree', async () => {
+      const { MerkleTree } = await import('./merkleTree.js');
+      const tree = new MerkleTree();
+      await index.setMerkleTree(tree);
+      await index.indexSymbol(makeInput({ filePath: 'src/live.ts', qualifiedName: 'keep', name: 'keep' }));
+      await index.indexSymbol(makeInput({ filePath: 'src/gone.ts', qualifiedName: 'drop', name: 'drop' }));
+      tree.rebuild();
+      expect(tree.getLeafCount()).toBe(2);
+
+      await index.reconcileFiles(new Set(['src/live.ts']));
+      tree.rebuild();
+
+      expect(tree.getLeafCount()).toBe(1);
+      expect(tree.getFileNode('src/gone.ts')).toBeNull();
     });
   });
 
