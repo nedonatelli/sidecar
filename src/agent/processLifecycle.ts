@@ -2,6 +2,7 @@ import { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import { Disposable } from 'vscode';
+import { writeFileAtomic } from '../system/atomicWrite.js';
 
 /**
  * Wraps a ChildProcess with a deterministic kill chain:
@@ -231,7 +232,9 @@ export class ProcessRegistry implements Disposable {
       pids: entries,
     };
 
-    await fs.promises.writeFile(this.manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+    // Atomic: a half-written manifest cannot be parsed next session, and the
+    // processes this one leaked would never be cleaned up.
+    await writeFileAtomic(this.manifestPath, JSON.stringify(manifest, null, 2));
   }
 
   /** Called by VS Code on extension deactivate via context.subscriptions. */
@@ -243,7 +246,7 @@ export class ProcessRegistry implements Disposable {
     // Write empty manifest for next session
     if (this.manifestPath) {
       const emptyManifest: PIDManifest = { sessionId: this.sessionId, pids: [] };
-      await fs.promises.writeFile(this.manifestPath, JSON.stringify(emptyManifest, null, 2), 'utf-8');
+      await writeFileAtomic(this.manifestPath, JSON.stringify(emptyManifest, null, 2));
     }
   }
 }

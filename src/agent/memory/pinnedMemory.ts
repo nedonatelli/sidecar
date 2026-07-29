@@ -1,6 +1,6 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { readJsonStore, writeJsonStoreAtomic, type StoreFailure } from './jsonStore.js';
 
 export interface PinnedEntry {
   id: string;
@@ -37,27 +37,35 @@ export class PinnedMemoryStore {
   private ready = false;
   private readonly pinsFile: string;
   private _onChange: (() => void) | undefined;
+  private loadFailure: StoreFailure | null = null;
 
   constructor(storeDir: string) {
     this.pinsFile = path.join(storeDir, 'pins.json');
   }
 
   async load(): Promise<void> {
-    try {
-      const raw = await fs.readFile(this.pinsFile, 'utf8');
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        this.entries = parsed as PinnedEntry[];
-      }
-    } catch {
-      this.entries = [];
-    }
+    // Same shape as DurableMemoryStore: a store that EXISTS but cannot be read
+    // must never be silently treated as empty, because persist() writes the
+    // whole collection and the next pin would destroy it. See jsonStore.ts.
+    const { value, failure } = await readJsonStore<unknown>(this.pinsFile);
+    this.loadFailure = failure;
+    this.entries = !failure && Array.isArray(value) ? (value as PinnedEntry[]) : [];
     this.ready = true;
   }
 
+  /** Non-null when the pins file existed but could not be read or parsed. */
+  getLoadFailure(): StoreFailure | null {
+    return this.loadFailure;
+  }
+
   private async persist(): Promise<void> {
-    await fs.mkdir(path.dirname(this.pinsFile), { recursive: true });
-    await fs.writeFile(this.pinsFile, JSON.stringify(this.entries, null, 2), 'utf8');
+    if (this.loadFailure?.persistBlocked) {
+      throw new Error(
+        `Refusing to write ${this.pinsFile}: it exists, could not be read, and could not be moved aside. ` +
+          `Writing would destroy the pinned entries.`,
+      );
+    }
+    await writeJsonStoreAtomic(this.pinsFile, this.entries);
   }
 
   isReady(): boolean {

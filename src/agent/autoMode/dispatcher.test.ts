@@ -7,10 +7,15 @@ import type { AgentCallbacks } from '../loop.js';
 // Stubs
 // ---------------------------------------------------------------------------
 
-vi.mock('fs/promises', () => ({
-  readFile: vi.fn(),
-  writeFile: vi.fn(),
-}));
+// `readFile` is stubbed so a test can supply backlog content inline, but the
+// WRITE goes to a real temp file: the dispatcher now persists atomically
+// (temp + rename), and a mock that only knows `writeFile` both breaks and —
+// worse — would keep asserting a call shape while proving nothing about the
+// bytes that reach the user's backlog.
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>();
+  return { ...actual, readFile: vi.fn() };
+});
 
 vi.mock('../shadow/sandbox.js', () => ({
   runAgentLoopInSandbox: vi.fn().mockResolvedValue({ mode: 'direct', applied: true }),
@@ -18,9 +23,11 @@ vi.mock('../shadow/sandbox.js', () => ({
 
 import * as fsMod from 'fs/promises';
 import * as sandboxMod from '../shadow/sandbox.js';
+import * as realFs from 'fs';
+import * as nodeOs from 'os';
+import * as nodePath from 'path';
 
 const readFile = vi.mocked(fsMod.readFile);
-const writeFile = vi.mocked(fsMod.writeFile);
 const runAgentLoopInSandbox = vi.mocked(sandboxMod.runAgentLoopInSandbox);
 
 function makeClient(): SideCarClient & { setTurnOverride: ReturnType<typeof vi.fn> } {
@@ -47,8 +54,12 @@ function makeAgentCallbacks(): AgentCallbacks {
   };
 }
 
+// A real path, because the write is now real. Set per-test in beforeEach.
+let backlogPath = '';
 const BASE_OPTS: AutoModeOptions = {
-  backlogPath: '/workspace/.sidecar/backlog.md',
+  get backlogPath() {
+    return backlogPath;
+  },
   maxTasksPerSession: 10,
   maxRuntimeMs: 60_000,
   haltOnFailure: false,
@@ -63,8 +74,14 @@ const BACKLOG_DONE = '- [x] Already done\n';
 // Tests
 // ---------------------------------------------------------------------------
 
+let tmpDir = '';
 beforeEach(() => {
   vi.clearAllMocks();
+  tmpDir = realFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'sidecar-automode-'));
+  backlogPath = nodePath.join(tmpDir, 'backlog.md');
+});
+afterEach(() => {
+  realFs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe('runAutoMode — happy path', () => {
@@ -92,7 +109,10 @@ describe('runAutoMode — happy path', () => {
     const result = await runAutoMode(makeClient(), BASE_OPTS, makeAgentCallbacks(), cbs);
 
     expect(runAgentLoopInSandbox).toHaveBeenCalledOnce();
-    expect(writeFile).toHaveBeenCalledOnce();
+    // Assert the bytes the user's backlog actually received, not that a
+    // function was called with them.
+    expect(realFs.readFileSync(backlogPath, 'utf8')).toBe('- [x] Write unit tests\n');
+    expect(realFs.readdirSync(tmpDir)).toEqual(['backlog.md']); // no .tmp left behind
     expect(cbs.onTaskStart).toHaveBeenCalledOnce();
     expect(cbs.onTaskDone).toHaveBeenCalledOnce();
     expect(result.tasksSucceeded).toBe(1);

@@ -23,7 +23,7 @@
 // the new one, never half of one.
 
 import * as fs from 'fs/promises';
-import * as path from 'path';
+import { writeFileAtomic } from '../../system/atomicWrite.js';
 
 export interface StoreFailure {
   /** What actually went wrong — an fs error, or a JSON syntax error. */
@@ -77,19 +77,7 @@ export async function readJsonStore<T>(file: string, now: () => number = Date.no
  * whole point is that silent non-persistence is indistinguishable from success.
  */
 export async function writeJsonStoreAtomic(file: string, value: unknown): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  // The temp path must be unique per write. A shared `${file}.tmp` races when
-  // two saves overlap — an auto-save chain plus a direct save() is enough:
-  // both write the same temp, the first renames it away, the second's rename
-  // fails with ENOENT and the save is lost.
-  const tmp = `${file}.${process.pid}.${++writeCounter}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(value, null, 2), 'utf8');
-  try {
-    await fs.rename(tmp, file);
-  } catch (err: unknown) {
-    await fs.rm(tmp, { force: true }).catch(() => {});
-    throw err;
-  }
+  await writeFileAtomic(file, JSON.stringify(value, null, 2));
 }
 
 /** Move unreadable bytes out of the way so a later write cannot destroy them. */
@@ -106,6 +94,3 @@ async function quarantine(file: string, error: Error, now: () => number): Promis
 }
 
 const asError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
-
-/** Distinguishes overlapping writes to the same store within one process. */
-let writeCounter = 0;
