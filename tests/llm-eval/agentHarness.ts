@@ -211,7 +211,16 @@ export function pickAgentBackend(): AgentEvalBackend | null {
 export const DEFAULT_CASE_TIMEOUT_MS = (() => {
   const raw = process.env.SIDECAR_EVAL_CASE_TIMEOUT;
   const parsed = raw ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000;
+  // 300s, not 120s, because evals now run with THINKING ON — matching the
+  // shipped default (`sidecar.ollama.disableThinking` is false for real users).
+  // Every eval script used to export SIDECAR_DISABLE_THINKING=true, so every
+  // local number ever recorded measured a configuration nobody ships, and
+  // gemma4's function-calling accuracy in particular is documented to improve
+  // materially with thinking. Extended reasoning costs ~25-30s per turn, so
+  // keeping the old 120s budget would just trade a known bias for a worse one:
+  // timeouts that read as capability failures. Per-model exceptions belong in
+  // MODELS_WITH_PROBLEMATIC_THINKING, which is what that list is for.
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 300_000;
 })();
 
 /**
