@@ -2,6 +2,8 @@ import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 
 export default [
+  // Byte-domain test corpus: data files whose exact bytes are the fixture.
+  { ignores: ['**/__corpus__/**'] },
   {
     files: ['src/**/*.ts'],
     languageOptions: {

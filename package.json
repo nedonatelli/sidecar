@@ -3489,7 +3489,7 @@
     "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
-    "fast-check": "^4.8.0",
+    "fast-check": "^4.9.0",
     "happy-dom": "^20.10.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
@@ -3519,7 +3519,7 @@
   "lint-staged": {
     "src/**/*.ts": [
       "prettier --write",
-      "eslint --max-warnings=0",
+      "eslint --max-warnings=0 --no-warn-ignored",
       "bash -c 'tsc --noEmit'",
       "bash -c 'vitest run --silent --exclude \"**/shadowWorkspace.test.ts\" --exclude \"**/shadowSweep.test.ts\"'"
     ],
