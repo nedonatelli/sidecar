@@ -1522,6 +1522,13 @@
             "minimum": 500,
             "maximum": 20000,
             "description": "Maximum characters per pinned entry injected into the system prompt. Entries exceeding this are truncated with a marker (not dropped)."
+          },
+          "sidecar.diagnostics.analysisBudgetMs": {
+            "type": "number",
+            "default": 3000,
+            "minimum": 0,
+            "maximum": 30000,
+            "markdownDescription": "How long `get_diagnostics` waits for a language server to analyze the file it was asked about.\n\nVS Code only reports diagnostics for files a language server has open, so a file the agent just wrote to disk has none — the tool used to return \"No diagnostics\" for the exact case it exists to serve. It now opens the file in a **preview tab that does not take focus**, waits for the analysis, and closes the tab again. Nothing is saved and no editor is left dirty; the visible cost is a tab that briefly appears.\n\nSet to `0` to skip this entirely and read only what is already cached — faster and completely invisible, but the result will usually be empty for files you have not opened yourself."
           }
         }
       },
@@ -3482,8 +3489,8 @@
     "@typescript-eslint/eslint-plugin": "^8.59.0",
     "@typescript-eslint/parser": "^8.59.0",
     "@vitest/coverage-v8": "^4.1.10",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.1",
     "better-sqlite3": "^12.9.0",
     "esbuild": "^0.28.0",

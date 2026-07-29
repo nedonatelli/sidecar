@@ -11,7 +11,7 @@ describe('getDiagnostics', () => {
   it('returns "No diagnostics found" for whole workspace when no issues', async () => {
     vi.spyOn(languages, 'getDiagnostics').mockReturnValue([]);
     const result = await getDiagnostics({});
-    expect(result).toBe('No diagnostics found.');
+    expect(result).toMatch(/^No diagnostics found\./);
   });
 
   it('returns workspace diagnostics when issues exist', async () => {
@@ -33,14 +33,14 @@ describe('getDiagnostics', () => {
     const mockDiag = { range: { start: { line: 0 } }, severity: 0, message: 'err' };
     vi.spyOn(languages, 'getDiagnostics').mockReturnValue([[mockUri, [mockDiag as never]]]);
     const result = await getDiagnostics({});
-    expect(result).toBe('No diagnostics found.');
+    expect(result).toMatch(/^No diagnostics found\./);
   });
 
   it('skips entries with no diagnostics', async () => {
     const mockUri = { fsPath: '/workspace/src/empty.ts' } as unknown as ReturnType<typeof Uri.file>;
     vi.spyOn(languages, 'getDiagnostics').mockReturnValue([[mockUri, []]]);
     const result = await getDiagnostics({});
-    expect(result).toBe('No diagnostics found.');
+    expect(result).toMatch(/^No diagnostics found\./);
   });
 
   it('returns no diagnostics message for specific file with no issues', async () => {

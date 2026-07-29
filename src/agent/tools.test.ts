@@ -31,6 +31,10 @@ vi.mock('vscode', () => ({
   languages: {
     getDiagnostics: vi.fn(),
   },
+  // get_diagnostics now asks VS Code to analyze the file before reading the
+  // cache. Absent window APIs mean "cannot analyze", which is what this stub
+  // exercises: the tool must still return the cached diagnostics, not throw.
+  window: {},
   Uri: {
     joinPath: (base: any, ...segs: string[]) => {
       const joined = base.fsPath + '/' + segs.join('/');

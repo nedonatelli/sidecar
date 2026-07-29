@@ -179,6 +179,8 @@ export interface SideCarConfig {
   persistInstructionsEnabled: boolean;
   /** Append a bounded diff of the change to edit_file's success result so the model can SEE what its edit did (outcome-visibility). 0 disables; N = max chars of diff. */
   editResultDiffChars: number;
+  /** ms to wait for a language server to analyze a file get_diagnostics was asked about. 0 disables the open-and-close entirely. */
+  diagnosticsAnalysisBudgetMs: number;
   /** After N failed edit_file calls on one file, inject a steer redirecting the model to rewrite the whole file with write_file — the mirror of the write→edit escalation. Weak models that echo existing content into edit_file's insert fields (never producing the delta) recover here because they CAN author a whole file. Default OFF: unit-tested + mechanically verified but the pass-rate benefit is unproven (A/B was vacuous — steer fired too rarely), so it ships opt-in until measured. */
   editToWriteSteerEnabled: boolean;
   /** Consecutive failed edit_file calls on one file before the edit→write steer fires (min 2). */
@@ -564,6 +566,7 @@ function readConfig(): SideCarConfig {
     durableInstructionsEnabled: cfg.get<boolean>('compaction.durableInstructions', true),
     persistInstructionsEnabled: cfg.get<boolean>('memory.persistInstructions', true),
     editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
+    diagnosticsAnalysisBudgetMs: cfg.get<number>('diagnostics.analysisBudgetMs', 5000),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),
     codeAsTextRecoveryEnabled: cfg.get<boolean>('recovery.codeAsText', true),
