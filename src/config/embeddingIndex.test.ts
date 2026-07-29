@@ -157,3 +157,170 @@ describe('search() query embeds carry priority (157s-stall regression)', () => {
     expect(calls[0].opts).toEqual({ priority: true });
   });
 });
+
+describe('removeFile must not corrupt the vector store (live RangeError)', () => {
+  // Observed in a real extension host:
+  //   RangeError: offset is out of bounds
+  //     at Float32Array.set (<anonymous>)
+  //     at storeVector → flushUpdates
+  //
+  // removeFile deleted the entry and recomputed `count` from the entry list,
+  // but never compacted `vectors` and never re-assigned the offsets of the
+  // entries after the hole. That breaks the invariant the whole file assumes:
+  // offsets are 0..count-1 and `vectors` holds exactly `count` rows.
+
+  type Internals = {
+    meta: { entries: Record<string, { offset: number; hash: string }>; count: number };
+    vectors: Float32Array;
+    storeVector(relativePath: string, vector: Float32Array, hash: string): void;
+  };
+  const DIM = 384;
+  /** A vector whose every element is `fill` — makes each row identifiable. */
+  const rowOf = (fill: number) => new Float32Array(DIM).fill(fill);
+  const internals = (i: EmbeddingIndex) => i as unknown as Internals;
+
+  it('keeps offsets dense and vectors sized after a removal', () => {
+    const index = new EmbeddingIndex(null);
+    const inner = internals(index);
+    inner.storeVector('a.ts', rowOf(1), 'h1');
+    inner.storeVector('b.ts', rowOf(2), 'h2');
+    inner.storeVector('c.ts', rowOf(3), 'h3');
+    expect(inner.vectors.length).toBe(3 * DIM);
+
+    index.removeFile('b.ts');
+
+    // The invariant every other method relies on.
+    const offsets = Object.values(inner.meta.entries)
+      .map((e) => e.offset)
+      .sort((x, y) => x - y);
+    expect(offsets).toEqual([0, 1]);
+    expect(inner.meta.count).toBe(2);
+    expect(inner.vectors.length).toBe(2 * DIM);
+    index.dispose();
+  });
+
+  it('does not alias a new file onto a surviving file’s row', () => {
+    // With one removal the sizes happen to line up, so nothing throws — the
+    // new entry silently lands on top of a live one and search returns the
+    // wrong file's vector. Corruption without a crash is the worse half.
+    const index = new EmbeddingIndex(null);
+    const inner = internals(index);
+    inner.storeVector('a.ts', rowOf(1), 'h1');
+    inner.storeVector('b.ts', rowOf(2), 'h2');
+    inner.storeVector('c.ts', rowOf(3), 'h3');
+
+    index.removeFile('a.ts');
+    inner.storeVector('d.ts', rowOf(9), 'h9');
+
+    const used = Object.values(inner.meta.entries).map((e) => e.offset);
+    expect(new Set(used).size).toBe(used.length); // no two entries share a row
+
+    // And every surviving file still reads back ITS OWN vector.
+    for (const [name, fill] of [
+      ['b.ts', 2],
+      ['c.ts', 3],
+      ['d.ts', 9],
+    ] as const) {
+      const off = inner.meta.entries[name].offset * DIM;
+      expect({ name, v: inner.vectors[off] }).toEqual({ name, v: fill });
+    }
+    index.dispose();
+  });
+
+  it('survives two removals followed by an append (the exact crash)', () => {
+    const index = new EmbeddingIndex(null);
+    const inner = internals(index);
+    inner.storeVector('a.ts', rowOf(1), 'h1');
+    inner.storeVector('b.ts', rowOf(2), 'h2');
+    inner.storeVector('c.ts', rowOf(3), 'h3');
+
+    index.removeFile('a.ts');
+    index.removeFile('b.ts');
+
+    // Before the fix: newVectors is 2 rows, this.vectors is 3 → RangeError.
+    expect(() => inner.storeVector('d.ts', rowOf(9), 'h9')).not.toThrow();
+    index.dispose();
+  });
+});
+
+describe('a corrupt cache is rebuilt, not trusted', () => {
+  // The corruption outlived a restart: persist() writes meta (including the
+  // bogus offsets) and only `count` rows of vectors, so the next session loaded
+  // an index whose entries pointed past the end of the array — a RangeError on
+  // the first overwrite, or silently aliased vectors before that.
+  type Restorable = {
+    restoreCache(): Promise<void>;
+    meta: {
+      entries: Record<string, { offset: number; hash: string }>;
+      count: number;
+      version: number;
+      modelId: string;
+      dimension: number;
+    };
+    vectors: Float32Array;
+    sidecarDir: unknown;
+  };
+  const DIM = 384;
+
+  function fakeDir(dir: string, meta: unknown) {
+    return {
+      isReady: () => true,
+      getPath: (...segs: string[]) => path.join(dir, ...segs),
+      readJson: async () => meta,
+      writeJson: async () => undefined,
+    };
+  }
+
+  it('refuses an index whose offsets are not dense', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-embed-corrupt-'));
+    const index = new EmbeddingIndex(null);
+    const inner = index as unknown as Restorable;
+
+    // Two entries, but one claims row 5 — the exact shape the old removeFile
+    // left behind. The binary is big enough that nothing would throw on load,
+    // which is what made this silent.
+    const meta = {
+      version: 1,
+      modelId: inner.meta.modelId,
+      dimension: DIM,
+      count: 2,
+      entries: { 'a.ts': { offset: 0, hash: 'h1' }, 'b.ts': { offset: 5, hash: 'h2' } },
+    };
+    fs.mkdirSync(path.join(dir, 'cache'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cache', 'embeddings.bin'), Buffer.alloc(6 * DIM * 4));
+    inner.sidecarDir = fakeDir(dir, meta);
+
+    await inner.restoreCache();
+
+    // Rebuilt from scratch rather than loaded. (The sibling test proves this
+    // path can load a GOOD index, so an empty result here is the validation
+    // rejecting corruption, not the fixture failing to be found.)
+    expect(Object.keys(inner.meta.entries)).toEqual([]);
+    expect(inner.meta.count).toBe(0);
+    index.dispose();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('loads a consistent index normally', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-embed-ok-'));
+    const index = new EmbeddingIndex(null);
+    const inner = index as unknown as Restorable;
+    const meta = {
+      version: 1,
+      modelId: inner.meta.modelId,
+      dimension: DIM,
+      count: 2,
+      entries: { 'a.ts': { offset: 0, hash: 'h1' }, 'b.ts': { offset: 1, hash: 'h2' } },
+    };
+    fs.mkdirSync(path.join(dir, 'cache'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cache', 'embeddings.bin'), Buffer.alloc(2 * DIM * 4));
+    inner.sidecarDir = fakeDir(dir, meta);
+
+    await inner.restoreCache();
+
+    expect(inner.meta.count).toBe(2);
+    expect(inner.vectors.length).toBe(2 * DIM);
+    index.dispose();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
