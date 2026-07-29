@@ -16,7 +16,11 @@ describe('AgentMemory', () => {
 
   afterEach(async () => {
     await memory.pendingSave;
-    await fs.promises.rm(tempDir, { recursive: true, force: true });
+    // maxRetries: a save is atomic (temp file + rename), so a write racing
+    // teardown can leave the directory momentarily non-empty and rmdir throws
+    // ENOTEMPTY. Retrying is correct here — the alternative is a flake that
+    // only shows under full-suite CPU contention.
+    await fs.promises.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   });
 
   it('creates agent memory with valid directory', () => {
@@ -154,6 +158,9 @@ describe('AgentMemory', () => {
 
   it('persists and loads memories across instances', async () => {
     const id = memory.add('pattern', 'naming', 'Use camelCase');
+    // add() queues a save; calling save() directly as well means two writes
+    // race. Drain the queue first so the test exercises one deterministic write.
+    await memory.pendingSave;
     await memory.save();
 
     const memory2 = new AgentMemory(tempDir);
