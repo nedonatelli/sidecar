@@ -16,6 +16,7 @@ import { isAuditModeActive } from './auditHelper.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 import { computeLineDiff } from './diffUtils.js';
 import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
+import { findEditMatch, matchToleranceNote, applyEol, detectEol, type MatchTier } from './editMatch.js';
 import { delimiterBalance, balanceEquals } from '../delimiters.js';
 
 /**
@@ -1184,7 +1185,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       const target = findIntentTarget(currentText, replace, 0.4, APPLY_MARGIN);
       if (target && currentText.includes(target) && target !== replace) {
         if (isStructurallySafeReplacement(filePath, target, replace)) {
-          const inferred = currentText.replace(target, replace);
+          const inferred = currentText.replace(target, () => replace);
           const syntax = await editWouldBreakSyntax(filePath, currentText, inferred);
           if (!syntax.refuse) {
             return await editFile({ path: filePath, search: target, replace }, context).then(
@@ -1206,7 +1207,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         // of it and still parse, that is what the model meant. Try it, and
         // disclose that it was treated as an insertion.
         if (!replace.includes(target)) {
-          const insertion = currentText.replace(target, `${replace}\n${target}`);
+          const insertion = currentText.replace(target, () => `${replace}\n${target}`);
           const insertSyntax = await editWouldBreakSyntax(filePath, currentText, insertion);
           if (!insertSyntax.refuse && insertion !== currentText) {
             return await editFile({ path: filePath, search: target, replace: `${replace}\n${target}` }, context).then(
@@ -1336,71 +1337,15 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       }
       currentText = diskText;
     }
-    if (!currentText.includes(search)) {
-      if (isEditAlreadyApplied(currentText, search, replace)) {
-        clearEditFailure(context, filePath);
-        const applied =
-          `No change needed: ${filePath} already contains the result of this edit. The text you searched for is ` +
-          `gone and your replacement is already present — this change was applied earlier, so the file is ` +
-          `already in the state you want.\n\nDo NOT repeat this edit. If the overall task is complete, say so ` +
-          `and finish; if other files still need changing, move on to those.`;
-        return applied;
-      }
-
-      const failureCount = recordEditFailure(context, filePath, search, replace);
-      // Third+ identical failure: the file/replace content hasn't changed
-      // between attempts, so retrying findIntentTarget at the SAME confidence
-      // would reject again for the same reason. Loosen the threshold — a
-      // real (if lower-confidence) candidate is better than a certain
-      // 4th failure, and it's clearly disclosed so the caller can verify it.
-      if (failureCount >= 3) {
-        // A LOW-confidence fuzzy match (0.2) writing to disk after repeated
-        // failures was the weakest guess in the tool. The matcher is wrong
-        // about the region 30% of the time it commits at ANY threshold, so
-        // this now suggests the region instead of rewriting it.
-        const looseTarget = findIntentTarget(currentText, replace, 0.2);
-        if (looseTarget && currentText.includes(looseTarget) && looseTarget !== replace) {
-          throw new Error(
-            suggestRegionError(
-              filePath,
-              looseTarget,
-              `your 'search' text still does not appear in the file after ${failureCount} attempts`,
-            ),
-          );
-        }
-      }
-      const nearest = findNearestMatch(currentText, search);
-      const grepHint = buildGrepHint(currentText, search) ?? buildGrepHint(currentText, replace);
-      const hint = grepHint
-        ? `\n\n${grepHint}`
-        : nearest
-          ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
-          : '\n\nCall read_file to see the exact current content.';
-      if (failureCount >= 2) {
-        throw new Error(
-          `Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace text as your ` +
-            `last call to ${filePath}, which failed for the same reason. Repeating an identical call will never ` +
-            `work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM into search.${hint}`,
-        );
-      }
-      throw new Error(
-        `Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
-      );
-    }
-    if (search === '') {
-      throw new Error(emptySearchError(filePath));
-    }
-    const matchCount = currentText.split(search).length - 1;
-    if (matchCount > 1) {
-      throw new Error(
-        `Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`,
-      );
-    }
-    const newText = currentText.replace(search, () => replace);
-    await buf.write(filePath, newText, (p) => readDiskViaWorkspace(context, p));
+    const resolvedAudit = await resolveEditedText({ filePath, text: currentText, search, replace, context });
+    if (resolvedAudit.newText === null) return resolvedAudit.message;
+    const auditPatch = computeLineDiff(currentText, resolvedAudit.newText, filePath);
+    await buf.write(filePath, resolvedAudit.newText, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
     clearEditFailure(context, filePath);
-    return `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
+    const auditLine =
+      resolvedAudit.summary ?? `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
+    return `${resolvedAudit.prefixNote}${auditLine}${resolvedAudit.suffixNote}${editDiffSuffix(auditPatch, context)}`;
   }
 
   const fileUri = Uri.joinPath(resolveRootUri(context), filePath);
@@ -1447,7 +1392,85 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         })()
       : '';
 
-  if (!text.includes(search)) {
+  const resolved = await resolveEditedText({ filePath, text, search, replace, unreadPrefix, context });
+  if (resolved.newText === null) return resolved.message;
+  const newText = resolved.newText;
+
+  const patch = computeLineDiff(text, newText, filePath);
+  if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
+  clearEditFailure(context, filePath);
+
+  // Record to edit timeline before overwriting.
+  // Skip when cwd is set (shadow workspace).
+  if (context?.editTimeline && !context.cwd) {
+    context.editTimeline.record(filePath, text, newText);
+  }
+
+  await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
+  context?.workspaceIndex?.invalidateFile(filePath);
+  // NO unreadPrefix on success. That prefix is corrective guidance for a FAILED
+  // edit — "[You have not read this file… use the exact text from above as your
+  // search string — it must match byte-for-byte]" — and gluing it onto a
+  // successful edit reads as "something is wrong, fix your search string". Live
+  // v0.119 dogfood: the rename landed on iteration 1, the success message
+  // carried this preamble, and the model dutifully re-read the file and
+  // re-issued the same edit. The edit worked; only the message said otherwise.
+  //
+  // OUTCOME-VISIBILITY (flagged, default off). "File edited: <path>" tells the
+  // model nothing about WHAT changed, so it cannot tell a correct edit from a
+  // wrong-but-applied one (gemma4 duplicated a function and read the same success
+  // string as a model that did it right). Optionally append a BOUNDED diff so the
+  // model can see — and self-verify — the outcome. Bounded because extra context
+  // can overwhelm a weak model (LOCAL_MAX_SYSTEM_CHARS); the char cap is the config
+  // value, and the A/B decides whether it helps or is just noise.
+  const successLine = resolved.summary ?? `File edited: ${filePath}${partialReplaceWarning}`;
+  return `${resolved.prefixNote}${successLine}${resolved.suffixNote}${editDiffSuffix(patch, context)}`;
+}
+
+/**
+ * Outcome of resolving an edit against the current file text. `newText: null`
+ * means the file is already in the requested state and nothing should be
+ * written; otherwise `newText` is what the caller must persist.
+ */
+export type ResolvedEdit =
+  | { newText: null; message: string }
+  | { newText: string; summary?: string; prefixNote: string; suffixNote: string };
+
+/**
+ * The edit_file guard + repair core: given the CURRENT text of a file and a
+ * search/replace pair, decide what the file should become. Every persistence
+ * mode — disk, audit buffer, review-mode shadow store — routes through this, so
+ * a guard added here protects all three. Historically each mode carried its own
+ * `text.includes(search)` copy and the weaker copies silently corrupted files
+ * (review mode's used the STRING form of String.replace, so a `$&` in the
+ * replacement was interpreted as a regex reference).
+ *
+ * Throws the teaching errors. Returns `newText: null` when the file already
+ * matches the requested outcome.
+ */
+export async function resolveEditedText(params: {
+  filePath: string;
+  text: string;
+  search: string;
+  replace: string;
+  unreadPrefix?: string;
+  context?: ToolExecutorContext;
+}): Promise<ResolvedEdit> {
+  const { filePath, text, search, replace, context } = params;
+  const unreadPrefix = params.unreadPrefix ?? '';
+  // Before matching: an empty search matches nothing, and the tolerance tiers
+  // would report it as a plain miss. The model needs the directive error that
+  // names insert_after / write_file instead.
+  if (search === '') {
+    throw new Error(`${unreadPrefix}${emptySearchError(filePath)}`);
+  }
+  // Byte-exact first, then the whitespace tiers (line endings, trailing
+  // whitespace, indentation). They resolve to a real byte span, so every guard
+  // below still runs against real file bytes — and they run BEFORE the
+  // intent-based fuzzy recovery, which guesses at the region from word overlap
+  // and is far less certain than "the same text with different line endings".
+  const match = findEditMatch(text, search, replace);
+  if (!match) {
     // Already applied? The rename the model is retrying may have LANDED on an
     // earlier iteration — the old tokens are gone, the new ones are present.
     // Saying "search string not found" there is true but useless, and it drove
@@ -1459,7 +1482,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         `gone and your replacement is already present — this change was applied earlier, so the file is ` +
         `already in the state you want.\n\nDo NOT repeat this edit. If the overall task is complete, say so ` +
         `and finish; if other files still need changing, move on to those.`;
-      return applied;
+      return { newText: null, message: applied };
     }
 
     // The model's `search` did not match. Two tiers, both measured against 1,700
@@ -1473,21 +1496,24 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     //             merely-plausible guess never touches disk.
     const applyTarget = findIntentTarget(text, replace, 0.4, APPLY_MARGIN);
     if (applyTarget && text.includes(applyTarget) && applyTarget !== replace) {
-      const inferredText = text.replace(applyTarget, replace);
+      // Splice by offset with the replacement in the file's line endings — the
+      // string form of String.replace would expand `$&`/`$1` in model text, and
+      // an LF replacement dropped into a CRLF file leaves mixed endings.
+      const at = text.indexOf(applyTarget);
+      const inferredText =
+        text.slice(0, at) + applyEol(replace, detectEol(text).eol) + text.slice(at + applyTarget.length);
       const inferSyntax = await editWouldBreakSyntax(filePath, text, inferredText);
       if (!inferSyntax.refuse) {
-        const patch = computeLineDiff(text, inferredText, filePath);
-        if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
-        if (context?.editTimeline && !context.cwd) context.editTimeline.record(filePath, text, inferredText);
-        await workspace.fs.writeFile(fileUri, Buffer.from(inferredText, 'utf-8'));
-        context?.workspaceIndex?.invalidateFile(filePath);
-        clearEditFailure(context, filePath);
-        return (
-          `Applied inferred edit to ${filePath}: your 'search' text did not match, but exactly one region ` +
-          `unambiguously corresponds to your replacement, so it was used.\n` +
-          `Replaced:\n\`\`\`\n${applyTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\`\n` +
-          `Pass 'search' explicitly next time — it is the exact current text to replace.`
-        );
+        return {
+          newText: inferredText,
+          summary:
+            `Applied inferred edit to ${filePath}: your 'search' text did not match, but exactly one region ` +
+            `unambiguously corresponds to your replacement, so it was used.\n` +
+            `Replaced:\n\`\`\`\n${applyTarget}\n\`\`\`\nWith:\n\`\`\`\n${replace}\n\`\`\`\n` +
+            `Pass 'search' explicitly next time — it is the exact current text to replace.`,
+          prefixNote: '',
+          suffixNote: '',
+        };
       }
     }
 
@@ -1520,19 +1546,6 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
           ),
         );
       }
-      if (looseTarget && text.includes(looseTarget) && looseTarget !== replace) {
-        // Was: apply the low-confidence match and tell the model to "VERIFY this
-        // — it may be wrong". It IS wrong about the region 30% of the time
-        // (1,700 real edits), and by then it is already on disk. Suggest instead.
-        throw new Error(
-          `${unreadPrefix}` +
-            suggestRegionError(
-              filePath,
-              looseTarget,
-              `your 'search' text still does not appear in the file after ${failureCount} attempts`,
-            ),
-        );
-      }
     }
 
     const grepHint2 = buildGrepHint(text, search) ?? buildGrepHint(text, replace);
@@ -1554,13 +1567,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
     );
   }
-  if (search === '') {
-    throw new Error(`${unreadPrefix}${emptySearchError(filePath)}`);
-  }
-  const matchCount = text.split(search).length - 1;
-  if (matchCount > 1) {
+  if (match.count > 1) {
+    // Ambiguity is counted at the tier that matched: if the search is unique
+    // byte-for-byte it is unique, full stop, even when a laxer tier would have
+    // found siblings. Only a search that NEEDED the tolerance is judged by it.
+    const where = match.tier === 'exact' ? '' : ` (ignoring ${TIER_LABEL[match.tier]})`;
     throw new Error(
-      `${unreadPrefix}Error: edit_file failed — search string appears ${matchCount} times in ${filePath}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`,
+      `${unreadPrefix}Error: edit_file failed — search string appears ${match.count} times in ${filePath}${where}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`,
     );
   }
 
@@ -1574,10 +1587,11 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // token boundaries also blocks the classic rename hazard (search `greet`
   // silently mangling `greeting`).
   const isWordChar = (c: string | undefined) => c !== undefined && /\w/.test(c);
-  const matchStart = text.indexOf(search);
-  const matchEnd = matchStart + search.length;
-  const splitsStart = isWordChar(text[matchStart - 1]) && isWordChar(search[0]);
-  const splitsEnd = isWordChar(search[search.length - 1]) && isWordChar(text[matchEnd]);
+  const matchStart = match.start;
+  const matchEnd = match.end;
+  const matchedText = text.slice(matchStart, matchEnd);
+  const splitsStart = isWordChar(text[matchStart - 1]) && isWordChar(matchedText[0]);
+  const splitsEnd = isWordChar(matchedText[matchedText.length - 1]) && isWordChar(text[matchEnd]);
   if (splitsStart || splitsEnd) {
     recordEditFailure(context, filePath, search, replace);
     const edge = splitsStart && splitsEnd ? 'starts and ends' : splitsStart ? 'starts' : 'ends';
@@ -1591,7 +1605,12 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     );
   }
 
-  const rawNewText = text.replace(search, () => replace);
+  // Splice by SPAN, never by String.replace: the span is what the tolerance
+  // tiers resolved, and slicing keeps `$&`-style sequences in the replacement
+  // as literal text.
+  const splice = (withText: string) => text.slice(0, matchStart) + withText + text.slice(matchEnd);
+  const replacement = match.replacement;
+  const rawNewText = splice(replacement);
 
   // Syntax guard — the general invariant behind the structural and lexical
   // guards above: an edit must not make a parsing file stop parsing. Catches
@@ -1613,13 +1632,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // The trailing part of `replace` after the search text is EXACTLY the text
   // that already follows the match in the file, so it is provably redundant.
   // Trim it and the edit is precisely what the model meant: an insertion.
-  const searchIdxInReplace = replace.indexOf(search);
+  const searchIdxInReplace = replacement.indexOf(matchedText);
   if (searchIdxInReplace !== -1) {
-    const trailing = replace.slice(searchIdxInReplace + search.length);
-    const afterMatch = text.slice(text.indexOf(search) + search.length);
+    const trailing = replacement.slice(searchIdxInReplace + matchedText.length);
+    const afterMatch = text.slice(matchEnd);
     if (trailing.length > 0 && afterMatch.startsWith(trailing)) {
-      const trimmedReplace = replace.slice(0, searchIdxInReplace + search.length);
-      const trimmedText = text.replace(search, () => trimmedReplace);
+      const trimmedReplace = replacement.slice(0, searchIdxInReplace + matchedText.length);
+      const trimmedText = splice(trimmedReplace);
       const trimmedSyntax = await editWouldBreakSyntax(filePath, text, trimmedText);
       const originalSyntax = await editWouldBreakSyntax(filePath, text, rawNewText);
       // Only rewrite when the trim actually rescues the edit — never silently
@@ -1656,35 +1675,20 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       `not \\n escapes.]`;
   }
 
-  const patch = computeLineDiff(text, newText, filePath);
-  if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
-  clearEditFailure(context, filePath);
-
-  // Record to edit timeline before overwriting.
-  // Skip when cwd is set (shadow workspace).
-  if (context?.editTimeline && !context.cwd) {
-    context.editTimeline.record(filePath, text, newText);
-  }
-
-  await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
-  context?.workspaceIndex?.invalidateFile(filePath);
-  // NO unreadPrefix on success. That prefix is corrective guidance for a FAILED
-  // edit — "[You have not read this file… use the exact text from above as your
-  // search string — it must match byte-for-byte]" — and gluing it onto a
-  // successful edit reads as "something is wrong, fix your search string". Live
-  // v0.119 dogfood: the rename landed on iteration 1, the success message
-  // carried this preamble, and the model dutifully re-read the file and
-  // re-issued the same edit. The edit worked; only the message said otherwise.
-  //
-  // OUTCOME-VISIBILITY (flagged, default off). "File edited: <path>" tells the
-  // model nothing about WHAT changed, so it cannot tell a correct edit from a
-  // wrong-but-applied one (gemma4 duplicated a function and read the same success
-  // string as a model that did it right). Optionally append a BOUNDED diff so the
-  // model can see — and self-verify — the outcome. Bounded because extra context
-  // can overwhelm a weak model (LOCAL_MAX_SYSTEM_CHARS); the char cap is the config
-  // value, and the A/B decides whether it helps or is just noise.
-  return `${duplicateTrimNote}File edited: ${filePath}${partialReplaceWarning}${escapeRecoveryNote}${editDiffSuffix(patch, context)}`;
+  return {
+    newText,
+    prefixNote: matchToleranceNote(match, filePath, text) + duplicateTrimNote,
+    suffixNote: escapeRecoveryNote,
+  };
 }
+
+/** How a tier's tolerance reads in an ambiguity error. */
+const TIER_LABEL: Record<MatchTier, string> = {
+  exact: '',
+  eol: 'line-ending differences',
+  'trailing-space': 'trailing whitespace',
+  indent: 'indentation',
+};
 
 /**
  * A capped diff to append to a successful edit_file result, or '' when disabled.
@@ -1692,7 +1696,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
  * measurable as an A/B rather than shipped on a guess. Truncates on a line boundary
  * so the model never sees a half-line of diff.
  */
-function editDiffSuffix(patch: string | null, context?: ToolExecutorContext): string {
+export function editDiffSuffix(patch: string | null, context?: ToolExecutorContext): string {
   const cap = context?.config?.editResultDiffChars ?? 0;
   if (cap <= 0 || !patch) return '';
   let shown = patch;

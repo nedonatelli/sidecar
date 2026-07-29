@@ -180,16 +180,43 @@ describe('editFile audit mode', () => {
 
   it('appends partial-replace warning when replace is a short substring of search', async () => {
     const context = { config: { agentMode: 'audit' } as never };
-    // Simulate the gemma4 pattern: search = full function signature,
-    // replace = just the return type keyword (which appears inside search).
-    // search: "export function getAnswer(): string {" (38 chars)
-    // replace: "string" (6 chars) — IS a substring of search → warning fires
-    const fullSig = 'export function getAnswer(): string {';
-    await buf.write('src/partial.ts', `${fullSig}\n  return 42;\n}\n`, async () => undefined);
-    const result = await editMsg({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context);
+    // Simulate the gemma4 pattern: search = a full line, replace = one word from
+    // inside it. Written to a .md file so no grammar applies and the warning —
+    // not the syntax guard — is what the test observes.
+    const fullLine = 'The answer to the question is forty two.';
+    await buf.write('notes/partial.md', `${fullLine}\n`, async () => undefined);
+    const result = await editMsg({ path: 'notes/partial.md', search: fullLine, replace: 'answer' }, context);
     expect(result).toContain('File edited');
     expect(result).toContain('Warning');
     expect(result).toContain('substring');
+  });
+
+  it('refuses a syntax-breaking edit in the buffer, exactly as on disk', async () => {
+    // The audit path used to carry its own weaker matcher: substring hit →
+    // buffer write, with no token-boundary or syntax guard. Replacing a whole
+    // signature with its return type left `string\n  return 42;\n}` — broken
+    // TypeScript — and reported success. Both modes share one core now.
+    const context = { config: { agentMode: 'audit' } as never };
+    const fullSig = 'export function getAnswer(): string {';
+    const original = `${fullSig}\n  return 42;\n}\n`;
+    await buf.write('src/partial.ts', original, async () => undefined);
+    const result = await editMsg({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(result).toContain('syntax error');
+    expect(result).toContain('NOT modified');
+    expect(buf.read('src/partial.ts').content).toBe(original);
+  });
+
+  it('carries the outcome-visibility diff into the buffered result when the flag is on', async () => {
+    // A buffered edit is still an edit the model has to self-verify — the diff
+    // was reaching only the disk path.
+    const context = { config: { agentMode: 'audit', editResultDiffChars: 500 } as never };
+    await buf.write('notes/diff.md', 'before line\n', async () => undefined);
+    const result = await editMsg({ path: 'notes/diff.md', search: 'before line', replace: 'after line' }, context);
+    expect(result).toContain('buffered for audit review');
+    expect(result).toMatch(/What changed/i);
+    expect(result).toContain('after line');
   });
 
   it('reads from disk via workspace when file is not in buffer', async () => {
@@ -227,9 +254,10 @@ describe('editFile audit mode', () => {
     expect(buf.read('src/gate.ts').content).toBe(fileContent);
   });
 
-  it('returns grep-based line hint when search string is not found in buffered content', async () => {
-    // Grep hint is now preferred over nearest-match: returns exact line numbers
-    // so the model can call read_file(start_line=N) to get the exact text.
+  it('hands back a recovery region when search is not found in buffered content', async () => {
+    // Audit mode gets the same tiered recovery as disk: the closest region is
+    // handed over to copy into `search` (or a grep hint with line numbers when
+    // one is available). It used to get a bare "search string not found".
     const context = { config: { agentMode: 'audit' } as never };
     const fileContent = [
       '// Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script',
@@ -242,10 +270,10 @@ describe('editFile audit mode', () => {
     const search = '// Direct invocations of various linters (eslint, tsc, pylint)';
     const replace = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
     const result = await editMsg({ path: 'src/gate.ts', search, replace }, context);
-    expect(result).toContain('search string not found');
-    // Grep hint shows exact line numbers and read_file suggestion
-    expect(result).toMatch(/line \d+:|Grep for|read_file/);
-    expect(result).toContain('eslint'); // the grep found the real line
+    expect(result).toMatch(/does not appear in the file|search string not found/);
+    // The model is handed exact line numbers or the region itself, plus a route back
+    expect(result).toMatch(/line \d+:|Grep for|read_file|closest matching region/);
+    expect(result).toContain('eslint'); // the real line is in the recovery text
   });
 
   it('coerces edit_file(path, search) on a nonexistent file into a create (llama3.2 shape 1)', async () => {
@@ -1425,6 +1453,30 @@ describe('edit_file insertion (first-class add, not a restated anchor)', () => {
   it('rejects an empty insert (a no-op that would otherwise report success)', async () => {
     const empty = await editMsg({ path: 'src/greeter.ts', search: '  return `Hello, ${name}!`;', insert_after: '   ' });
     expect(empty).toMatch(/is empty — there is nothing to add/i);
+  });
+
+  it('edits a CRLF file with an LF multi-line search, and writes CRLF back', async () => {
+    // End-to-end through the real tool: this call failed outright before the
+    // whitespace tiers, because `text.includes(search)` cannot see across \r.
+    const { workspace } = await import('vscode');
+    const crlf = 'export function f(): number {\r\n  return 1;\r\n}\r\n';
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(crlf) as never);
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written = Buffer.from(content as Uint8Array).toString('utf-8');
+    });
+
+    const result = await editMsg({
+      path: 'src/crlf.ts',
+      search: '  return 1;\n}',
+      replace: '  return 2;\n}',
+    });
+
+    expect(result).toContain('File edited');
+    expect(result).toContain('CRLF'); // the mismatch is disclosed, not silently absorbed
+    expect(written).toBe('export function f(): number {\r\n  return 2;\r\n}\r\n');
+    expect(written).not.toMatch(/[^\r]\n/); // no mixed endings introduced
   });
 
   it('outcome-visibility: appends a bounded diff to the result ONLY when the flag is on', async () => {
