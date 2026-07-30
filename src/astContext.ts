@@ -4,7 +4,14 @@
  * (functions, classes, methods) based on query content.
  */
 
-import { findBlockEnd, findIndentEnd, parseImport, resolveImportPath } from './astContext/importScan.js';
+import {
+  declaredNames,
+  findBlockEnd,
+  findDeclarationEnd,
+  findIndentEnd,
+  parseImport,
+  resolveImportPath,
+} from './astContext/importScan.js';
 import { findRelevantElements, extractRelevantContent } from './astContext/relevance.js';
 
 export interface CodeElement {
@@ -231,7 +238,13 @@ export class SimpleCodeAnalyzer {
         const arrowMatch = line.match(
           /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s+)?(?:\(|[a-zA-Z_$])/,
         );
-        if (arrowMatch && (line.includes('=>') || lines[i + 1]?.includes('=>'))) {
+        // The next-line lookahead is for an arrow whose parameter list wraps:
+        // `const fn = (\n  a,\n) => …`. It only applies while that list is still
+        // open — without the guard, any declaration sitting above an unrelated
+        // arrow was read as a function, which silently swallowed its symbol.
+        const parensOpen = (line.match(/\(/g)?.length ?? 0) > (line.match(/\)/g)?.length ?? 0);
+        const isArrowFunction = !!arrowMatch && (line.includes('=>') || (parensOpen && !!lines[i + 1]?.includes('=>')));
+        if (arrowMatch && isArrowFunction) {
           const endLine = line.includes('{') ? findBlockEnd(lines, i) : i;
           elements.push({
             type: 'function',
@@ -242,6 +255,27 @@ export class SimpleCodeAnalyzer {
             relevanceScore: 0.8,
             exported: isExported,
           });
+        }
+
+        // Top-level variable declarations. `^` with no leading whitespace is
+        // this analyzer's only available proxy for "top level" — it has no
+        // scope tracking — and it matches the spec: declarations nested in a
+        // function body are deliberately not symbols.
+        const isDeclaration = /^(?:export\s+)?(?:const|let|var)\s+[a-zA-Z_$]/.test(line);
+        if (isDeclaration && !/^(?:export\s+)?(?:const\s+)?enum\s/.test(line) && !isArrowFunction) {
+          const endLine = findDeclarationEnd(lines, i);
+          const content = buildContent(i, endLine);
+          for (const name of declaredNames(content)) {
+            elements.push({
+              type: 'variable',
+              name,
+              startLine: i,
+              endLine,
+              content,
+              relevanceScore: 0.6,
+              exported: isExported,
+            });
+          }
         }
 
         // Interface declarations (TypeScript)

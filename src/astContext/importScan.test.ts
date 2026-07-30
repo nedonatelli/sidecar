@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { findBlockEnd, findIndentEnd, parseImport, resolveImportPath } from './importScan.js';
+import {
+  declaredNames,
+  findBlockEnd,
+  findDeclarationEnd,
+  findIndentEnd,
+  parseImport,
+  resolveImportPath,
+} from './importScan.js';
 
 describe('findBlockEnd', () => {
   it('finds the closing brace on the same line', () => {
@@ -116,5 +123,69 @@ describe('resolveImportPath', () => {
 
   it('handles an importer with no directory component', () => {
     expect(resolveImportPath('foo.ts', './bar')).toBe('bar');
+  });
+});
+
+describe('findDeclarationEnd', () => {
+  it('ends on the declaration line when nothing is left open', () => {
+    expect(findDeclarationEnd(['export const A = 1;', 'const B = 2;'], 0)).toBe(0);
+  });
+
+  it('spans a multi-line object initializer', () => {
+    const lines = ['export const T = {', '  a: 1,', '  b: 2,', '};', 'const after = 1;'];
+    expect(findDeclarationEnd(lines, 0)).toBe(3);
+  });
+
+  it('spans a multi-line array initializer', () => {
+    // findBlockEnd cannot do this one: it counts only braces, so an array
+    // initializer runs to the end of the file.
+    expect(findDeclarationEnd(['export const L = [', '  1,', '];', 'x'], 0)).toBe(2);
+  });
+
+  it('does not follow a bracket inside a string literal', () => {
+    expect(findDeclarationEnd(["export const S = 'a ( b';", 'const after = 1;'], 0)).toBe(0);
+  });
+
+  it('does not follow a bracket inside a regex literal', () => {
+    // The case that ran to end-of-file: the `(` in the pattern never closes.
+    expect(findDeclarationEnd(['export const P = /^\\s*\\(/;', 'a', 'b'], 0)).toBe(0);
+  });
+
+  it('does not follow a bracket inside a comment', () => {
+    expect(findDeclarationEnd(['export const A = 1; // note (', 'b'], 0)).toBe(0);
+    expect(findDeclarationEnd(['export const B = 1; /* ( */', 'b'], 0)).toBe(0);
+  });
+
+  it('spans a multi-line template literal', () => {
+    const lines = ['export const P = `line one', 'line two`;', 'const after = 1;'];
+    expect(findDeclarationEnd(lines, 0)).toBe(1);
+  });
+});
+
+describe('declaredNames', () => {
+  it('reads a single bound name', () => {
+    expect(declaredNames('export const MODEL = "x";')).toEqual(['MODEL']);
+  });
+
+  it('reads every name a declaration binds', () => {
+    expect(declaredNames('const A = 1, B = 2;')).toEqual(['A', 'B']);
+  });
+
+  it('ignores commas inside an initializer', () => {
+    expect(declaredNames('export const T = { a: 1, b: 2 };')).toEqual(['T']);
+  });
+
+  it('ignores commas inside a type annotation', () => {
+    // `unknown` is a valid identifier, so the name alone cannot rule it out.
+    expect(declaredNames('export const R: Record<string, unknown> = {};')).toEqual(['R']);
+  });
+
+  it('ignores a trailing comment that looks like another declarator', () => {
+    expect(declaredNames('export const A = 1; // fallback, y = 2')).toEqual(['A']);
+  });
+
+  it('returns nothing for a destructuring pattern', () => {
+    expect(declaredNames('export const { host, port } = config;')).toEqual([]);
+    expect(declaredNames('const [first, second] = pair;')).toEqual([]);
   });
 });

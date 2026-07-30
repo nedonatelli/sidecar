@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { SymbolIndexer } from './symbolIndexer.js';
 import { workspace } from 'vscode';
+import { getAnalyzer, setGrammarsPath } from '../parsing/registry.js';
+import { grammarsDir, hasGrammars } from '../parsing/grammarsTestSupport.js';
 
 describe('SymbolIndexer', () => {
   it('creates instance with null sidecarDir', () => {
@@ -316,6 +318,229 @@ describe('SymbolIndexer', () => {
       indexer.dispose();
       expect(persistSpy).toHaveBeenCalledOnce();
       vi.useRealTimers();
+    });
+  });
+
+  // Variable symbols (#9). These assertions name the symbol they expect and
+  // must never be weakened to "some symbols were found" — an earlier test here
+  // asserted only that parsing happened, which is why 218 missing `export
+  // const` symbols went unnoticed for the life of the feature.
+  describe('indexes top-level variable declarations', () => {
+    async function indexed(source: string, file = 'src/app.ts') {
+      vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: `/mock-workspace/${file}` }] as never);
+      vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: source.length, mtime: 1 } as never);
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(source) as never);
+      const indexer = new SymbolIndexer(null);
+      await indexer.initialize(['**/*.ts']);
+      vi.restoreAllMocks();
+      return indexer.getGraph();
+    }
+
+    it('indexes an exported const with a multi-line initializer', async () => {
+      // The shape this exists for: a configuration table. The line range must
+      // span the whole initializer, because content extraction slices on it and
+      // a declarator-only range would truncate exactly these objects.
+      const graph = await indexed(
+        ['export const BACKENDS = {', '  ollama: 11434,', '  kickstand: 11435,', '};', ''].join('\n'),
+      );
+      const sym = graph.getSymbolsInFile('src/app.ts').find((s) => s.name === 'BACKENDS');
+      expect(sym, 'BACKENDS was not indexed').toBeDefined();
+      expect(sym!.type).toBe('variable');
+      expect(sym!.exported).toBe(true);
+      expect(sym!.endLine - sym!.startLine).toBeGreaterThanOrEqual(3);
+    });
+
+    it('indexes single-line consts, whatever the initializer looks like', async () => {
+      // A const initialized from an identifier or call reads like the start of
+      // an arrow function to a line-based matcher. It is not one, and it must
+      // still be indexed.
+      const graph = await indexed(
+        [
+          'export const MODEL = "claude-opus-5";',
+          'export const CLIENT = makeClient(MODEL);',
+          'export const ALIAS = MODEL;',
+          '',
+        ].join('\n'),
+      );
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      for (const n of ['MODEL', 'CLIENT', 'ALIAS']) expect(names, `${n} missing`).toContain(n);
+    });
+
+    it('records unexported top-level declarations with exported: false', async () => {
+      const graph = await indexed(['const INTERNAL_LIMIT = 40;', ''].join('\n'));
+      const sym = graph.getSymbolsInFile('src/app.ts').find((s) => s.name === 'INTERNAL_LIMIT');
+      expect(sym, 'unexported const was not indexed').toBeDefined();
+      expect(sym!.exported).toBe(false);
+    });
+
+    it('emits one symbol per name when a declaration binds several', async () => {
+      const graph = await indexed(['export const ALPHA = 1, BETA = 2;', ''].join('\n'));
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      expect(names).toContain('ALPHA');
+      expect(names).toContain('BETA');
+    });
+
+    it('does not invent symbols from commas inside a type annotation', async () => {
+      // `Record<string, unknown>` is one declarator, not three. Splitting on
+      // every comma produced real symbols named `string` and `unknown` in the
+      // graph — worse than the missing symbols this change exists to add,
+      // because a wrong symbol answers reference queries with nonsense.
+      const graph = await indexed(
+        [
+          'export const REGISTRY: Record<string, unknown> = {};',
+          'export const COUNTS: Map<string, number> = new Map();',
+          '',
+        ].join('\n'),
+      );
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      expect(names).toContain('REGISTRY');
+      expect(names).toContain('COUNTS');
+      for (const bogus of ['string', 'unknown', 'number']) expect(names).not.toContain(bogus);
+    });
+
+    it('does not index declarations nested inside a function body', async () => {
+      const graph = await indexed(
+        ['export function run() {', '  const scratch = compute();', '  return scratch;', '}', ''].join('\n'),
+      );
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      expect(names).toContain('run');
+      expect(names).not.toContain('scratch');
+    });
+
+    it('emits nothing for a destructured declaration', async () => {
+      // A deliberate first-cut choice, asserted so it stays visible: a wrong
+      // symbol is worse than a missing one, and the bound names here have no
+      // single declarator to attribute a range to.
+      const graph = await indexed(['export const { host, port } = config;', ''].join('\n'));
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      expect(names).not.toContain('host');
+      expect(names).not.toContain('port');
+    });
+
+    it('does not mistake a const enum for a variable', async () => {
+      const graph = await indexed(['export const enum Mode {', '  Fast,', '  Slow,', '}', ''].join('\n'));
+      const sym = graph.getSymbolsInFile('src/app.ts').find((s) => s.name === 'Mode');
+      expect(sym).toBeDefined();
+      expect(sym!.type).toBe('enum');
+    });
+
+    it('does not emit a variable for an arrow-function const', async () => {
+      // Those are already indexed as functions; emitting both would double-count
+      // every callback-style export in the graph.
+      const graph = await indexed(['export const handle = (req) => {', '  return req;', '};', ''].join('\n'));
+      const forName = graph.getSymbolsInFile('src/app.ts').filter((s) => s.name === 'handle');
+      expect(forName).toHaveLength(1);
+      expect(forName[0].type).toBe('function');
+    });
+
+    it('still indexes a const that merely sits above an arrow function', async () => {
+      // The lookahead for a wrapped arrow parameter list used to fire on any
+      // following line containing `=>`, which swallowed the declaration above
+      // it entirely — a missing symbol caused by a neighbour.
+      const graph = await indexed(['export const ALIAS = MODEL;', 'export const fn = (x) => x;', ''].join('\n'));
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      expect(names).toContain('ALIAS');
+      expect(names).toContain('fn');
+    });
+
+    it('indexes the same declaration in .js and .tsx files', async () => {
+      // Kept out of the grammars-gated block below on purpose: those tests
+      // vanish on a grammar-less checkout, and the JS/TSX mappings would then
+      // have no regression guard at all.
+      for (const file of ['src/plain.js', 'src/view.tsx']) {
+        const graph = await indexed(['export const THEME = { dark: true };', ''].join('\n'), file);
+        const sym = graph.getSymbolsInFile(file).find((s) => s.name === 'THEME');
+        expect(sym, `${file}: THEME was not indexed`).toBeDefined();
+        expect(sym!.type).toBe('variable');
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // Same seam, second configuration: tree-sitter.
+    //
+    // Everything above ran through the regex analyzer, because `getAnalyzer`
+    // only reaches for tree-sitter once a grammars path is set and nothing
+    // sets one under vitest. Tree-sitter is what actually runs in the
+    // extension host, so the seam has to be exercised both ways or the
+    // configuration users get is the one left untested.
+    //
+    // ORDERING IS LOAD-BEARING: setGrammarsPath is module-global and the
+    // analyzer is cached after first load, so this block must stay last in the
+    // file. Everything before it would otherwise silently switch analyzers.
+    // -----------------------------------------------------------------------
+    describe.skipIf(!hasGrammars)('via the tree-sitter analyzer', () => {
+      beforeAll(async () => {
+        setGrammarsPath(grammarsDir);
+        await getAnalyzer('ts');
+      }, 60000);
+
+      it('uses tree-sitter for this block', async () => {
+        // Guards the ordering note above: if the regex analyzer is still in
+        // play, the rest of this block proves nothing about tree-sitter.
+        const analyzer = await getAnalyzer('ts');
+        expect(analyzer.constructor.name).not.toBe('RegexAnalyzer');
+      });
+
+      it('indexes an exported const with a multi-line initializer', async () => {
+        const graph = await indexed(
+          ['export const BACKENDS = {', '  ollama: 11434,', '  kickstand: 11435,', '};', ''].join('\n'),
+          'src/ts-app.ts',
+        );
+        const sym = graph.getSymbolsInFile('src/ts-app.ts').find((s) => s.name === 'BACKENDS');
+        expect(sym, 'BACKENDS was not indexed').toBeDefined();
+        expect(sym!.type).toBe('variable');
+        expect(sym!.exported).toBe(true);
+        expect(sym!.endLine - sym!.startLine).toBeGreaterThanOrEqual(3);
+      });
+
+      it('emits one symbol per name when a declaration binds several', async () => {
+        const graph = await indexed(['export const ALPHA = 1, BETA = 2;', ''].join('\n'), 'src/ts-multi.ts');
+        const names = graph.getSymbolsInFile('src/ts-multi.ts').map((s) => s.name);
+        expect(names).toContain('ALPHA');
+        expect(names).toContain('BETA');
+      });
+
+      it('does not index declarations nested inside a function body', async () => {
+        const graph = await indexed(
+          ['export function run() {', '  const scratch = compute();', '  return scratch;', '}', ''].join('\n'),
+          'src/ts-nested.ts',
+        );
+        const names = graph.getSymbolsInFile('src/ts-nested.ts').map((s) => s.name);
+        expect(names).toContain('run');
+        expect(names).not.toContain('scratch');
+      });
+
+      it('emits nothing for a destructured declaration', async () => {
+        const graph = await indexed(['export const { host, port } = config;', ''].join('\n'), 'src/ts-destr.ts');
+        const names = graph.getSymbolsInFile('src/ts-destr.ts').map((s) => s.name);
+        expect(names).not.toContain('host');
+        expect(names).not.toContain('port');
+      });
+
+      it('indexes the same declaration in a .tsx file', async () => {
+        const graph = await indexed(['export const THEME = { dark: true };', ''].join('\n'), 'src/ts-view.tsx');
+        const sym = graph.getSymbolsInFile('src/ts-view.tsx').find((s) => s.name === 'THEME');
+        expect(sym, 'tsx variable was not indexed').toBeDefined();
+        expect(sym!.type).toBe('variable');
+      });
+
+      it('indexes the same declaration in a .js file', async () => {
+        const graph = await indexed(['export const LIMITS = { max: 10 };', ''].join('\n'), 'src/ts-plain.js');
+        const sym = graph.getSymbolsInFile('src/ts-plain.js').find((s) => s.name === 'LIMITS');
+        expect(sym, 'js variable was not indexed').toBeDefined();
+        expect(sym!.type).toBe('variable');
+      });
+
+      it('agrees with the regex analyzer on arrow-function consts', async () => {
+        // The two analyzers must not disagree about a symbol's KIND. Tree-sitter
+        // has no arrow mapping, so without this the same declaration is a
+        // `function` on one path and a `variable` on the other, and which one a
+        // user gets depends on whether grammars loaded.
+        const graph = await indexed(['export const handle = (req) => req;', ''].join('\n'), 'src/ts-arrow.ts');
+        const forName = graph.getSymbolsInFile('src/ts-arrow.ts').filter((s) => s.name === 'handle');
+        expect(forName).toHaveLength(1);
+        expect(forName[0].type).toBe('function');
+      });
     });
   });
 });

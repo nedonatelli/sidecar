@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SymbolGraph, type SymbolEntry, type ImportEdge } from './symbolGraph.js';
+import { SymbolGraph, GRAPH_VERSION, type SymbolEntry, type ImportEdge } from './symbolGraph.js';
 
 function sym(name: string, file: string, opts?: Partial<SymbolEntry>): SymbolEntry {
   return {
@@ -135,7 +135,7 @@ describe('SymbolGraph', () => {
     graph.addFile('src/b.ts', [sym('bar', 'src/b.ts')], [imp('src/b.ts', 'src/a', ['foo'])], 'h2');
 
     const json = graph.toJSON();
-    expect(json.version).toBe(3);
+    expect(json.version).toBe(GRAPH_VERSION);
     expect(json.symbols).toHaveLength(2);
     expect(json.imports).toHaveLength(1);
 
@@ -160,6 +160,24 @@ describe('SymbolGraph', () => {
       fileHashes: {},
     };
     expect(SymbolGraph.fromJSON(data)).toBeNull();
+  });
+
+  it('rejects a cache written before variable symbols were indexed', () => {
+    // A v3 cache is complete and internally valid — it just predates variable
+    // indexing. Reconciliation is by content hash, so accepting it would leave
+    // an upgraded install serving a graph with no variable symbols forever:
+    // no file changed, so nothing would ever be re-parsed.
+    const stale = {
+      version: 3,
+      buildTime: '',
+      symbols: [{ filePath: 'a.ts', name: 'fn', kind: 'function', line: 1, exported: true }],
+      imports: [],
+      calls: [],
+      typeEdges: [],
+      typeUses: [],
+      fileHashes: { 'a.ts': 'unchanged' },
+    };
+    expect(SymbolGraph.fromJSON(stale as unknown as import('./symbolGraph.js').SymbolGraphData)).toBeNull();
   });
 
   it('symbolCount and fileCount', () => {
@@ -345,18 +363,34 @@ describe('SymbolGraph', () => {
 
   describe('fromJSON edge validation (#19)', () => {
     it('returns null when symbols is not an array', () => {
-      const data = { version: 3, buildTime: '', symbols: null, imports: [], calls: [], typeEdges: [], fileHashes: {} };
+      const data = {
+        version: GRAPH_VERSION,
+        buildTime: '',
+        symbols: null,
+        imports: [],
+        calls: [],
+        typeEdges: [],
+        fileHashes: {},
+      };
       expect(SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData)).toBeNull();
     });
 
     it('returns null when imports is not an array', () => {
-      const data = { version: 3, buildTime: '', symbols: [], imports: null, calls: [], typeEdges: [], fileHashes: {} };
+      const data = {
+        version: GRAPH_VERSION,
+        buildTime: '',
+        symbols: [],
+        imports: null,
+        calls: [],
+        typeEdges: [],
+        fileHashes: {},
+      };
       expect(SymbolGraph.fromJSON(data as unknown as import('./symbolGraph.js').SymbolGraphData)).toBeNull();
     });
 
     it('skips symbols with missing filePath', () => {
       const data = {
-        version: 3,
+        version: GRAPH_VERSION,
         buildTime: '',
         fileHashes: {},
         symbols: [
@@ -374,7 +408,7 @@ describe('SymbolGraph', () => {
 
     it('skips call edges with missing callerFile or non-numeric line', () => {
       const data = {
-        version: 3,
+        version: GRAPH_VERSION,
         buildTime: '',
         fileHashes: { 'a.ts': '' },
         symbols: [],
