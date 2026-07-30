@@ -38,6 +38,35 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 4.0.0 — edit_file collapses to one operation (2026-07)
+
+MAJOR. A mechanism was removed and the repair path changed, so results either
+side of this boundary are **not** directly comparable.
+
+- **`insert_before` / `insert_after` / `new_text` are gone**, along with the V2
+  insert convention (`editFile.insertApiV2`) and the `splitFusedAnchor` recovery.
+- **Why:** the field names contradicted their own semantics. `insert_after` was
+  documented as the payload while its name reads as a position, and the V1 schema
+  declared no field for the payload at all — so a model taking the plain-English
+  reading had nowhere to put the new code. It was not improper tool use; the
+  intent was inexpressible.
+- **Evidence** (gemma4:e4b, `lh-calculator-session`, 3 reps per arm, frozen HEAD,
+  thinking on): ten pathological events under the V1 insert surface — eight
+  bounces for a dropped `path`, eight fused-anchor "recoveries" that reported
+  `File edited` while duplicating text five times over, two resulting ambiguity
+  errors — versus **zero** of any kind under V2. Pass rate 1/3 → 2/3, which at
+  n=3 is noise; the mechanism counts are the result.
+- **Rather than ship the naming fix**, the surface is gone. Every comparable
+  agent (Claude Code, Aider, Cline, OpenAI apply_patch) exposes a single
+  span-replacement primitive, because one unambiguous operation beats several
+  overlapping ones. Insertion is now the standard idiom: anchor in `search`,
+  anchor repeated in `replace` alongside the new code.
+- **Risk carried:** `insert_*` existed to prevent weak models sending only the
+  new text in `replace` (which means _delete the function_ — qwen2.5-coder and
+  llama3.2 both failed that way in v0.119). The compensating guards are the
+  duplicated-tail repair, the missing-`search` inference and the syntax gate.
+  That regression must be re-measured, not assumed.
+
 ### 3.1.0 — adaptive scaffolding on by default + learned tiers (2026-07)
 
 MINOR. The default arm composition changed, so runs either side of this boundary

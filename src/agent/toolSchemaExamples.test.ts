@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { TOOL_REGISTRY, DELEGATE_TASK_DEFINITION, SPAWN_AGENT_DEFINITION } from './tools.js';
-import { editFileDefV2 } from './tools/fs.js';
 import type { ToolDefinition } from '../ollama/types.js';
 import { buildBaseSystemPrompt } from '../webview/handlers/basePrompt.js';
 
@@ -91,7 +90,6 @@ function callExpressionsFor(toolName: string, text: string): Array<{ call: strin
 
 const ALL_DEFINITIONS: ToolDefinition[] = [
   ...TOOL_REGISTRY.map((t) => t.definition),
-  editFileDefV2,
   DELEGATE_TASK_DEFINITION,
   SPAWN_AGENT_DEFINITION,
 ];
@@ -152,23 +150,36 @@ describe('base-prompt edit_file examples match the advertised schema', () => {
     root: '/w',
     approvalMode: 'autonomous',
   };
-  // The base system prompt teaches edit_file with worked examples, and it
-  // swaps V1↔V2 field conventions in lockstep with the advertised schema
-  // (insertApiV2). The insert-confusion bug lived in exactly this surface, so
-  // the prompt's examples must reference only fields the taught schema declares.
-  const editFileV1 = TOOL_REGISTRY.find((t) => t.definition.name === 'edit_file')!.definition;
+  // The base system prompt teaches edit_file with worked examples, and those
+  // examples must reference only fields the advertised schema declares. This is
+  // the surface the insert-confusion bug lived in: `insert_after` was documented
+  // as the payload while its name reads as a position, and V1 declared no field
+  // for the payload at all. Both insert fields and the V2 convention are gone —
+  // one substitution primitive, no ambiguity — and this gate keeps the prompt
+  // honest about it.
+  const editFileDef = TOOL_REGISTRY.find((t) => t.definition.name === 'edit_file')!.definition;
 
-  for (const v2 of [false, true]) {
-    it(`insertApiV2=${v2}: prompt edit_file examples use only ${v2 ? 'V2' : 'V1'} schema fields`, () => {
-      const prompt = buildBaseSystemPrompt({ ...base, insertApiV2: v2 });
-      const declared = new Set(Object.keys((v2 ? editFileDefV2 : editFileV1).input_schema.properties ?? {}));
-      const offenders: string[] = [];
-      for (const { call, fields } of callExpressionsFor('edit_file', prompt)) {
-        for (const f of fields) {
-          if (!declared.has(f)) offenders.push(`field "${f}" not in {${[...declared].join(', ')}}\n    ${call}`);
-        }
+  it('prompt edit_file examples use only declared schema fields', () => {
+    const prompt = buildBaseSystemPrompt(base);
+    const declared = new Set(Object.keys(editFileDef.input_schema.properties ?? {}));
+    const offenders: string[] = [];
+    for (const { call, fields } of callExpressionsFor('edit_file', prompt)) {
+      for (const f of fields) {
+        if (!declared.has(f)) offenders.push(`field "${f}" not in {${[...declared].join(', ')}}\n    ${call}`);
       }
-      expect(offenders, `prompt↔schema drift (insertApiV2=${v2}):\n  ${offenders.join('\n  ')}`).toEqual([]);
-    });
-  }
+    }
+    expect(offenders, `prompt↔schema drift:\n  ${offenders.join('\n  ')}`).toEqual([]);
+  });
+
+  it('the removed insert fields are advertised nowhere', () => {
+    // Regression guard: re-adding insert_before / insert_after / new_text to the
+    // schema or the prompt reintroduces a field whose name contradicts its
+    // meaning. Measured cost on gemma4: ten pathological events vs zero.
+    const declared = Object.keys(editFileDef.input_schema.properties ?? {});
+    expect(declared).toEqual(expect.not.arrayContaining(['insert_before', 'insert_after', 'new_text']));
+    const prompt = buildBaseSystemPrompt(base);
+    for (const gone of ['insert_before', 'insert_after', 'new_text']) {
+      expect(prompt.includes(gone), `base prompt still mentions ${gone}`).toBe(false);
+    }
+  });
 });

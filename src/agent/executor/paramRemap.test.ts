@@ -196,13 +196,14 @@ describe('V2 insert convention protection (campaign 5 regression)', () => {
     required: ['path'],
   } as never;
 
-  it('never remaps new_text when an insert field is present — that is the V2 call, verbatim', () => {
-    // gemma4's PERFECT V2 emission: remapping new_text→replace turned it into
-    // replace+insert_after, rejected as mutually exclusive. 100% stuck rate.
-    const input = { path: 'calc.py', insert_after: 'def subtract(a, b):', new_text: 'def multiply(a, b):' };
-    const { input: out, notes } = remapParamSynonyms(input, v1Schema);
-    expect(out).toEqual(input);
-    expect(notes).toEqual([]);
+  it('remaps new_text to replace even alongside a stale insert field', () => {
+    // insert_* is gone from the schema. A model still emitting the old V2 shape
+    // from habit should have its payload routed to `replace`, where the
+    // missing-`search` inference can act on it — not blocked, which would
+    // dead-end on a field edit_file no longer declares.
+    const out = remapParamSynonyms({ path: 'a.ts', insert_after: 'anchor', new_text: 'code' }, EDIT_FILE_SCHEMA);
+    expect(out?.input.replace).toBe('code');
+    expect((out?.notes ?? []).join(' ')).toContain('new_text');
   });
 
   it('still remaps new_text to replace for Claude-style search/replace emissions', () => {

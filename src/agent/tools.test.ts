@@ -269,21 +269,14 @@ describe('tools.ts', () => {
       expect(off).not.toContain('update_plan');
     });
 
-    it('insertApiV2 swaps the edit_file schema: new_text appears, insert_after becomes the anchor', () => {
-      const base = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
-      const v2 = getToolDefinitions(undefined, { ...base, insertApiV2Enabled: true } as never).find(
-        (d) => d.name === 'edit_file',
-      )!;
-      const v1 = getToolDefinitions(undefined, { ...base, insertApiV2Enabled: false } as never).find(
-        (d) => d.name === 'edit_file',
-      )!;
-      expect(v2.input_schema.properties.new_text).toBeDefined();
-      expect((v2.input_schema.properties.insert_after as { description: string }).description).toContain(
-        'EXISTING text',
-      );
-      expect(v2.description).toContain('new_text');
-      expect(v1.input_schema.properties.new_text).toBeUndefined();
-      expect(v1.description).not.toContain('new_text');
+    it('edit_file advertises exactly one operation — no insert fields', () => {
+      // insert_before / insert_after / new_text and the V2 convention were
+      // removed: the field names contradicted their semantics, and V1 declared
+      // no home for the payload at all, so a model reading `insert_after` as a
+      // position (the plain-English reading) could not express the intent.
+      const cfg = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
+      const def = getToolDefinitions(undefined, cfg as never).find((d) => d.name === 'edit_file')!;
+      expect(Object.keys(def.input_schema.properties ?? {})).toEqual(['path', 'search', 'replace']);
     });
   });
 

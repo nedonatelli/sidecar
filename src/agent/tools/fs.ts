@@ -501,9 +501,9 @@ export const editFileDef: ToolDefinition = {
     'Not for multi-location changes in one call — call `edit_file` once per location, each with a unique search string. ' +
     'The `search` argument must match exactly one location in the file; if it appears multiple times the call returns an error — add more surrounding lines to make it unique. ' +
     'Match is byte-exact: whitespace, indentation, and trailing spaces must match the file verbatim. When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
-    'To ADD text rather than replace it, use `insert_before` or `insert_after` with the anchor in `search` — do not restate the anchor inside `replace`. ' +
+    'There is ONE operation: substitution. To ADD text, put an anchor in `search` and REPEAT that anchor inside `replace` alongside the new code — dropping the anchor from `replace` DELETES it. ' +
     'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
-    'Insert example: `edit_file(path="src/utils.ts", search="export function greet(", insert_before="/** Greets someone. */")`.',
+    'Insert example — add a comment above a function by restating the function line: `edit_file(path="src/utils.ts", search="export function greet(", replace="/** Greets someone. */\\nexport function greet(")`.',
   input_schema: {
     type: 'object',
     properties: {
@@ -519,16 +519,6 @@ export const editFileDef: ToolDefinition = {
           'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error. ' +
           'If the replacement is very short and appears verbatim inside the search string, the call succeeds but appends a warning; call read_file to verify the result.',
       },
-      insert_before: {
-        type: 'string',
-        description:
-          'ADD text immediately before the search match, keeping the match itself. Use this to insert — a JSDoc comment above a function, an import at the top of a block — instead of restating the anchor inside `replace`. Mutually exclusive with `replace` and `insert_after`.',
-      },
-      insert_after: {
-        type: 'string',
-        description:
-          'ADD text immediately after the search match, keeping the match itself. Mutually exclusive with `replace` and `insert_before`.',
-      },
     },
     // Only `path` is structurally required. search/replace presence is
     // enforced INSIDE the executor, where file existence is knowable: small
@@ -536,62 +526,6 @@ export const editFileDef: ToolDefinition = {
     // that doesn't exist yet (creation intent — the content is in whichever
     // field they filled). A dispatcher schema bounce dead-ends them
     // (measured: 1 recovery in 41 bounces); the executor coerces instead.
-    required: ['path'],
-  },
-};
-
-/**
- * V2 insert-API variant of the edit_file definition (`editFile.insertApiV2`).
- * Same tool, same executor — the SCHEMA teaches the convention whose naive
- * English reading matches its semantics: `insert_after`/`insert_before` hold
- * the EXISTING anchor ("insert after THIS"), `new_text` holds the code to add.
- * Campaigns 3/4: gemma4 read the V1 field names as positions every single run
- * (anchor in `insert_after`, payload nowhere) and fast-stuck on it; field
- * names are prompt surface and must survive the naive parse. The executor
- * accepts both conventions regardless of which definition is advertised.
- */
-export const editFileDefV2: ToolDefinition = {
-  ...editFileDef,
-  description:
-    'Edit an existing file by replacing an exact search string with a replacement. ' +
-    'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
-    'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
-    'Not for multi-location changes in one call — call `edit_file` once per location, each with a unique search string. ' +
-    'The `search` argument must match exactly one location in the file; if it appears multiple times the call returns an error — add more surrounding lines to make it unique. ' +
-    'Match is byte-exact: whitespace, indentation, and trailing spaces must match the file verbatim. When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
-    'To ADD text rather than replace it: put the EXISTING text to insert next to in `insert_after` (or `insert_before`), and the NEW code in `new_text`. ' +
-    'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
-    'Insert example: `edit_file(path="src/utils.ts", insert_after="export function greet(name) {\\n  return name;\\n}", new_text="export function farewell(name) {\\n  return \'bye \' + name;\\n}")`.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'Relative file path from the project root' },
-      search: {
-        type: 'string',
-        description:
-          'Exact text to find in the file — whitespace and indentation must match the file byte-for-byte. Must appear exactly once. Used with `replace` to substitute text.',
-      },
-      replace: {
-        type: 'string',
-        description:
-          'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error.',
-      },
-      insert_after: {
-        type: 'string',
-        description:
-          'EXISTING text from the file — the anchor to insert after. The new code goes in `new_text`, which is inserted immediately after this anchor; the anchor itself is kept unchanged. Mutually exclusive with `replace` and `insert_before`.',
-      },
-      insert_before: {
-        type: 'string',
-        description:
-          'EXISTING text from the file — the anchor to insert before. The new code goes in `new_text`, which is inserted immediately before this anchor; the anchor itself is kept unchanged. Mutually exclusive with `replace` and `insert_after`.',
-      },
-      new_text: {
-        type: 'string',
-        description:
-          'The NEW code to add when inserting. Required alongside `insert_after` or `insert_before`. Contains ONLY the new text — never repeat the anchor.',
-      },
-    },
     required: ['path'],
   },
 };
@@ -938,24 +872,6 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
 }
 
 /**
- * Split a fused anchor+content insertion: the longest leading run of full
- * lines that appears verbatim in the file is the anchor; the rest (non-empty)
- * is the content to insert. Null when no split works — the caller keeps its
- * normal missing-search error. Pure; exported for tests.
- */
-export function splitFusedAnchor(fileText: string, insertion: string): { anchor: string; remainder: string } | null {
-  const lines = insertion.split('\n');
-  for (let k = lines.length - 1; k >= 1; k--) {
-    const anchor = lines.slice(0, k).join('\n');
-    if (anchor.trim() === '' || !fileText.includes(anchor)) continue;
-    const remainder = lines.slice(k).join('\n');
-    if (remainder.trim() === '') return null; // pure anchor echo — nothing to insert
-    return { anchor, remainder };
-  }
-  return null;
-}
-
-/**
  * Directive error for `search: ""`. The old path fell through to the
  * multiple-match branch — an empty string "appears" at every character, so the
  * model was told "search appears 69 times, add more surrounding context",
@@ -986,148 +902,21 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
   const search = typeof input.search === 'string' ? (input.search as string) : undefined;
   const rawReplace = typeof input.replace === 'string' ? (input.replace as string) : undefined;
-  const insertBefore = typeof input.insert_before === 'string' ? (input.insert_before as string) : undefined;
-  const insertAfter = typeof input.insert_after === 'string' ? (input.insert_after as string) : undefined;
-
-  // INSERTION, normalized into the replace machinery.
-  //
-  // edit_file inherited pure SEARCH/REPLACE from the diff-edit convention.
-  // Insertion is expressible in it — anchor in `search`, "new text + the anchor
-  // restated" in `replace` — but that encoding is exactly what weak models fail:
-  // asked to add a JSDoc comment they send only the comment in `replace`, which
-  // MEANS "delete the function and put a comment there" (live v0.119: qwen2.5-coder
-  // and llama3.2 both failed the task this way). Adding text is one of the
-  // commonest edits there is, so it gets a first-class form. Rewriting it into
-  // search/replace here keeps every guard — uniqueness, token boundaries,
-  // structural balance, syntax — applying unchanged.
-  const newTextArg = typeof input.new_text === 'string' ? (input.new_text as string) : undefined;
-  const insertion = insertBefore ?? insertAfter;
-  if (newTextArg !== undefined && insertion === undefined) {
-    throw new Error(
-      `Error: edit_file received 'new_text' with no position. Put the EXISTING text to insert next to in ` +
-        `'insert_after' (or 'insert_before'), and the new code in 'new_text'.`,
-    );
-  }
-  if (insertion !== undefined) {
-    if (rawReplace !== undefined) {
-      throw new Error(
-        `Error: edit_file received both 'replace' and an insert argument. Use 'replace' to SUBSTITUTE text, ` +
-          `or 'insert_before'/'insert_after' to ADD text — not both.`,
-      );
-    }
-    if (insertBefore !== undefined && insertAfter !== undefined) {
-      throw new Error(`Error: edit_file received both 'insert_before' and 'insert_after'. Use one.`);
-    }
-    // V2 CONVENTION (insert-API redesign): `insert_after`/`insert_before` hold
-    // the EXISTING anchor — the plain-English reading of the field name — and
-    // `new_text` holds the code to add. Accepted unconditionally (the flag
-    // only controls which convention the schema TEACHES), so both V1 and V2
-    // emissions dispatch deterministically:
-    //   insert_* + new_text            → V2: anchor = insert_*, payload = new_text
-    //   insert_* + search (no new_text) → V1: anchor = search,  payload = insert_*
-    //   insert_* alone                  → recovery / teaching errors below
-    if (newTextArg !== undefined) {
-      const anchor = insertion;
-      const joined = insertBefore !== undefined ? `${newTextArg}\n${anchor}` : `${anchor}\n${newTextArg}`;
-      if (newTextArg.trim() === '') {
-        throw new Error(`Error: 'new_text' is empty — there is nothing to add.`);
-      }
-      if (newTextArg.trim() === anchor.trim()) {
-        throw new Error(
-          `Error: 'new_text' is identical to your anchor — you repeated the existing text instead of giving the ` +
-            `NEW code to add. Put ONLY the new code in 'new_text'.`,
-        );
-      }
-      return editFile({ path: filePath, search: anchor, replace: joined }, context);
-    }
-    if (search === undefined) {
-      const currentText = isAuditModeActive(context)
-        ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)) ?? '')
-        : ((await readDiskViaWorkspace(context, filePath)) ?? '');
-      // FUSED-ANCHOR RECOVERY (code-as-text package). qwen2.5-coder's insert
-      // move on the calculator session: everything in `insert_after`, no
-      // `search` — and the value STARTS with the existing anchor block
-      // (`def subtract…` verbatim) followed by the new code. The longest
-      // leading line-prefix that appears verbatim in the file IS the anchor;
-      // the remainder is the insertion. Split, dispatch, disclose. The inner
-      // editFile still enforces anchor uniqueness and the syntax guard.
-      if (insertAfter !== undefined && context?.config?.codeAsTextRecoveryEnabled === true) {
-        const split = splitFusedAnchor(currentText, insertAfter);
-        if (split) {
-          return editFile({ path: filePath, search: split.anchor, insert_after: split.remainder }, context).then(
-            (r) =>
-              `[note: 'search' was missing and your 'insert_after' began with text already in the file. That ` +
-              `leading text was used as the anchor and only the remainder was inserted after it. Pass the anchor ` +
-              `in 'search' and ONLY the new code in 'insert_after'.]\n${r}`,
-          );
-        }
-      }
-      // POSITION-NOT-PAYLOAD teaching error. gemma4 reads `insert_after` as
-      // plain English — "insert after THIS TEXT" — and sends the ANCHOR in it
-      // with the new code nowhere (campaign 3/4: `insert_after: "    return
-      // a - b"`, six identical bounces per run on the generic error). When the
-      // value exists VERBATIM in the file we know exactly which misreading
-      // happened; name it, instead of implying the payload was fine.
-      if (insertion.trim() !== '' && currentText.includes(insertion.trim())) {
-        const which = insertBefore !== undefined ? 'insert_before' : 'insert_after';
-        // Under the V2 teaching this emission is HALF RIGHT — the anchor is in
-        // the right field, only the payload is missing. Ask for exactly that.
-        if (context?.config?.insertApiV2Enabled === true) {
-          throw new Error(
-            `Error: '${which}' names the position, but there is no new code to add — pass it in 'new_text'. ` +
-              `Resend as: edit_file(path="${filePath}", ${which}=<that same existing text>, new_text=<the NEW ` +
-              `code to add>). The file was NOT modified.`,
-          );
-        }
-        throw new Error(
-          `Error: your '${which}' value is text that is ALREADY IN ${filePath} — you gave the position, but not ` +
-            `the new code. '${which}' must contain the NEW text to add; the existing text it goes ` +
-            `${insertBefore !== undefined ? 'before' : 'after'} belongs in 'search'. Resend as: ` +
-            `edit_file(path="${filePath}", search=<that existing text>, ${which}=<the NEW code to add>). ` +
-            `The file was NOT modified.`,
-        );
-      }
-      if (context?.config?.insertApiV2Enabled === true) {
-        const which = insertBefore !== undefined ? 'insert_before' : 'insert_after';
-        throw new Error(
-          `Error: edit_file's '${which}' must be EXISTING text from ${filePath} (the anchor to insert ` +
-            `${insertBefore !== undefined ? 'before' : 'after'}), and your value is not in the file. Put the ` +
-            `anchor in '${which}' and the NEW code in 'new_text'. Call read_file(path="${filePath}") and copy ` +
-            `the anchor verbatim.`,
-        );
-      }
-      throw new Error(
-        `Error: edit_file needs 'search' — the existing text to insert ${insertBefore !== undefined ? 'before' : 'after'} — ` +
-          `alongside '${insertBefore !== undefined ? 'insert_before' : 'insert_after'}'. Call read_file(path="${filePath}") ` +
-          `and copy the anchor text verbatim into 'search'.`,
-      );
-    }
-    const whichInsert = insertBefore !== undefined ? 'insert_before' : 'insert_after';
-    // API-INVERSION GUARD. Weak models read `insert_after: X` as "insert after X"
-    // and put the ANCHOR in it instead of the NEW text — so the insert equals the
-    // search. The naive encoding below then becomes `search\nsearch`, which
-    // DUPLICATES the anchor and reports success: gemma4 did exactly this on a
-    // calculator build (inserted a second `subtract`, never added the requested
-    // functions, then declared success). Catch the inversion and say what went
-    // wrong instead of silently duplicating.
-    if (insertion.trim() === search.trim()) {
-      throw new Error(
-        `Error: your '${whichInsert}' text is identical to your 'search' anchor — you repeated the anchor instead ` +
-          `of giving the NEW text to add. Put ONLY the new code in '${whichInsert}'; the existing anchor stays in ` +
-          `'search'. Example — to add a function after an existing one: ` +
-          `search="def subtract(a, b):\\n    return a - b", ${whichInsert}="def multiply(a, b):\\n    return a * b".`,
-      );
-    }
-    // An empty insert is a no-op that would also report success — reject it.
-    if (insertion.trim() === '') {
-      throw new Error(
-        `Error: '${whichInsert}' is empty — there is nothing to add. Put the new text to insert in '${whichInsert}'.`,
-      );
-    }
-    const joined = insertBefore !== undefined ? `${insertBefore}\n${search}` : `${search}\n${insertAfter as string}`;
-    return editFile({ path: filePath, search, replace: joined }, context);
-  }
-
+  // insert_before / insert_after / new_text were REMOVED. They existed to help
+  // weak models ADD text without restating the anchor in `replace`, but the
+  // field names contradicted their own semantics: `insert_after` was documented
+  // as the payload while its name reads as a position, and V1 advertised no
+  // field for the payload at all — so a model taking the plain-English reading
+  // had nowhere to put the new code. Measured on gemma4 (3 reps, frozen code):
+  // ten pathological events under the V1 insert surface — eight bounces for a
+  // dropped `path`, eight fused-anchor 'recoveries' that reported File edited
+  // while duplicating text five times over — and ZERO once the payload had a
+  // home. Every other agent (Claude Code, Aider, Cline, apply_patch) exposes a
+  // single span-replacement primitive for the same reason: one unambiguous
+  // operation beats several overlapping ones. Insertion is now expressed the
+  // industry-standard way — anchor in `search`, anchor plus new code in
+  // `replace` — which the duplicated-tail repair and syntax guard below already
+  // protect against the classic 'replace ate the function' mistake.
   const replace = rawReplace;
 
   // Creation-intent coercion. Small models constantly call edit_file with

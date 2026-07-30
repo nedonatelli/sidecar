@@ -34,15 +34,13 @@ describe('insert API V2 prompt variant', () => {
     approvalMode: 'autonomous',
   };
 
-  it('teaches V1 by default — anchor in search, payload in insert_after', () => {
+  it('teaches insertion via the one substitution primitive — anchor repeated in replace', () => {
+    // insert_before / insert_after / new_text were removed: the field names
+    // contradicted their semantics and V1 declared no home for the payload.
     const p = buildBaseSystemPrompt(base);
-    expect(p).toContain('search=<the existing function, verbatim>, insert_after=<ONLY the new hello function>');
+    expect(p).toContain('replace=<that SAME anchor line, then the new hello function>');
+    expect(p).not.toContain('insert_after');
+    expect(p).not.toContain('insert_before');
     expect(p).not.toContain('new_text');
-  });
-
-  it('teaches V2 when enabled — anchor in insert_after, payload in new_text', () => {
-    const p = buildBaseSystemPrompt({ ...base, insertApiV2: true });
-    expect(p).toContain('insert_after=<the existing function, verbatim>, new_text=<ONLY the new hello function>');
-    expect(p).not.toContain('search=<the existing function, verbatim>, insert_after=<ONLY');
   });
 });
