@@ -33,6 +33,7 @@ const DEFAULT_EXCLUDES = [
   '.turbo',
   '.cache',
   '.stryker-tmp', // Stryker mutation runs copy the whole repo per sandbox
+  'graphify-out', // graphify writes its graph INTO the scanned dir (~7MB of JSON)
 ];
 const EXCLUDE_PATTERN = `**/{${DEFAULT_EXCLUDES.join(',')}}/**`;
 
