@@ -53,3 +53,6 @@ graphify-out/
 .graphify-venv/
 /CLAUDE.md
 dogfood-tmp/
+# Agent-skill scaffolding: plugin-coupled label/tracker mappings.
+# Durable repo conventions live in the committed AGENTS.md instead.
+docs/agents/
