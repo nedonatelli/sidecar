@@ -59,8 +59,8 @@ export function buildSandboxProfile(workspacePath: string, homeDir = os.homedir(
 ; Restrict inbound to localhost so the agent can't open a server
 ; reachable from outside the machine.
 (allow network-outbound)
-(allow network-inbound (local))
-(allow network-bind (local))
+(allow network-inbound (local ip "*:*"))
+(allow network-bind (local ip "*:*"))
 
 ; /dev pseudo-files
 (allow file-write*

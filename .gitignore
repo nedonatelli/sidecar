@@ -52,3 +52,4 @@ eval-failures.md
 graphify-out/
 .graphify-venv/
 /CLAUDE.md
+dogfood-tmp/
