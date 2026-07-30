@@ -48,6 +48,14 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/llm-eval/**/*.eval.ts', 'bench/**/*.eval.ts'],
+    // Stream console output instead of replaying it when the file finishes.
+    // Vitest intercepts console.log by default, so a 10-minute agent case
+    // showed NOTHING until it ended — every progress check during a sweep was
+    // blind, and a run that had already gone wrong looked identical to one
+    // still working. Note this is only half the fix: stdout redirected to a
+    // file is not a TTY, so Node still block-buffers. The runners wrap the
+    // command in `script -q /dev/null` to get a pty.
+    disableConsoleIntercept: true,
     // Eval runs network requests against real LLM backends. Default
     // vitest timeout (5s) is too short for anything but local Ollama.
     // Set via SIDECAR_EVAL_CASE_TIMEOUT (default 120 000 ms) + 60 s overhead.
