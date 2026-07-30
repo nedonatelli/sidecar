@@ -51,7 +51,14 @@ The agent can call `write_file`, `edit_file`, and `delete_file`. Three tiers of 
 
 ### Shell execution
 
-`run_command` / `run_tests` require approval in all non-autonomous modes. In autonomous mode, per-tool overrides in `sidecar.toolPermissions` can restrict commands individually. There is **no command allowlist or sandboxing** — when the user grants execution, the agent has full shell privileges under the user's account.
+`run_command` / `run_tests` require approval in all non-autonomous modes. In autonomous mode, per-tool overrides in `sidecar.toolPermissions` can restrict commands individually. There is **no command allowlist**, and **sandboxing is partial** — when the user grants execution, treat the agent as having full shell privileges under the user's account.
+
+On macOS, `sidecar.sandbox.enabled` (default `true`) wraps the shell in `sandbox-exec` with a deny-default SBPL profile confining writes to the workspace, `/tmp` and build caches. Two limits matter, and neither is obvious from the setting name:
+
+- It applies **only to the child-process fallback executor**. Commands run through the VS Code terminal — the path taken whenever shell integration is available, which is the default — are **not** sandboxed.
+- It is macOS-only. On Windows and Linux the setting does nothing.
+
+Until v0.122.1 the profile was also invalid SBPL, so `sandbox-exec` aborted rather than confining anything; any release before that provided no confinement even on the fallback path. Do not treat this as a containment boundary. If you don't trust the agent with your shell, use `cautious` mode or work in a VM / container.
 
 ### Secret detection and redaction
 
@@ -143,7 +150,7 @@ Be honest about the scope. The following are out of scope for SideCar's current 
 
 - **Pattern-based detection is not exhaustive.** `SECRET_PATTERNS` catches common well-formatted keys. Rotated-format keys from a provider we haven't added yet will slip through. We welcome reports; we do not claim 100% coverage.
 - **The LLM itself can be manipulated.** Boundary markers + system-prompt rules mitigate indirect prompt injection but don't eliminate it. A sufficiently clever adversarial input in a tool_result could still steer the model. The mitigation is trust gates at the tool layer (approval prompts, audit mode) — the LLM is not a security boundary.
-- **No sandboxing of `run_command`.** When the user grants shell execution, the agent has the full power of the user's shell. SideCar does not confine `rm`, does not filter command arguments, and does not deny network access. If you don't trust the agent with your shell, use `cautious` mode (approve each command) or work in a VM / container.
+- **No reliable sandboxing of `run_command`.** SideCar does not filter command arguments and does not deny network access. The macOS Seatbelt profile described above confines writes, but only on the child-process fallback executor — not on the VS Code terminal path, which is the default — so assume the agent has the full power of the user's shell. If you don't trust it with your shell, use `cautious` mode (approve each command) or work in a VM / container.
 - **No sandboxing of MCP tool processes.** stdio MCP servers run as child processes with the user's privileges. Hard-block in untrusted workspaces is the main defense; beyond that, users must vet MCP server code before trusting it.
 - **No sandboxing of custom tools.** `customTools` config runs arbitrary shell commands. Gated by workspace trust; no further confinement.
 - **Tree-sitter and embedding models.** The extension bundles tree-sitter wasm grammars and `@huggingface/transformers` MiniLM. A bug in those dependencies' native code (rare, but possible) would surface here.
