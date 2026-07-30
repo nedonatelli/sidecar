@@ -443,6 +443,38 @@ describe('SymbolIndexer', () => {
       expect(names).toContain('fn');
     });
 
+    it('does not index a declaration written inside a template literal', async () => {
+      // Real case: src/voice/hostRecorder.ts holds Swift source in a template
+      // literal, and the Swift `let outputPath = …` inside it matched the
+      // line-anchored pattern. A top-level declaration cannot contain another,
+      // so anything inside one is not a symbol.
+      const graph = await indexed(
+        [
+          'const SWIFT_SOURCE = `',
+          'import Foundation',
+          'let outputPath = "/tmp/out"',
+          '`;',
+          'export const REAL = 1;',
+          '',
+        ].join('\n'),
+      );
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      expect(names).toContain('SWIFT_SOURCE');
+      expect(names).toContain('REAL');
+      expect(names).not.toContain('outputPath');
+    });
+
+    it('indexes the first declaration in a file that starts with a BOM', async () => {
+      // A byte-order mark sits before the first character, so `^`-anchored
+      // patterns miss the declaration on line 1 — the only symbol in the file
+      // that a reader would call obviously present. Editors on Windows write
+      // these routinely, and it made the two analyzers disagree.
+      const graph = await indexed(['﻿export const FIRST = 1;', 'export const SECOND = 2;', ''].join('\n'));
+      const names = graph.getSymbolsInFile('src/app.ts').map((s) => s.name);
+      expect(names).toContain('FIRST');
+      expect(names).toContain('SECOND');
+    });
+
     it('indexes the same declaration in .js and .tsx files', async () => {
       // Kept out of the grammars-gated block below on purpose: those tests
       // vanish on a grammar-less checkout, and the JS/TSX mappings would then

@@ -132,7 +132,10 @@ export class SimpleCodeAnalyzer {
    */
   static parseFileContent(filePath: string, content: string): ParsedFile {
     const elements: CodeElement[] = [];
-    const lines = content.split('\n');
+    // A byte-order mark sits before the first character, so every `^`-anchored
+    // pattern below misses whatever is declared on line 1. Tree-sitter ignores
+    // it, so leaving it in made the two analyzers disagree about the same file.
+    const lines = content.replace(/^\uFEFF/, '').split('\n');
     const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
 
     // Determine language family once to avoid testing irrelevant patterns per line.
@@ -211,6 +214,12 @@ export class SimpleCodeAnalyzer {
     // Helper: build content string from line range (deferred to avoid O(n) per element during scan)
     const buildContent = (start: number, end: number) => lines.slice(start, end + 1).join('\n');
 
+    // Last line covered by an emitted top-level declaration. A top-level
+    // declaration cannot contain another, so anything inside one is not a
+    // symbol — without this, a `const SWIFT_SOURCE = \`…\`` holding another
+    // language's source yields a symbol for every `let` in the embedded text.
+    let declaredThrough = -1;
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
@@ -262,8 +271,14 @@ export class SimpleCodeAnalyzer {
         // scope tracking — and it matches the spec: declarations nested in a
         // function body are deliberately not symbols.
         const isDeclaration = /^(?:export\s+)?(?:const|let|var)\s+[a-zA-Z_$]/.test(line);
-        if (isDeclaration && !/^(?:export\s+)?(?:const\s+)?enum\s/.test(line) && !isArrowFunction) {
+        if (
+          isDeclaration &&
+          i > declaredThrough &&
+          !/^(?:export\s+)?(?:const\s+)?enum\s/.test(line) &&
+          !isArrowFunction
+        ) {
           const endLine = findDeclarationEnd(lines, i);
+          declaredThrough = endLine;
           const content = buildContent(i, endLine);
           for (const name of declaredNames(content)) {
             elements.push({
