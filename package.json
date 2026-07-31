@@ -3448,6 +3448,7 @@
     "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
     "verify:package": "node scripts/verify-package.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
