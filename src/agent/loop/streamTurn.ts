@@ -5,7 +5,7 @@ import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCallsCleaned, stripRepeatedContent, synthesizeFenceWrite } from './textParsing.js';
-import { lastUserMessageText, isMutationRequest } from './actionReprompt.js';
+import { lastUserMessageText, isMutationRequest, looksLikeDeclinedAction } from './actionReprompt.js';
 import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
@@ -432,9 +432,13 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       // answering "what does X contain" prints fences to ILLUSTRATE, and coercing
       // those to disk fabricated files — or overwrote the file being asked about
       // with a paraphrase of itself.
-      const synth = isMutationRequest(userText)
-        ? synthesizeFenceWrite(fullText, userText, new Set(iterationTools.map((t) => t.name)))
-        : null;
+      // ...and not when the model deliberately chose NOT to act. Deciding an
+      // edit is unnecessary is a legitimate outcome — rule 7 instructs it — and
+      // coercing a write over the top punishes the model for obeying.
+      const synth =
+        isMutationRequest(userText) && !looksLikeDeclinedAction(fullText)
+          ? synthesizeFenceWrite(fullText, userText, new Set(iterationTools.map((t) => t.name)))
+          : null;
       if (synth) {
         state.fenceWriteCoercions++;
         const tu: ToolUseContentBlock = {

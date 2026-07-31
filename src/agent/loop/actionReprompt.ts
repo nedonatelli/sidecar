@@ -41,6 +41,14 @@ const READ_VERB_RE = /\b(read|run|check|find|get|look|search|show|list|fetch|ret
 /** Action verbs that indicate the user wants something done, not just explained. */
 const ACTION_VERB_RE = new RegExp(`${MUTATION_VERB_RE.source}|${READ_VERB_RE.source}`, 'i');
 
+/**
+ * Text announcing a deliberate decision not to act: "no changes needed",
+ * "already satisfies", "leaving the file untouched". Distinct from
+ * DEFERRED_ACTION_RE, which catches a model that meant to act and did not.
+ */
+const DECLINED_ACTION_RE =
+  /\b(?:no (?:changes?|edits?|modifications?) (?:are )?(?:needed|required|necessary)|nothing to (?:change|do|fix|update)|already (?:does|satisfies|matches|meets|correct|implements)|no edit is required|leaving (?:the |it |this )?(?:file |code )?(?:untouched|as is|unchanged)|not (?:modifying|editing|changing) (?:it|this|the file))\b/i;
+
 /** File path patterns that indicate workspace files are involved. */
 const FILE_PATH_RE =
   /\b\w+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cpp|c|rb|sh|yaml|yml|json|toml)\b|(?:src|tests?|lib|pkg|cmd)\/\S+/;
@@ -134,6 +142,24 @@ export function isMutationRequest(text: string): boolean {
  */
 export function looksLikeDeferredAction(text: string): boolean {
   return DEFERRED_ACTION_RE.test(text);
+}
+
+/**
+ * True when the model's text announces a deliberate decision NOT to act — the
+ * inverse of {@link looksLikeDeferredAction}.
+ *
+ * Fence-write coercion overrode exactly this. Asked to update a function that
+ * already met the requirement, the model answered "no changes needed ... per
+ * rule 7, I'm leaving the file untouched" and printed the current contents to
+ * show why. Coercion read the fence as intent to write and wrote it — punishing
+ * an agent for obeying an operating rule SideCar itself issues. Measured at 1 in
+ * 4 trials on claude-sonnet-5 (`no-op-recognition`).
+ *
+ * Deciding not to edit is a legitimate outcome, and nothing may synthesize a
+ * write over the top of it.
+ */
+export function looksLikeDeclinedAction(text: string): boolean {
+  return DECLINED_ACTION_RE.test(text);
 }
 
 /**
