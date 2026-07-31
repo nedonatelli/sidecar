@@ -1,27 +1,34 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PinnedMemoryStore } from './pinnedMemory.js';
-import * as fs from 'fs/promises';
+import * as fs from 'fs';
+import * as fsp from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 
-vi.mock('fs/promises', () => ({
-  readFile: vi.fn(),
-  writeFile: vi.fn().mockResolvedValue(undefined),
-  mkdir: vi.fn().mockResolvedValue(undefined),
-}));
+// Real filesystem, not a module mock. These tests used to mock fs/promises with
+// three functions and assert that writeFile had been called — which pinned the
+// call shape while proving nothing about the bytes, and broke the moment
+// persistence moved to an atomic temp-then-rename. A tmpdir costs microseconds
+// and tests what actually happens.
 
-const mockReadFile = fs.readFile as ReturnType<typeof vi.fn>;
-const mockWriteFile = fs.writeFile as ReturnType<typeof vi.fn>;
+let dir: string;
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-pins-'));
+});
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 function makeStore() {
-  return new PinnedMemoryStore('/workspace/.sidecar');
+  return new PinnedMemoryStore(dir);
+}
+
+/** Seed an existing pins file before load(). */
+async function seed(entries: unknown[]): Promise<void> {
+  await fsp.writeFile(path.join(dir, 'pins.json'), JSON.stringify(entries), 'utf8');
 }
 
 describe('PinnedMemoryStore', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockReadFile.mockRejectedValue(new Error('ENOENT'));
-    mockWriteFile.mockResolvedValue(undefined);
-  });
-
   it('is not ready before load', () => {
     expect(makeStore().isReady()).toBe(false);
   });
@@ -34,10 +41,7 @@ describe('PinnedMemoryStore', () => {
   });
 
   it('loads existing entries from disk', async () => {
-    const existing = [
-      { id: 'abc123', path: 'docs/arch.md', label: 'arch.md', boost: 1, content: '# Arch', pinnedAt: 1000 },
-    ];
-    mockReadFile.mockResolvedValueOnce(JSON.stringify(existing));
+    await seed([{ id: 'abc123', path: 'docs/arch.md', label: 'arch.md', boost: 1, content: '# Arch', pinnedAt: 1000 }]);
     const store = makeStore();
     await store.load();
     expect(store.getEntries()).toHaveLength(1);
@@ -51,7 +55,10 @@ describe('PinnedMemoryStore', () => {
     expect(entry.label).toBe('Architecture');
     expect(entry.boost).toBe(2.0);
     expect(entry.content).toBe('# Architecture');
-    expect(mockWriteFile).toHaveBeenCalled();
+    // Assert the bytes landed, not that a function was called.
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'pins.json'), 'utf8'));
+    expect(onDisk).toHaveLength(1);
+    expect(onDisk[0].label).toBe('Architecture');
   });
 
   it('re-pinning the same path updates the entry', async () => {

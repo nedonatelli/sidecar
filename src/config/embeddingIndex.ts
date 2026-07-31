@@ -139,15 +139,48 @@ export class EmbeddingIndex implements Disposable {
       });
   }
 
-  /** Remove a file from the embedding index. */
+  /**
+   * Remove a file from the embedding index, compacting the vector store.
+   *
+   * The whole file assumes one invariant: entry offsets are exactly 0..count-1
+   * and `vectors` holds exactly `count` rows. This used to delete the entry and
+   * recompute `count` from the entry list while leaving `vectors` and every
+   * other entry's offset untouched, which broke it two ways:
+   *
+   *   • The next append took `offset = count`, which now COLLIDED with a
+   *     surviving entry — the new vector overwrote a live one and search
+   *     returned the wrong file's embedding. Corruption, no crash.
+   *   • After a second removal the append allocated FEWER rows than `vectors`
+   *     held, so `newVectors.set(this.vectors)` threw
+   *     `RangeError: offset is out of bounds`, killing the flush with an
+   *     unhandled rejection. Seen live in a real extension host.
+   *
+   * Compaction is O(n) per removal, which is the right trade: removals are rare
+   * next to searches, and every read path stays a flat indexed lookup.
+   */
   removeFile(relativePath: string): void {
-    if (relativePath in this.meta.entries) {
-      delete this.meta.entries[relativePath];
-      this.meta.count = Object.keys(this.meta.entries).length;
-      this.dirty = true;
-      this.schedulePersist();
-    }
     this.pendingUpdates.delete(relativePath);
+    const removed = this.meta.entries[relativePath];
+    if (!removed) return;
+
+    const removedOffset = removed.offset;
+    delete this.meta.entries[relativePath];
+
+    // Drop the row and slide every later row down one slot.
+    const rowsBefore = this.vectors.length / DIMENSION;
+    if (removedOffset < rowsBefore) {
+      const compacted = new Float32Array((rowsBefore - 1) * DIMENSION);
+      compacted.set(this.vectors.subarray(0, removedOffset * DIMENSION), 0);
+      compacted.set(this.vectors.subarray((removedOffset + 1) * DIMENSION), removedOffset * DIMENSION);
+      this.vectors = compacted;
+    }
+    for (const entry of Object.values(this.meta.entries)) {
+      if (entry.offset > removedOffset) entry.offset -= 1;
+    }
+
+    this.meta.count = Object.keys(this.meta.entries).length;
+    this.dirty = true;
+    this.schedulePersist();
   }
 
   private async flushUpdates(): Promise<void> {
@@ -192,18 +225,37 @@ export class EmbeddingIndex implements Disposable {
 
   private storeVector(relativePath: string, vector: Float32Array, hash: string): void {
     const existing = this.meta.entries[relativePath];
-    if (existing) {
+    if (existing && (existing.offset + 1) * DIMENSION <= this.vectors.length) {
       // Overwrite in place
       this.vectors.set(vector, existing.offset * DIMENSION);
+    } else if (existing) {
+      // The entry claims a row the vector store does not have. That means an
+      // index persisted before the compaction fix (or a truncated binary), and
+      // writing there would throw. Re-append it and heal the offset rather than
+      // crash the flush; the stale row, if any, is dropped by the next persist.
+      const offset = this.vectors.length / DIMENSION;
+      const grown = new Float32Array((offset + 1) * DIMENSION);
+      grown.set(this.vectors);
+      grown.set(vector, offset * DIMENSION);
+      this.vectors = grown;
+      existing.offset = offset;
+      existing.hash = hash;
+      this.meta.count = Object.keys(this.meta.entries).length;
+      this.dirty = true;
+      this.schedulePersist();
+      return;
     } else {
-      // Append to the end
-      const offset = this.meta.count;
+      // Append to the end. The row index comes from the ARRAY, not from
+      // `meta.count`: the array is the physical truth, and taking the offset
+      // from a counter that could disagree is exactly how a new file used to
+      // land on top of a live one.
+      const offset = this.vectors.length / DIMENSION;
       const newVectors = new Float32Array((offset + 1) * DIMENSION);
       newVectors.set(this.vectors);
       newVectors.set(vector, offset * DIMENSION);
       this.vectors = newVectors;
       this.meta.entries[relativePath] = { offset, hash };
-      this.meta.count = offset + 1;
+      this.meta.count = Object.keys(this.meta.entries).length;
     }
     this.dirty = true;
     this.schedulePersist();
@@ -310,9 +362,26 @@ export class EmbeddingIndex implements Disposable {
         return;
       }
 
-      this.vectors = new Float32Array(buffer.buffer as ArrayBuffer, buffer.byteOffset, meta.count * DIMENSION);
+      // Validate the invariant before trusting the cache: offsets must be
+      // exactly 0..n-1 for n entries. An index written by a build with the
+      // pre-compaction removeFile can violate it, and loading that produces
+      // either a RangeError on the next write or silently aliased vectors.
+      // Rebuilding costs one re-index; loading corruption costs wrong search
+      // results indefinitely.
+      const offsets = Object.values(meta.entries).map((e) => e.offset);
+      const n = offsets.length;
+      const dense =
+        offsets.length === new Set(offsets).size && offsets.every((o) => Number.isInteger(o) && o >= 0 && o < n);
+      if (!dense || meta.count !== n) {
+        logger.warn(
+          `[SideCar] Embedding cache has inconsistent offsets (${n} entries, count=${meta.count}) — rebuilding rather than trusting it`,
+        );
+        return;
+      }
+
+      this.vectors = new Float32Array(buffer.buffer as ArrayBuffer, buffer.byteOffset, n * DIMENSION);
       this.meta = meta;
-      logger.info(`[SideCar] Embedding cache restored: ${meta.count} vectors`);
+      logger.info(`[SideCar] Embedding cache restored: ${n} vectors`);
     } catch (err) {
       logger.warn('[SideCar] Failed to restore embedding cache:', err);
     }

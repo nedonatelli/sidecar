@@ -80,6 +80,18 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **4.0.0** (2026-07) — edit_file collapses to ONE operation. insert_before /
+ *   insert_after / new_text and the V2 insert convention are removed, along with
+ *   the splitFusedAnchor recovery. The field names contradicted their semantics
+ *   (`insert_after` documented as the payload, read by models as a position) and
+ *   V1 declared no field for the payload at all, so the intent was inexpressible.
+ *   Measured on gemma4 (3 reps, frozen code): ten pathological events under the
+ *   V1 insert surface — eight bounces for a dropped `path`, eight fused-anchor
+ *   "recoveries" that reported File edited while duplicating text five times —
+ *   and ZERO under V2. Rather than ship the naming fix, the surface is gone:
+ *   insertion is now the industry-standard idiom (anchor in `search`, anchor
+ *   repeated in `replace`), matching Claude Code, Aider, Cline and apply_patch.
+ *   MAJOR because a mechanism was removed and the repair path changed.
  * - **2.0.0** (2026-07) — verification-vertical + do-no-harm generation. Adds
  *   the keep-best ratchet (Pareto-safe scaffolding), mutation testing, the §5
  *   analytic-bound gate + property-based test synthesis, the prompt-injection
@@ -92,7 +104,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '3.1.0';
+export const SCAFFOLD_VERSION = '4.0.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

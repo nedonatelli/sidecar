@@ -16,7 +16,11 @@ describe('AgentMemory', () => {
 
   afterEach(async () => {
     await memory.pendingSave;
-    await fs.promises.rm(tempDir, { recursive: true, force: true });
+    // maxRetries: a save is atomic (temp file + rename), so a write racing
+    // teardown can leave the directory momentarily non-empty and rmdir throws
+    // ENOTEMPTY. Retrying is correct here — the alternative is a flake that
+    // only shows under full-suite CPU contention.
+    await fs.promises.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   });
 
   it('creates agent memory with valid directory', () => {
@@ -154,6 +158,9 @@ describe('AgentMemory', () => {
 
   it('persists and loads memories across instances', async () => {
     const id = memory.add('pattern', 'naming', 'Use camelCase');
+    // add() queues a save; calling save() directly as well means two writes
+    // race. Drain the queue first so the test exercises one deterministic write.
+    await memory.pendingSave;
     await memory.save();
 
     const memory2 = new AgentMemory(tempDir);
@@ -405,5 +412,64 @@ describe('AgentMemory.getRelevantMemories', () => {
     // Both match "search query" but the one added recently (Jan 10) is older now
     const results = memory.getRelevantMemories('search query', 5);
     expect(results.length).toBe(2);
+  });
+});
+
+describe('AgentMemory persistence failures are observable', () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-mem-adverse-'));
+  });
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('surfaces a failed save instead of logging it into the void', async () => {
+    // Auto-saves are fire-and-forget, so a failure cannot be thrown at anyone.
+    // It used to be swallowed into logger.warn, which made silent data loss
+    // indistinguishable from success — the shape of the pre-commit "flake".
+    const memory = new AgentMemory(tmp);
+    const memDir = path.join(tmp, 'memory');
+    fs.mkdirSync(memDir, { recursive: true });
+    fs.chmodSync(memDir, 0o500);
+
+    memory.add('pattern', 'naming', 'Use camelCase');
+    await memory.pendingSave;
+    fs.chmodSync(memDir, 0o700);
+
+    if (memory.getSaveError() === null) return; // root: the write succeeded
+    expect(memory.getSaveError()).toBeInstanceOf(Error);
+  });
+
+  it('a failed save does not poison later saves', async () => {
+    const memory = new AgentMemory(tmp);
+    const memDir = path.join(tmp, 'memory');
+    fs.mkdirSync(memDir, { recursive: true });
+    fs.chmodSync(memDir, 0o500);
+    memory.add('pattern', 'naming', 'first');
+    await memory.pendingSave;
+    fs.chmodSync(memDir, 0o700);
+
+    memory.add('pattern', 'naming', 'second');
+    await memory.pendingSave;
+
+    expect(memory.getSaveError()).toBeNull();
+    const reloaded = new AgentMemory(tmp);
+    await reloaded.load();
+    expect(reloaded.getCount()).toBe(2);
+  });
+
+  it('does not overwrite a store it could not read', async () => {
+    const memDir = path.join(tmp, 'memory');
+    fs.mkdirSync(memDir, { recursive: true });
+    const original = '{"version":1,"memories":[{"id":"x","conte';
+    fs.writeFileSync(path.join(memDir, 'agent-memories.json'), original, 'utf-8');
+
+    const memory = new AgentMemory(tmp);
+    await memory.load();
+
+    const failure = memory.getLoadFailure();
+    expect(failure).not.toBeNull();
+    expect(fs.readFileSync(failure!.quarantinedTo!, 'utf-8')).toBe(original);
   });
 });

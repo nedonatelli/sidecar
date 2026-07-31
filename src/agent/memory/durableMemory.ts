@@ -1,7 +1,7 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { neutralizeInjections } from '../injectionGuard.js';
+import { readJsonStore, writeJsonStoreAtomic, type StoreFailure } from './jsonStore.js';
 
 export interface DurableInstructionEntry {
   /** sha256 of the normalized text — content-addressed, so re-latching dedupes. */
@@ -84,44 +84,60 @@ export class DurableMemoryStore {
   private ready = false;
   private readonly file: string;
   private _onChange: (() => void) | undefined;
+  private loadFailure: StoreFailure | null = null;
 
   constructor(storeDir: string) {
     this.file = path.join(storeDir, 'durable-instructions.json');
   }
 
   async load(): Promise<void> {
-    try {
-      const parsed: unknown = JSON.parse(await fs.readFile(this.file, 'utf8'));
-      if (Array.isArray(parsed)) {
-        // v0.121 stores hashed the exact text; the scheme is now normalized.
-        // Recompute every ID on load and merge collisions, otherwise a rule
-        // re-latched under the new scheme misses its own on-disk entry and
-        // duplicates — exactly what content-addressing exists to prevent.
-        const byId = new Map<string, DurableInstructionEntry>();
-        let migrated = false;
-        for (const e of parsed as DurableInstructionEntry[]) {
-          const id = idOf(e.text);
-          if (id !== e.id) migrated = true;
-          const prior = byId.get(id);
-          if (prior) {
-            migrated = true;
-            prior.seenCount += e.seenCount;
-            prior.firstSeen = Math.min(prior.firstSeen, e.firstSeen);
-            if (e.lastSeen > prior.lastSeen) {
-              prior.lastSeen = e.lastSeen;
-              prior.text = e.text;
-            }
-          } else {
-            byId.set(id, { ...e, id });
-          }
-        }
-        this.entries = [...byId.values()];
-        if (migrated) await this.persist();
-      }
-    } catch {
+    const { value: parsed, failure } = await readJsonStore<unknown>(this.file);
+    this.loadFailure = failure;
+    if (failure) {
+      // Never silently continue as an empty store: the next add() would persist
+      // over the file we could not read. The bytes have been moved aside (or
+      // persistence is blocked), and the failure is observable.
       this.entries = [];
+      this.ready = true;
+      return;
+    }
+    if (Array.isArray(parsed)) {
+      // v0.121 stores hashed the exact text; the scheme is now normalized.
+      // Recompute every ID on load and merge collisions, otherwise a rule
+      // re-latched under the new scheme misses its own on-disk entry and
+      // duplicates — exactly what content-addressing exists to prevent.
+      const byId = new Map<string, DurableInstructionEntry>();
+      let migrated = false;
+      for (const e of parsed as DurableInstructionEntry[]) {
+        const id = idOf(e.text);
+        if (id !== e.id) migrated = true;
+        const prior = byId.get(id);
+        if (prior) {
+          migrated = true;
+          prior.seenCount += e.seenCount;
+          prior.firstSeen = Math.min(prior.firstSeen, e.firstSeen);
+          if (e.lastSeen > prior.lastSeen) {
+            prior.lastSeen = e.lastSeen;
+            prior.text = e.text;
+          }
+        } else {
+          byId.set(id, { ...e, id });
+        }
+      }
+      this.entries = [...byId.values()];
+      if (migrated) await this.persist();
     }
     this.ready = true;
+  }
+
+  /**
+   * Non-null when the on-disk store existed but could not be read or parsed.
+   * The store is empty in memory and its bytes were moved aside — surfacing
+   * this is what distinguishes "nothing was remembered" from "everything that
+   * was remembered is currently unreachable".
+   */
+  getLoadFailure(): StoreFailure | null {
+    return this.loadFailure;
   }
 
   isReady(): boolean {
@@ -229,8 +245,13 @@ export class DurableMemoryStore {
   }
 
   private async persist(): Promise<void> {
-    await fs.mkdir(path.dirname(this.file), { recursive: true });
-    await fs.writeFile(this.file, JSON.stringify(this.entries, null, 2), 'utf8');
+    if (this.loadFailure?.persistBlocked) {
+      throw new Error(
+        `Refusing to write ${this.file}: it exists, could not be read, and could not be moved aside. ` +
+          `Writing would destroy remembered instructions. Move or repair the file, then restart.`,
+      );
+    }
+    await writeJsonStoreAtomic(this.file, this.entries);
   }
 }
 

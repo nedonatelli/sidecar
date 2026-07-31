@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { writeFile, editFile, readFile, applyReadView, splitFusedAnchor } from './fs.js';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import { writeFile, editFile, readFile, applyReadView, editFileDef } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
 import { workspace } from 'vscode';
@@ -148,9 +150,16 @@ describe('editFile audit mode', () => {
       (e: Error) => e.message,
     );
     expect(err).toContain("'search' is empty");
-    expect(err).toContain('insert_after');
     expect(err).toContain('write_file');
     expect(err).not.toContain('appears');
+    // The rescue path must not teach a field the schema no longer declares.
+    // It did: it told the model to retry with `insert_after`, which is not a
+    // synonym for `replace` either, so the payload was dropped and the retry
+    // failed the same way. An error message is prompt surface.
+    expect(err).not.toContain('insert_after');
+    expect(err).not.toContain('insert_before');
+    // What it must teach instead: repeat the anchor inside `replace`.
+    expect(err).toContain('replace');
     expect(buf.read('src/calc.py').content).toBe('def add(a, b):\n    return a + b\n');
   });
 
@@ -180,16 +189,43 @@ describe('editFile audit mode', () => {
 
   it('appends partial-replace warning when replace is a short substring of search', async () => {
     const context = { config: { agentMode: 'audit' } as never };
-    // Simulate the gemma4 pattern: search = full function signature,
-    // replace = just the return type keyword (which appears inside search).
-    // search: "export function getAnswer(): string {" (38 chars)
-    // replace: "string" (6 chars) — IS a substring of search → warning fires
-    const fullSig = 'export function getAnswer(): string {';
-    await buf.write('src/partial.ts', `${fullSig}\n  return 42;\n}\n`, async () => undefined);
-    const result = await editMsg({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context);
+    // Simulate the gemma4 pattern: search = a full line, replace = one word from
+    // inside it. Written to a .md file so no grammar applies and the warning —
+    // not the syntax guard — is what the test observes.
+    const fullLine = 'The answer to the question is forty two.';
+    await buf.write('notes/partial.md', `${fullLine}\n`, async () => undefined);
+    const result = await editMsg({ path: 'notes/partial.md', search: fullLine, replace: 'answer' }, context);
     expect(result).toContain('File edited');
     expect(result).toContain('Warning');
     expect(result).toContain('substring');
+  });
+
+  it('refuses a syntax-breaking edit in the buffer, exactly as on disk', async () => {
+    // The audit path used to carry its own weaker matcher: substring hit →
+    // buffer write, with no token-boundary or syntax guard. Replacing a whole
+    // signature with its return type left `string\n  return 42;\n}` — broken
+    // TypeScript — and reported success. Both modes share one core now.
+    const context = { config: { agentMode: 'audit' } as never };
+    const fullSig = 'export function getAnswer(): string {';
+    const original = `${fullSig}\n  return 42;\n}\n`;
+    await buf.write('src/partial.ts', original, async () => undefined);
+    const result = await editMsg({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context).catch(
+      (e: Error) => e.message,
+    );
+    expect(result).toContain('syntax error');
+    expect(result).toContain('NOT modified');
+    expect(buf.read('src/partial.ts').content).toBe(original);
+  });
+
+  it('carries the outcome-visibility diff into the buffered result when the flag is on', async () => {
+    // A buffered edit is still an edit the model has to self-verify — the diff
+    // was reaching only the disk path.
+    const context = { config: { agentMode: 'audit', editResultDiffChars: 500 } as never };
+    await buf.write('notes/diff.md', 'before line\n', async () => undefined);
+    const result = await editMsg({ path: 'notes/diff.md', search: 'before line', replace: 'after line' }, context);
+    expect(result).toContain('buffered for audit review');
+    expect(result).toMatch(/What changed/i);
+    expect(result).toContain('after line');
   });
 
   it('reads from disk via workspace when file is not in buffer', async () => {
@@ -227,9 +263,10 @@ describe('editFile audit mode', () => {
     expect(buf.read('src/gate.ts').content).toBe(fileContent);
   });
 
-  it('returns grep-based line hint when search string is not found in buffered content', async () => {
-    // Grep hint is now preferred over nearest-match: returns exact line numbers
-    // so the model can call read_file(start_line=N) to get the exact text.
+  it('hands back a recovery region when search is not found in buffered content', async () => {
+    // Audit mode gets the same tiered recovery as disk: the closest region is
+    // handed over to copy into `search` (or a grep hint with line numbers when
+    // one is available). It used to get a bare "search string not found".
     const context = { config: { agentMode: 'audit' } as never };
     const fileContent = [
       '// Direct invocations of eslint / tsc, OR common npm/pnpm/yarn script',
@@ -242,10 +279,10 @@ describe('editFile audit mode', () => {
     const search = '// Direct invocations of various linters (eslint, tsc, pylint)';
     const replace = '// Direct invocations of various linters (eslint, tsc, pylint, flake8)';
     const result = await editMsg({ path: 'src/gate.ts', search, replace }, context);
-    expect(result).toContain('search string not found');
-    // Grep hint shows exact line numbers and read_file suggestion
-    expect(result).toMatch(/line \d+:|Grep for|read_file/);
-    expect(result).toContain('eslint'); // the grep found the real line
+    expect(result).toMatch(/does not appear in the file|search string not found/);
+    // The model is handed exact line numbers or the region itself, plus a route back
+    expect(result).toMatch(/line \d+:|Grep for|read_file|closest matching region/);
+    expect(result).toContain('eslint'); // the real line is in the recovery text
   });
 
   it('coerces edit_file(path, search) on a nonexistent file into a create (llama3.2 shape 1)', async () => {
@@ -1186,261 +1223,73 @@ describe('write_file syntax guard (edit_file bypass)', () => {
   });
 });
 
-describe('insert_after position-not-payload teaching error (gemma4 shape)', () => {
-  let buf: AuditBuffer;
-  beforeEach(() => {
-    buf = new AuditBuffer();
-    __setDefaultAuditBufferForTests(buf);
-  });
-  afterEach(() => __setDefaultAuditBufferForTests(null));
-
-  it('names the misreading when insert_after is text already in the file', async () => {
-    const context = { config: { agentMode: 'audit' } as never };
-    await buf.write(
-      'calc.py',
-      'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n',
-      async () => undefined,
-    );
-    const err = await editMsg({ path: 'calc.py', insert_after: '    return a - b' }, context).catch(
-      (e: Error) => e.message,
-    );
-    expect(err).toContain('ALREADY IN calc.py');
-    expect(err).toContain('you gave the position, but not the new code');
-    expect(err).toContain('search=<that existing text>');
-  });
-
-  it('keeps the generic missing-search error when the value is genuinely new code', async () => {
-    const context = { config: { agentMode: 'audit' } as never };
-    await buf.write('calc.py', 'def add(a, b):\n    return a + b\n', async () => undefined);
-    const err = await editMsg(
-      { path: 'calc.py', insert_after: 'def multiply(a, b):\n    return a * b' },
-      context,
-    ).catch((e: Error) => e.message);
-    expect(err).toContain("needs 'search'");
-    expect(err).not.toContain('ALREADY IN');
-  });
-});
-
-describe('insert API V2: insert_after = anchor, new_text = payload', () => {
-  let buf: AuditBuffer;
-  beforeEach(() => {
-    buf = new AuditBuffer();
-    __setDefaultAuditBufferForTests(buf);
-  });
-  afterEach(() => __setDefaultAuditBufferForTests(null));
-  const FILE = 'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n';
-
-  it('inserts new_text after the insert_after anchor (V2 canonical call)', async () => {
-    const context = { config: { agentMode: 'audit' } as never };
-    await buf.write('calc.py', FILE, async () => undefined);
-    const result = await editMsg(
-      {
-        path: 'calc.py',
-        insert_after: 'def subtract(a, b):\n    return a - b',
-        new_text: 'def multiply(a, b):\n    return a * b',
-      },
-      context,
-    );
-    expect(result).toContain('File edited');
-    const after = buf.read('calc.py').content!;
-    expect(after).toContain('def subtract(a, b):\n    return a - b\ndef multiply(a, b):');
-    expect(after).toContain('def add');
-  });
-
-  it('inserts new_text before the insert_before anchor', async () => {
-    const context = { config: { agentMode: 'audit' } as never };
-    await buf.write('calc.py', FILE, async () => undefined);
-    await editMsg({ path: 'calc.py', insert_before: 'def add(a, b):', new_text: '# math helpers' }, context);
-    expect(buf.read('calc.py').content).toContain('# math helpers\ndef add(a, b):');
-  });
-
-  it('still honors the V1 convention: search = anchor, insert_after = payload', async () => {
-    const context = { config: { agentMode: 'audit' } as never };
-    await buf.write('calc.py', FILE, async () => undefined);
-    const result = await editMsg(
-      { path: 'calc.py', search: '    return a - b', insert_after: 'def half(a):\n    return a / 2' },
-      context,
-    );
-    expect(result).toContain('File edited');
-    expect(buf.read('calc.py').content).toContain('    return a - b\ndef half(a):');
-  });
-
-  it('rejects new_text with no position field', async () => {
-    const context = { config: { agentMode: 'audit' } as never };
-    await buf.write('calc.py', FILE, async () => undefined);
-    const err = await editMsg({ path: 'calc.py', new_text: 'def half(a):\n    return a / 2' }, context).catch(
-      (e: Error) => e.message,
-    );
-    expect(err).toContain("'new_text' with no position");
-  });
-
-  it('rejects new_text that repeats the anchor (V2 inversion guard)', async () => {
-    const context = { config: { agentMode: 'audit' } as never };
-    await buf.write('calc.py', FILE, async () => undefined);
-    const err = await editMsg(
-      { path: 'calc.py', insert_after: '    return a - b', new_text: '    return a - b' },
-      context,
-    ).catch((e: Error) => e.message);
-    expect(err).toContain('repeated the existing text');
-  });
-
-  it('asks for new_text when V2 teaching is on and only the position was given', async () => {
-    const context = { config: { agentMode: 'audit', insertApiV2Enabled: true } as never };
-    await buf.write('calc.py', FILE, async () => undefined);
-    const err = await editMsg({ path: 'calc.py', insert_after: '    return a - b' }, context).catch(
-      (e: Error) => e.message,
-    );
-    expect(err).toContain("pass it in 'new_text'");
-    expect(err).toContain('edit_file(path="calc.py", insert_after=<that same existing text>');
-  });
-
-  it('teaches the V2 anchor rule when the anchor is not in the file', async () => {
-    const context = { config: { agentMode: 'audit', insertApiV2Enabled: true } as never };
-    await buf.write('calc.py', FILE, async () => undefined);
-    const err = await editMsg(
-      { path: 'calc.py', insert_after: 'def multiply(a, b):\n    return a * b' },
-      context,
-    ).catch((e: Error) => e.message);
-    expect(err).toContain('must be EXISTING text');
-    expect(err).toContain("the NEW code in 'new_text'");
-  });
-});
-
-describe('splitFusedAnchor (fused anchor+content recovery)', () => {
-  const file = 'def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n';
-
-  it('splits the live qwen2.5-coder shape: anchor block followed by new code', () => {
-    const insertion = 'def subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b';
-    const split = splitFusedAnchor(file, insertion);
-    expect(split).not.toBeNull();
-    // Greedy split may keep the trailing blank line with the anchor — same insert.
-    expect(split!.anchor.trimEnd()).toBe('def subtract(a, b):\n    return a - b');
-    expect(split!.remainder).toContain('def multiply(a, b):');
-    expect(split!.remainder).not.toContain('subtract');
-  });
-
-  it('returns null when nothing leads with existing text', () => {
-    expect(splitFusedAnchor(file, 'def multiply(a, b):\n    return a * b')).toBeNull();
-  });
-
-  it('returns null for a pure anchor echo with no new content', () => {
-    expect(splitFusedAnchor(file, 'def subtract(a, b):\n    return a - b\n\n')).toBeNull();
-  });
-
-  it('prefers the LONGEST matching prefix as the anchor', () => {
-    // Both 1-line and 2-line prefixes exist in the file; the 2-line one wins so
-    // the remainder contains only genuinely new code.
-    const insertion = 'def add(a, b):\n    return a + b\n\ndef half(a):\n    return a / 2';
-    const split = splitFusedAnchor(file, insertion)!;
-    expect(split.anchor.trimEnd()).toBe('def add(a, b):\n    return a + b');
-    expect(split.remainder).not.toContain('return a + b');
-  });
-});
-
-describe('edit_file insertion (first-class add, not a restated anchor)', () => {
+describe('insertion via the single substitution primitive (insert_* removed)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  const original =
-    '// Says hello to the given name.\n' +
-    'export function welcome(name: string): string {\n' +
-    '  return `Hello, ${name}!`;\n' +
-    '}\n';
+  const original = 'export function greet(name: string): string {\n  return `Hello, ${name}!`;\n}\n';
 
-  beforeEach(async () => {
+  async function editOn(text: string, input: Record<string, unknown>) {
+    const { workspace } = await import('vscode');
     vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
-    const { workspace } = await import('vscode');
-    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(original) as never);
-  });
-
-  it('insert_before adds text above the anchor and KEEPS the anchor (the live JSDoc task)', async () => {
-    // Both qwen2.5-coder and llama3.2 failed this by sending only the comment in
-    // `replace` — which means "delete the function, put a comment there".
-    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(text) as never);
     let written = '';
     vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
       written = Buffer.from(c as Uint8Array).toString('utf-8');
     });
+    const result = await editFile(input, { filesReadThisTurn: new Set([input.path as string]) } as never).catch(
+      (e: Error) => e.message,
+    );
+    return { result, written };
+  }
 
-    const result = await editMsg({
+  it('adds code by repeating the anchor inside replace', () => {
+    // The documented idiom now that there is one operation: the anchor appears
+    // in BOTH search and replace, and the new code rides along.
+    return editOn(original, {
       path: 'src/greeter.ts',
-      search: 'export function welcome(name: string): string {',
-      insert_before: '/**\n * Welcomes someone.\n * @param name - the person to greet\n */',
+      search: 'export function greet(name: string): string {',
+      replace: '/** Greets someone. */\nexport function greet(name: string): string {',
+    }).then(({ result, written }) => {
+      expect(result).toContain('File edited');
+      expect(written).toBe('/** Greets someone. */\n' + original);
     });
-
-    expect(result).toContain('File edited');
-    expect(written).toContain('/**');
-    expect(written).toContain('* @param name');
-    expect(written).toContain('export function welcome(name: string): string {'); // anchor kept
-    expect(written).toContain('return `Hello, ${name}!`;'); // body intact
-    expect((written.match(/\{/g) || []).length).toBe((written.match(/\}/g) || []).length);
   });
 
-  it('insert_after adds text below the anchor', async () => {
-    const { workspace } = await import('vscode');
-    let written = '';
-    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
-      written = Buffer.from(c as Uint8Array).toString('utf-8');
-    });
+  it('insert_after / insert_before / new_text are no longer accepted fields', () => {
+    // They are not in the schema, so a model still sending them lands in the
+    // missing-search/replace path and is told what to send instead — never a
+    // silent no-op reported as success, which is what the removed
+    // splitFusedAnchor recovery used to do (eight false "File edited" results
+    // while duplicating text five times over, measured on gemma4).
+    const declared = Object.keys(editFileDef.input_schema.properties ?? {});
+    expect(declared).toEqual(['path', 'search', 'replace']);
+  });
 
-    await editMsg({
+  it('no model-facing string still teaches a removed field', () => {
+    // The schema check above passed while two error messages went on telling
+    // the model to retry with `insert_after` — and it is not a synonym for
+    // `replace`, so the payload was dropped and the retry failed identically.
+    // An error message is prompt surface; checking only the schema misses it.
+    const source = readFileSync(resolve(process.cwd(), 'src/agent/tools/fs.ts'), 'utf-8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const removed of ['insert_after', 'insert_before', 'new_text']) {
+      expect(source, `${removed} still appears outside a comment`).not.toContain(removed);
+    }
+  });
+
+  it('a replace that drops the anchor is refused, not silently applied', () => {
+    // The failure insert_* was built to prevent: asked to ADD a comment, a weak
+    // model sends only the comment in replace, which MEANS delete the function.
+    // The syntax guard is what catches it now.
+    return editOn(original, {
       path: 'src/greeter.ts',
-      search: '  return `Hello, ${name}!`;',
-      insert_after: '  // greeting sent',
+      search: 'export function greet(name: string): string {',
+      replace: '/** Greets someone. */',
+    }).then(({ result, written }) => {
+      expect(result).toMatch(/syntax error|NOT modified/i);
+      expect(written).toBe('');
     });
-
-    expect(written).toContain('// greeting sent');
-    expect(written).toContain('export function welcome');
-    expect((written.match(/\{/g) || []).length).toBe((written.match(/\}/g) || []).length);
-  });
-
-  it('rejects replace + insert together, and an insert with no anchor', async () => {
-    const both = await editMsg({
-      path: 'src/greeter.ts',
-      search: 'x',
-      replace: 'y',
-      insert_before: 'z',
-    });
-    expect(both).toMatch(/both 'replace' and an insert/i);
-
-    const noAnchor = await editMsg({ path: 'src/greeter.ts', insert_before: '/** hi */' });
-    expect(noAnchor).toMatch(/needs 'search'/i);
-  });
-
-  it('rejects the API INVERSION — anchor repeated in insert_after instead of the new text', async () => {
-    // The live gemma4 failure: it put the anchor in BOTH search and insert_after,
-    // so the naive encoding became `search\nsearch` and DUPLICATED the anchor while
-    // reporting success (it added a second `subtract`, never the requested
-    // multiply/divide, then declared done). Reject with a message that names the
-    // mistake instead of silently duplicating.
-    const anchor = '  return `Hello, ${name}!`;';
-    const inverted = await editMsg({ path: 'src/greeter.ts', search: anchor, insert_after: anchor });
-    expect(inverted).toMatch(/identical to your 'search' anchor/i);
-    expect(inverted).toMatch(/repeated the anchor/i);
-
-    // Same inversion via insert_before.
-    const invertedBefore = await editMsg({ path: 'src/greeter.ts', search: anchor, insert_before: anchor });
-    expect(invertedBefore).toMatch(/identical to your 'search' anchor/i);
-  });
-
-  it('rejects an empty insert (a no-op that would otherwise report success)', async () => {
-    const empty = await editMsg({ path: 'src/greeter.ts', search: '  return `Hello, ${name}!`;', insert_after: '   ' });
-    expect(empty).toMatch(/is empty — there is nothing to add/i);
-  });
-
-  it('outcome-visibility: appends a bounded diff to the result ONLY when the flag is on', async () => {
-    const { workspace } = await import('vscode');
-    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
-    const args = { path: 'src/greeter.ts', search: '  return `Hello, ${name}!`;', replace: '  return `Hi, ${name}!`;' };
-
-    // Default (flag off): bare success, no diff — current behavior preserved.
-    const off = await editMsg(args, { config: { editResultDiffChars: 0 } as never });
-    expect(off).toContain('File edited');
-    expect(off).not.toMatch(/What changed/i);
-
-    // Flag on: the model gets to SEE what changed, so it can self-verify.
-    const on = await editMsg(args, { config: { editResultDiffChars: 500 } as never });
-    expect(on).toMatch(/What changed/i);
-    expect(on).toMatch(/Hi, \$\{name\}/); // the new line is visible in the diff
   });
 });
 

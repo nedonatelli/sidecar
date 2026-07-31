@@ -16,13 +16,6 @@ export interface SystemPromptParams {
    * cacheable-prefix constraint holds.
    */
   wholeFileRewrite?: boolean;
-  /**
-   * Teach the V2 insert convention (`editFile.insertApiV2`): `insert_after` /
-   * `insert_before` hold the EXISTING anchor (matching the field name's plain
-   * English), `new_text` holds the code to add. Must match the advertised
-   * edit_file schema — examples and schemas move in lockstep.
-   */
-  insertApiV2?: boolean;
 }
 
 /**
@@ -109,7 +102,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '7. **Before editing, check if the code already satisfies the requirement.** Read the file first. If the code is already correct, say so explicitly and do NOT make any edits. Making an unnecessary change to code that already works is a bug.',
     '8. **Make the minimal edit the request calls for.** When asked to change a specific part (only the return type, only one function, only the import), change exactly that and leave adjacent code untouched. Read the file first so you know what is adjacent. Do not "improve" or "clean up" code that was not mentioned.',
     '9. **After every `run_command` or `run_tests` that shows an error, fix the error, then re-run the same command to verify the fix worked.** Do not stop after the edit. Iterate — fix → re-run → fix → re-run — until the command exits cleanly.',
-    '10. **After editing files, call `get_diagnostics`. After fixing bugs, call `run_tests`.** Verify your work before declaring it done. `get_diagnostics` is the correct next step after `edit_file` — not re-running the application, not calling `run_command`. Re-running the app is a runtime check; `get_diagnostics` is a static check that catches type errors and syntax problems before runtime.',
+    '10. **After editing files, verify with a check that actually runs.** `get_diagnostics` is a good fast first look and any diagnostics it reports are real — but it reads what a language server has already analyzed, so "No diagnostics" on a file you just wrote usually means nothing examined it, not that the file is clean. To confirm an edit type-checks, call `run_command` with the project\'s checker (`npx tsc --noEmit`, `npx eslint <file>`, or this language\'s equivalent). After fixing bugs, call `run_tests`. Re-running the application is a runtime check and does not substitute for either.',
     '11. **Chain tool calls without narrating each step.** For unambiguous requests, proceed directly. (Avoid "Now I will read the file" / "Let me now call get_diagnostics" filler between tool calls — it adds tokens and noise.) **A message that announces an action ("I\'ll make the edit now", "I will update X", "Let me fix that") MUST include that tool call in the same turn.** Announcing an action and then ending the turn without calling the tool is a hard failure — the workspace is unchanged. If you intend to call a tool, call it immediately. Intent is not action.',
     '12. **Write complete, working implementations.** Build the full feature in one pass, including all error handling. (Avoid `// TODO` placeholders, stub functions, empty catch blocks, or "handle error later" comments. If something truly can\'t be implemented, explain why and ask before shipping a stub.)',
     '13. **If the request uses singular-target language ("rename the function", "fix the method", "update the variable") but the file has multiple candidates, stop and call `ask_user` before editing anything.** A guess followed by "let me know if you meant the other one" is not acceptable — the edit has already landed and may be wrong. Reasoning from name similarity, position, or lack of external references can still be wrong — ask rather than risk the wrong target. **Editing first and asking afterward ("I renamed X — was that the right one?") is equally not acceptable.** The edit has already landed on disk. Call `ask_user` BEFORE any tool that writes, renames, or deletes. **For any genuinely ambiguous request with meaningful alternatives**, use `ask_user`. For clearly-stated, unambiguous requests proceed directly without asking permission.',
@@ -216,31 +209,16 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '`run_command(command="node -e \\"console.log(Date.now())\\"")` — no temp file needed.',
     '`run_command(command="python3 -c \\"import json,sys; d=json.load(open(\'a.json\')); print(len(d))\\"")` — inline JSON inspection.',
     '',
-    ...(p.insertApiV2
-      ? [
-          'User asks "add a hello function to utils.ts" (ADDING code — use insert_after + new_text, NOT replace):',
-          '1. `run_command(command="grep -n \\"export function greet\\" src/utils.ts")` — find an existing function to anchor after',
-          '2. `read_file(path="src/utils.ts", start_line=N, end_line=M)` — copy the exact text of that existing function',
-          '3. `edit_file(path="src/utils.ts", insert_after=<the existing function, verbatim>, new_text=<ONLY the new hello function>)`',
-          '   `insert_after` holds the EXISTING text to insert after; `new_text` holds ONLY the NEW code. Do NOT repeat the anchor in `new_text`, and do NOT fill `replace` — inserting keeps the anchor automatically.',
-          '4. `get_diagnostics(path="src/utils.ts")` to verify',
-          '',
-          '**Adding vs. replacing — pick the right fields:**',
-          '- ADD new code next to existing code → `edit_file(insert_after=<existing anchor>, new_text=<new code only>)` (or `insert_before`). The anchor stays; you supply only what is new.',
-          '- CHANGE existing code → `edit_file(search=<old text>, replace=<new text>)`. Never combine `replace` with the insert fields.',
-        ]
-      : [
-          'User asks "add a hello function to utils.ts" (ADDING code — use insert_after, NOT replace):',
-          '1. `run_command(command="grep -n \\"export function greet\\" src/utils.ts")` — find an existing function to anchor after',
-          '2. `read_file(path="src/utils.ts", start_line=N, end_line=M)` — copy the exact text of that existing function',
-          '3. `edit_file(path="src/utils.ts", search=<the existing function, verbatim>, insert_after=<ONLY the new hello function>)`',
-          '   The `search` holds the EXISTING anchor; `insert_after` holds ONLY the NEW code. Do NOT put the anchor in `insert_after`, and do NOT fill `replace` — inserting keeps the anchor automatically.',
-          '4. `get_diagnostics(path="src/utils.ts")` to verify',
-          '',
-          '**Adding vs. replacing — pick the right field:**',
-          '- ADD new code next to existing code → `edit_file(search=<existing anchor>, insert_after=<new code only>)` (or `insert_before`). The anchor stays; you supply only what is new.',
-          '- CHANGE existing code → `edit_file(search=<old text>, replace=<new text>)`. Never combine `replace` with `insert_after`/`insert_before`, and never fill more than one of the three.',
-        ]),
+    'User asks "add a hello function to utils.ts" (ADDING code — repeat the anchor, do not drop it):',
+    '1. `run_command(command="grep -n \\"export function greet\\" src/utils.ts")` — find an existing line to anchor on',
+    '2. `read_file(path="src/utils.ts", start_line=N, end_line=M)` — copy the exact text of that anchor',
+    '3. `edit_file(path="src/utils.ts", search=<the anchor line, verbatim>, replace=<that SAME anchor line, then the new hello function>)`',
+    '   There is one edit operation: substitution. To ADD code you REPEAT the anchor inside `replace` and append the new code after it — that keeps the anchor and inserts alongside it.',
+    '4. `get_diagnostics(path="src/utils.ts")` to verify',
+    '',
+    '**Adding vs. replacing — one primitive, two uses:**',
+    '- ADD code → `edit_file(search=<anchor>, replace=<anchor repeated + new code>)`. Dropping the anchor from `replace` DELETES it — that is the single most common way this tool is misused.',
+    '- CHANGE code → `edit_file(search=<old text>, replace=<new text>)`.',
     '',
     'User asks "Run node src/app.js and fix any errors":',
     '1. `run_command(command="node src/app.js")` — run it first, observe the output',

@@ -50,6 +50,14 @@ function makeRunCommand(command: string): ToolUseContentBlock {
 function ok(): ToolResultContentBlock {
   return { type: 'tool_result', tool_use_id: 'id', content: 'ok' };
 }
+/** A get_diagnostics result carrying specific output text. */
+function diagResult(content: string): ToolResultContentBlock {
+  return {
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content: `<tool_output tool="get_diagnostics">\n${content}\n</tool_output>`,
+  };
+}
 function err(): ToolResultContentBlock {
   return { type: 'tool_result', tool_use_id: 'id', content: 'boom', is_error: true };
 }
@@ -119,15 +127,51 @@ describe('completionGate — recordToolCall', () => {
     expect(state.lintObserved).toBe(true);
   });
 
-  it('get_diagnostics call satisfies lint requirement', () => {
-    // The primary post-edit tool is get_diagnostics (Rule 6 + tool description
-    // both say "mandatory after every edit"). Without this, a model following
-    // instructions would be reprompted to run eslint even though it already
-    // called get_diagnostics.
+  it('get_diagnostics satisfies lint ONLY when it reported something', () => {
+    // Keyed on output evidence, not the call. `languages.getDiagnostics` reads
+    // what a language server already analyzed, and it analyzes files open in a
+    // visible editor — never a file the agent just wrote. Measured in a real
+    // extension host: unopened → 0 after 10s; openTextDocument alone → 0 after
+    // 20s. So an empty result is the normal result and proves nothing.
+    const diag: ToolUseContentBlock = { type: 'tool_use', id: 'id', name: 'get_diagnostics', input: {} };
+
+    const reported = createGateState();
+    recordToolCall(reported, diag, diagResult('src/a.ts:12 [Error] Type X is not assignable to Y'));
+    expect(reported.lintObserved).toBe(true);
+    expect(reported.emptyDiagnosticsObserved).toBe(false);
+  });
+
+  it('an EMPTY, NOT-analyzed get_diagnostics result does not satisfy lint', () => {
+    const diag: ToolUseContentBlock = { type: 'tool_use', id: 'id', name: 'get_diagnostics', input: {} };
+    // Opening the file makes real errors surface, but a NEGATIVE is still
+    // unprovable: an unfinished analysis looks exactly like a clean one.
+    for (const empty of [
+      'No diagnostics reported for src/a.ts. This is NOT proof the file is clean — an analysis that has not finished looks exactly like one that found nothing.',
+      'No diagnostics found. NOTE: this lists only what language services have already reported; files nobody has opened are not analyzed, so this is not proof the project is clean.',
+    ]) {
+      const state = createGateState();
+      recordToolCall(state, diag, diagResult(empty));
+      expect({ lint: state.lintObserved, sawEmpty: state.emptyDiagnosticsObserved }).toEqual({
+        lint: false,
+        sawEmpty: true,
+      });
+    }
+  });
+
+  it('a security-scanner finding still counts — something analyzed the file', () => {
+    const diag: ToolUseContentBlock = { type: 'tool_use', id: 'id', name: 'get_diagnostics', input: {} };
+    const state = createGateState();
+    recordToolCall(state, diag, diagResult('src/a.ts:230 [WARNING] Command Injection risk: unvalidated input'));
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('a new edit clears a previous empty-diagnostics observation', () => {
     const state = createGateState();
     const diag: ToolUseContentBlock = { type: 'tool_use', id: 'id', name: 'get_diagnostics', input: {} };
-    recordToolCall(state, diag, ok());
-    expect(state.lintObserved).toBe(true);
+    recordToolCall(state, diag, diagResult('No diagnostics for src/a.ts'));
+    expect(state.emptyDiagnosticsObserved).toBe(true);
+    recordToolCall(state, { type: 'tool_use', id: 'e', name: 'edit_file', input: { path: 'src/a.ts' } }, ok());
+    expect(state.emptyDiagnosticsObserved).toBe(false);
   });
 
   it('get_diagnostics error does NOT satisfy lint requirement', () => {
@@ -2051,5 +2095,72 @@ describe('no-op edits are not mutations (completion recognition)', () => {
 
     expect(state.editedFiles.size).toBe(1);
     expect(state.lintObserved).toBe(false);
+  });
+});
+
+describe('gate injection when get_diagnostics came back empty', () => {
+  it('does not send the model back to the tool that just told it nothing', () => {
+    // Without this branch the injection reads "Call: get_diagnostics" to a
+    // model that has just called get_diagnostics and received nothing — a
+    // guaranteed loop until the gate exhausts its attempts.
+    const text = buildGateInjection([{ file: 'src/foo.ts', needsLint: true, diagnosticsWereEmpty: true }], 1, 3);
+    expect(text).toContain('does not mean your edit is clean');
+    expect(text).toContain('tsc --noEmit');
+    expect(text).not.toMatch(/Call:\n\s+get_diagnostics/);
+  });
+
+  it('still leads with get_diagnostics when no check ran at all', () => {
+    const text = buildGateInjection([{ file: 'src/foo.ts', needsLint: true }], 1, 3);
+    expect(text).toContain('get_diagnostics');
+    expect(text).not.toContain('does not mean your edit is clean');
+  });
+
+  it('names a language-appropriate checker for non-JS files', () => {
+    const text = buildGateInjection([{ file: 'calc.py', needsLint: true, diagnosticsWereEmpty: true }], 1, 3);
+    expect(text).not.toContain('eslint');
+    expect(text).toContain('type-checker or linter for this language');
+  });
+});
+
+describe('a checker that never ran does not satisfy the lint gate', () => {
+  // Same defect class as the get_diagnostics one: keyed on the invocation
+  // rather than the evidence. `npx tsc --noEmit` that dies with "command not
+  // found" used to satisfy the gate exactly as well as a real type-check —
+  // and the empty-diagnostics reprompt now steers models straight at it.
+  const failures = [
+    'npx: command not found\n(exit code: 127)',
+    "'tsc' is not recognized as an internal or external command\n(exit code: 9009)",
+    'sh: 1: eslint: No such file or directory\n(exit code: 127)',
+  ];
+
+  it('rejects a checker that failed to launch', () => {
+    for (const out of failures) {
+      const state = createGateState();
+      recordToolCall(state, makeRunCommand('npx tsc --noEmit'), {
+        type: 'tool_result',
+        tool_use_id: 'id',
+        content: out,
+      });
+      expect({ out, lint: state.lintObserved }).toEqual({ out, lint: false });
+    }
+  });
+
+  it('accepts a checker that ran and found problems', () => {
+    // Non-zero exit with real findings is exactly the evidence we want.
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npx tsc --noEmit'), {
+      type: 'tool_result',
+      tool_use_id: 'id',
+      content: "src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n(exit code: 2)",
+    });
+    expect(state.lintObserved).toBe(true);
+  });
+
+  it('accepts a checker that ran and printed nothing', () => {
+    // tsc is silent on success — requiring positive output would be the
+    // opposite mistake.
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npx tsc --noEmit'), { type: 'tool_result', tool_use_id: 'id', content: '' });
+    expect(state.lintObserved).toBe(true);
   });
 });

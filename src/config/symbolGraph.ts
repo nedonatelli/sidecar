@@ -31,7 +31,11 @@ export type {
 } from './symbolGraph/types.js';
 
 // v3: added typeUses edges + the callsFrom (callee) index for change-impact analysis.
-const GRAPH_VERSION = 3;
+// v4: top-level variable declarations are indexed as `variable` symbols. The bump
+//     is what forces the re-index — reconciliation is by content hash, so an
+//     existing cache would otherwise serve a graph with no variable symbols
+//     forever, since none of the files changed.
+export const GRAPH_VERSION = 4;
 
 export class SymbolGraph {
   // Primary storage: symbols indexed by file

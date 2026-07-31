@@ -255,7 +255,7 @@ export async function executeTool(
   // Runs BEFORE approval / hooks so the user doesn't get prompted for edits
   // that are merely queued, not actually hitting disk.
   if (approvalMode === 'review' && pendingEdits) {
-    const intercepted = await handleReviewModeTool(toolUse, pendingEdits, logger);
+    const intercepted = await handleReviewModeTool(toolUse, pendingEdits, logger, executorContext);
     if (intercepted) return intercepted;
     // null → not a file I/O tool; fall through to normal execution.
   }

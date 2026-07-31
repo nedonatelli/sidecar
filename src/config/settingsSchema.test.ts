@@ -68,7 +68,7 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     }
   });
 
-  it('exactly 239 settings keys total across all sections', () => {
+  it('exactly 240 settings keys total across all sections', () => {
     // Baseline: v0.62.4 (75) + v0.64 Model Routing (+5:
     // modelRouting.enabled/rules/defaultModel/visibleSwaps/dryRun)
     // + v0.64 Skill Sync (+5: skills.userRegistry/teamRegistries/
@@ -127,11 +127,14 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     //   injectionGuard.enabled).
     // + v2.0.1 scaffolding.cycleDetectionMinRepeats (+1: user-configurable
     //   stuck-loop repeat threshold, default 10, was a fixed 3).
+    // + diagnostics.analysisBudgetMs (+1: how long get_diagnostics waits for a
+    //   language server to analyze the file it was given; 0 disables the
+    //   open-and-close entirely).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(239);
+    expect(totalKeys).toBe(240);
   });
 
   it('no setting key is duplicated across sections', () => {

@@ -13,7 +13,7 @@ import { findSdkTool, getSdkToolDefinitions } from '../sdk/registry.js';
 // Each tools/*.ts module exports its own `<name>Tools: RegisteredTool[]` array.
 // TOOL_REGISTRY is built by spreading them. Value-level re-exports below
 // keep pre-split import sites working without edits.
-import { fsTools, editFileDefV2 } from './tools/fs.js';
+import { fsTools } from './tools/fs.js';
 import { searchTools } from './tools/search.js';
 import { shellTools } from './tools/shell.js';
 import { diagnosticsTools } from './tools/diagnostics.js';
@@ -523,15 +523,7 @@ export function toStubDefinition(def: ToolDefinition): ToolDefinition {
 
 export function getToolDefinitions(mcpManager?: MCPManager, injectedConfig?: SideCarConfig): ToolDefinition[] {
   const cfg = injectedConfig ?? getConfig();
-  let builtIn: ToolDefinition[] = [...getEnabledBuiltInTools(cfg).map((t) => t.definition), SPAWN_AGENT_DEFINITION];
-  // Insert-API V2 (editFile.insertApiV2): advertise the schema whose field
-  // names survive the naive English reading — insert_after/insert_before as
-  // the anchor, new_text as the payload. The executor accepts both
-  // conventions regardless; only the teaching changes.
-  if (cfg.insertApiV2Enabled === true) {
-    builtIn = builtIn.map((d) => (d.name === 'edit_file' ? editFileDefV2 : d));
-  }
-
+  const builtIn: ToolDefinition[] = [...getEnabledBuiltInTools(cfg).map((t) => t.definition), SPAWN_AGENT_DEFINITION];
   // Only advertise delegate_task when we're paying per token AND the
   // user hasn't opted out. Pointless on local-only setups — both
   // orchestrator and worker would run the same Ollama backend.

@@ -278,6 +278,18 @@ The critic is capped at 2 injections per file per run to prevent unbounded spend
 | `sidecar.diagnostics.reactiveFixSeverity`   | string  | `"error"` | Minimum severity to trigger a fix. `"error"` = errors only; `"warning"` = errors and warnings. |
 | `sidecar.diagnostics.reactiveFixDebounceMs` | number  | `2000`    | Milliseconds to wait after a diagnostic appears before firing, to avoid triggering mid-edit.   |
 
+## On-demand analysis for `get_diagnostics`
+
+| Setting                                | Type   | Default | Description                                                                              |
+| -------------------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------- |
+| `sidecar.diagnostics.analysisBudgetMs` | number | `5000`  | How long `get_diagnostics` waits for a language server to analyze the file it was given. |
+
+VS Code only reports diagnostics for files a language server has open, so a file the agent just wrote to disk has none — `get_diagnostics` used to return "No diagnostics" for exactly the case it exists to serve. It now opens the file in a **preview tab that does not take focus**, waits for the analysis, and closes the tab again. Nothing is saved and no editor is left dirty; the visible cost is a tab that briefly appears.
+
+Set to `0` to skip this entirely and read only what is already cached — invisible and instant, but usually empty for files you have not opened yourself.
+
+Note that an empty result is never reported as proof a file is clean, whatever the budget: an analysis that has not finished is indistinguishable from one that found nothing. Use `run_command` with your type-checker, or `run_tests`, to verify a change.
+
 ## Completion gate
 
 | Setting                          | Type    | Default | Description                                                                                                       |
@@ -660,7 +672,7 @@ SideCar uses **Retrieval-Augmented Generation (RAG)** to inject relevant documen
 | Setting                            | Type    | Default | Description                                                                        |
 | ---------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------- |
 | `sidecar.enableDocumentationRAG`   | boolean | `true`  | Enable documentation retrieval for every user message                              |
-| `sidecar.ragMaxDocEntries`         | number  | `5`     | Maximum number of documentation entries to inject per message (1-20)               |
+| `sidecar.ragMaxDocEntries`         | number  | `20`    | Maximum number of documentation entries to inject per message (1-20)               |
 | `sidecar.ragUpdateIntervalMinutes` | number  | `60`    | Re-index documentation every N minutes (5-360). Set to `0` to disable auto-refresh |
 
 Documentation is automatically discovered in:
@@ -948,7 +960,7 @@ When enabled, the agent can call `delegate_to_mcp(server="my-server", task="..."
 | --------------------------------- | ------- | ------- | ---------------------------------------------------------------- |
 | `sidecar.mcpServer.enabled`       | boolean | `false` | Expose SideCar's agent loop as a local MCP server on `127.0.0.1` |
 | `sidecar.mcpServer.port`          | number  | `3457`  | Listening port (1024–65535)                                      |
-| `sidecar.mcpServer.requireAuth`   | boolean | `false` | Require a bearer token on inbound requests                       |
+| `sidecar.mcpServer.requireAuth`   | boolean | `true`  | Require a bearer token on inbound requests                       |
 | `sidecar.mcpServer.authToken`     | string  | `""`    | Bearer token clients must supply when `requireAuth` is `true`    |
 | `sidecar.mcpServer.maxConcurrent` | number  | `1`     | Maximum concurrent agent tasks from inbound calls                |
 

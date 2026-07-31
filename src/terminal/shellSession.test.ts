@@ -248,3 +248,85 @@ describeUnix('ShellSession', () => {
     });
   });
 });
+
+describeUnix('stdin never reaches the command (sentinel-swallowing regression)', () => {
+  let session: ShellSession;
+  afterEach(() => session?.dispose());
+
+  it('a stdin-reading command does not swallow the completion sentinel', async () => {
+    // Live bug: completion is signalled by writing `echo "<SENTINEL>_$?_END"`
+    // as a second line to the shell's stdin. `cat` read that line and printed
+    // it, so stdout came back as `echo "` — and the exit code was parsed out
+    // of the echoed text, reporting 0 for a command that never completed.
+    session = new ShellSession(os.tmpdir());
+    const r = await session.execute('cat');
+    expect(r.stdout).not.toContain('echo');
+    expect(r.stdout.trim()).toBe('');
+  }, 30000);
+
+  it('an interactive-style read gets EOF instead of hanging', async () => {
+    session = new ShellSession(os.tmpdir());
+    const r = await session.execute('read -r line; echo "got:[$line]"');
+    expect(r.stdout).toContain('got:[]');
+    expect(r.stdout).not.toContain('_END');
+  }, 30000);
+
+  // The grouping is what makes the redirect safe; each of these is a construct
+  // it could plausibly break.
+  it('pipelines still work (the reason for a group, not a bare redirect)', async () => {
+    session = new ShellSession(os.tmpdir());
+    // `echo x | cat < /dev/null` would bind the redirect to cat and print
+    // nothing. Grouping keeps the pipe intact.
+    const r = await session.execute('echo x | cat');
+    expect(r.stdout.trim()).toBe('x');
+  }, 30000);
+
+  it('cd persists across calls (braces, not a subshell)', async () => {
+    session = new ShellSession(os.tmpdir());
+    await session.execute('cd /');
+    const r = await session.execute('pwd');
+    expect(r.stdout.trim()).toBe('/');
+  }, 30000);
+
+  it('exports persist across calls', async () => {
+    session = new ShellSession(os.tmpdir());
+    await session.execute('export SIDECAR_PROBE=42');
+    const r = await session.execute('echo "v=$SIDECAR_PROBE"');
+    expect(r.stdout.trim()).toBe('v=42');
+  }, 30000);
+
+  it('a trailing & does not become a syntax error', async () => {
+    // `{ sleep 0 & ; }` is invalid — the newline before the closing brace is
+    // what makes this work.
+    session = new ShellSession(os.tmpdir());
+    const r = await session.execute('sleep 0 &');
+    expect(r.stdout).not.toMatch(/syntax error/i);
+    expect(r.exitCode).toBe(0);
+  }, 30000);
+
+  it('a trailing comment does not swallow the terminator', async () => {
+    session = new ShellSession(os.tmpdir());
+    const r = await session.execute('echo hi # trailing comment');
+    expect(r.stdout.trim()).toBe('hi');
+  }, 30000);
+
+  it('heredocs still work', async () => {
+    session = new ShellSession(os.tmpdir());
+    const r = await session.execute('cat <<EOF\nline1\nline2\nEOF');
+    expect(r.stdout).toContain('line1');
+    expect(r.stdout).toContain('line2');
+  }, 30000);
+
+  it('exit codes are the command’s, not parsed out of echoed text', async () => {
+    session = new ShellSession(os.tmpdir());
+    const ok = await session.execute('true');
+    const bad = await session.execute('false');
+    expect({ ok: ok.exitCode, bad: bad.exitCode }).toEqual({ ok: 0, bad: 1 });
+  }, 30000);
+
+  it('stderr is still captured', async () => {
+    session = new ShellSession(os.tmpdir());
+    const r = await session.execute('echo to-stderr 1>&2');
+    expect(r.stdout).toContain('to-stderr');
+  }, 30000);
+});

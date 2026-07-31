@@ -170,7 +170,99 @@ describe('handleReviewModeTool — edit_file', () => {
       store,
     );
     expect(result!.is_error).toBe(true);
-    expect(result!.content).toContain('Search text not found');
+    // The shared core's recovery message, not the old bare "Search text not found":
+    // it names the file, states the file was untouched, and routes the model back.
+    expect(result!.content).toContain('search string not found in src/foo.ts');
+    expect(result!.content).toContain('NOT modified');
+    expect(result!.content).toContain('read_file');
+  });
+
+  it('does not expand $-patterns in the replacement text', async () => {
+    // The local matcher used the STRING form of String.prototype.replace, so
+    // `$&` in the replacement expanded to the matched text and `$'` to the
+    // trailing text — silently corrupting the queued file.
+    const store = makePendingStore([
+      {
+        filePath: `${ROOT}/prices.md`,
+        originalContent: 'base',
+        newContent: 'cost: TBD\ntail\n',
+      },
+    ]);
+    const result = await handleReviewModeTool(
+      makeToolUse('edit_file', { path: 'prices.md', search: 'cost: TBD', replace: "cost: $& $' $1 $$" }),
+      store,
+    );
+    expect(result!.is_error).toBeUndefined();
+    const recorded = (store.record as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(recorded[2]).toBe("cost: $& $' $1 $$\ntail\n");
+  });
+
+  it('refuses an ambiguous search instead of silently editing the first match', async () => {
+    // String.replace stops at the first hit, so an ambiguous search quietly
+    // edited match 1 of N and reported success.
+    const store = makePendingStore([
+      {
+        filePath: `${ROOT}/notes.md`,
+        originalContent: 'base',
+        newContent: 'total: 1\ntotal: 1\n',
+      },
+    ]);
+    const result = await handleReviewModeTool(
+      makeToolUse('edit_file', { path: 'notes.md', search: 'total: 1', replace: 'total: 2' }),
+      store,
+    );
+    expect(result!.is_error).toBe(true);
+    expect(result!.content).toContain('appears 2 times');
+    expect(store.record).not.toHaveBeenCalled();
+  });
+
+  it('matches an LF search against CRLF pending content and queues CRLF', async () => {
+    const store = makePendingStore([
+      { filePath: `${ROOT}/src/foo.ts`, originalContent: 'base', newContent: 'a = 1;\r\nb = 2;\r\n' },
+    ]);
+    const result = await handleReviewModeTool(
+      makeToolUse('edit_file', { path: 'src/foo.ts', search: 'a = 1;\nb = 2;', replace: 'a = 9;\nb = 8;' }),
+      store,
+    );
+    expect(result!.is_error).toBeUndefined();
+    const recorded = (store.record as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(recorded[2]).toBe('a = 9;\r\nb = 8;\r\n');
+  });
+
+  it('carries the outcome-visibility diff into the queued result when the flag is on', async () => {
+    const store = makePendingStore([
+      { filePath: `${ROOT}/notes.md`, originalContent: 'base', newContent: 'before line\n' },
+    ]);
+    const result = await handleReviewModeTool(
+      makeToolUse('edit_file', { path: 'notes.md', search: 'before line', replace: 'after line' }),
+      store,
+      undefined,
+      { config: { editResultDiffChars: 500 } } as never,
+    );
+    expect(result!.content).toContain('Pending edit queued');
+    expect(result!.content).toMatch(/What changed/i);
+    expect(result!.content).toContain('after line');
+  });
+
+  it('refuses a syntax-breaking edit before queueing it for review', async () => {
+    const store = makePendingStore([
+      {
+        filePath: `${ROOT}/src/foo.ts`,
+        originalContent: 'base',
+        newContent: 'export function answer(): number {\n  return 42;\n}\n',
+      },
+    ]);
+    const result = await handleReviewModeTool(
+      makeToolUse('edit_file', {
+        path: 'src/foo.ts',
+        search: 'export function answer(): number {',
+        replace: 'number',
+      }),
+      store,
+    );
+    expect(result!.is_error).toBe(true);
+    expect(result!.content).toContain('syntax error');
+    expect(store.record).not.toHaveBeenCalled();
   });
 });
 

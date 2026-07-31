@@ -64,6 +64,15 @@ interface ElementMapping {
   elementType: CodeElement['type'];
   nameField?: string;
   nameNodeType?: string;
+  /**
+   * Emit one element per descendant of this type rather than one for the node.
+   * A declaration can bind several names (`const A = 1, B = 2`) and the names
+   * live on nested declarators, not on a field of the declaration itself — the
+   * `nodeType` + `nameField` shape cannot express that. Mappings carrying this
+   * are also restricted to top-level nodes: a declaration inside a function
+   * body is not an addressable symbol.
+   */
+  perDeclarator?: string;
 }
 
 const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
@@ -71,6 +80,8 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
     { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
     { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
     { nodeType: 'method_definition', elementType: 'method', nameField: 'name' },
+    { nodeType: 'lexical_declaration', elementType: 'variable', perDeclarator: 'variable_declarator' },
+    { nodeType: 'variable_declaration', elementType: 'variable', perDeclarator: 'variable_declarator' },
     { nodeType: 'export_statement', elementType: 'export' },
     { nodeType: 'import_statement', elementType: 'import' },
   ],
@@ -81,6 +92,8 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
     { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
     { nodeType: 'type_alias_declaration', elementType: 'type', nameField: 'name' },
     { nodeType: 'enum_declaration', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'lexical_declaration', elementType: 'variable', perDeclarator: 'variable_declarator' },
+    { nodeType: 'variable_declaration', elementType: 'variable', perDeclarator: 'variable_declarator' },
     { nodeType: 'export_statement', elementType: 'export' },
     { nodeType: 'import_statement', elementType: 'import' },
   ],
@@ -91,6 +104,8 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
     { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
     { nodeType: 'type_alias_declaration', elementType: 'type', nameField: 'name' },
     { nodeType: 'enum_declaration', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'lexical_declaration', elementType: 'variable', perDeclarator: 'variable_declarator' },
+    { nodeType: 'variable_declaration', elementType: 'variable', perDeclarator: 'variable_declarator' },
     { nodeType: 'export_statement', elementType: 'export' },
     { nodeType: 'import_statement', elementType: 'import' },
   ],
@@ -230,6 +245,47 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
 
       for (const mapping of mappings) {
         if (node.type === mapping.nodeType) {
+          if (mapping.perDeclarator) {
+            // One declaration, N bound names. Restricted to the top level:
+            // `program`, or an `export_statement` directly under it. A
+            // declaration in a function body is not an addressable symbol and
+            // indexing them would inflate the graph for no query value.
+            const parent = node.parent;
+            const topLevel =
+              parent?.type === 'program' || (parent?.type === 'export_statement' && parent.parent?.type === 'program');
+            if (!topLevel) break;
+
+            const startLine = node.startPosition.row;
+            const endLine = node.endPosition.row;
+            const declContent = lines.slice(startLine, endLine + 1).join('\n');
+            for (let i = 0; i < node.childCount; i++) {
+              const child = node.child(i);
+              if (child?.type !== mapping.perDeclarator) continue;
+              const nameNode = child.childForFieldName('name');
+              // Destructuring binds via object_pattern / array_pattern, which
+              // have no single identifier to attribute a range to. Deliberately
+              // skipped rather than guessed at.
+              if (!nameNode || nameNode.type !== 'identifier') continue;
+              // `const handle = () => {}` is a function to everyone who reads
+              // it, and the regex analyzer already indexes it as one. Typing it
+              // `variable` here would make a symbol's kind depend on which
+              // analyzer happened to run.
+              const value = child.childForFieldName('value')?.type;
+              const isFunctionValued =
+                value === 'arrow_function' || value === 'function_expression' || value === 'function';
+              elements.push({
+                type: isFunctionValued ? 'function' : mapping.elementType,
+                name: nameNode.text,
+                startLine,
+                endLine,
+                content: declContent,
+                relevanceScore: 0,
+                exported: parent?.type === 'export_statement',
+              });
+            }
+            break;
+          }
+
           let name = '';
 
           // Try to get name from the designated field

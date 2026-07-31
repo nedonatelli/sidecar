@@ -4,7 +4,14 @@
  * (functions, classes, methods) based on query content.
  */
 
-import { findBlockEnd, findIndentEnd, parseImport, resolveImportPath } from './astContext/importScan.js';
+import {
+  declaredNames,
+  findBlockEnd,
+  findDeclarationEnd,
+  findIndentEnd,
+  parseImport,
+  resolveImportPath,
+} from './astContext/importScan.js';
 import { findRelevantElements, extractRelevantContent } from './astContext/relevance.js';
 
 export interface CodeElement {
@@ -125,7 +132,10 @@ export class SimpleCodeAnalyzer {
    */
   static parseFileContent(filePath: string, content: string): ParsedFile {
     const elements: CodeElement[] = [];
-    const lines = content.split('\n');
+    // A byte-order mark sits before the first character, so every `^`-anchored
+    // pattern below misses whatever is declared on line 1. Tree-sitter ignores
+    // it, so leaving it in made the two analyzers disagree about the same file.
+    const lines = content.replace(/^\uFEFF/, '').split('\n');
     const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
 
     // Determine language family once to avoid testing irrelevant patterns per line.
@@ -204,6 +214,12 @@ export class SimpleCodeAnalyzer {
     // Helper: build content string from line range (deferred to avoid O(n) per element during scan)
     const buildContent = (start: number, end: number) => lines.slice(start, end + 1).join('\n');
 
+    // Last line covered by an emitted top-level declaration. A top-level
+    // declaration cannot contain another, so anything inside one is not a
+    // symbol — without this, a `const SWIFT_SOURCE = \`…\`` holding another
+    // language's source yields a symbol for every `let` in the embedded text.
+    let declaredThrough = -1;
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
@@ -231,7 +247,13 @@ export class SimpleCodeAnalyzer {
         const arrowMatch = line.match(
           /(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s+)?(?:\(|[a-zA-Z_$])/,
         );
-        if (arrowMatch && (line.includes('=>') || lines[i + 1]?.includes('=>'))) {
+        // The next-line lookahead is for an arrow whose parameter list wraps:
+        // `const fn = (\n  a,\n) => …`. It only applies while that list is still
+        // open — without the guard, any declaration sitting above an unrelated
+        // arrow was read as a function, which silently swallowed its symbol.
+        const parensOpen = (line.match(/\(/g)?.length ?? 0) > (line.match(/\)/g)?.length ?? 0);
+        const isArrowFunction = !!arrowMatch && (line.includes('=>') || (parensOpen && !!lines[i + 1]?.includes('=>')));
+        if (arrowMatch && isArrowFunction) {
           const endLine = line.includes('{') ? findBlockEnd(lines, i) : i;
           elements.push({
             type: 'function',
@@ -242,6 +264,33 @@ export class SimpleCodeAnalyzer {
             relevanceScore: 0.8,
             exported: isExported,
           });
+        }
+
+        // Top-level variable declarations. `^` with no leading whitespace is
+        // this analyzer's only available proxy for "top level" — it has no
+        // scope tracking — and it matches the spec: declarations nested in a
+        // function body are deliberately not symbols.
+        const isDeclaration = /^(?:export\s+)?(?:const|let|var)\s+[a-zA-Z_$]/.test(line);
+        if (
+          isDeclaration &&
+          i > declaredThrough &&
+          !/^(?:export\s+)?(?:const\s+)?enum\s/.test(line) &&
+          !isArrowFunction
+        ) {
+          const endLine = findDeclarationEnd(lines, i);
+          declaredThrough = endLine;
+          const content = buildContent(i, endLine);
+          for (const name of declaredNames(content)) {
+            elements.push({
+              type: 'variable',
+              name,
+              startLine: i,
+              endLine,
+              content,
+              relevanceScore: 0.6,
+              exported: isExported,
+            });
+          }
         }
 
         // Interface declarations (TypeScript)

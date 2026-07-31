@@ -1,7 +1,7 @@
-import * as fs from 'fs';
 import { logger } from '../system/logger.js';
 import * as path from 'path';
 import { redactSecrets } from './securityScanner.js';
+import { readJsonStore, writeJsonStoreAtomic, type StoreFailure } from './memory/jsonStore.js';
 
 /**
  * A persistent memory entry tracking patterns, conventions, or decisions
@@ -39,6 +39,8 @@ export class AgentMemory {
   private readonly MEMORY_FILE = 'agent-memories.json';
   private currentSessionId: string;
   private _saveChain: Promise<void> = Promise.resolve();
+  private loadFailure: StoreFailure | null = null;
+  private lastSaveError: Error | null = null;
 
   /** Resolves when all queued auto-saves have completed. Useful in tests. */
   get pendingSave(): Promise<void> {
@@ -75,43 +77,74 @@ export class AgentMemory {
    * Load memories from persistent storage.
    */
   async load(): Promise<void> {
-    try {
-      const filePath = path.join(this.memoryDir, this.MEMORY_FILE);
-      let content: string;
-      try {
-        content = await fs.promises.readFile(filePath, 'utf-8');
-      } catch {
-        return; // file absent — nothing to load
-      }
-      const data = JSON.parse(content);
-
-      if (Array.isArray(data.memories)) {
-        for (const entry of data.memories) {
-          this.memories.set(entry.id, entry);
-        }
-      }
-      logger.info(`[SideCar] Loaded ${this.memories.size} agent memories from persistent storage`);
-    } catch (error) {
-      logger.warn('[SideCar] Failed to load agent memories:', error);
+    const filePath = path.join(this.memoryDir, this.MEMORY_FILE);
+    const { value, failure } = await readJsonStore<{ memories?: MemoryEntry[] }>(filePath);
+    this.loadFailure = failure;
+    if (failure) {
+      // The store existed and could not be read. Continuing as an empty store
+      // was the destructive part: the next auto-save would write over it. The
+      // bytes are aside now, and save() refuses if they could not be moved.
+      logger.error(
+        `[SideCar] Agent memories could not be read (${failure.error.message}). ` +
+          (failure.quarantinedTo
+            ? `The file was preserved at ${failure.quarantinedTo}.`
+            : `The file could NOT be moved aside — saving is disabled to avoid destroying it.`),
+      );
+      return;
     }
+    if (value && Array.isArray(value.memories)) {
+      for (const entry of value.memories) {
+        this.memories.set(entry.id, entry);
+      }
+    }
+    logger.info(`[SideCar] Loaded ${this.memories.size} agent memories from persistent storage`);
+  }
+
+  /** Non-null when the on-disk store existed but could not be read or parsed. */
+  getLoadFailure(): StoreFailure | null {
+    return this.loadFailure;
+  }
+
+  /**
+   * Non-null when the most recent save failed. Auto-saves are fire-and-forget,
+   * so a failure cannot be thrown at anyone — it has to be readable state, or
+   * silent data loss is indistinguishable from success.
+   */
+  getSaveError(): Error | null {
+    return this.lastSaveError;
   }
 
   /**
    * Save memories to persistent storage.
    */
   async save(): Promise<void> {
-    try {
-      const filePath = path.join(this.memoryDir, this.MEMORY_FILE);
-      const data = {
-        version: 1,
-        savedAt: new Date().toISOString(),
-        memories: Array.from(this.memories.values()),
-      };
-      await fs.promises.mkdir(this.memoryDir, { recursive: true });
-      await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (error) {
-      logger.warn('[SideCar] Failed to save agent memories:', error);
+    if (this.loadFailure?.persistBlocked) {
+      throw new Error(
+        `Refusing to write agent memories: the existing store could not be read or moved aside. ` +
+          `Writing would destroy it. Move or repair the file, then restart.`,
+      );
     }
+    const filePath = path.join(this.memoryDir, this.MEMORY_FILE);
+    await writeJsonStoreAtomic(filePath, {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      memories: Array.from(this.memories.values()),
+    });
+    this.lastSaveError = null;
+  }
+
+  /**
+   * Queue an auto-save. The chain must not stay rejected — a single failure
+   * would then poison every later save — so the failure is caught here and
+   * recorded where a caller can see it.
+   */
+  private queueSave(): void {
+    this._saveChain = this._saveChain
+      .then(() => this.save())
+      .catch((err: unknown) => {
+        this.lastSaveError = err instanceof Error ? err : new Error(String(err));
+        logger.error('[SideCar] Agent memories failed to persist — recent changes are not on disk:', err);
+      });
   }
 
   /**
@@ -154,7 +187,7 @@ export class AgentMemory {
     };
 
     this.memories.set(id, entry);
-    this._saveChain = this._saveChain.then(() => this.save()); // Auto-save
+    this.queueSave();
 
     return id;
   }
@@ -253,7 +286,7 @@ export class AgentMemory {
     const memory = this.memories.get(id);
     if (memory) {
       memory.useCount++;
-      this._saveChain = this._saveChain.then(() => this.save());
+      this.queueSave();
     }
   }
 
@@ -263,7 +296,7 @@ export class AgentMemory {
   delete(id: string): boolean {
     const deleted = this.memories.delete(id);
     if (deleted) {
-      this._saveChain = this._saveChain.then(() => this.save());
+      this.queueSave();
     }
     return deleted;
   }
@@ -273,7 +306,7 @@ export class AgentMemory {
    */
   clear(): void {
     this.memories.clear();
-    this._saveChain = this._saveChain.then(() => this.save());
+    this.queueSave();
   }
 
   /**

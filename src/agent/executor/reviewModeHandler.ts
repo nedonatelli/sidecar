@@ -2,6 +2,9 @@ import { workspace, Uri } from 'vscode';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { PendingEditStore } from '../pendingEdits.js';
 import type { AgentLogger } from '../logger.js';
+import type { ToolExecutorContext } from '../tools/shared.js';
+import { resolveEditedText, editDiffSuffix, type ResolvedEdit } from '../tools/fs.js';
+import { computeLineDiff } from '../tools/diffUtils.js';
 
 /**
  * Tools whose disk output needs augmenting with the pending-edit
@@ -27,6 +30,7 @@ export async function handleReviewModeTool(
   toolUse: ToolUseContentBlock,
   pendingEdits: PendingEditStore,
   logger?: AgentLogger,
+  context?: ToolExecutorContext,
 ): Promise<ToolResultContentBlock | null> {
   const root = workspace.workspaceFolders?.[0]?.uri;
   if (!root) return null;
@@ -105,24 +109,40 @@ export async function handleReviewModeTool(
         is_error: true,
       };
     }
-    if (!base.includes(search)) {
+    // Route through edit_file's shared guard core rather than a local
+    // `includes`/`replace` pair. The local copy applied the STRING form of
+    // String.replace — so a `$&` or `$1` in the replacement was expanded as a
+    // regex reference and silently corrupted the queued file — replaced only
+    // the first of N matches with no ambiguity check, and answered a miss with
+    // a bare "Search text not found" that gave the model nothing to recover
+    // from (16 of 40 edit_file failures in the audit log, including a five-call
+    // retry loop). Guards added to edit_file now cover review mode too.
+    let resolved: ResolvedEdit;
+    try {
+      resolved = await resolveEditedText({ filePath: relPath, text: base, search, replace, context });
+    } catch (err: unknown) {
       return {
         type: 'tool_result',
         tool_use_id: toolUse.id,
-        content: `Error: Search text not found in ${relPath}`,
+        content: err instanceof Error ? err.message : String(err),
         is_error: true,
       };
     }
-    const newContent = base.replace(search, replace);
+    if (resolved.newText === null) {
+      return { type: 'tool_result', tool_use_id: toolUse.id, content: resolved.message };
+    }
+    const newContent = resolved.newText;
     // Pass the disk baseline only if this is the first capture — record()
     // ignores the baseline on subsequent updates so we can safely pass null.
     const baselineForRecord = existing ? null : base;
     pendingEdits.record(absPath, baselineForRecord, newContent, 'edit_file');
     logger?.info(`[REVIEW] Captured edit_file for ${relPath}`);
+    const queuedLine = resolved.summary ?? `Pending edit queued for review: ${relPath}`;
+    const patch = computeLineDiff(base, newContent, relPath);
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: `Pending edit queued for review: ${relPath}`,
+      content: `${resolved.prefixNote}${queuedLine}${resolved.suffixNote}${editDiffSuffix(patch, context)}`,
     };
   }
 

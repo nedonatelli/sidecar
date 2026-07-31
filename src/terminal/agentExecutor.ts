@@ -1,4 +1,5 @@
 import {
+  env,
   window,
   type Terminal,
   type Disposable,
@@ -39,6 +40,38 @@ export interface AgentTerminalOptions {
  * annotations and command-navigation affordances the user can scroll
  * through in their terminal panel afterwards.
  */
+/**
+ * Wrap a command so it cannot block reading stdin — the terminal-path twin of
+ * the ShellSession fix, with one crucial difference in cause.
+ *
+ * ShellSession's bug was a completion sentinel written to stdin that commands
+ * could EAT. There is no sentinel here: this path uses VS Code shell
+ * integration and reads the exit code from onDidEndTerminalShellExecution.
+ * `cat` hangs for the ordinary reason — a terminal's stdin never reaches EOF,
+ * because a human could type into it. So an agent command that waits for input
+ * waits forever, and the loop burns its whole timeout (measured: 120s on a bare
+ * `cat`, in the DEFAULT configuration).
+ *
+ * The wrapper is dialect-specific and this terminal is the USER'S shell —
+ * `window.createTerminal(name)` takes their default profile, so it may be fish,
+ * nushell or PowerShell, where `{ …; } < /dev/null` is a syntax error. Applying
+ * a POSIX wrapper blindly would turn a hang into a broken command on EVERY
+ * call, which is strictly worse. So: wrap only where the dialect is known,
+ * leave everything else exactly as it was.
+ *
+ * Grouped rather than appended because `<cmd> < /dev/null` binds the redirect to
+ * the LAST element of a pipeline and would break `echo x | cat`.
+ */
+export function guardStdin(command: string, shellPath = env.shell): string {
+  const shell = (shellPath || '').toLowerCase();
+  const posix = /(^|\/)(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
+  if (posix) return `{ ${command}\n} < /dev/null`;
+  if (/cmd\.exe$/.test(shell)) return `(${command}) < NUL`;
+  // fish, nushell, PowerShell, or anything unrecognised: leave alone. A command
+  // that hangs is recoverable; a command that cannot parse is not.
+  return command;
+}
+
 export class AgentTerminalExecutor implements Disposable {
   private terminal: Terminal | null = null;
   private readonly terminalName: string;
@@ -72,7 +105,7 @@ export class AgentTerminalExecutor implements Disposable {
 
     let execution: TerminalShellExecution;
     try {
-      execution = integration.executeCommand(command);
+      execution = integration.executeCommand(guardStdin(command));
     } catch {
       return null;
     }

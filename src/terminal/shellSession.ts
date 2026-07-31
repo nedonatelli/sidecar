@@ -403,11 +403,32 @@ export class ShellSession {
       // prefix runs in the same logical line as the user command so its
       // effect is scoped to this execute() call; subsequent commands run
       // the prefix again on the next invocation.
+      // STDIN MUST NOT REACH THE COMMAND.
+      //
+      // Completion is detected by writing a sentinel `echo` as a SECOND LINE to
+      // the shell's stdin. Any command that reads stdin swallows that line
+      // instead of the shell executing it, and prints it — so `cat` returned
+      // `echo "` as its output, and the exit code was then parsed out of the
+      // echoed text rather than the command, reporting a confident 0 for a
+      // command that never completed. `cat`, `python`, `npm init`, `git commit`
+      // with no -m, `ssh`, any confirmation prompt: all corrupted their output
+      // and fabricated a status.
+      //
+      // Redirecting the command's stdin from the null device fixes both halves
+      // and is the right semantics anyway — run_command has no way to supply
+      // input, so "immediate EOF" beats "block forever waiting for a human".
+      //
+      // Grouped rather than appended: `<cmd> < /dev/null` binds the redirect to
+      // the LAST element of a pipeline, which would break `echo x | cat`.
+      // Braces (not a subshell) so `cd` and `export` still persist across
+      // calls. The newline before the closing brace — rather than `; }` — is
+      // load-bearing: `{ sleep 1 & ; }` is a syntax error, and a trailing `#`
+      // comment would swallow a semicolon.
       if (this.isWindows) {
-        proc.stdin?.write(`${command}\r\necho ${sentinel}_%ERRORLEVEL%_END\r\n`);
+        proc.stdin?.write(`(${command}) < NUL\r\necho ${sentinel}_%ERRORLEVEL%_END\r\n`);
       } else {
         const hardening = hardeningPrefixFor(this.shellPath);
-        proc.stdin?.write(`${hardening}${command} 2>&1\necho "${sentinel}_$?_END"\n`);
+        proc.stdin?.write(`${hardening}{ ${command}\n} < /dev/null 2>&1\necho "${sentinel}_$?_END"\n`);
       }
     });
   }

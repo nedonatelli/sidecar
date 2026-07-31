@@ -1,0 +1,4 @@
+# These files ARE the test input. Their exact bytes — CRLF, lone CR, BOM,
+# trailing whitespace, missing final newline — are the property under test, so
+# git must never normalize them on checkout, commit, or diff.
+* -text -diff

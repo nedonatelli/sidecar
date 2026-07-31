@@ -42,4 +42,17 @@ eval-failures.md
 # recreated on every run). Stryker ignores them internally, git did not —
 # a `git add -A` after a run swept 1117 sandbox files into a commit.
 .stryker-tmp/
+
+# graphify's knowledge-graph output. It writes into the directory it SCANS, so
+# `graphify update ./src` drops ~7MB of JSON inside src/. Same shape as the
+# Stryker sandboxes above: generated, transient, and invisible to git without
+# this line. Also excluded from the workspace/PKI indexers — an unexcluded
+# directory of generated files inside the workspace is exactly what bloated the
+# Project Knowledge Index to 330MB in v0.122.1.
+graphify-out/
+.graphify-venv/
 /CLAUDE.md
+dogfood-tmp/
+# Agent-skill scaffolding: plugin-coupled label/tracker mappings.
+# Durable repo conventions live in the committed AGENTS.md instead.
+docs/agents/

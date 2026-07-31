@@ -330,3 +330,44 @@ describe('v0.121 store migration (hash-scheme change)', () => {
     expect(b.size()).toBe(1);
   });
 });
+
+describe('unreadable store must never be overwritten (data-loss regression)', () => {
+  const storeFile = () => path.join(dir, 'durable-instructions.json');
+
+  it('does NOT destroy the store when load cannot parse it', async () => {
+    // The live defect: load() caught everything, set entries = [], and reported
+    // ready. The next addAll() then persisted over the file — every remembered
+    // instruction gone, from one truncated write or transient read error.
+    const original = '[{"id":"abc","text":"Every numeric config value must be even.","seenCount":3}';
+    await fs.writeFile(storeFile(), original, 'utf8'); // truncated: no closing ]
+
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+
+    const failure = store.getLoadFailure();
+    expect(failure).not.toBeNull();
+    expect(failure!.quarantinedTo).toContain('unreadable-');
+    // The user's bytes still exist somewhere they can be recovered from.
+    expect(await fs.readFile(failure!.quarantinedTo!, 'utf8')).toBe(original);
+
+    // And the store still works for new instructions.
+    await store.addAll(['Prefer tabs over spaces.']);
+    const reloaded = new DurableMemoryStore(dir);
+    await reloaded.load();
+    expect(reloaded.getEntries().map((e) => e.text)).toEqual(['Prefer tabs over spaces.']);
+  });
+
+  it('reports a clean load for a first run, with no quarantine file', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    expect(store.getLoadFailure()).toBeNull();
+    expect(await fs.readdir(dir)).toEqual([]);
+  });
+
+  it('writes atomically — no .tmp file survives a save', async () => {
+    const store = new DurableMemoryStore(dir);
+    await store.load();
+    await store.addAll(['Always run the tests.']);
+    expect(await fs.readdir(dir)).toEqual(['durable-instructions.json']);
+  });
+});

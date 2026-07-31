@@ -37,6 +37,12 @@ export interface GateState {
   projectTestsPassed: boolean;
   /** True if any eslint / tsc invocation was observed this turn. */
   lintObserved: boolean;
+  /** True when get_diagnostics ran this turn and came back EMPTY. An empty
+   * result is not evidence of a clean file (the language service only analyzes
+   * open documents), so it does not satisfy the lint requirement — but the
+   * reprompt must know it happened, or it will keep telling the model to call
+   * the tool that just told it nothing. */
+  emptyDiagnosticsObserved: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
@@ -126,6 +132,7 @@ export function createGateState(currentUserRequest = ''): GateState {
     passingTestFiles: new Set(),
     projectTestsPassed: false,
     lintObserved: false,
+    emptyDiagnosticsObserved: false,
     gateInjections: 0,
     noReadRepromptFired: false,
     noShellRepromptFired: false,
@@ -161,6 +168,46 @@ function extractTestFiles(args: string): string[] {
  * broken GUI). `fail` = ≥1 test failed / errored / non-zero exit. `pass` = tests
  * ran and all passed. `unknown` = unrecognized format (treated as not-passing).
  */
+/**
+ * True when a `get_diagnostics` result is evidence that an analyzer actually
+ * examined the file — i.e. it reported something. The two empty forms
+ * (`No diagnostics for <path>` / `No diagnostics found.`) are indistinguishable
+ * from "no language server ever looked at this file", which is the usual case
+ * for a file the agent wrote but never opened, so they prove nothing.
+ *
+ * Deliberately permissive about WHAT was reported: a security-scanner finding
+ * still proves SideCar's own scanner ran over the file. It is the empty case
+ * that carries no information.
+ */
+/**
+ * True when a checker invocation never actually ran, so it must not satisfy the
+ * lint requirement. Deliberately narrow: it looks for failure-to-LAUNCH, not
+ * failure-to-pass. A linter that runs and reports errors is exactly the
+ * evidence the gate wants; a shell that could not find the binary is not.
+ */
+export function checkerFailedToRun(resultText: string): boolean {
+  // Tool-layer errors never reach here — recordToolCall returns early on
+  // is_error — so the shell's own text is the signal. Note the exit code alone
+  // cannot serve: a linter that RUNS and finds problems also exits non-zero,
+  // and that is precisely the evidence we want to accept.
+  return /command not found|is not recognized as|No such file or directory|ENOENT|couldn't find|could not determine executable/i.test(
+    resultText,
+  );
+}
+
+export function diagnosticsProvedAnalysis(resultText: string): boolean {
+  const body = resultText.replace(/<\/?tool_output[^>]*>/g, '').trim();
+  if (body === '') return false;
+  // Only a POSITIVE result is evidence. get_diagnostics now opens the file so a
+  // language server actually analyzes it, which makes real errors surface — but
+  // it still cannot prove a NEGATIVE: measured in a real extension host, an
+  // empty publish arrived at 1.4s for a file whose genuine error appeared only
+  // seconds later, and on a cold window sometimes not within 17s. An unfinished
+  // analysis and a clean file are indistinguishable, so empty never counts.
+  if (/^No diagnostics\b/m.test(body)) return /\[(Error|Warning|Info|Hint|WARNING|ERROR)\]/.test(body);
+  return true;
+}
+
 export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty' | 'unknown' {
   // Strip ANSI first. `run_tests` runs on a TTY, so output is colored AND can
   // contain cursor/erase codes (\x1b[K). An escape ending in a word char right
@@ -302,6 +349,8 @@ export function recordToolCall(
     if (p) {
       state.editedFiles.add(p);
       state.lintObserved = false;
+      // A new edit invalidates an earlier empty-diagnostics observation too.
+      state.emptyDiagnosticsObserved = false;
     }
     return;
   }
@@ -323,12 +372,32 @@ export function recordToolCall(
     return;
   }
 
-  // Dedicated diagnostics tool — satisfies the lint requirement. This is
-  // the primary post-edit verification tool (Rule 6 / get_diagnostics
-  // description both say "call after every edit"). Without this case the
-  // gate would reprompt for eslint/tsc even after the model correctly
-  // called get_diagnostics.
+  // Dedicated diagnostics tool — satisfies the lint requirement ONLY when its
+  // output proves an analyzer actually ran.
+  //
+  // This used to set lintObserved on the CALL, which is the gate-design error
+  // the v0.114 dogfood already taught once: key on output evidence, not on the
+  // invocation. It matters here more than anywhere, because an empty result is
+  // the NORMAL result. `languages.getDiagnostics(uri)` only reports on files a
+  // language server has analyzed, and a server analyzes a file when it is open
+  // in a VISIBLE editor — which a file the agent just wrote never is. Measured
+  // in a real extension host (2026-07-29): unopened → 0 diagnostics after 10s;
+  // openTextDocument alone → still 0 after 20s; only showTextDocument produces
+  // them. In 33 logged dogfood calls the tool returned "No diagnostics" 30
+  // times, and all 3 non-empty results came from SideCar's own security
+  // scanner, never from a language server.
+  //
+  // So "No diagnostics" does not mean clean — it almost always means nothing
+  // looked. Treating it as verification let a model introduce a type error,
+  // call the tool, receive nothing, and be credited with checking its work.
+  //
+  // A NON-EMPTY result is different: it is proof the analyzer ran and reported.
+  // That is real evidence, so it counts.
   if (tu.name === 'get_diagnostics') {
+    if (!diagnosticsProvedAnalysis(resultText)) {
+      state.emptyDiagnosticsObserved = true;
+      return;
+    }
     state.lintObserved = true;
     return;
   }
@@ -347,7 +416,16 @@ export function recordToolCall(
       /\b(eslint|tsc|pylint|flake8|mypy|ruff|black|go\s+vet|golangci-lint|staticcheck)\b/.test(cmd) ||
       /\b(npm|pnpm|yarn|bun)\s+run\s+(lint|check|compile|build|typecheck|type-check)\b/.test(cmd)
     ) {
-      state.lintObserved = true;
+      // Same rule as get_diagnostics: the COMMAND STRING is not evidence. This
+      // used to fire on the regex alone, so `npx tsc --noEmit` that died with
+      // "command not found" satisfied the gate exactly as well as one that
+      // type-checked the project. That hole got more load-bearing when the
+      // empty-diagnostics reprompt started steering models here.
+      //
+      // A checker that ran is one that neither errored at the tool layer nor
+      // failed to launch. Silent success (tsc prints nothing) still counts —
+      // requiring positive output would be the opposite mistake.
+      if (!checkerFailedToRun(resultText)) state.lintObserved = true;
     }
 
     const testMatch = cmd.match(/\b(vitest|jest|pytest|mocha|go\s+test)\b([^|;&]*)/);
@@ -381,6 +459,9 @@ export interface GateFinding {
   file: string;
   missingTest?: string;
   needsLint?: boolean;
+  /** get_diagnostics ran and returned nothing — the reprompt must not simply
+   * tell the model to call it again. */
+  diagnosticsWereEmpty?: boolean;
   /** Co-located test file exists on disk but was not edited this turn. */
   testNotUpdated?: string;
 }
@@ -440,7 +521,13 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
 
     if (!state.lintObserved) {
       // Lint applies to both source and test files since both are linted.
-      findings.push({ file, needsLint: true });
+      // Only carried when true — an absent flag keeps the finding shape it has
+      // always had for the ordinary "no check ran at all" case.
+      findings.push({
+        file,
+        needsLint: true,
+        ...(state.emptyDiagnosticsObserved ? { diagnosticsWereEmpty: true } : {}),
+      });
     }
   }
 
@@ -473,11 +560,28 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
     // files it can actually lint (JS/TS); telling the model to run `npx eslint
     // calculator.py` is wrong and dogfooding showed it flailing on that advice
     // until the gate exhausted. Python/Go/Rust get the diagnostics call only.
-    lines.push('You have not run a static check on your edits this turn. Call:');
-    lines.push('  get_diagnostics   (checks every edited file — works for all languages)');
     const jstsFiles = lintFiles.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f));
-    if (jstsFiles.length > 0) {
-      lines.push(`Or, for the JS/TS files specifically: run_command with command: npx eslint ${jstsFiles.join(' ')}`);
+    const diagnosticsWereEmpty = findings.some((f) => f.needsLint && f.diagnosticsWereEmpty);
+    if (diagnosticsWereEmpty) {
+      // Repeating "call get_diagnostics" here would send the model straight
+      // back to the tool that just told it nothing — a guaranteed loop. Name
+      // what happened and demand a check that actually executes.
+      lines.push(
+        'get_diagnostics returned NO diagnostics, which does not mean your edit is clean: it reports only on ' +
+          'files a language server has already analyzed, and a file you just wrote has not been. You still need a ' +
+          'check that actually runs over your edits. Call:',
+      );
+      if (jstsFiles.length > 0) {
+        lines.push(`  run_command with command: npx tsc --noEmit   (or: npx eslint ${jstsFiles.join(' ')})`);
+      } else {
+        lines.push('  run_command with the type-checker or linter for this language, or run_tests');
+      }
+    } else {
+      lines.push('You have not run a static check on your edits this turn. Call:');
+      lines.push('  get_diagnostics   (checks every edited file — works for all languages)');
+      if (jstsFiles.length > 0) {
+        lines.push(`Or, for the JS/TS files specifically: run_command with command: npx eslint ${jstsFiles.join(' ')}`);
+      }
     }
     lines.push('');
   }

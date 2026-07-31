@@ -1,5 +1,6 @@
 import { window, StatusBarAlignment, type StatusBarItem, type Disposable } from 'vscode';
 import * as fs from 'fs/promises';
+import { writeFileAtomic } from '../../system/atomicWrite.js';
 import { runAgentLoopInSandbox } from '../shadow/sandbox.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks } from '../loop.js';
@@ -132,7 +133,10 @@ export async function runAutoMode(
 
       // Mark done on success
       const fresh = await fs.readFile(options.backlogPath, 'utf8');
-      await fs.writeFile(options.backlogPath, markItemDone(fresh, item.lineIndex), 'utf8');
+      // Atomic: this is the user's backlog. A crash mid-write truncates their
+      // task list, and the surrounding catch would report it as a failed task
+      // rather than a damaged file.
+      await writeFileAtomic(options.backlogPath, markItemDone(fresh, item.lineIndex));
 
       tasksSucceeded++;
       callbacks.onTaskDone(item, taskN, totalPending);
