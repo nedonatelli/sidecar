@@ -110,7 +110,13 @@ describe('edit matcher properties', () => {
           const out = applyMatch(text, line, rep.join('\n'));
           fc.pre(out !== null);
           expect(detectEol(out!).eol).toBe(eol);
-          if (eol === '\r\n') expect(/[^\r]\n/.test(out!)).toBe(false);
+          if (eol === '\r\n') {
+            expect(/[^\r]\n/.test(out!)).toBe(false);
+            // A doubled `\r` also survives the check above — `\r\r\n` has no
+            // non-`\r` before its `\n`. A span opening between the halves of a
+            // CRLF pair produced exactly that, and this property passed over it.
+            expect(/\r\r/.test(out!)).toBe(false);
+          }
           if (eol === '\r') expect(out!.includes('\n')).toBe(false);
         },
       ),

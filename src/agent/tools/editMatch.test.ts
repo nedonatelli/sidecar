@@ -74,6 +74,19 @@ describe('findEditMatch — CRLF', () => {
     expect(out).not.toMatch(/[^\r]\n/);
   });
 
+  it('does not orphan a \\r when the match starts on the \\n of a CRLF pair', () => {
+    // A search beginning with a newline matches the `\n` half of `\r\n`
+    // byte-exactly, so the span starts *after* the file's `\r`. The
+    // replacement then gets its own `\r\n` from applyEol and the original
+    // `\r` is left stranded in front of it — `\r\r\n`, which is precisely
+    // the mixed-ending damage this module exists to prevent, produced by the
+    // one tier that looked incapable of causing it.
+    const out = apply('foo\r\nbar\r\nbaz\r\n', '\nbar', '\nQUX')!;
+    expect(out).toBe('foo\r\nQUX\r\nbaz\r\n');
+    expect(out).not.toMatch(/\r\r/);
+    expect(out).not.toMatch(/[^\r]\n/);
+  });
+
   it('adapts the replacement even when the search matched exactly', () => {
     // Single-line searches always matched on CRLF files — but an LF replacement
     // spanning lines still introduced mixed endings.

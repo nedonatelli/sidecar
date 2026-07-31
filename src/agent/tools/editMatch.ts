@@ -165,10 +165,23 @@ export function findEditMatch(text: string, search: string, replace: string): Ed
   const { eol } = detectEol(text);
   const adapted = applyEol(replace, eol);
 
+  /**
+   * Absorb the `\r` the span begins just after.
+   *
+   * A search starting with `\n` matches the second half of a `\r\n` pair, so
+   * the span opens between the two. The replacement carries its own `\r\n`
+   * from `applyEol`, which would leave the file's original `\r` stranded in
+   * front of it as `\r\r\n`. Only widen when the replacement actually starts
+   * with that `\r`, so the character removed is the one being re-supplied.
+   */
+  const absorbSplitCrlf = (start: number): number =>
+    start > 0 && text[start] === '\n' && text[start - 1] === '\r' && adapted.startsWith('\r\n') ? start - 1 : start;
+
   const exactCount = countOccurrences(text, search);
   if (exactCount > 0) {
-    const start = text.indexOf(search);
-    return { start, end: start + search.length, count: exactCount, tier: 'exact', replacement: adapted };
+    const matchAt = text.indexOf(search);
+    const start = absorbSplitCrlf(matchAt);
+    return { start, end: matchAt + search.length, count: exactCount, tier: 'exact', replacement: adapted };
   }
 
   for (const tier of ['eol', 'trailing-space', 'indent'] as const) {
@@ -194,6 +207,7 @@ export function findEditMatch(text: string, search: string, replace: string): Ed
     if (tier === 'indent' && startsAtLine) {
       while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) start--;
     }
+    start = absorbSplitCrlf(start);
 
     let replacement = adapted;
     if (tier === 'indent' && startsAtLine) {

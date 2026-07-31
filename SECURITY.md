@@ -57,6 +57,7 @@ On macOS, `sidecar.sandbox.enabled` (default `true`) wraps the shell in `sandbox
 
 - It applies **only to the child-process fallback executor**. Commands run through the VS Code terminal — the path taken whenever shell integration is available, which is the default — are **not** sandboxed.
 - It is macOS-only. On Windows and Linux the setting does nothing.
+- It **fails open**. If `/usr/bin/sandbox-exec` is missing, the shell is spawned unwrapped and nothing is logged — the setting still reads `true`. The binary ships with macOS, so this is unlikely in practice, but the setting being enabled is not evidence that confinement is in force.
 
 Until v0.122.1 the profile was also invalid SBPL, so `sandbox-exec` aborted rather than confining anything; any release before that provided no confinement even on the fallback path. Do not treat this as a containment boundary. If you don't trust the agent with your shell, use `cautious` mode or work in a VM / container.
 
