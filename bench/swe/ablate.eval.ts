@@ -75,7 +75,6 @@ describe('SWE-bench Verified — ablation', () => {
       const cmp = computeRatchetComparison(tasks, predictions, resolvedRatchet, resolvedOn);
       md += `\n\n${formatRatchetSection(cmp)}`;
     }
-    // eslint-disable-next-line no-console
     console.info(`\n${md}\n`);
     if (process.env.SIDECAR_SWE_OUT) fs.writeFileSync(path.join(process.env.SIDECAR_SWE_OUT, 'ablation.md'), md);
 

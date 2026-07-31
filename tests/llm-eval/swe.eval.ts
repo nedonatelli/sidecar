@@ -232,7 +232,6 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // Surface the cause — a silently swallowed failure here turned a broken
     // OLLAMA_HOST into 150 instant 'EMPTY' rows that looked like model
     // behavior (observed live). The run still counts as unresolved.
-    // eslint-disable-next-line no-console -- eval diagnostics belong on stderr
     console.error(`[swe] solve failed for ${task.instance_id} (${arm}):`, err instanceof Error ? err.message : err);
     patch = ''; // clone/agent failure = unresolved, not a lost run
   } finally {
@@ -298,7 +297,6 @@ describe('SWE-bench Verified — prediction generation', () => {
         createdAt: new Date().toISOString(),
       };
       fs.writeFileSync(path.join(OUT, 'run.manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-      // eslint-disable-next-line no-console
       console.info(`[swe] ${MODEL}: ${tasks.length} tasks × ${ARMS.length} arms`);
 
       const predictions: SwePrediction[] = [];
@@ -310,7 +308,6 @@ describe('SWE-bench Verified — prediction generation', () => {
             const p = await solve(task, arm);
             predictions.push(p);
             fs.appendFileSync(metaPath, JSON.stringify(p) + '\n');
-            // eslint-disable-next-line no-console
             console.info(
               `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} (${Math.round(p.durationMs / 1000)}s)`,
             );
@@ -323,7 +320,6 @@ describe('SWE-bench Verified — prediction generation', () => {
       for (const arm of ARMS) {
         fs.writeFileSync(path.join(OUT, `preds.${arm}.jsonl`), toPredictionsJsonl(predictions, MODEL, arm));
       }
-      // eslint-disable-next-line no-console
       console.info(`[swe] wrote predictions to ${OUT}/preds.{${ARMS.join(',')}}.jsonl (+ predictions.meta.jsonl)`);
       expect(predictions).toHaveLength(tasks.length * ARMS.length);
     },

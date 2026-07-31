@@ -119,7 +119,6 @@ describe.skipIf(!models)('llm-eval :: model comparison', () => {
 
   it('comparison report', () => {
     const report = renderComparisonReport(matrix, models ?? [], ALL_CASES);
-    // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + report);
 
     // Fail the suite if any model had regressions so CI flags this run.

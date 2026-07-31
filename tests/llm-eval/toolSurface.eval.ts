@@ -134,7 +134,9 @@ async function runCase(c: ToolSurfaceCase): Promise<CaseResult> {
   if (!hit) {
     res.outcome = 'no-call';
     res.expressesFail = 'no tool call';
-    res.rawEmission = (text.trim() ? `TEXT: ${text}` : thinking.trim() ? `THINKING-ONLY: ${thinking}` : '(nothing emitted)').slice(0, 400);
+    res.rawEmission = (
+      text.trim() ? `TEXT: ${text}` : thinking.trim() ? `THINKING-ONLY: ${thinking}` : '(nothing emitted)'
+    ).slice(0, 400);
     return res;
   }
   if (hit.name !== c.tool) {
@@ -175,7 +177,6 @@ describe.skipIf(!backend)('llm-eval :: tool surface', () => {
           (r.repairs.length ? `\n    repaired by scaffold: ${r.repairs.join('; ')}` : '') +
           (r.expressesFail ? `\n    why: ${r.expressesFail}` : '') +
           (r.rawEmission ? `\n    emitted: ${r.rawEmission}` : '');
-        // eslint-disable-next-line no-console -- eval output is the product
         console.log(`  ${c.id}: ${detail}`);
         expect(r.picked, `${c.id}: expected ${c.tool}, got ${r.picked ?? 'no call'}`).toBe(c.tool);
         expect(r.valid, `${c.id}: input invalid even after repair`).toBe(true);
@@ -193,8 +194,14 @@ describe.skipIf(!backend)('llm-eval :: tool surface', () => {
     const valid = results.filter((r) => r.valid).length;
     const expresses = results.filter((r) => r.expressesFail === null).length;
     const savedByRepair = results.filter((r) => !r.rawValid && r.valid).length;
-    const byOutcome = results.reduce<Record<string, number>>((a, r) => ((a[r.outcome] = (a[r.outcome] ?? 0) + 1), a), {});
-    const byProtocol = results.reduce<Record<string, number>>((a, r) => ((a[r.protocol] = (a[r.protocol] ?? 0) + 1), a), {});
+    const byOutcome = results.reduce<Record<string, number>>(
+      (a, r) => ((a[r.outcome] = (a[r.outcome] ?? 0) + 1), a),
+      {},
+    );
+    const byProtocol = results.reduce<Record<string, number>>(
+      (a, r) => ((a[r.protocol] = (a[r.protocol] ?? 0) + 1), a),
+      {},
+    );
     const lines = [
       '',
       `===== TOOL SURFACE :: ${MODEL ?? backend!.defaultModel()} =====`,
@@ -203,8 +210,12 @@ describe.skipIf(!backend)('llm-eval :: tool surface', () => {
       `  valid after repair: ${valid}/${n}`,
       `  expresses intent  : ${expresses}/${n}`,
       `  saved by repair   : ${savedByRepair}  ← how much the scaffold is earning`,
-      `  outcomes          : ${Object.entries(byOutcome).map(([k, v]) => `${k}=${v}`).join(' ')}`,
-      `  call protocol     : ${Object.entries(byProtocol).map(([k, v]) => `${k}=${v}`).join(' ')}` +
+      `  outcomes          : ${Object.entries(byOutcome)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ')}`,
+      `  call protocol     : ${Object.entries(byProtocol)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ')}` +
         (byProtocol.text ? '   ← text-parsed calls would score ZERO without parseTextToolCallsCleaned' : ''),
       '',
     ];
@@ -215,7 +226,6 @@ describe.skipIf(!backend)('llm-eval :: tool surface', () => {
           `${r.repairs.length ? '  [repaired]' : ''}${r.expressesFail ? `  — ${r.expressesFail}` : ''}`,
       );
     }
-    // eslint-disable-next-line no-console -- eval output is the product
     console.log(lines.join('\n'));
   });
 });

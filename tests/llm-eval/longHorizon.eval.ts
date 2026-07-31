@@ -94,7 +94,6 @@ describe.skipIf(!backend)('llm-eval :: long-horizon', () => {
           `steer=${r.steerFiredCount}  reprompt=${r.actionRepromptFiredCount}  mode=${r.failureMode}  latched=${r.standingInstructionsInSummary}  splices=${r.summarySpliceCount}  memEntries=${r.durableMemoryEntries}`,
       );
     }
-    // eslint-disable-next-line no-console -- intentional report output
     console.log(lines.join('\n') + '\n');
   });
 });

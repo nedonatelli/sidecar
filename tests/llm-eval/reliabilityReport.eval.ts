@@ -51,7 +51,6 @@ describe('cross-model reliability matrix', () => {
   it('renders the matrix and the per-model ablation plan', () => {
     const baselines = loadBaselines();
     if (baselines.length === 0) {
-      // eslint-disable-next-line no-console -- intentional report output
       console.log(`\nNo baselines in ${DIR}. Run ./scripts/reliability-sweep.sh first.`);
       return;
     }
@@ -114,7 +113,6 @@ describe('cross-model reliability matrix', () => {
       if (dead.length > 0) lines.push(`  (saturated, cannot inform an ablation: ${dead.join(', ')})`);
     }
 
-    // eslint-disable-next-line no-console -- intentional report output
     console.log('\n' + lines.join('\n') + '\n');
   });
 });

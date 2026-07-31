@@ -113,14 +113,12 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
               const tools = result.trajectory
                 .filter((e) => e.type === 'tool_call')
                 .map((e) => (e as { name: string }).name);
-              // eslint-disable-next-line no-console -- eval diagnostics
               console.info(`[ablation] ${dim.scaffold} ${arm ? 'on' : 'off'} ${evalCase.id} tools: ${tools.join(',')}`);
             }
             if (!result.passed) {
               // Per-run failure reasons in the log — without these, a 0% arm
               // is uninterpretable (observed: could not tell "didn't ground"
               // from "cited a fake path" after the fact).
-              // eslint-disable-next-line no-console -- eval diagnostics
               console.info(
                 `[ablation] ${dim.scaffold} ${arm ? 'on' : 'off'} ${evalCase.id} FAILED: ${result.failures.join(' | ')}`,
               );
@@ -132,7 +130,6 @@ describe.skipIf(!backend)('llm-eval :: scaffold ablation', () => {
   }
 
   it('ablation summary', () => {
-    // eslint-disable-next-line no-console -- intentional report output
     console.log('\n' + formatAblationReport(summarizeAblation(runs)) + '\n');
   });
 });

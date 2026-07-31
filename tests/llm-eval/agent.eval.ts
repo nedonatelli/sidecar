@@ -177,7 +177,6 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
       if (TRIALS > 1 && scoredTrials.length > 0) {
         reliabilityRows.push({ caseId: evalCase.id, trials: scoredTrials.length, passes });
         if (passes > 0 && passes < scoredTrials.length) {
-          // eslint-disable-next-line no-console -- eval diagnostics
           console.log(`[flaky] ${evalCase.id}: ${passes}/${scoredTrials.length} trials passed`);
 
           // A flaky case used to report its RATE and throw away the evidence: the
@@ -198,7 +197,6 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
                 return `      · ${e.type}`;
               })
               .join('\n');
-            // eslint-disable-next-line no-console -- eval diagnostics
             console.log(`  why a failing trial failed:\n${why}\n  its trajectory:\n${traj}\n`);
           }
         }
@@ -248,10 +246,8 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   it('summary', () => {
     const passed = allResults.filter((r) => r.passed).length;
     writeSummary(passed, allResults.length);
-    // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + renderAgentReport(allResults));
     if (reliabilityRows.length > 0) {
-      // eslint-disable-next-line no-console -- intentional report output
       console.log('\n\n' + renderReliabilityReport(reliabilityRows));
 
       // Persist the baseline. A per-case pass rate is not a log line — it is the

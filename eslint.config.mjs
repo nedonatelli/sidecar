@@ -5,7 +5,7 @@ export default [
   // Byte-domain test corpus: data files whose exact bytes are the fixture.
   { ignores: ['**/__corpus__/**'] },
   {
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'tests/**/*.ts', 'bench/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -25,15 +25,33 @@ export default [
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
 
       // Code quality
-      'eqeqeq': ['error', 'always'],
+      eqeqeq: ['error', 'always'],
       'no-var': 'error',
       'prefer-const': 'warn',
       'no-throw-literal': 'error',
 
       // Off — handled by Prettier
-      'indent': 'off',
-      'semi': 'off',
-      'quotes': 'off',
+      indent: 'off',
+      semi: 'off',
+      quotes: 'off',
+    },
+  },
+  {
+    // Evals and benches were linted by nothing at all — `eslint.config.mjs`
+    // matched only `src/**` and `media/**`, and `lint-staged` only `src/**` and
+    // `bench/**`, so a change confined to `tests/**` passed the pre-commit hook
+    // without tsc, eslint or vitest running. Two rules genuinely do not carry
+    // over from src:
+    files: ['tests/**/*.ts', 'bench/**/*.ts'],
+    rules: {
+      // In the extension, console output is a bug — it belongs in the logger.
+      // In an eval, the printed result IS the product; several files already
+      // carried a per-line disable saying exactly that.
+      'no-console': 'off',
+      // `x == null` is the deliberate "null or undefined" idiom, used with a
+      // comment saying so in the BFCL AST checker. Everything else stays
+      // strict, and src is untouched.
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
     },
   },
   {
@@ -105,10 +123,10 @@ export default [
       'no-var': 'error',
       // 'smart' permits the `x != null` idiom (catches null AND undefined),
       // which the webview relies on, while still flagging other loose equality.
-      'eqeqeq': ['error', 'smart'],
-      'indent': 'off',
-      'semi': 'off',
-      'quotes': 'off',
+      eqeqeq: ['error', 'smart'],
+      indent: 'off',
+      semi: 'off',
+      quotes: 'off',
     },
   },
   {
