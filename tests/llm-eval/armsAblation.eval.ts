@@ -113,7 +113,6 @@ describe.skipIf(!backend)('llm-eval :: whole-harness arms', () => {
       runs,
       ARMS.map((a) => a.name),
     );
-    // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + renderArmContrasts(contrasts) + '\n');
   });
 });

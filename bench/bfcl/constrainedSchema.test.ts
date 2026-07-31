@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- these assertions walk an
+   untyped JSON Schema the builder emits; a hand-written deep type for it would
+   duplicate the schema and rot beside it. */
 import { describe, it, expect } from 'vitest';
 import { buildToolCallSchema, parseConstrainedContent } from './constrainedSchema.js';
 import type { BfclFunctionSchema } from './types.js';

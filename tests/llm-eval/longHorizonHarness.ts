@@ -332,7 +332,6 @@ export async function runLongHorizonCase(
         // Never swallow the reason — three "API-UNAVAIL" cells in a row were
         // undiagnosable because this catch discarded the actual exception.
         apiUnavailableReason = err instanceof Error ? err.message : String(err);
-        // eslint-disable-next-line no-console -- eval diagnostics must reach the log
         console.error(`[longHorizon] run aborted at turn ${t + 1}: ${apiUnavailableReason}`);
         apiUnavailable = true;
         break;

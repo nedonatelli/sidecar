@@ -102,7 +102,6 @@ describe.skipIf(!backend)('llm-eval :: guard-candidate probe', () => {
       candidates.push(...found);
       if (found.length > 0) {
         // Surface hits inline so a watcher sees them without waiting for the summary.
-        // eslint-disable-next-line no-console -- intentional report output
         console.log(`[guard-probe] ${evalCase.id}: ${found.map((c) => `${c.kind}(${c.tool})`).join(', ')}`);
       }
     });
@@ -111,7 +110,6 @@ describe.skipIf(!backend)('llm-eval :: guard-candidate probe', () => {
   it('summary', () => {
     const arm = process.env.SIDECAR_EVAL_CONFIG_OVERRIDES;
     const label = backend!.defaultModel() + (arm ? ` [config: ${arm}]` : ' [config: defaults]');
-    // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + renderGuardReport(candidates, casesRun, label));
   });
 });

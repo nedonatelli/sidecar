@@ -102,7 +102,6 @@ describe.skipIf(!backend)(`llm-eval :: base system prompt [${backend?.name ?? 'u
   it('summary', () => {
     const passed = allResults.filter((r) => r.passed).length;
     writeSummary(passed, allResults.length);
-    // eslint-disable-next-line no-console -- intentional report output
     console.log('\n\n' + renderReport(allResults));
   });
 });

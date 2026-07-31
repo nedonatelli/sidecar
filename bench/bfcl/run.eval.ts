@@ -103,7 +103,6 @@ describe('BFCL AST subset', () => {
     async () => {
       const { cases: allCases, dataset } = loadCases();
       const cases = N ? sampleCases(allCases, N) : allCases;
-      // eslint-disable-next-line no-console
       console.info(
         `[bfcl] ${MODEL} via ${BACKEND}${CONSTRAINED ? ' [constrained]' : ''}: ${cases.length} cases` +
           (N ? ` (sampled from ${allCases.length})` : ''),
@@ -111,7 +110,6 @@ describe('BFCL AST subset', () => {
 
       const report = await runBfcl(cases, backend.callModel, {
         onCase: (o) => {
-          // eslint-disable-next-line no-console
           console.info(`[bfcl]   ${o.pass ? 'PASS' : 'FAIL'} ${o.id}${o.pass ? '' : ` — ${o.reason}`}`);
         },
       });
@@ -127,7 +125,6 @@ describe('BFCL AST subset', () => {
         perCaseTimeoutMs: TIMEOUT_MS,
       };
       const md = formatReport(report, env);
-      // eslint-disable-next-line no-console
       console.info(`\n${md}\n`);
 
       const out = process.env.SIDECAR_BFCL_OUT;

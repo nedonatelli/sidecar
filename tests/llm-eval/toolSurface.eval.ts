@@ -177,7 +177,6 @@ describe.skipIf(!backend)('llm-eval :: tool surface', () => {
           (r.repairs.length ? `\n    repaired by scaffold: ${r.repairs.join('; ')}` : '') +
           (r.expressesFail ? `\n    why: ${r.expressesFail}` : '') +
           (r.rawEmission ? `\n    emitted: ${r.rawEmission}` : '');
-        // eslint-disable-next-line no-console -- eval output is the product
         console.log(`  ${c.id}: ${detail}`);
         expect(r.picked, `${c.id}: expected ${c.tool}, got ${r.picked ?? 'no call'}`).toBe(c.tool);
         expect(r.valid, `${c.id}: input invalid even after repair`).toBe(true);
@@ -227,7 +226,6 @@ describe.skipIf(!backend)('llm-eval :: tool surface', () => {
           `${r.repairs.length ? '  [repaired]' : ''}${r.expressesFail ? `  — ${r.expressesFail}` : ''}`,
       );
     }
-    // eslint-disable-next-line no-console -- eval output is the product
     console.log(lines.join('\n'));
   });
 });
