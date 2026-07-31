@@ -137,6 +137,15 @@ reflect it?). Do the verification first — run [the test pyramid](#verification
 Tiers 0–2 (all green, zero infra errors) and Tier 1 packaging (`.vsix` builds and
 `verify:package` passes). Only then do the doc sync below.
 
+After the doc sync, and immediately before tagging, run **`npm run verify:release`**.
+The bump script records test/tool/skill counts at the moment it runs; anything
+committed afterwards silently invalidates them. In 0.122.2 the recorded count was
+8501 while the shipped build had 8502 — in both `CHANGELOG.md` and
+`docs/index.html` — and the fix that changed it had no changelog entry at all.
+`verify:release` re-derives every number and fails if the release claims something
+that is no longer true. It is not a CI gate on purpose: test counts change on
+nearly every commit, so gating per-commit would fire constantly and be tuned out.
+
 Every version bump is a content change, not just a number change. The bump script handles the mechanical updates (version strings, stat counts, landing-page stats); feature-level documentation sync is manual and must be done **before** tagging. Run through this list in order:
 
 ### Content sync (manual — required)
