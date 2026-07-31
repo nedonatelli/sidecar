@@ -27,9 +27,19 @@ import { hasEditShapedCodeBlock } from './unappliedEdit.js';
 
 import { MAX_ACTION_REPROMPTS } from '../../config/constants.js';
 
+/**
+ * Verbs that MUTATE the workspace. Strictly separate from the read-only verbs
+ * below, because one caller may synthesize a write from them and must never do
+ * so for a request that only asked to look at something.
+ */
+const MUTATION_VERB_RE =
+  /\b(edit|fix|add|create|rename|update|change|modify|write|delete|move|refactor|implement|extend|remove|replace|convert|migrate)\b/i;
+
+/** Verbs that ask to inspect or execute, producing no workspace change by themselves. */
+const READ_VERB_RE = /\b(read|run|check|find|get|look|search|show|list|fetch|retrieve)\b/i;
+
 /** Action verbs that indicate the user wants something done, not just explained. */
-const ACTION_VERB_RE =
-  /\b(read|edit|fix|run|add|create|rename|update|change|modify|write|delete|move|refactor|implement|extend|remove|replace|convert|migrate|check|find|get|look|search|show|list|fetch|retrieve)\b/i;
+const ACTION_VERB_RE = new RegExp(`${MUTATION_VERB_RE.source}|${READ_VERB_RE.source}`, 'i');
 
 /** File path patterns that indicate workspace files are involved. */
 const FILE_PATH_RE =
@@ -96,6 +106,24 @@ export function lastUserMessageText(messages: ChatMessage[]): string {
  */
 export function isActionRequest(text: string): boolean {
   return ACTION_VERB_RE.test(text) && FILE_PATH_RE.test(text);
+}
+
+/**
+ * True when the user asked for the workspace to be CHANGED, not merely read.
+ *
+ * Strictly narrower than {@link isActionRequest}, and deliberately so. The
+ * re-prompt nudge should fire on "read src/foo.ts" — the model ought to call
+ * read_file rather than answer from thin air. But synthesizing a write_file from
+ * a code fence must not: a model answering a read request prints fences to
+ * ILLUSTRATE, and coercing those to disk fabricates files, or overwrites the very
+ * file the user asked about with a paraphrase of itself.
+ *
+ * Measured: "Read src/helpers.ts and tell me what it does." licensed coercion,
+ * and 3 of 5 claude-sonnet-5 trials wrote a file the model had just correctly
+ * reported as absent.
+ */
+export function isMutationRequest(text: string): boolean {
+  return MUTATION_VERB_RE.test(text) && FILE_PATH_RE.test(text);
 }
 
 /**

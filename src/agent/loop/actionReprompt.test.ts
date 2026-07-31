@@ -1,13 +1,74 @@
 import { describe, it, expect } from 'vitest';
 import {
   isActionRequest,
+  isMutationRequest,
   looksLikeDeferredAction,
   hasFakeToolOutput,
   maybeInjectActionReprompt,
 } from './actionReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
+describe('isMutationRequest', () => {
+  // The predicate that licenses fence-write coercion — synthesizing a write_file
+  // from a code fence the model merely printed. It must be strictly narrower than
+  // isActionRequest, which deliberately fires on reads so the re-prompt nudge can
+  // tell a model to call read_file.
+  //
+  // Measured before this existed: "Read src/helpers.ts and tell me what it does."
+  // classified as an action request, so a model that correctly answered "that file
+  // does not exist" and illustrated a NEIGHBOURING file in a fence had that fence
+  // written to src/helpers.ts. 3 of 5 trials, claude-sonnet-5.
+
+  it('is false for a pure read request', () => {
+    expect(isMutationRequest('Read src/helpers.ts and tell me what it does.')).toBe(false);
+  });
+
+  it.each([
+    'show me src/utils.ts',
+    'what does src/utils.ts do?',
+    'look at src/config/settings.ts',
+    'find the bug in src/utils.ts',
+    'check src/utils.ts',
+    'list the exports in src/index.ts',
+    'search src/agent/tools.ts for the registry',
+  ])('is false for read-only phrasing: %s', (text) => {
+    expect(isMutationRequest(text)).toBe(false);
+  });
+
+  it.each([
+    'write a helper in src/utils.ts',
+    'create src/newfile.ts',
+    'add a function to src/utils.ts',
+    'fix the off-by-one in src/loop.ts',
+    'edit src/utils.ts to return a number',
+    'refactor src/agent/executor.ts',
+    'implement the parser in src/parse.ts',
+    'rename the function in src/utils.ts',
+    'delete src/old.ts',
+    'replace the body of src/utils.ts',
+  ])('is true for mutating phrasing: %s', (text) => {
+    expect(isMutationRequest(text)).toBe(true);
+  });
+
+  it('still requires a file path, like isActionRequest', () => {
+    expect(isMutationRequest('write something for me')).toBe(false);
+  });
+
+  it('is never true where isActionRequest is false', () => {
+    // Strictly narrower: coercion can only fire where the nudge would.
+    for (const t of ['hello there', 'what is TypeScript?', 'read src/a.ts', 'thanks!']) {
+      if (!isActionRequest(t)) expect(isMutationRequest(t)).toBe(false);
+    }
+  });
+});
+
 describe('isActionRequest', () => {
+  it('stays true for a read request — the nudge must still fire', () => {
+    // Narrowing this instead of adding a separate predicate would stop the loop
+    // telling a model to call read_file when it answered a read request as prose.
+    expect(isActionRequest('Read src/helpers.ts and tell me what it does.')).toBe(true);
+  });
+
   it('returns true for "edit src/foo.ts to add a function"', () => {
     expect(isActionRequest('edit src/foo.ts to add a function')).toBe(true);
   });
