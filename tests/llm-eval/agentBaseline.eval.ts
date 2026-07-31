@@ -29,8 +29,9 @@ import { CODE_QUALITY_CASES } from './codeQualityCases.js';
 import { GIT_CASES } from './gitCases.js';
 import { THINKING_CASES } from './thinkingCases.js';
 import { SYSTEM_CASES } from './systemCases.js';
-import { runAgentCase, pickAgentBackend, DEFAULT_CASE_TIMEOUT_MS } from './agentHarness.js';
+import { runAgentCase, pickAgentBackend, DEFAULT_CASE_TIMEOUT_MS, runConfigForProvenance } from './agentHarness.js';
 import type { AgentEvalCase } from './agentTypes.js';
+import { compareProvenance, currentProvenance, type BaselineProvenance } from './baselineProvenance.js';
 
 const ALL_CASES: AgentEvalCase[] = [
   ...AGENT_CASES,
@@ -54,6 +55,9 @@ interface AgentBaseline {
   model: string;
   recordedAt: string;
   version: string;
+  /** Conditions the run was measured under. Absent on baselines recorded
+   *  before provenance tracking — those are incomparable, not invalid. */
+  provenance?: BaselineProvenance;
   cases: Record<string, CaseBaseline>;
 }
 
@@ -82,6 +86,11 @@ const backend = pickAgentBackend();
 
 describe.skipIf(!backend)('agent regression baseline', () => {
   const model = backend ? backend.defaultModel() : 'unavailable';
+  // The hint named ollama regardless of which backend was actually in use,
+  // so following it against a cloud baseline re-recorded the wrong thing.
+  const recordHint =
+    `  SIDECAR_EVAL_BACKEND=${backend?.name ?? 'ollama'} SIDECAR_EVAL_MODEL=${model} ` +
+    `npm run eval:agent:baseline:record`;
   const bpath = baselinePath(model);
   const rel = (p: string) => path.relative(process.cwd(), p);
   // Opt-in + slow: a full run plus a retry on every regression. Cap at 4h.
@@ -92,10 +101,15 @@ describe.skipIf(!backend)('agent regression baseline', () => {
       `records a fresh baseline for ${model}`,
       async () => {
         const cases = selectCases();
+        // Reading the version throws if it cannot be determined — a baseline
+        // that cannot describe its own conditions must not be written, and
+        // failing here costs nothing where failing after the run costs hours.
+        const provenance = currentProvenance(model, runConfigForProvenance());
         const baseline: AgentBaseline = {
           model,
           recordedAt: new Date().toISOString(),
           version: readVersion(),
+          provenance,
           cases: {},
         };
         for (const c of cases) {
@@ -121,13 +135,28 @@ describe.skipIf(!backend)('agent regression baseline', () => {
     `no baseline-passing case regressed for ${model}`,
     async () => {
       if (!fs.existsSync(bpath)) {
-        console.warn(
-          `[baseline] no baseline for "${model}" (${rel(bpath)}). Record one:\n` +
-            `  SIDECAR_EVAL_BACKEND=ollama SIDECAR_EVAL_MODEL=${model} npm run eval:agent:baseline:record`,
-        );
+        console.warn(`[baseline] no baseline for "${model}" (${rel(bpath)}). Record one:\n` + recordHint);
         return; // first run for this model — skip gracefully
       }
       const baseline = JSON.parse(fs.readFileSync(bpath, 'utf-8')) as AgentBaseline;
+
+      // An incomparable baseline is worth exactly what a missing one is worth,
+      // and is treated identically: say so, say why, say how to fix it, and do
+      // not produce a verdict. Comparing across a changed tool surface or a
+      // changed thinking configuration measures the change, not the model —
+      // and a green result there is worse than no result, because it is
+      // believed.
+      const verdict = compareProvenance(baseline.provenance, currentProvenance(model, runConfigForProvenance()));
+      if (!verdict.comparable) {
+        console.warn(
+          `[baseline] baseline for "${model}" (${rel(bpath)}) is NOT comparable to this run:\n` +
+            verdict.divergences.map((d) => `  - ${d}`).join('\n') +
+            `\nNo regression verdict was produced. Re-record:\n` +
+            recordHint,
+        );
+        return;
+      }
+
       const cases = ALL_CASES.filter((c) => Object.prototype.hasOwnProperty.call(baseline.cases, c.id));
 
       const regressions: { id: string; failures: string[] }[] = [];

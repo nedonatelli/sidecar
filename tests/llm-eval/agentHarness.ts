@@ -245,6 +245,19 @@ const ENV_CONFIG_OVERRIDES = (() => {
 })();
 
 /**
+ * The run-level config a case executes under, minus the case's own overrides.
+ *
+ * Built here rather than by the caller so provenance is described by the same
+ * layering the run uses. Per-case `configOverrides` are excluded on purpose:
+ * they belong to the case, are versioned in git beside it, and so are identical
+ * across two runs of the same committed cases — whereas the layers below them
+ * are exactly what varies run to run.
+ */
+export function runConfigForProvenance(): Record<string, unknown> {
+  return { ...getConfig(), sandboxEnabled: false, ...ENV_CONFIG_OVERRIDES } as Record<string, unknown>;
+}
+
+/**
  * Persist one case run's full trajectory as a JSONL line when
  * SIDECAR_EVAL_TRAJECTORY_DIR is set. Append-mode so multi-model sweeps
  * accumulate into one grep-able file — any future "do models actually
