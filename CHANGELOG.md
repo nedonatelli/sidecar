@@ -4,10 +4,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-## [0.122.2] - 2026-07-30
+## [0.122.2] - 2026-07-31
 
 ### Fixed
 
+- **Documentation indexing pulled in 2.2 GB of build artifacts.** SideCar indexed `.vscode-test/` — three complete VS Code app bundles — taking a README from every extension Microsoft ships, three times over. The directory is gitignored; the exclude glob was not honouring that. The cost is not only the 3.1s spent building the index: those entries then compete with the user's own documentation at retrieval, so asking about the project could surface VS Code's git extension docs. The root cause was not a missing entry but six different exclude lists across six `findFiles` call sites, the documentation indexer's being the shortest (`node_modules` only) — adding a seventh variant would have guaranteed the next divergence, so the canonical list now lives in one module and both workspace-wide scanners use it. Found by installing the build and reading the activation log, not by a test, and verified against the real paths from that log. (`src/config/indexExcludes.ts`)
 - **The agent regression baseline compared across an incomparable boundary and reported a verdict anyway.** The recorded file carried the model, a timestamp, the extension version and per-case results — and nothing about the conditions the run was measured under. So a run under scaffold 4.0.0 with thinking on was compared against numbers taken under scaffold 3.x with thinking *off*, and printed a pass, while `docs/scaffold-versions.md` already stated that results either side of that boundary are not directly comparable. A green baseline meant nothing, and the moment it stopped meaning anything was invisible. Baselines now record a provenance snapshot — the scaffold descriptor reused verbatim from the agent loop, whether thinking was enabled, the model as invoked, the extension version — and the comparison refuses to produce a verdict when those diverge, naming the dimension and the re-record command. An incomparable baseline is treated exactly as a missing one; one predating provenance is reported, never thrown on. A scaffold MINOR/PATCH bump or an extension release deliberately does **not** invalidate: a guard that fires on every release is ignored, which fails as surely as one that never fires. Recording refuses outright when the run cannot describe its own conditions. The decision is pure, so it runs in the ordinary suite — the only part of the measurement layer CI can protect, since every eval needs a live model. The comparability decision is mutation-checked rather than assumed: removing the scaffold-major comparison fails one test, removing the thinking comparison fails two. The sibling `embeddingParity` baseline was reviewed for the same defect and does not have it — it already refuses on a `modelId` mismatch, and that is its only comparability dimension. (`tests/llm-eval/baselineProvenance.ts`)
 
 - **The macOS Seatbelt sandbox never confined anything, because its profile never parsed.** `(allow network-inbound (local))` is not valid SBPL — `local` requires a host argument — and `sandbox-exec` does not degrade on a malformed profile: it aborts with `Assertion failed: (is_pair(p)), function car, file sbpl_parser.c:129` *before* exec'ing the shell. Every sandboxed command therefore died before it ran, which is the `run_command` hang that was chased through the terminal path and `ShellSession` first. The valid form is `(local ip "*:*")`. Verified against the real parser rather than by inspection: the pre-fix profile aborts, the fixed one parses, permits a write inside the workspace and denies one outside — and the new test invokes `sandbox-exec` itself, because a test asserting on the profile *string* passes against the broken profile, which is how this survived. Note the remaining limit, now documented in SECURITY.md: the sandbox wraps only the child-process fallback executor, not the VS Code terminal path that is used by default. (`src/terminal/seatbelt.ts`)
@@ -46,7 +47,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Stats
 
-- 8501 total tests (457 test files)
+- 8502 total tests (457 test files)
 - 87 built-in tools, 11 skills
 
 ## [0.122.1] - 2026-07-27
