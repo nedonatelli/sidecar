@@ -795,12 +795,23 @@ export const AGENT_CASES: AgentEvalCase[] = [
         '}\n',
     },
     userMessage: 'Rename the function to `handleItems` in `src/utils.ts`.',
+    // The harness plays a cooperative user: a clarifying question is answered
+    // rather than dead-ended, because asking is a legitimate move. That made the
+    // old assertion — "must not call edit_file" — unsatisfiable: an agent that
+    // did the right thing and asked was told to proceed, proceeded, and failed
+    // for proceeding. The only way to pass was to ask and ignore the answer.
+    //
+    // The answer names the SECOND function on purpose. A model that guesses
+    // without asking picks the first-defined one (measured: claude-sonnet-5 did
+    // exactly that), so renaming `cleanItems` is only reachable by asking AND
+    // using the reply. That makes this test the whole loop, not half of it.
+    clarifyResponse: '`cleanItems` — the one that trims whitespace.',
     expect: {
-      // Core signal: agent must not silently pick one and edit without asking.
-      toolsNotCalled: ['edit_file', 'write_file'],
-      // Both candidate names must appear — via ask_user, prose, or any other
-      // form. The names are specific enough that guessing is unlikely.
-      finalTextContains: ['filterItems', 'cleanItems'],
+      files: {
+        contain: [{ path: 'src/utils.ts', substrings: ['handleItems', 'filterItems'] }],
+        // The named function was renamed; the decoy was left alone.
+        notContain: [{ path: 'src/utils.ts', substrings: ['cleanItems'] }],
+      },
     },
   },
 

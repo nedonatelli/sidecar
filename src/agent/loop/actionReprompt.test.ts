@@ -2,11 +2,50 @@ import { describe, it, expect } from 'vitest';
 import {
   isActionRequest,
   isMutationRequest,
+  looksLikeDeclinedAction,
   looksLikeDeferredAction,
   hasFakeToolOutput,
   maybeInjectActionReprompt,
 } from './actionReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
+
+describe('looksLikeDeclinedAction', () => {
+  // The inverse of looksLikeDeferredAction. That one catches "I will now edit…"
+  // with no tool call — the model MEANT to act and didn't. This catches the
+  // opposite: the model deliberately chose NOT to act and said so.
+  //
+  // Fence-write coercion overrode exactly that. On no-op-recognition the model
+  // said "no changes needed … per rule 7, I'm leaving the file untouched", and
+  // SideCar wrote the file anyway — punishing an agent for following SideCar's
+  // own operating rule. 1 in 4 trials, claude-sonnet-5.
+
+  it.each([
+    'The function already does exactly this — no changes needed.',
+    "Per rule 7 (don't edit code that already satisfies the requirement), I'm leaving the file untouched.",
+    'No edit is required — the implementation already matches.',
+    'This already satisfies the requirement, so I am not modifying it.',
+    'Nothing to change here.',
+    'The file is already correct; leaving it as is.',
+  ])('is true for an explicit decision not to act: %s', (text) => {
+    expect(looksLikeDeclinedAction(text)).toBe(true);
+  });
+
+  it.each([
+    "I'll update the function now.",
+    'Here is the corrected implementation:',
+    'Renaming the function as requested.',
+    'The function returns the sum of its arguments.',
+    'I fixed the off-by-one error.',
+  ])('is false when the model is acting or merely describing: %s', (text) => {
+    expect(looksLikeDeclinedAction(text)).toBe(false);
+  });
+
+  it('does not fire on a deferred action, which is the opposite signal', () => {
+    const deferred = 'Let me edit src/utils.ts to fix that.';
+    expect(looksLikeDeferredAction(deferred)).toBe(true);
+    expect(looksLikeDeclinedAction(deferred)).toBe(false);
+  });
+});
 
 describe('isMutationRequest', () => {
   // The predicate that licenses fence-write coercion — synthesizing a write_file
