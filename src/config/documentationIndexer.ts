@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import { logger } from '../system/logger.js';
 import * as path from 'path';
+import { INDEX_EXCLUDE_PATTERN } from './indexExcludes.js';
 
 /**
  * Documentation comment extracted from source code or markdown files.
@@ -75,7 +76,7 @@ export class DocumentationIndexer {
       try {
         const uris = await workspace.findFiles(
           pattern,
-          '**/node_modules/**',
+          INDEX_EXCLUDE_PATTERN,
           100, // max files per pattern
         );
         docFiles.push(...uris);
