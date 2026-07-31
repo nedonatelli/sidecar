@@ -4,6 +4,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.122.3] - 2026-07-31
+
+### Fixed
+
+- **A read request could overwrite the file it asked about.** Fence-write coercion synthesizes a `write_file` from a code fence the model merely printed — added because weak models print code instead of calling the tool, which the campaign corpus put at 20 of 27 remaining failures. It was gated on `isActionRequest`, whose verb list mixes mutating verbs (`edit`, `write`, `create`, `delete`) with read-only ones (`read`, `check`, `find`, `show`, `list`). So *"Read src/helpers.ts and tell me what it does"* classified as an action request: a model that answered correctly — that file does not exist, here is what the neighbouring file contains — had its illustrating fence written to `src/helpers.ts`, fabricating the file it had just reported absent. Worse, `synthesizeFenceWrite` takes the path from the **user's** message and never checks whether the file exists, so *"Read src/utils.ts and tell me what it does"* could overwrite `src/utils.ts` with the model's paraphrase of itself — data loss from a read-only request. Coercion now requires a strictly narrower `isMutationRequest`; `isActionRequest` is deliberately unchanged, because the re-prompt nudge *should* fire on a read request and tell the model to call `read_file`. Verified against the live failure rather than by unit test alone: the eval case went from 2/5 to 5/5 trials on claude-sonnet-5. Found by ceiling-validating the eval suite — the case was correct and had been failing for a real reason. (`src/agent/loop/actionReprompt.ts`, `src/agent/loop/streamTurn.ts`)
+- **The v0.122.2 artifact exclude reached only two of four workspace scanners.** That release claimed to stop indexing `.vscode-test/`. It stopped the documentation indexer — the one whose failures appeared in the activation log — while the symbol graph and workspace index kept going; `workspace-index.json` still held 742 `.vscode-test` entries afterwards. All four scanners now share one list, and it is the union of what each carried separately rather than an overwrite: `.turbo`, `.cache`, `.stryker-tmp` (Stryker copies the whole repo per mutation sandbox) and `graphify-out` (graphify writes a ~7 MB graph into the directory it scans) were in individual lists and would have been silently re-admitted. A test now asserts no workspace-wide scanner defines its own exclude glob. (`src/config/indexExcludes.ts`)
+
+### Stats
+- 8526 total tests (458 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.122.2] - 2026-07-31
 
 ### Fixed

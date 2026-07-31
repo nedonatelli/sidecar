@@ -18,6 +18,7 @@ import {
 } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
 import { assignOrdinals, makeSymbolId, type SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
+import { INDEX_EXCLUDE_DIRS, INDEX_EXCLUDE_PATTERN } from './indexExcludes.js';
 
 const CACHE_FILE = 'cache/symbol-graph.json';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -61,28 +62,7 @@ const CODE_EXTENSIONS = new Set([
   '.vue',
 ]);
 
-const EXCLUDE_DIRS = new Set([
-  'node_modules',
-  '.git',
-  '.sidecar',
-  'coverage',
-  'out',
-  'dist',
-  'build',
-  '.venv',
-  'venv',
-  '__pycache__',
-  '.next',
-  '.turbo',
-  '.cache',
-  'vendor', // PHP Composer, Go vendor
-  'target', // Rust cargo, Maven/Gradle
-  '.gradle', // Kotlin/Java Gradle cache
-  'Pods', // CocoaPods (Swift/ObjC)
-  '.pytest_cache',
-  'bower_components',
-  '.stryker-tmp', // Stryker mutation runs copy the whole repo per sandbox
-]);
+const EXCLUDE_DIRS = new Set<string>(INDEX_EXCLUDE_DIRS);
 
 export class SymbolIndexer implements Disposable {
   private graph = new SymbolGraph();
@@ -137,7 +117,7 @@ export class SymbolIndexer implements Disposable {
     const restored = await this.restore();
 
     // Discover workspace files — all patterns in parallel
-    const excludePattern = `**/{${[...EXCLUDE_DIRS].join(',')}}/**`;
+    const excludePattern = INDEX_EXCLUDE_PATTERN;
     const foundUris = await Promise.all(
       filePatterns.map((pattern) => workspace.findFiles(pattern, excludePattern, 1000)),
     );

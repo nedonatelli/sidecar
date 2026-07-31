@@ -28,6 +28,12 @@ export const INDEX_EXCLUDE_DIRS = [
   'target',
   'vendor',
   '.sidecar',
+  '.turbo',
+  '.cache',
+  // Stryker copies the entire repo into a sandbox per mutation run.
+  '.stryker-tmp',
+  // graphify writes its ~7 MB graph into the directory it scans.
+  'graphify-out',
 ] as const;
 
 /** VS Code `findFiles` exclude pattern covering all of {@link INDEX_EXCLUDE_DIRS}. */

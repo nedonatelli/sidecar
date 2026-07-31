@@ -5,7 +5,7 @@ import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCallsCleaned, stripRepeatedContent, synthesizeFenceWrite } from './textParsing.js';
-import { lastUserMessageText, isActionRequest } from './actionReprompt.js';
+import { lastUserMessageText, isMutationRequest } from './actionReprompt.js';
 import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
@@ -427,7 +427,12 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       // write_file the model described. Only on an action-request turn with an
       // unambiguous single target; every write_file guard still applies.
       const userText = lastUserMessageText(state.messages);
-      const synth = isActionRequest(userText)
+      // isMutationRequest, NOT isActionRequest: a read request licenses the
+      // re-prompt nudge but must never license synthesizing a write. A model
+      // answering "what does X contain" prints fences to ILLUSTRATE, and coercing
+      // those to disk fabricated files — or overwrote the file being asked about
+      // with a paraphrase of itself.
+      const synth = isMutationRequest(userText)
         ? synthesizeFenceWrite(fullText, userText, new Set(iterationTools.map((t) => t.name)))
         : null;
       if (synth) {
