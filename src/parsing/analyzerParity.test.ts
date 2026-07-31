@@ -19,7 +19,8 @@ import type { CodeAnalyzer, CodeElement } from './types.js';
 // `vi.doMock`s ./treeSitterAnalyzer.js with `resetModules` between cases; a
 // real-grammar suite sharing the file would fight those mocks.
 
-// Measured at 221 exported + 790 total over 497 files when this landed. The
+// Measured at 221 exported + 790 total over 497 non-test files when this
+// landed (202 exported once the __corpus__/__mocks__ fixtures are excluded). The
 // floor is deliberately loose: it exists to catch emission collapsing toward
 // zero, which is the failure this whole change is about, not to track the true
 // count upward as source is added.

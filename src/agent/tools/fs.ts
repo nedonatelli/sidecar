@@ -883,9 +883,10 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
 function emptySearchError(filePath: string): string {
   return (
     `Error: edit_file failed — 'search' is empty. edit_file replaces an EXACT existing string, so 'search' must ` +
-    `contain the current text you want to replace. The file was NOT modified. To ADD new code instead: call ` +
-    `edit_file(path="${filePath}", search=<an existing line to anchor on, copied verbatim>, insert_after=<the new ` +
-    `code>), or write_file(path="${filePath}", content=<the COMPLETE file including your new code>).`
+    `contain the current text you want to replace. The file was NOT modified. To ADD new code instead, repeat the ` +
+    `anchor inside 'replace': call edit_file(path="${filePath}", search=<an existing line, copied verbatim>, ` +
+    `replace=<that same line, then your new code>), or write_file(path="${filePath}", content=<the COMPLETE file ` +
+    `including your new code>).`
   );
 }
 
@@ -1437,7 +1438,8 @@ export async function resolveEditedText(params: {
         duplicateTrimNote =
           `[note: your 'replace' restated text that already follows the match (the block body), which would ` +
           `have duplicated it. The redundant tail was trimmed and the edit applied as an insertion. To ADD ` +
-          `text, prefer edit_file(search=<anchor>, insert_before=<new text>).]\n`;
+          `text, put the anchor in 'search' and repeat it at the start of 'replace', followed by only the new ` +
+          `text.]\n`;
       }
     }
   }

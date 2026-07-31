@@ -672,7 +672,7 @@ SideCar uses **Retrieval-Augmented Generation (RAG)** to inject relevant documen
 | Setting                            | Type    | Default | Description                                                                        |
 | ---------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------- |
 | `sidecar.enableDocumentationRAG`   | boolean | `true`  | Enable documentation retrieval for every user message                              |
-| `sidecar.ragMaxDocEntries`         | number  | `5`     | Maximum number of documentation entries to inject per message (1-20)               |
+| `sidecar.ragMaxDocEntries`         | number  | `20`    | Maximum number of documentation entries to inject per message (1-20)               |
 | `sidecar.ragUpdateIntervalMinutes` | number  | `60`    | Re-index documentation every N minutes (5-360). Set to `0` to disable auto-refresh |
 
 Documentation is automatically discovered in:
@@ -960,7 +960,7 @@ When enabled, the agent can call `delegate_to_mcp(server="my-server", task="..."
 | --------------------------------- | ------- | ------- | ---------------------------------------------------------------- |
 | `sidecar.mcpServer.enabled`       | boolean | `false` | Expose SideCar's agent loop as a local MCP server on `127.0.0.1` |
 | `sidecar.mcpServer.port`          | number  | `3457`  | Listening port (1024–65535)                                      |
-| `sidecar.mcpServer.requireAuth`   | boolean | `false` | Require a bearer token on inbound requests                       |
+| `sidecar.mcpServer.requireAuth`   | boolean | `true`  | Require a bearer token on inbound requests                       |
 | `sidecar.mcpServer.authToken`     | string  | `""`    | Bearer token clients must supply when `requireAuth` is `true`    |
 | `sidecar.mcpServer.maxConcurrent` | number  | `1`     | Maximum concurrent agent tasks from inbound calls                |
 

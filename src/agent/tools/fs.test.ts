@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { writeFile, editFile, readFile, applyReadView, editFileDef } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
@@ -148,9 +150,16 @@ describe('editFile audit mode', () => {
       (e: Error) => e.message,
     );
     expect(err).toContain("'search' is empty");
-    expect(err).toContain('insert_after');
     expect(err).toContain('write_file');
     expect(err).not.toContain('appears');
+    // The rescue path must not teach a field the schema no longer declares.
+    // It did: it told the model to retry with `insert_after`, which is not a
+    // synonym for `replace` either, so the payload was dropped and the retry
+    // failed the same way. An error message is prompt surface.
+    expect(err).not.toContain('insert_after');
+    expect(err).not.toContain('insert_before');
+    // What it must teach instead: repeat the anchor inside `replace`.
+    expect(err).toContain('replace');
     expect(buf.read('src/calc.py').content).toBe('def add(a, b):\n    return a + b\n');
   });
 
@@ -1254,6 +1263,19 @@ describe('insertion via the single substitution primitive (insert_* removed)', (
     // while duplicating text five times over, measured on gemma4).
     const declared = Object.keys(editFileDef.input_schema.properties ?? {});
     expect(declared).toEqual(['path', 'search', 'replace']);
+  });
+
+  it('no model-facing string still teaches a removed field', () => {
+    // The schema check above passed while two error messages went on telling
+    // the model to retry with `insert_after` — and it is not a synonym for
+    // `replace`, so the payload was dropped and the retry failed identically.
+    // An error message is prompt surface; checking only the schema misses it.
+    const source = readFileSync(resolve(process.cwd(), 'src/agent/tools/fs.ts'), 'utf-8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const removed of ['insert_after', 'insert_before', 'new_text']) {
+      expect(source, `${removed} still appears outside a comment`).not.toContain(removed);
+    }
   });
 
   it('a replace that drops the anchor is refused, not silently applied', () => {

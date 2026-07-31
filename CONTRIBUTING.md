@@ -235,9 +235,11 @@ by a cooperative user. Keep it that way:
 - **The harness answers `ask_user`.** A clarifying question is legitimate agent behavior —
   better than guessing wrong or thrashing — so the harness plays a helpful user via `clarifyFn`
   and lets the model continue. Cases can supply a specific `clarifyResponse`.
-- **Thinking is disabled for eval speed** (`SIDECAR_DISABLE_THINKING=true`, set by the
-  `eval:*` scripts) — measured to give no agentic-accuracy gain at ~4× the latency for the
-  local reasoning models we test.
+- **Thinking is left on.** It used to be disabled for eval speed
+  (`SIDECAR_DISABLE_THINKING=true` in the `eval:*` scripts) on the belief it gave no
+  agentic-accuracy gain. That made every local number measure a configuration nobody ships,
+  so the flag was removed; evals now run the same way users do. Re-baseline before comparing
+  against any figure recorded earlier.
 - **Baselines.** `qwen2.5-coder:7b` is the reliable local agent baseline (confirm a change is
   safe against it); `qwen3.5:latest` is a good stress model (it exercises the fragile
   Ollama-runtime paths). Model-specific findings live in the eval notes / project memory.
