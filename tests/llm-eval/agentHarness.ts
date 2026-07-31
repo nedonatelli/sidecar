@@ -272,8 +272,15 @@ function dumpTrajectory(
   result: AgentCaseResult,
   configOverrides?: AgentEvalCase['configOverrides'],
 ): void {
-  const dir = process.env.SIDECAR_EVAL_TRAJECTORY_DIR;
-  if (!dir) return;
+  // Capture by DEFAULT. This used to require SIDECAR_EVAL_TRAJECTORY_DIR to be
+  // set, so the question the comment above promises to answer — "do models
+  // actually do X?" — could not be answered for any run where someone forgot the
+  // variable, which was most of them. A full ceiling run finished with no
+  // trajectories and the tool-usage question unanswerable. Set the variable to
+  // 'off' to opt out.
+  const configured = process.env.SIDECAR_EVAL_TRAJECTORY_DIR;
+  if (configured === 'off') return;
+  const dir = configured || '.sidecar/logs/eval-trajectories';
   try {
     fs.mkdirSync(dir, { recursive: true });
     const mergedOverrides = { ...configOverrides, ...ENV_CONFIG_OVERRIDES };

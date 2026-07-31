@@ -116,7 +116,10 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       'Remove all TODO comments and placeholder throws — each function must have a real, working implementation.',
     maxIterations: 10,
     expect: {
-      toolsCalled: ['edit_file'],
+      // No tool pin. The requirement is that the three functions end up as real
+      // implementations with no TODOs — `files` below asserts exactly that.
+      // claude-sonnet-5 achieved it with write_file and was failed for not using
+      // edit_file, which verified nothing the file contents do not.
       files: {
         exist: ['src/validators.js'],
         notContain: [
