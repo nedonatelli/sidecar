@@ -11,6 +11,7 @@ import { getConfig } from './settings.js';
 import { getCurrentContextRules, applyContextRules } from './structuredContextRules.js';
 import { tokenize } from './workspaceIndex/tokenize.js';
 import type { FileNode, RankedFile } from './workspaceIndex/types.js';
+import { INDEX_EXCLUDE_DIRS, INDEX_EXCLUDE_PATTERN } from './indexExcludes.js';
 export type { FileNode, RankedFile } from './workspaceIndex/types.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -18,24 +19,8 @@ const MAX_FILE_SIZE = 100 * 1024; // 100KB
 const INDEX_CACHE_FILE = 'cache/workspace-index.json';
 const INDEX_VERSION = 1;
 
-const DEFAULT_EXCLUDES = [
-  'node_modules',
-  '.git',
-  '.sidecar',
-  'coverage',
-  'out',
-  'dist',
-  'build',
-  '.venv',
-  'venv',
-  '__pycache__',
-  '.next',
-  '.turbo',
-  '.cache',
-  '.stryker-tmp', // Stryker mutation runs copy the whole repo per sandbox
-  'graphify-out', // graphify writes its graph INTO the scanned dir (~7MB of JSON)
-];
-const EXCLUDE_PATTERN = `**/{${DEFAULT_EXCLUDES.join(',')}}/**`;
+const DEFAULT_EXCLUDES = INDEX_EXCLUDE_DIRS;
+const EXCLUDE_PATTERN = INDEX_EXCLUDE_PATTERN;
 
 const ROOT_CONFIG_FILES = new Set([
   'package.json',
@@ -894,7 +879,7 @@ export class WorkspaceIndex implements Disposable {
 
   private shouldExclude(relativePath: string): boolean {
     const parts = relativePath.split(path.sep);
-    const defaultExcludes = new Set(DEFAULT_EXCLUDES);
+    const defaultExcludes = new Set<string>(DEFAULT_EXCLUDES);
     // Check default directory excludes
     if (parts.some((p) => defaultExcludes.has(p))) return true;
     // Check custom .sidecarignore patterns
