@@ -276,22 +276,21 @@ export const AGENT_CASES: AgentEvalCase[] = [
     userMessage:
       'How many TypeScript test files are in this workspace? Use the glob pattern **/*.test.ts to find them. Give me just the count.',
     expect: {
-      // The agent should reach for search_files (glob-based file
-      // finder) rather than list_directory + filter. If we ever
-      // regress the search_files description or add a tool that
-      // shadows it, this case catches the regression.
-      toolsCalled: ['search_files'],
-      // The user message explicitly names the glob "**/*.test.ts" — pin
-      // that the agent passes a pattern containing ".test.ts", not a
-      // broader glob that would match non-test files too.
-      toolCallMatches: [{ name: 'search_files', inputPartial: { pattern: '.test.ts' } }],
+      // The ANSWER is the requirement: two test files. Asserting the count
+      // rather than the route is what lets a correct solution pass —
+      // claude-sonnet-5 answered "2" via run_command(`find … | wc -l`) and was
+      // failed for not calling search_files, which verified nothing the count
+      // does not.
+      finalTextContains: ['2'],
     },
     softExpect: {
-      // Ideally the model also reports the count. Soft because the core
-      // behavioral signal is tool selection + pattern — a model that
-      // used the right tool but phrased its reply awkwardly shouldn't
-      // count as a full regression.
-      finalTextContains: ['2'],
+      // Tool preference is still worth knowing: search_files should beat
+      // list_directory+filter or shelling out to find, and a regression in its
+      // description would show up here. Soft, because it is a preference, not
+      // the requirement — softExpect failures are reported without failing the
+      // case.
+      toolsCalled: ['search_files'],
+      toolCallMatches: [{ name: 'search_files', inputPartial: { pattern: '.test.ts' } }],
     },
   },
 
@@ -658,16 +657,11 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'Find every file in src/ that contains the word "legacy" and replace "legacy" with "modern" in each of them. ' +
       'Use grep(pattern="legacy") to find the files. Do not touch any file that does not contain "legacy".',
     expect: {
-      // The agent should discover the files via grep (or
-      // search_files if it prefers glob), not by blind-reading each
-      // one. Either is acceptable — we just want to pin that SOME
-      // search tool is used.
-      toolsCalled: ['grep'],
-      // Search must precede edit — the agent discovers which files to
-      // change from the grep output, not from reading each file blindly.
-      trajectoryOrder: [{ before: 'grep', after: 'edit_file' }],
       // Edits must land on both matching files; the untouched file
-      // must keep its original content.
+      // must keep its original content. This fully specifies the task:
+      // both replacements made, the decoy left alone. claude-sonnet-5
+      // satisfied all of it with `grep -rln | xargs sed -i` in a single
+      // call, and was failed only for not routing through edit_file.
       files: {
         contain: [
           { path: 'src/foo.ts', substrings: ['modern'] },
@@ -679,6 +673,13 @@ export const AGENT_CASES: AgentEvalCase[] = [
           { path: 'src/bar.ts', substrings: ['legacy'] },
         ],
       },
+    },
+    softExpect: {
+      // Discovering the targets by search rather than blind-reading each file
+      // is the preferred shape, and worth reporting when it does not happen —
+      // but a correct outcome reached another way is not a regression.
+      toolsCalled: ['grep'],
+      trajectoryOrder: [{ before: 'grep', after: 'edit_file' }],
     },
   },
 
