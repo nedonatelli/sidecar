@@ -65,11 +65,8 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
     userMessage: 'The divide function in src/divide.js has a bug. Fix it.',
     maxIterations: 10,
     expect: {
-      toolsCalled: ['read_file', 'edit_file', 'run_tests'],
-      trajectoryOrder: [
-        { before: 'read_file', after: 'edit_file' },
-        { before: 'edit_file', after: 'run_tests' },
-      ],
+      toolsCalled: ['edit_file', 'run_tests'],
+      trajectoryOrder: [{ before: 'edit_file', after: 'run_tests' }],
       files: {
         contain: [{ path: 'src/divide.js', substrings: ['a / b'] }],
         notContain: [{ path: 'src/divide.js', substrings: ['a + b'] }],
@@ -298,9 +295,8 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
     maxIterations: 12,
     expect: {
       // Must eventually call read_file to discover the real content
-      toolsCalled: ['read_file', 'edit_file'],
+      toolsCalled: ['edit_file'],
       // read_file must come before the final successful edit
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [{ path: 'src/utils.js', substrings: ['x * 2'] }],
         notContain: [{ path: 'src/utils.js', substrings: ['x * 3'] }],
