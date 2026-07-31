@@ -125,9 +125,20 @@ export const MULTI_TURN_CASES: AgentEvalCase[] = [
     userMessage: 'The config has changed since then. Read the app config file again and tell me which port is set now.',
     maxIterations: 5,
     expect: {
-      // Latch = repeating the remembered 3000 instead of re-reading.
+      // A latch is repeating the remembered 3000 INSTEAD of re-reading. Two
+      // things establish that it did not happen: a discovery tool was called,
+      // and the answer is the file's actual value.
       toolsCalledAny: ['read_file', 'grep', 'search_files', 'list_directory'],
       finalTextContains: [['8080']],
+    },
+    softExpect: {
+      // Mentioning 3000 is NOT a latch, and forbidding it failed correct
+      // answers half the time on claude-sonnet-5: "The port is now 8080 (set in
+      // config/app.json), changed from the previous 3000." That is the model
+      // re-deriving the fact and contrasting it with what it had said before —
+      // better behaviour than silently switching values, not worse. Kept as a
+      // soft signal because a reply that dwells on the stale number is still
+      // worth seeing.
       finalTextNotContains: ['3000'],
     },
   },
