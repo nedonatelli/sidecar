@@ -64,7 +64,11 @@ export const TOOL_SURFACE_CASES: ToolSurfaceCase[] = [
       // delete it. Adding code requires the anchor to survive.
       const r = String(i.replace);
       if (!r.includes('multiply')) return 'replace does not contain the new function';
-      if (!String(i.search).split('\n').every((l) => r.includes(l.trim()) || l.trim() === ''))
+      if (
+        !String(i.search)
+          .split('\n')
+          .every((l) => r.includes(l.trim()) || l.trim() === '')
+      )
         return 'replace drops the search anchor — this edit would DELETE it, not add alongside';
       return null;
     },
@@ -109,7 +113,9 @@ export const TOOL_SURFACE_CASES: ToolSurfaceCase[] = [
     task: 'What does src/config/settings.ts contain? Read it.',
     workspace: { 'src/config/settings.ts': '// settings\n' },
     expresses: (i) =>
-      i.path === 'src/config/settings.ts' ? null : `path=${JSON.stringify(i.path)}, expected the file named in the task`,
+      i.path === 'src/config/settings.ts'
+        ? null
+        : `path=${JSON.stringify(i.path)}, expected the file named in the task`,
   },
 
   // --- choosing between tools: grep vs read_file ---------------------------

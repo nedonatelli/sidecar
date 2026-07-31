@@ -178,6 +178,47 @@ Both layers share the same vitest config
 ([`vitest.eval.config.ts`](../../vitest.eval.config.ts)) and the same
 `npm run eval:llm` entry point.
 
+## Regression baselines and provenance
+
+`agentBaseline.eval.ts` records, per model, which cases that model is known to
+pass, then fails if one of them stops passing.
+
+A recorded baseline carries a **provenance** snapshot of the conditions it was
+measured under: the scaffold descriptor (version + active features), whether
+thinking was on, the model identifier as invoked, and the extension version.
+Before comparing, the harness checks that snapshot against the current run and
+**refuses to produce a verdict** when they are not comparable — printing which
+dimension diverged and the command to re-record. An incomparable baseline is
+treated exactly like a missing one.
+
+What invalidates a baseline:
+
+| Change                        | Invalidates? | Why                                                        |
+| ----------------------------- | ------------ | ---------------------------------------------------------- |
+| Scaffold MAJOR version        | yes          | `docs/scaffold-versions.md` calls these not comparable     |
+| Active scaffold feature set   | yes          | Measures the gates, not the model                          |
+| Thinking on/off               | yes          | Silently invalidated every number recorded before v0.122.1 |
+| Model identifier (tag, quant) | yes          | Baselines are per-model                                    |
+| Scaffold MINOR / PATCH        | no           | A guard that fires on every tweak gets ignored             |
+| Extension version             | no           | Frequent and mostly orthogonal to agent behaviour          |
+
+The comparability decision is pure and lives in `baselineProvenance.ts`, so it
+is covered by the ordinary test suite — it is the only part of the eval layer
+CI can protect, since everything else needs a live model.
+
+The sibling `embeddingParity.eval.ts` baseline was reviewed for the same defect
+and does **not** have it: it already refuses when `modelId` differs from the
+current one, and that is its only comparability dimension — it runs a
+deterministic pipeline over fixtures, not the agent loop, so there is no
+scaffold or thinking configuration for it to misreport.
+
+**Coverage is operational and not enforced.** The guard cannot make anyone
+re-record. Baselines should span at least five model families of distinct
+lineages and sizes, not five variants of one: a single family's number has
+repeatedly proven unrepresentative. Long runs need `caffeinate -dimsu` (a
+sleeping machine has destroyed multi-hour sweeps and been misread as model
+failure) and must not overlap another vitest instance.
+
 ## Known model-specific baselines
 
 Some cases are borderline for specific models — they pass most of the time but occasionally fail at temperature 0.2 due to sampling noise on a prompt that is close to the decision boundary for that model:
