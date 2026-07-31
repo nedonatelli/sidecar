@@ -89,6 +89,31 @@ describe('DocumentationIndexer — indexing pipeline', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  it('excludes build and test artifacts from the search', async () => {
+    // Measured on a real activation: SideCar indexed 2.2 GB of .vscode-test/ —
+    // three complete VS Code app bundles — pulling README.md out of every
+    // extension Microsoft ships, three times over. Those entries then compete
+    // with the user's own docs at retrieval time. The directory is gitignored;
+    // only the exclude glob was not honouring that.
+    const excludes: string[] = [];
+    vi.spyOn(workspace, 'workspaceFolders', 'get').mockReturnValue([
+      { uri: Uri.file('/root'), name: 'root', index: 0 },
+    ] as never);
+    vi.spyOn(workspace, 'findFiles').mockImplementation((async (_p: unknown, exclude: string) => {
+      excludes.push(exclude);
+      return [];
+    }) as never);
+
+    await new DocumentationIndexer().initialize();
+
+    expect(excludes.length).toBeGreaterThan(0);
+    for (const glob of excludes) {
+      for (const dir of ['node_modules', '.vscode-test', 'out', 'dist', '.git']) {
+        expect(glob, `"${dir}" is not excluded by ${glob}`).toContain(dir);
+      }
+    }
+  });
+
   it('is not ready before initialize and returns no search results', () => {
     const idx = new DocumentationIndexer();
     expect(idx.isReady()).toBe(false);

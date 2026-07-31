@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 import type { WorkspaceIndex } from '../config/workspaceIndex.js';
+import { INDEX_EXCLUDE_PATTERN } from '../config/indexExcludes.js';
 
 const MAX_CONFIG_READ = 8000;
 
@@ -130,7 +131,6 @@ const ENTRY_POINT_PATTERNS = [
 ];
 
 const SOURCE_PATTERNS = ['**/*.ts', '**/*.js', '**/*.py', '**/*.go', '**/*.rs', '**/*.java', '**/*.rb'];
-const EXCLUDE_PATTERN = '**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next,coverage,build,.sidecar}/**';
 
 /** Read a sample of source files to help the LLM detect code conventions.
  *  Prioritizes entry-point files, then samples from distinct directories for diversity. */
@@ -164,7 +164,7 @@ async function readSampleSourceFiles(rootUri: Uri): Promise<string> {
   // Phase 1: grab entry-point files first
   for (const pattern of ENTRY_POINT_PATTERNS) {
     if (sampleFiles.length >= maxSamples) break;
-    const uris = await workspace.findFiles(pattern, EXCLUDE_PATTERN, 3);
+    const uris = await workspace.findFiles(pattern, INDEX_EXCLUDE_PATTERN, 3);
     for (const uri of uris) {
       if (sampleFiles.length >= maxSamples) break;
       await addFile(uri);
@@ -174,7 +174,7 @@ async function readSampleSourceFiles(rootUri: Uri): Promise<string> {
   // Phase 2: fill remaining slots from diverse directories
   for (const pattern of SOURCE_PATTERNS) {
     if (sampleFiles.length >= maxSamples) break;
-    const uris = await workspace.findFiles(pattern, EXCLUDE_PATTERN, 20);
+    const uris = await workspace.findFiles(pattern, INDEX_EXCLUDE_PATTERN, 20);
     for (const uri of uris) {
       if (sampleFiles.length >= maxSamples) break;
       const relPath = path.relative(rootUri.fsPath, uri.fsPath);
@@ -189,7 +189,7 @@ async function readSampleSourceFiles(rootUri: Uri): Promise<string> {
   if (sampleFiles.length < maxSamples) {
     for (const pattern of SOURCE_PATTERNS) {
       if (sampleFiles.length >= maxSamples) break;
-      const uris = await workspace.findFiles(pattern, EXCLUDE_PATTERN, 20);
+      const uris = await workspace.findFiles(pattern, INDEX_EXCLUDE_PATTERN, 20);
       for (const uri of uris) {
         if (sampleFiles.length >= maxSamples) break;
         await addFile(uri);
