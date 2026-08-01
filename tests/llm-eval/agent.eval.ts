@@ -1,19 +1,13 @@
 import { describe, it } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { AGENT_CASES } from './agentCases.js';
-import { CODE_QUALITY_CASES } from './codeQualityCases.js';
-import { GIT_CASES } from './gitCases.js';
-import { THINKING_CASES } from './thinkingCases.js';
-import { SYSTEM_CASES } from './systemCases.js';
-import { MULTI_TURN_CASES } from './multiTurnCases.js';
-import { DOGFOOD_CASES, DOGFOOD_LANGUAGE_AND_SCALE_CASES } from './dogfoodCases.js';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
 import { renderAgentReport } from './agentScorers.js';
 import { renderReliabilityReport, type ReliabilityRow } from './reliabilityMetrics.js';
 import type { AgentCaseResult } from './agentTypes.js';
 import { HistoryDb } from '../../src/agent/history/historyDb.js';
 import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
+import { ALL_AGENT_CASES } from './allCases.js';
 
 // Write results to .sidecar/history.db when the workspace has one.
 // Silently skips when the path can't be resolved (CI without a workspace).
@@ -38,16 +32,7 @@ function tryWriteResult(result: AgentCaseResult, model: string, tags: string[]):
   }
 }
 
-const ALL_CASES = [
-  ...AGENT_CASES,
-  ...CODE_QUALITY_CASES,
-  ...GIT_CASES,
-  ...THINKING_CASES,
-  ...SYSTEM_CASES,
-  ...MULTI_TURN_CASES,
-  ...DOGFOOD_CASES,
-  ...DOGFOOD_LANGUAGE_AND_SCALE_CASES,
-];
+const ALL_CASES = ALL_AGENT_CASES;
 
 // When SIDECAR_EVAL_CASE is set, only register it() blocks for matching cases
 // so a single targeted run completes in seconds instead of the full suite.
