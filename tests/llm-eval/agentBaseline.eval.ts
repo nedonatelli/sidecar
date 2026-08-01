@@ -24,22 +24,13 @@
 import { describe, it } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { AGENT_CASES } from './agentCases.js';
-import { CODE_QUALITY_CASES } from './codeQualityCases.js';
-import { GIT_CASES } from './gitCases.js';
-import { THINKING_CASES } from './thinkingCases.js';
-import { SYSTEM_CASES } from './systemCases.js';
 import { runAgentCase, pickAgentBackend, DEFAULT_CASE_TIMEOUT_MS, runConfigForProvenance } from './agentHarness.js';
 import type { AgentEvalCase } from './agentTypes.js';
 import { compareProvenance, currentProvenance, type BaselineProvenance } from './baselineProvenance.js';
+import { ALL_AGENT_CASES } from './allCases.js';
 
-const ALL_CASES: AgentEvalCase[] = [
-  ...AGENT_CASES,
-  ...CODE_QUALITY_CASES,
-  ...GIT_CASES,
-  ...THINKING_CASES,
-  ...SYSTEM_CASES,
-];
+// The eval and the baseline MUST run the same cases; they drifted to 70 vs 61.
+const ALL_CASES: AgentEvalCase[] = ALL_AGENT_CASES;
 
 const BASELINE_DIR = path.resolve(__dirname, 'baselines');
 const RECORD_MODE = process.env.SIDECAR_RECORD_AGENT_BASELINE === '1';
