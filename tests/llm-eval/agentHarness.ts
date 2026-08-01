@@ -258,6 +258,27 @@ export function runConfigForProvenance(): Record<string, unknown> {
 }
 
 /**
+ * True when a run died because the infrastructure was unavailable, not because
+ * the model behaved incorrectly.
+ *
+ * The list is wider than "the request failed" on purpose. One `fetch failed`
+ * trips SideCar's own circuit breaker, and every case after it dies with
+ * "backend is temporarily disabled after repeated failures" — a message that
+ * matched none of the original patterns. A full ceiling run therefore reported
+ * "16 failed | 55 passed" when the truth was 54 passes and one network blip,
+ * with nothing in the summary to tell the two apart.
+ *
+ * The breaker is infrastructure announcing that infrastructure is down. It must
+ * never be readable as a regression.
+ */
+export function isInfraFailure(err: Error): boolean {
+  if (err.name === 'AbortError') return true;
+  return /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|timed out|terminated|temporarily disabled after repeated failures|\b429\b|too many requests|overloaded|service unavailable|\b50[23]\b/i.test(
+    err.message,
+  );
+}
+
+/**
  * Persist one case run's full trajectory as a JSONL line when
  * SIDECAR_EVAL_TRAJECTORY_DIR is set. Append-mode so multi-model sweeps
  * accumulate into one grep-able file — any future "do models actually
@@ -272,8 +293,15 @@ function dumpTrajectory(
   result: AgentCaseResult,
   configOverrides?: AgentEvalCase['configOverrides'],
 ): void {
-  const dir = process.env.SIDECAR_EVAL_TRAJECTORY_DIR;
-  if (!dir) return;
+  // Capture by DEFAULT. This used to require SIDECAR_EVAL_TRAJECTORY_DIR to be
+  // set, so the question the comment above promises to answer — "do models
+  // actually do X?" — could not be answered for any run where someone forgot the
+  // variable, which was most of them. A full ceiling run finished with no
+  // trajectories and the tool-usage question unanswerable. Set the variable to
+  // 'off' to opt out.
+  const configured = process.env.SIDECAR_EVAL_TRAJECTORY_DIR;
+  if (configured === 'off') return;
+  const dir = configured || '.sidecar/logs/eval-trajectories';
   try {
     fs.mkdirSync(dir, { recursive: true });
     const mergedOverrides = { ...configOverrides, ...ENV_CONFIG_OVERRIDES };
@@ -464,7 +492,7 @@ export async function runAgentCase(
     // Re-throw infra errors (aborts, network failures) so the runner
     // treats them as infra breakage rather than case regressions.
     // The distinction matches prompt.eval.ts's pattern.
-    if (runError.name === 'AbortError' || /fetch failed|ECONNREFUSED|timed out/i.test(runError.message)) {
+    if (isInfraFailure(runError)) {
       throw new Error(`Agent run failed (infra, not a regression): ${runError.message}`);
     }
     // Everything else counts as a case failure — record it so the

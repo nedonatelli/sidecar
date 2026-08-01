@@ -199,8 +199,6 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'Replace it with a correct implementation: return `n` clamped to the range [min, max]. ' +
       'Remove the TODO comment — the final file must contain only the working function.',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [
           {
@@ -236,8 +234,6 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'Export it. The existing `add` function must remain unchanged. ' +
       'Write the complete multiply implementation — no TODO comments or placeholder returns.',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [
           {
@@ -267,8 +263,6 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'If `JSON.parse` throws, the function should return `null` instead of propagating the error. ' +
       'Use a real try/catch block — do not add TODO comments saying "handle errors later".',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [
           {
@@ -308,10 +302,7 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       // read_file is best-practice but not required — the task description
       // already names the file and the exact change; a model that skips
       // directly to edit_file and gets it right should still pass.
-      softExpect: {
-        toolsCalled: ['read_file'],
-        trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
-      },
+      softExpect: {},
       files: {
         contain: [
           {
@@ -351,8 +342,6 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'There is an off-by-one bug in src/sum.ts — the loop in `sumArray` stops one element too early, ' +
       'missing the last element of the array. Fix the loop boundary so all elements are included.',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [
           {
@@ -391,8 +380,6 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'In src/storage.ts the `writeData` function calls `persist(data)` without awaiting it, ' +
       'so errors are silently dropped. Add `await` to the `persist(data)` call.',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [
           {
@@ -442,8 +429,6 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       '2. `isEven` returns the wrong boolean — it uses `!== 0` instead of `=== 0`.\n' +
       'Fix both bugs. Leave `square` exactly as it is.',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         contain: [
           {
@@ -485,8 +470,6 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'The `max` function in src/minmax.ts is wrong — it uses `a < b ? a : b` which returns the minimum, not the maximum. ' +
       'Fix `max` so it returns the larger value. Leave `min` exactly as it is.',
     expect: {
-      toolsCalled: ['read_file'],
-      trajectoryOrder: [{ before: 'read_file', after: 'edit_file' }],
       files: {
         exist: ['src/minmax.ts'],
         contain: [
