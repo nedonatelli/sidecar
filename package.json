@@ -385,7 +385,7 @@
           },
           "sidecar.agentMaxIterations": {
             "type": "number",
-            "default": 25,
+            "default": 50,
             "minimum": 1,
             "maximum": 100,
             "order": 23,
