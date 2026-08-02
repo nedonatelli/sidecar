@@ -3475,7 +3475,8 @@
     "format:check": "prettier --check 'src/**/*.ts'",
     "check": "npm run compile && npm run compile:bench && npm run lint && npm run format:check && npm run test",
     "bump": "bash scripts/bump-version.sh",
-    "prepare": "husky"
+    "prepare": "husky",
+    "compile:tests": "tsc -p tsconfig.tests.json"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
@@ -3534,7 +3535,7 @@
     "tests/**/*.ts": [
       "prettier --write",
       "eslint --max-warnings=0 --no-warn-ignored",
-      "bash -c 'tsc --noEmit'",
+      "bash -c 'tsc -p tsconfig.tests.json'",
       "bash -c 'vitest run --silent --exclude \"**/shadowWorkspace.test.ts\" --exclude \"**/shadowSweep.test.ts\"'"
     ],
     "bench/**/*.ts": [

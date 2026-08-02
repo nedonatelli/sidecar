@@ -417,7 +417,14 @@ export async function runAgentCase(
 
   const options: AgentOptions = {
     approvalMode: evalCase.approvalMode || 'autonomous',
-    maxIterations: evalCase.maxIterations || 8,
+    // No eval-only cap. This was `|| 8` — three times below the shipped
+    // DEFAULT_MAX_ITERATIONS of 25 — so 62 of 154 local failures across 32 cases
+    // were runs cut off mid-work, recorded as "this model cannot do this". Only
+    // one of those cases asks for 8. Whenever a case was seen running out, it
+    // got an explicit `maxIterations: 12`; the fallback that caused it never
+    // moved, so the fix kept landing on the symptom. Omitting the field lets the
+    // loop apply DEFAULT_MAX_ITERATIONS, which is what a user gets.
+    ...(evalCase.maxIterations ? { maxIterations: evalCase.maxIterations } : {}),
     ...(evalCase.maxTokens ? { maxTokens: evalCase.maxTokens } : {}),
     ...(evalCase.seedPlanText &&
     (evalCase.configOverrides as { planExternalizedEnabled?: boolean } | undefined)?.planExternalizedEnabled
