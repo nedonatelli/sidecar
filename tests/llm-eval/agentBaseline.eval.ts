@@ -111,12 +111,38 @@ describe.skipIf(!backend)('agent regression baseline', () => {
         fs.mkdirSync(BASELINE_DIR, { recursive: true });
         const flush = () => fs.writeFileSync(bpath, JSON.stringify(baseline, null, 2) + '\n', 'utf-8');
 
+        // Circuit breaker. `agent.eval.ts` has had one; this file did not, so a
+        // backend that stops serving mid-sweep is absorbed one case at a time
+        // and the run grinds on. Measured: Ollama's llama-server wedged after a
+        // power loss — `/api/tags` still answered, so the API looked reachable —
+        // and this loop sat for NINE HOURS producing nothing, on a vitest process
+        // that looked perfectly alive. A liveness signal is not evidence the
+        // thing works.
+        let consecutiveUnavailable = 0;
+        const CIRCUIT_BREAKER_THRESHOLD = 3;
+
         for (const [i, c] of cases.entries()) {
+          if (consecutiveUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
+            // Stop rather than skip. Everything recorded so far is already on
+            // disk, so aborting costs nothing and burning the remaining budget
+            // against a dead backend costs hours.
+            throw new Error(
+              `[baseline] circuit breaker: ${consecutiveUnavailable} consecutive cases returned nothing from ` +
+                `"${model}" — the backend is not serving. ${Object.keys(baseline.cases).length} cases are already ` +
+                `written to ${rel(bpath)}; re-run to continue. Check the backend is up and actually generating ` +
+                `(a reachable /api/tags does not mean it can serve).`,
+            );
+          }
           const r = await runAgentCase(c, backend!);
           if (r.apiUnavailable) {
-            console.warn(`[baseline] ${c.id}: API unavailable — not recorded`);
+            consecutiveUnavailable++;
+            console.warn(
+              `[baseline] ${c.id}: API unavailable — not recorded ` +
+                `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting)`,
+            );
             continue;
           }
+          consecutiveUnavailable = 0;
           baseline.cases[c.id] = { passed: r.passed, iterationsUsed: r.iterationsUsed, durationMs: r.durationMs };
           // Flush after EVERY case. The write used to happen once, after the
           // loop, so a run that died at case 32 of 70 discarded all 32 real
