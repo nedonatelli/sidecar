@@ -81,11 +81,18 @@ describe('sandbox findFiles glob support', () => {
 // it does anything. A tsconfig that parses but resolves nothing looks identical
 // from the outside.
 
+// This repo's own compiler, by absolute path. `npx tsc` cannot be used here:
+// the cwd is a temp dir outside the repo, so npx does not find node_modules and
+// falls through to the registry — where `tsc` is an unrelated abandoned package
+// (`tsc@2.0.4`), not the TypeScript compiler. That passes locally on any
+// machine with a global tsc and fails on CI, which is how it got here.
+const TSC = path.resolve(process.cwd(), 'node_modules', 'typescript', 'bin', 'tsc');
+
 /** Run tsc in `root`, returning combined output — it exits non-zero on both a
  *  type error and a missing project, so the output is the only real signal. */
-const runTsc = (root: string): string => {
+const runTsc = (root: string, args: string[] = ['--noEmit']): string => {
   try {
-    return execFileSync('npx', ['--no-install', 'tsc', '--noEmit'], {
+    return execFileSync(process.execPath, [TSC, ...args], {
       cwd: root,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -142,11 +149,7 @@ describe('fixture tsconfig', () => {
     // assert against, so verification would mutate the workspace it verifies.
     return installSandbox({ 'src/a.ts': 'export const n = 1;\n' }, 'tsconf-noemit').then(async (sb) => {
       sandbox = sb;
-      try {
-        execFileSync('npx', ['--no-install', 'tsc'], { cwd: sb.root, stdio: 'ignore' });
-      } catch {
-        /* exit code is not the signal here — the file system is */
-      }
+      runTsc(sb.root, []); // bare tsc — exit code is not the signal here, the file system is
       expect(existsSync(path.join(sb.root, 'src', 'a.js'))).toBe(false);
       expect(Object.keys(await sb.snapshot())).not.toContain('src/a.js');
     });
