@@ -7,6 +7,7 @@ import {
   type TerminalShellExecutionEndEvent,
 } from 'vscode';
 import type { ShellExecuteOptions, ShellResult } from './shellSession.js';
+import { stripAnsi } from './ansi.js';
 
 export interface AgentTerminalOptions {
   /** Display name of the reusable terminal. Default `"SideCar Agent"`. */
@@ -113,7 +114,19 @@ export class AgentTerminalExecutor implements Disposable {
     // Bring the terminal into view without stealing focus from the editor.
     terminal.show(true);
 
-    const { timeout = 120_000, onOutput, signal } = options;
+    const { timeout = 120_000, onOutput: rawOnOutput, signal } = options;
+    // ShellSession strips escape sequences at both ends; this executor stripped
+    // at neither, so everything routed through the VS Code terminal reached the
+    // model raw. Observed in a dogfood run: a `cat` returned
+    // `]633;C[1m[7m%[27m[1m[0m` around two lines of real output — a
+    // shell-integration OSC marker plus zsh prompt styling. The command's output
+    // was correct, so nothing failed; it is tokens of noise on every terminal
+    // command, and a model has to decide whether `[1m[7m%[27m` is data.
+    //
+    // Safe to strip, checked rather than assumed: the exit code comes from
+    // `onDidEndTerminalShellExecution`'s event object, not from parsing `]633;`
+    // markers out of the stream, so nothing downstream depends on seeing them.
+    const onOutput = rawOnOutput ? (chunk: string) => rawOnOutput(stripAnsi(chunk)) : undefined;
 
     return new Promise<ShellResult>((resolve) => {
       let exitCode = 0;
@@ -128,7 +141,10 @@ export class AgentTerminalExecutor implements Disposable {
         signal?.removeEventListener('abort', onAbort);
         endListener.dispose();
         closeListener.dispose();
-        resolve({ stdout: output, exitCode, timedOut });
+        // Stripped here and not per-chunk, because `output` is accumulated from
+        // raw chunks: an escape sequence split across a chunk boundary survives
+        // per-chunk stripping and is only removable once the whole string exists.
+        resolve({ stdout: stripAnsi(output), exitCode, timedOut });
       };
 
       // Signal handlers — timeout and abort both best-effort SIGINT the

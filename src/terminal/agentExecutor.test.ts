@@ -115,6 +115,72 @@ describe('AgentTerminalExecutor', () => {
     });
   });
 
+  describe('escape sequences', () => {
+    // Everything routed through the VS Code terminal reached the model raw:
+    // ShellSession strips at both ends, this executor stripped at neither.
+    // Observed in a dogfood run — `]633;C[1m[7m%[27m[1m[0m` wrapped around two
+    // lines of correct output. Nothing failed, which is why it survived; it is
+    // tokens of noise on every terminal command and a model has to decide
+    // whether `[1m[7m%[27m` is data.
+
+    const setup = (chunks: string[]) => {
+      const exec = fakeExecution(chunks);
+      const { terminal } = makeFakeTerminal({ withIntegration: true, executions: [exec] });
+      vi.spyOn(window, 'createTerminal').mockReturnValue(terminal as never);
+      vi.spyOn(window, 'onDidCloseTerminal').mockReturnValue({ dispose: () => {} } as never);
+      let endListener: ((ev: any) => void) | null = null;
+      vi.spyOn(window as any, 'onDidEndTerminalShellExecution').mockImplementation(((l: (ev: any) => void) => {
+        endListener = l;
+        return { dispose: () => {} };
+      }) as never);
+      return { exec, fire: () => endListener!({ execution: exec, exitCode: 0 }) };
+    };
+
+    it('strips shell-integration markers and prompt styling from stdout', async () => {
+      const { exec, fire } = setup(['\x1b]633;C\x07\x1b[1m\x1b[7malpha\nbravo\n\x1b[27m\x1b[0m']);
+      executor = new AgentTerminalExecutor({ shellIntegrationTimeoutMs: 100 });
+      const p = executor.execute('cat');
+      await exec.drained;
+      fire();
+      const result = await p;
+      expect(result!.stdout).toBe('alpha\nbravo\n');
+    });
+
+    it('strips a sequence split across two chunks', async () => {
+      // Why the final strip cannot be replaced by per-chunk stripping: an
+      // escape sequence broken over a chunk boundary matches neither half.
+      const { exec, fire } = setup(['plain\n\x1b[3', '1mred\x1b[0m\n']);
+      executor = new AgentTerminalExecutor({ shellIntegrationTimeoutMs: 100 });
+      const p = executor.execute('cat');
+      await exec.drained;
+      fire();
+      const result = await p;
+      expect(result!.stdout).toBe('plain\nred\n');
+    });
+
+    it('strips each streamed chunk handed to onOutput', async () => {
+      // The streaming path lands in the webview as DOM textContent, which has
+      // no ANSI renderer — same reasoning ShellSession documents.
+      const { exec, fire } = setup(['\x1b[32mgreen\x1b[0m\n']);
+      executor = new AgentTerminalExecutor({ shellIntegrationTimeoutMs: 100 });
+      const seen: string[] = [];
+      const p = executor.execute('cat', { onOutput: (c: string) => seen.push(c) });
+      await exec.drained;
+      fire();
+      await p;
+      expect(seen.join('')).toBe('green\n');
+    });
+
+    it('leaves output with no escape sequences byte-identical', async () => {
+      const { exec, fire } = setup(['already clean\n']);
+      executor = new AgentTerminalExecutor({ shellIntegrationTimeoutMs: 100 });
+      const p = executor.execute('echo');
+      await exec.drained;
+      fire();
+      expect((await p)!.stdout).toBe('already clean\n');
+    });
+  });
+
   describe('execute — happy path', () => {
     it('drains streamed chunks and captures exit code from the end event', async () => {
       const exec = fakeExecution(['line1\n', 'line2\n', 'line3\n']);
