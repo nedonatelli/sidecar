@@ -1,0 +1,24 @@
+{
+  // Type-checks tests/, which lives outside the extension's src/ rootDir and so
+  // was covered by NOTHING. `tsconfig.json` includes only `src/**/*`, and
+  // `tsconfig.bench.json` only bench/ + src/ — so the eval harness, all 70 cases,
+  // the provenance guard and the scorers were never type-checked. A required
+  // field missing from a `BaselineProvenance` literal passed `tsc --noEmit`
+  // clean, because tsc was not looking at the file.
+  //
+  // Same blind spot eslint had (it reported "File ignored because no matching
+  // configuration was supplied", which reads like success) — fixed there, never
+  // asked of tsc.
+  //
+  // rootDir is the repo root, not ./tests, because the eval harness imports
+  // runtime primitives from src/ (settings, the agent loop, scaffoldVersion).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["tests/**/*", "src/**/*"],
+  // `fixtures/` holds frozen pre-refactor copies kept for reference; their
+  // imports point at paths that no longer exist and are not meant to resolve.
+  "exclude": ["node_modules", "out", "src/test/integration", "tests/llm-eval/fixtures"]
+}

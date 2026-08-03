@@ -297,10 +297,11 @@ export const CASES: EvalCase[] = [
     ].join('\n'),
     tags: ['v082', 'retrieval', 'symbol-precision', 'context-quality'],
     expect: {
-      // Must give the specific value from the symbol hit.
-      mustMatch: [/0\.8|80\s*%|80 percent/i],
-      // Should reference the constant name or the docstring explanation.
-      mustMatch: [/(CONTEXT_COMPRESSION_THRESHOLD|80|compress)/i],
+      // Both assertions, in one array. They were two `mustMatch` keys in the
+      // same object literal, so the second silently overwrote the first and the
+      // case only ever checked the weak one — which matches the bare word
+      // "compress". tests/ was type-checked by nothing, so TS1117 never fired.
+      mustMatch: [/0\.8|80\s*%|80 percent/i, /(CONTEXT_COMPRESSION_THRESHOLD|80|compress)/i],
       maxLength: 1500,
     },
   },

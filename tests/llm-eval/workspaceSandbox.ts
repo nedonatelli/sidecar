@@ -202,8 +202,24 @@ export async function installSandbox(fixture: WorkspaceFixture, caseId: string):
  * minimal — for bigger grammars bring in minimatch. The real
  * `workspace.findFiles` supports the full VS Code glob spec; we
  * just cover enough for the tool-use patterns the agent emits.
+ *
+ * Alternations convert their branches through the same rules rather
+ * than splicing them in raw. Raw splicing meant `{test_*,*_test}.py`
+ * — the pattern `run_tests` uses to discover pytest files, and so the
+ * one every workspace without a JS test suite reaches — produced
+ * `(?:test_*|*_test)\.py`, which is not a valid regex: a leading `*`
+ * has nothing to repeat. `new RegExp` threw, `run_tests` surfaced the
+ * throw as its result, and 67 of 394 recorded eval runs took that
+ * error instead of a test result. It fell hardest on the models that
+ * verify their own work — gemma4 and ministral-3 account for 59 of
+ * the 67 — so the harness was quietly penalising the behaviour the
+ * cases exist to reward.
  */
 function globToRegExp(glob: string): RegExp {
+  return new RegExp('^' + globBody(glob) + '$');
+}
+
+function globBody(glob: string): string {
   let out = '';
   let i = 0;
   while (i < glob.length) {
@@ -233,7 +249,13 @@ function globToRegExp(glob: string): RegExp {
         i++;
       } else {
         const inner = glob.slice(i + 1, end);
-        out += '(?:' + inner.split(',').join('|') + ')';
+        out +=
+          '(?:' +
+          inner
+            .split(',')
+            .map((branch) => globBody(branch))
+            .join('|') +
+          ')';
         i = end + 1;
       }
     } else if (/[\\^$+|()[\]]/.test(c)) {
@@ -244,7 +266,7 @@ function globToRegExp(glob: string): RegExp {
       i++;
     }
   }
-  return new RegExp('^' + out + '$');
+  return out;
 }
 
 /**

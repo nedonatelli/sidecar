@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { describeScaffold, type ScaffoldDescriptor } from '../../src/agent/scaffoldVersion.js';
 import { hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
+import { DEFAULT_MAX_ITERATIONS } from '../../src/agent/loop/state.js';
 
 /**
  * The conditions a recorded baseline was measured under.
@@ -21,6 +22,13 @@ export interface BaselineProvenance {
    * this is constant and simply never diverges.
    */
   thinkingEnabled: boolean;
+  /**
+   * Iteration ceiling the run allowed. A baseline recorded under a tighter cap
+   * measures how efficiently a model uses that budget, not whether it can finish
+   * — 40% of local failures in the first sweep were runs stopped mid-work. The
+   * guard could not see it, because provenance did not record it.
+   */
+  maxIterations: number;
   /**
    * The RUN-level scaffold. Per-case `configOverrides` are deliberately absent:
    * they are part of the case definition, versioned in git beside it, so two
@@ -56,6 +64,8 @@ export function currentProvenance(model: string, runConfig: Record<string, unkno
     model,
     extensionVersion: readExtensionVersion(),
     thinkingEnabled: runConfig.ollamaDisableThinking !== true && !hasProblematicThinking(model),
+    maxIterations:
+      typeof runConfig.agentMaxIterations === 'number' ? runConfig.agentMaxIterations : DEFAULT_MAX_ITERATIONS,
     scaffold: describeScaffold(runConfig),
   };
 }
@@ -95,6 +105,9 @@ export function compareProvenance(
   const divergences: string[] = [];
   if (recorded.model !== current.model) {
     divergences.push(`model: recorded ${recorded.model}, current ${current.model}`);
+  }
+  if (recorded.maxIterations !== current.maxIterations) {
+    divergences.push(`maxIterations: recorded ${recorded.maxIterations}, current ${current.maxIterations}`);
   }
   if (recorded.thinkingEnabled !== current.thinkingEnabled) {
     divergences.push(

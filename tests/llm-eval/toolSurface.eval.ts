@@ -118,7 +118,10 @@ async function runCase(c: ToolSurfaceCase): Promise<CaseResult> {
   // so a model emitting `create_file` reaches write_file in production. Scoring
   // the raw name called deepseek-r1 wrong for a call that would have worked —
   // the third production repair this harness was measuring without.
-  for (const t of calls) t.name = resolveToolNameAlias(t.name);
+  // resolveToolNameAlias returns null when there is no alias — assigning that
+  // blanked the tool name, so a call the executor would have resolved scored as
+  // "no call". Type-checking tests/ is what surfaced it.
+  for (const t of calls) t.name = resolveToolNameAlias(t.name) ?? t.name;
   const hit = calls.find((t) => t.name === c.tool) ?? calls[0] ?? null;
   const res: CaseResult = {
     id: c.id,

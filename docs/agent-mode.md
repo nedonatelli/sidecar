@@ -125,7 +125,7 @@ If placeholders are detected, SideCar reprompts the model to replace them with c
 
 | Setting                      | Default  | Description                                                        |
 | ---------------------------- | -------- | ------------------------------------------------------------------ |
-| `sidecar.agentMaxIterations` | `25`     | Max loop iterations before auto-stop                               |
+| `sidecar.agentMaxIterations` | `50`     | Max loop iterations before auto-stop                               |
 | `sidecar.agentMaxTokens`     | `200000` | Max total tokens before auto-stop                                  |
 | `sidecar.agentTemperature`   | `0.2`    | Temperature for tool-calling requests (lower = more deterministic) |
 | `sidecar.requestTimeout`     | `120`    | Timeout per LLM request in seconds (0 to disable)                  |

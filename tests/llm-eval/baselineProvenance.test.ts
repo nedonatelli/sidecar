@@ -24,6 +24,7 @@ const base = (): BaselineProvenance => ({
   model: 'qwen2.5-coder:7b',
   extensionVersion: '0.122.1',
   thinkingEnabled: true,
+  maxIterations: 25,
   scaffold: {
     version: '4.0.0',
     features: { completionGate: true, critic: false, adaptiveScaffolding: true },
@@ -101,6 +102,17 @@ describe('compareProvenance', () => {
       });
     });
 
+    it('when the iteration ceiling differs', () => {
+      // A baseline recorded under a tighter cap measures efficiency under that
+      // budget, not capability. The first sweep ran at 8 against a shipped 25,
+      // and 40% of its failures were runs stopped mid-work — invisible, because
+      // provenance did not record the dimension.
+      expect(compareProvenance({ ...base(), maxIterations: 8 }, base())).toEqual({
+        comparable: false,
+        divergences: [expect.stringMatching(/maxIterations.*8.*25/)],
+      });
+    });
+
     it('when the model identifier differs', () => {
       expect(compareProvenance({ ...base(), model: 'qwen2.5-coder:7b-q4' }, base())).toEqual({
         comparable: false,
@@ -122,6 +134,7 @@ describe('compareProvenance', () => {
         model: 'other-model',
         extensionVersion: '0.116.0',
         thinkingEnabled: false,
+        maxIterations: 8,
         scaffold: { version: '3.0.0', features: { completionGate: false, critic: false, adaptiveScaffolding: true } },
       };
       expect(compareProvenance(recorded, base())).toEqual({
