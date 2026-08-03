@@ -1034,10 +1034,6 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   if (search === replace) {
-    // The model wrote the desired new text in both fields instead of putting
-    // the CURRENT file text in search. Surface the nearest matching region
-    // so the model can copy it directly as the search string without a
-    // separate read_file round-trip.
     let hint =
       'The search field must contain the CURRENT text in the file (what you are replacing). ' +
       'The replace field contains the NEW text (what you want it to say). They cannot be the same.';
@@ -1045,12 +1041,31 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
       : await readDiskViaWorkspace(context, filePath);
     if (currentContent) {
-      const nearest = findNearestMatch(currentContent, search);
-      if (nearest) {
+      // Two opposite mistakes land here, and they need opposite corrections.
+      //
+      // The text already in the file means `search` was RIGHT and `replace` is
+      // the field at fault. Telling that model to fix `search` sends it to
+      // correct the one field it got right — measured on gemma4:e4b during
+      // `rename-function-across-callers`, which sent the current import line in
+      // both fields and was answered with "COPY THIS INTO YOUR search FIELD"
+      // followed by the text it had just sent. It recovered, but on iteration
+      // 11 of 12, and ran out before finishing the rename.
+      //
+      // Text NOT in the file means the model wrote its intended new version in
+      // both fields, and `search` is the one to fix — the original case here.
+      if (currentContent.includes(search)) {
         hint =
-          'search = CURRENT file text (copy exactly). replace = NEW text (what you want).\n\n' +
-          `COPY THIS INTO YOUR search FIELD — it is what the file currently says:\n\`\`\`\n${nearest}\n\`\`\`\n\n` +
-          'Your replace field should contain the updated version of the above text.';
+          'Your search field is CORRECT — that text is in the file exactly as you sent it. ' +
+          'The problem is the replace field: it holds that same text, so the edit would change nothing. ' +
+          'Put your intended NEW version of it in replace and send the call again — search does not need to change.';
+      } else {
+        const nearest = findNearestMatch(currentContent, search);
+        if (nearest) {
+          hint =
+            'search = CURRENT file text (copy exactly). replace = NEW text (what you want).\n\n' +
+            `COPY THIS INTO YOUR search FIELD — it is what the file currently says:\n\`\`\`\n${nearest}\n\`\`\`\n\n` +
+            'Your replace field should contain the updated version of the above text.';
+        }
       }
     }
     // search === replace: the model put the NEW text in both fields. Suggest the

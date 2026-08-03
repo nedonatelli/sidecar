@@ -187,6 +187,49 @@ describe('editFile audit mode', () => {
     expect(state.content).toBe('const x = 1;');
   });
 
+  // search===replace arrives from two opposite mistakes, and the correction for
+  // one is wrong for the other. Measured on gemma4:e4b in
+  // `rename-function-across-callers`: it sent the file's CURRENT import line in
+  // both fields, and the tool answered "COPY THIS INTO YOUR search FIELD"
+  // followed by the very text it had just sent — pointing it at the one field
+  // it had right. It recovered on iteration 11 of 12 and ran out of budget
+  // before finishing the rename.
+
+  it('search===replace with text already in the file: points at replace, not search', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write(
+      'src/imp.ts',
+      "import { formatDate } from './dateUtils.js';\nconst x = 1;\n",
+      async () => undefined,
+    );
+    const err = await editMsg(
+      {
+        path: 'src/imp.ts',
+        search: "import { formatDate } from './dateUtils.js';",
+        replace: "import { formatDate } from './dateUtils.js';",
+      },
+      context,
+    ).catch((e: Error) => e.message);
+    expect(err).toContain('search field is CORRECT');
+    expect(err).toContain('replace');
+    // Must NOT tell the model to fix the field it got right.
+    expect(err).not.toContain('COPY THIS INTO YOUR search FIELD');
+  });
+
+  it('search===replace with text NOT in the file: still points at search', async () => {
+    // The original shape — the model wrote its intended new text in both
+    // fields, so `search` is the one to correct. Relaxing this would trade one
+    // misdirection for the opposite one.
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('src/imp2.ts', 'const alpha = 1;\n', async () => undefined);
+    const err = await editMsg(
+      { path: 'src/imp2.ts', search: 'const bravo = 2;', replace: 'const bravo = 2;' },
+      context,
+    ).catch((e: Error) => e.message);
+    expect(err).toContain('identical');
+    expect(err).not.toContain('search field is CORRECT');
+  });
+
   it('appends partial-replace warning when replace is a short substring of search', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     // Simulate the gemma4 pattern: search = a full line, replace = one word from
