@@ -222,16 +222,27 @@ function collectFailures(
 
   // --- trajectory ordering ---
   if (expect.trajectoryOrder) {
+    // Either side may be a list, meaning "the earliest of any of these" — so a
+    // case can pin the ordering without also pinning which tool did the work.
+    const earliest = (names: string | string[]): number => {
+      const found = (Array.isArray(names) ? names : [names])
+        .map((n) => firstToolCallIndex(run.trajectory, n))
+        .filter((i) => i !== -1);
+      return found.length ? Math.min(...found) : -1;
+    };
+    const label = (names: string | string[]): string =>
+      Array.isArray(names) ? `any of [${names.join(', ')}]` : `"${names}"`;
+
     for (const { before, after } of expect.trajectoryOrder) {
-      const beforeIdx = firstToolCallIndex(run.trajectory, before);
-      const afterIdx = firstToolCallIndex(run.trajectory, after);
+      const beforeIdx = earliest(before);
+      const afterIdx = earliest(after);
       if (beforeIdx === -1) {
-        out.push(`trajectoryOrder: "${before}" was never called (must appear before "${after}")`);
+        out.push(`trajectoryOrder: ${label(before)} was never called (must appear before ${label(after)})`);
       } else if (afterIdx === -1) {
-        out.push(`trajectoryOrder: "${after}" was never called (must appear after "${before}")`);
+        out.push(`trajectoryOrder: ${label(after)} was never called (must appear after ${label(before)})`);
       } else if (beforeIdx >= afterIdx) {
         out.push(
-          `trajectoryOrder: expected "${before}" (event ${beforeIdx}) before "${after}" (event ${afterIdx}), but order was reversed`,
+          `trajectoryOrder: expected ${label(before)} (event ${beforeIdx}) before ${label(after)} (event ${afterIdx}), but order was reversed`,
         );
       }
     }

@@ -52,7 +52,11 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       '(empty string = 0 words).\n' +
       'All three functions must be fully implemented — no TODO comments, no placeholder returns.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['src/strUtils.ts'],
         contain: [
@@ -101,7 +105,11 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       '- `value(): number` — returns the current count.\n' +
       'Write the full implementation. No TODO comments, no placeholder bodies, no not-implemented errors.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['src/Counter.ts'],
         contain: [
@@ -149,7 +157,11 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'Use an internal array to store elements. All four methods must be fully implemented — ' +
       'do not use throw statements as placeholders.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['src/ArrayStack.ts'],
         contain: [
@@ -555,7 +567,11 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'division by zero. Then write test_calculator.py with a test for each operation and one for the ' +
       'divide-by-zero case, run the tests, and make sure they pass. No placeholders or TODOs.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['calculator.py', 'test_calculator.py'],
         contain: [
@@ -591,7 +607,11 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
       'multiply, and divide. Division by zero must print a clear error instead of crashing. Run it on a ' +
       'couple of examples to confirm it works. Implement it fully — no placeholders.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['calculator.py'],
         contain: [{ path: 'calculator.py', substrings: ['add', 'subtract', 'multiply', 'divide'] }],
