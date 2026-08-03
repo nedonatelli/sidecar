@@ -227,9 +227,21 @@ export class SimpleCodeAnalyzer {
       if (lang === 'js') {
         const isExported = /^\s*export\s/.test(line);
 
-        // Function declarations
-        if (line.includes('function ') && !line.includes('function(')) {
-          const match = line.match(/function\s+([a-zA-Z_$][\w$]*)/);
+        // Function declarations, including generators.
+        //
+        // The gate used to be `includes('function ')`, which is false for
+        // `function*` — the star sits where the space would be. Every exported
+        // generator was therefore skipped: 40 of them across 17 files, and
+        // they are the streaming core (parseSse, streamOpenAiSse,
+        // translateAnthropicStream), so find_references on any returned
+        // nothing. tree-sitter missed the same declarations for an unrelated
+        // reason — `function*` is its own node type, not a modifier on
+        // function_declaration — so both analyzers had to be fixed.
+        //
+        // The alternation is what keeps `functionfoo` from matching: a name
+        // must be separated by whitespace or by the star, never by neither.
+        {
+          const match = line.match(/\bfunction(?:\s+|\s*\*\s*)([a-zA-Z_$][\w$]*)/);
           if (match) {
             const endLine = findBlockEnd(lines, i);
             elements.push({

@@ -78,6 +78,13 @@ interface ElementMapping {
 const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   javascript: [
     { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    // `function*` / `async function*` parse as their OWN node type, not as a
+    // function_declaration with a modifier — so the line above never matched
+    // them and 40 exported generators across 17 files had no function symbol.
+    // They are the streaming core (parseSse, streamOpenAiSse,
+    // translateAnthropicStream, pullModelStream), so find_references on any
+    // of them returned nothing.
+    { nodeType: 'generator_function_declaration', elementType: 'function', nameField: 'name' },
     { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
     { nodeType: 'method_definition', elementType: 'method', nameField: 'name' },
     { nodeType: 'lexical_declaration', elementType: 'variable', perDeclarator: 'variable_declarator' },
@@ -87,6 +94,13 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   ],
   typescript: [
     { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    // `function*` / `async function*` parse as their OWN node type, not as a
+    // function_declaration with a modifier — so the line above never matched
+    // them and 40 exported generators across 17 files had no function symbol.
+    // They are the streaming core (parseSse, streamOpenAiSse,
+    // translateAnthropicStream, pullModelStream), so find_references on any
+    // of them returned nothing.
+    { nodeType: 'generator_function_declaration', elementType: 'function', nameField: 'name' },
     { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
     { nodeType: 'method_definition', elementType: 'method', nameField: 'name' },
     { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
@@ -99,6 +113,13 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   ],
   tsx: [
     { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    // `function*` / `async function*` parse as their OWN node type, not as a
+    // function_declaration with a modifier — so the line above never matched
+    // them and 40 exported generators across 17 files had no function symbol.
+    // They are the streaming core (parseSse, streamOpenAiSse,
+    // translateAnthropicStream, pullModelStream), so find_references on any
+    // of them returned nothing.
+    { nodeType: 'generator_function_declaration', elementType: 'function', nameField: 'name' },
     { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
     { nodeType: 'method_definition', elementType: 'method', nameField: 'name' },
     { nodeType: 'interface_declaration', elementType: 'interface', nameField: 'name' },
@@ -194,6 +215,13 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   // Vue SFCs: function/class nodes inside <script> blocks use the same types as JavaScript
   vue: [
     { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
+    // `function*` / `async function*` parse as their OWN node type, not as a
+    // function_declaration with a modifier — so the line above never matched
+    // them and 40 exported generators across 17 files had no function symbol.
+    // They are the streaming core (parseSse, streamOpenAiSse,
+    // translateAnthropicStream, pullModelStream), so find_references on any
+    // of them returned nothing.
+    { nodeType: 'generator_function_declaration', elementType: 'function', nameField: 'name' },
     { nodeType: 'class_declaration', elementType: 'class', nameField: 'name' },
     { nodeType: 'method_definition', elementType: 'method', nameField: 'name' },
     { nodeType: 'export_statement', elementType: 'export' },

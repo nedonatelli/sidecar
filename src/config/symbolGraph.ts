@@ -35,7 +35,11 @@ export type {
 //     is what forces the re-index — reconciliation is by content hash, so an
 //     existing cache would otherwise serve a graph with no variable symbols
 //     forever, since none of the files changed.
-export const GRAPH_VERSION = 4;
+// v5: generator declarations (`function*` / `async function*`) are indexed as
+//     `function` symbols. Same reasoning as v4 — none of the 17 affected files
+//     changed, so without the bump an existing cache would serve a graph with
+//     no generator symbols forever.
+export const GRAPH_VERSION = 5;
 
 export class SymbolGraph {
   // Primary storage: symbols indexed by file
