@@ -65,8 +65,12 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
     userMessage: 'The divide function in src/divide.js has a bug. Fix it.',
     maxIterations: 10,
     expect: {
-      toolsCalled: ['edit_file', 'run_tests'],
-      trajectoryOrder: [{ before: 'edit_file', after: 'run_tests' }],
+      // `run_tests` is the subject — the completion gate must force it. Which
+      // tracked write tool made the fix is incidental, so it is asserted as
+      // either, on both the call and the ordering.
+      toolsCalled: ['run_tests'],
+      toolsCalledAny: ['edit_file', 'write_file'],
+      trajectoryOrder: [{ before: ['edit_file', 'write_file'], after: 'run_tests' }],
       files: {
         contain: [{ path: 'src/divide.js', substrings: ['a / b'] }],
         notContain: [{ path: 'src/divide.js', substrings: ['a + b'] }],
@@ -193,7 +197,10 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       'Make sure the implementation is production-safe.',
     maxIterations: 12,
     expect: {
-      toolsCalled: ['edit_file'],
+      // Either tracked write tool. The file-outcome assertions below decide
+      // correctness; which write route reached it is not what this case
+      // measures, and whole-file rewrite is a supported strategy.
+      toolsCalledAny: ['edit_file', 'write_file'],
       files: {
         exist: ['src/fileReader.js'],
         // Safe implementation must validate the filename — check for
@@ -249,7 +256,10 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       'It should throw a descriptive error if the input is not valid JSON.',
     maxIterations: 8,
     expect: {
-      toolsCalled: ['edit_file'],
+      // Either tracked write tool. The file-outcome assertions below decide
+      // correctness; which write route reached it is not what this case
+      // measures, and whole-file rewrite is a supported strategy.
+      toolsCalledAny: ['edit_file', 'write_file'],
       files: {
         exist: ['src/config.js'],
         // SIDECAR.md requires @throws for throwing functions
@@ -297,7 +307,11 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       'The `double` function in src/utils.js currently returns `x + x` but it should return `x * 2`. Fix it.',
     maxIterations: 12,
     expect: {
-      // Must eventually call read_file to discover the real content
+      // `edit_file` stays pinned here, unlike the other bug-fix cases. The
+      // fixture deliberately misdescribes the file so that edit_file's search
+      // cannot match, and the subject IS the cycle detector breaking that
+      // retry loop. A whole-file rewrite sidesteps the trap entirely, so the
+      // case would pass while measuring none of the mechanism it exists for.
       toolsCalled: ['edit_file'],
       // read_file must come before the final successful edit
       files: {

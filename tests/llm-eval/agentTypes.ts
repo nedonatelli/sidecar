@@ -214,12 +214,18 @@ export interface AgentExpectations {
    * pair with `toolsCalled` so that absence produces a clear failure
    * message rather than a silent ordering failure.
    *
+   * Either side accepts an array, meaning "the earliest of any of these" —
+   * for when the ordering is the assertion and the specific tool is not.
+   * `{ before: ['edit_file', 'write_file'], after: 'run_tests' }` pins
+   * verify-after-change without also deciding how the change was made; naming
+   * one write tool there fails a model that legitimately took the other route.
+   *
    * Examples:
    *   `{ before: 'read_file', after: 'edit_file' }` — pins read-before-write
-   *   `{ before: 'edit_file', after: 'run_tests' }` — pins verify-after-fix
+   *   `{ before: ['edit_file','write_file'], after: 'run_tests' }` — verify-after-change
    *   `{ before: 'grep', after: 'edit_file' }` — pins search-before-edit
    */
-  trajectoryOrder?: Array<{ before: string; after: string }>;
+  trajectoryOrder?: Array<{ before: string | string[]; after: string | string[] }>;
   /**
    * When `true`, at least one `tool_result` event in the trajectory
    * must have `isError === true`. Useful for cases that deliberately

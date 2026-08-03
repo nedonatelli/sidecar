@@ -182,7 +182,11 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'and returns n! (the mathematical factorial). Use a loop or recursion. Export it. ' +
       'Do not leave any TODO comments or placeholder bodies — the function must be a full, working implementation.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['src/fact.ts'],
         contain: [
@@ -302,7 +306,11 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'Create two TypeScript files in src/: `src/one.ts` that exports `const ONE = 1` and `src/two.ts` that ' +
       'exports `const TWO = 2`. Both should be new files.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       // Two specific write_file calls must appear. Partial-input
       // matching tolerates "./src/one.ts" vs "src/one.ts" naming.
       toolCallMatches: [
@@ -576,7 +584,11 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'Create src/string.ts with a single exported function `capitalize(s: string): string` that ' +
       'returns the string with its first letter uppercased. Do not modify src/math.ts.',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['src/string.ts'],
         contain: [
@@ -691,7 +703,11 @@ export const AGENT_CASES: AgentEvalCase[] = [
     },
     userMessage: 'Create src/hello.ts with a single exported function `hello()` that returns the string "hello".',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['src/hello.ts'],
         contain: [{ path: 'src/hello.ts', substrings: ['hello', 'export'] }],
@@ -948,7 +964,11 @@ export const AGENT_CASES: AgentEvalCase[] = [
       'Write a Vitest test file at `src/clamp.test.ts` for the `clamp` function in `src/clamp.ts`. ' +
       'Cover at least: value below range, value above range, value within range, and boundary values (lo and hi themselves).',
     expect: {
-      toolsCalled: ['write_file'],
+      // Either tracked write tool. `edit_file` on a path that does not exist is
+      // coerced into a create (a shim for llama3.2's call shape), so a model can
+      // reach the same tracked, undoable result by that route. An untracked
+      // shell heredoc still fails, which is what this assertion is for.
+      toolsCalledAny: ['write_file', 'edit_file'],
       files: {
         exist: ['src/clamp.test.ts'],
         contain: [

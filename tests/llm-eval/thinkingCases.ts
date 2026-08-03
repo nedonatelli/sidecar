@@ -55,7 +55,10 @@ export const THINKING_CASES: AgentEvalCase[] = [
       'Read src/utils.ts and src/app.ts, identify the argument order mismatch, then fix src/app.ts. ' +
       'Do not write test files. Do not change src/utils.ts.',
     expect: {
-      toolsCalled: ['edit_file'],
+      // Either tracked write tool. The file-outcome assertions below decide
+      // correctness; which write route reached it is not what this case
+      // measures, and whole-file rewrite is a supported strategy.
+      toolsCalledAny: ['edit_file', 'write_file'],
       // Must read both files to understand the signature mismatch.
       toolCallMatches: [
         { name: 'read_file', inputPartial: { path: 'utils.ts' } },
@@ -101,7 +104,10 @@ export const THINKING_CASES: AgentEvalCase[] = [
       '`isAtLeast("10.0.0", "9.0.0")` returns false, but it should return true. ' +
       'Fix the bug in src/version.ts so that version comparison is numeric, not lexicographic.',
     expect: {
-      toolsCalled: ['edit_file'],
+      // Either tracked write tool. The file-outcome assertions below decide
+      // correctness; which write route reached it is not what this case
+      // measures, and whole-file rewrite is a supported strategy.
+      toolsCalledAny: ['edit_file', 'write_file'],
       files: {
         // Fix must use numeric comparison — split on "." and compare numbers.
         matchesRegex: [
@@ -145,7 +151,10 @@ export const THINKING_CASES: AgentEvalCase[] = [
     userMessage:
       'The `downloadAll` function in src/downloader.ts returns an array of Promise objects instead of resolved strings. Fix the bug.',
     expect: {
-      toolsCalled: ['edit_file'],
+      // Either tracked write tool. The file-outcome assertions below decide
+      // correctness; which write route reached it is not what this case
+      // measures, and whole-file rewrite is a supported strategy.
+      toolsCalledAny: ['edit_file', 'write_file'],
       files: {
         contain: [{ path: 'src/downloader.ts', substrings: ['await fetch(url)'] }],
         notContain: [
@@ -180,7 +189,10 @@ export const THINKING_CASES: AgentEvalCase[] = [
       'After the first call to `getSettings({ verbose: true })`, every subsequent call to `getSettings()` ' +
       'returns `{ verbose: true, ... }` even with no overrides. Fix the bug in src/settings.ts.',
     expect: {
-      toolsCalled: ['edit_file'],
+      // Either tracked write tool. The file-outcome assertions below decide
+      // correctness; which write route reached it is not what this case
+      // measures, and whole-file rewrite is a supported strategy.
+      toolsCalledAny: ['edit_file', 'write_file'],
       files: {
         // Fix must spread DEFAULTS into a new object, not mutate it.
         matchesRegex: [
