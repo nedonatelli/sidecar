@@ -47,6 +47,17 @@ describe('INDEX_EXCLUDE_DIRS', () => {
     }
   });
 
+  it('excludes Python environments by layout, not by conventional name', () => {
+    // `.venv`/`venv` only catch the two usual names. A `.graphify-venv` created
+    // to run the code-graph differential landed 23,284 symbols across 1,348
+    // site-packages files in the symbol graph — 76% of everything in it, all of
+    // it third-party Python competing with the user's own code at retrieval.
+    // Every virtualenv puts packages under `site-packages` whatever the env is
+    // called, so that is the durable thing to exclude.
+    expect(INDEX_EXCLUDE_DIRS).toContain('site-packages');
+    expect(INDEX_EXCLUDE_PATTERN).toContain('site-packages');
+  });
+
   it('is the only exclude list the workspace-wide scanners define', () => {
     // A scanner that builds its own `**/{...}/**` is a fifth list waiting to
     // diverge. This is the check that would have caught the incomplete fix.

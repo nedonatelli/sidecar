@@ -18,7 +18,9 @@ import { getRoot, getRootUri } from './shared.js';
 // real calls in the audit log said "No diagnostics", and all 3 non-empty
 // results came from SideCar's own security scanner.
 //
-// Measured in a real extension host (see src/test/integration/diagnosticsProbe.test.ts):
+// Measured in a real extension host by a probe suite that has since been
+// removed (#19) — its findings are this table. The premise the completion
+// gate rests on is still asserted, in src/test/integration/diagnostics.test.ts:
 //
 //   not opened                         → 0 after 10s
 //   workspace.openTextDocument alone   → 0 after 20s   (opening is NOT enough)
