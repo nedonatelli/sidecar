@@ -20,7 +20,7 @@ import { renderAgentReport } from './agentScorers.js';
 import type { AgentCaseResult, AgentEvalCase } from './agentTypes.js';
 import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
 
-const SRC = (rel: string): string => nodeFs.readFileSync(nodePath.join(import.meta.dirname, '../../src', rel), 'utf-8');
+const SRC = (rel: string): string => nodeFs.readFileSync(nodePath.join(__dirname, '../../src', rel), 'utf-8');
 
 const FAKE_PKG = JSON.stringify({ name: 'sidecar-ai', scripts: { test: 'node -e "process.exit(0)"' } }, null, 2);
 
@@ -125,7 +125,6 @@ const LIVE_CASES: AgentEvalCase[] = [
       'equal versions return true, lower-version a returns true, higher-version a returns false, ' +
       'and range operators are stripped correctly. ' +
       'Do not change any existing tests.',
-    maxIterations: 8,
     expect: {
       toolsCalled: ['read_file', 'edit_file'],
       files: {
@@ -159,7 +158,6 @@ const LIVE_CASES: AgentEvalCase[] = [
       'Then add a `describe("semverInRange", ...)` block to `src/deps/semver.test.ts` with tests for: ' +
       'version below min (false), version equal to min (true), version in middle (true), ' +
       'version equal to max (true), version above max (false).',
-    maxIterations: 8,
     expect: {
       toolsCalled: ['read_file', 'edit_file'],
       files: {
@@ -352,8 +350,8 @@ const finalizeCaseMatchesFilter =
 
 const finalizeCaseMatchesTagFilter =
   !TAG_FILTER ||
-  TAG_FILTER.every((t) => LIVE_CASE.tags.includes(t)) ||
-  TAG_FILTER.every((t) => PLAN_CASE.tags.includes(t));
+  TAG_FILTER.every((t) => (LIVE_CASE.tags as readonly string[]).includes(t)) ||
+  TAG_FILTER.every((t) => (PLAN_CASE.tags as readonly string[]).includes(t));
 
 describe.skipIf(!backend || !finalizeCaseMatchesFilter || !finalizeCaseMatchesTagFilter)(
   'llm-eval :: live repo (finalize counted suggestions)',

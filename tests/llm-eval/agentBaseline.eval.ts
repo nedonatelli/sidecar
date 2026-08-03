@@ -85,7 +85,12 @@ describe.skipIf(!backend)('agent regression baseline', () => {
   const bpath = baselinePath(model);
   const rel = (p: string) => path.relative(process.cwd(), p);
   // Opt-in + slow: a full run plus a retry on every regression. Cap at 4h.
-  const timeout = Math.min(2 * ALL_CASES.length * (DEFAULT_CASE_TIMEOUT_MS + 10_000) + 120_000, 4 * 60 * 60 * 1000);
+  // A full sweep needs the budget the cases can actually consume. The old 4h cap
+  // killed every model overnight mid-run: qwen reached case 32 of 70 at 4h02m.
+  // Per-case durations vary ~25x on the same model between runs, so a cap tuned
+  // to a good run guarantees a bad one is truncated. Incremental flushing above
+  // makes a long ceiling safe — an over-running sweep now keeps what it measured.
+  const timeout = Math.min(2 * ALL_CASES.length * (DEFAULT_CASE_TIMEOUT_MS + 10_000) + 120_000, 12 * 60 * 60 * 1000);
 
   if (RECORD_MODE) {
     it(
@@ -103,16 +108,53 @@ describe.skipIf(!backend)('agent regression baseline', () => {
           provenance,
           cases: {},
         };
-        for (const c of cases) {
+        fs.mkdirSync(BASELINE_DIR, { recursive: true });
+        const flush = () => fs.writeFileSync(bpath, JSON.stringify(baseline, null, 2) + '\n', 'utf-8');
+
+        // Circuit breaker. `agent.eval.ts` has had one; this file did not, so a
+        // backend that stops serving mid-sweep is absorbed one case at a time
+        // and the run grinds on. Measured: Ollama's llama-server wedged after a
+        // power loss — `/api/tags` still answered, so the API looked reachable —
+        // and this loop sat for NINE HOURS producing nothing, on a vitest process
+        // that looked perfectly alive. A liveness signal is not evidence the
+        // thing works.
+        let consecutiveUnavailable = 0;
+        const CIRCUIT_BREAKER_THRESHOLD = 3;
+
+        for (const [i, c] of cases.entries()) {
+          if (consecutiveUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
+            // Stop rather than skip. Everything recorded so far is already on
+            // disk, so aborting costs nothing and burning the remaining budget
+            // against a dead backend costs hours.
+            throw new Error(
+              `[baseline] circuit breaker: ${consecutiveUnavailable} consecutive cases returned nothing from ` +
+                `"${model}" — the backend is not serving. ${Object.keys(baseline.cases).length} cases are already ` +
+                `written to ${rel(bpath)}; re-run to continue. Check the backend is up and actually generating ` +
+                `(a reachable /api/tags does not mean it can serve).`,
+            );
+          }
           const r = await runAgentCase(c, backend!);
           if (r.apiUnavailable) {
-            console.warn(`[baseline] ${c.id}: API unavailable — not recorded`);
+            consecutiveUnavailable++;
+            console.warn(
+              `[baseline] ${c.id}: API unavailable — not recorded ` +
+                `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting)`,
+            );
             continue;
           }
+          consecutiveUnavailable = 0;
           baseline.cases[c.id] = { passed: r.passed, iterationsUsed: r.iterationsUsed, durationMs: r.durationMs };
+          // Flush after EVERY case. The write used to happen once, after the
+          // loop, so a run that died at case 32 of 70 discarded all 32 real
+          // measurements — which is exactly what a 4h timeout did to three
+          // models overnight, costing 12 hours and producing nothing. A partial
+          // baseline is worth far more than none: the provenance guard makes it
+          // safe to compare, and the missing cases simply are not compared.
+          flush();
+          console.log(
+            `[baseline] ${i + 1}/${cases.length} ${c.id}: ${r.passed ? 'pass' : 'FAIL'} (${Math.round(r.durationMs / 1000)}s)`,
+          );
         }
-        fs.mkdirSync(BASELINE_DIR, { recursive: true });
-        fs.writeFileSync(bpath, JSON.stringify(baseline, null, 2) + '\n', 'utf-8');
         const total = Object.keys(baseline.cases).length;
         const passing = Object.values(baseline.cases).filter((c) => c.passed).length;
         console.log(`[baseline] recorded ${passing}/${total} passing for ${model} → ${rel(bpath)}`);

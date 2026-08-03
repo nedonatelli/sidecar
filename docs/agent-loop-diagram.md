@@ -59,22 +59,22 @@ flowchart TD
 
 The orchestrator in [`loop.ts`](../src/agent/loop.ts) calls into focused helpers under [`src/agent/loop/`](../src/agent/loop/):
 
-| Helper | Responsibility |
-| --- | --- |
-| [`state.ts`](../src/agent/loop/state.ts) | `initLoopState` bundles immutable inputs + mutable accumulators into one `LoopState` object |
-| [`compression.ts`](../src/agent/loop/compression.ts) | `applyBudgetCompression` (pre-turn) + `maybeCompressPostTool` (after tool results) |
-| [`streamTurn.ts`](../src/agent/loop/streamTurn.ts) | `streamOneTurn` owns the streamChat request loop with per-event timeout + abort handling; captures partial text for `/resume` on mid-stream failure |
-| [`textParsing.ts`](../src/agent/loop/textParsing.ts) | `resolveTurnContent` → `parseTextToolCalls` + `stripRepeatedContent` for models that emit tool calls as text (qwen3, Hermes) instead of structured tool_use |
-| [`cycleDetection.ts`](../src/agent/loop/cycleDetection.ts) | `exceedsBurstCap` (max tools per iteration) + `detectCycleAndBail` (ring buffer of recent tool+args tuples) |
-| [`messageBuild.ts`](../src/agent/loop/messageBuild.ts) | `pushAssistantMessage` + `pushToolResultsMessage` + `accountToolTokens` — single source of truth for message-array mutation |
-| [`executeToolUses.ts`](../src/agent/loop/executeToolUses.ts) | Parallel tool dispatch; special-cases `spawn_agent` + `delegate_task`; threads `cwdOverride` into every `ToolExecutorContext` |
-| [`policyHook.ts`](../src/agent/loop/policyHook.ts) | `HookBus` + `PolicyHook` interface. Hooks fire via `runAfter` (post-tool) and `runEmptyResponse` (no tool calls this turn) |
-| [`builtInHooks.ts`](../src/agent/loop/builtInHooks.ts) | `defaultPolicyHooks()` wraps the seven built-ins as `PolicyHook` adapters (autoFix · isolateRewrite · stubCheck · critic · actionReprompt · completionGate · analysisCritic) |
-| [`criticHook.ts`](../src/agent/loop/criticHook.ts) | Adversarial critic — spawns a second LLM call to review the agent's edits; can push a synthetic user message demanding more work |
-| [`gate.ts`](../src/agent/loop/gate.ts) | Completion gate — refuses to let the agent end the turn without running lint/tests when it claims to be done |
-| [`stubCheck.ts`](../src/agent/loop/stubCheck.ts) | Post-tool validator that rejects placeholder code (`TODO`, `// implement me`, …) |
-| [`notifications.ts`](../src/agent/loop/notifications.ts) | `notifyIterationStart` + `maybeEmitProgressSummary` + `shouldStopAtCheckpoint` (user interrupt every N iterations) |
-| [`finalize.ts`](../src/agent/loop/finalize.ts) | Post-loop teardown + next-step suggestion synthesis |
+| Helper                                                       | Responsibility                                                                                                                                                               |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`state.ts`](../src/agent/loop/state.ts)                     | `initLoopState` bundles immutable inputs + mutable accumulators into one `LoopState` object                                                                                  |
+| [`compression.ts`](../src/agent/loop/compression.ts)         | `applyBudgetCompression` (pre-turn) + `maybeCompressPostTool` (after tool results)                                                                                           |
+| [`streamTurn.ts`](../src/agent/loop/streamTurn.ts)           | `streamOneTurn` owns the streamChat request loop with per-event timeout + abort handling; captures partial text for `/resume` on mid-stream failure                          |
+| [`textParsing.ts`](../src/agent/loop/textParsing.ts)         | `resolveTurnContent` → `parseTextToolCalls` + `stripRepeatedContent` for models that emit tool calls as text (qwen3, Hermes) instead of structured tool_use                  |
+| [`cycleDetection.ts`](../src/agent/loop/cycleDetection.ts)   | `exceedsBurstCap` (max tools per iteration) + `detectCycleAndBail` (ring buffer of recent tool+args tuples)                                                                  |
+| [`messageBuild.ts`](../src/agent/loop/messageBuild.ts)       | `pushAssistantMessage` + `pushToolResultsMessage` + `accountToolTokens` — single source of truth for message-array mutation                                                  |
+| [`executeToolUses.ts`](../src/agent/loop/executeToolUses.ts) | Parallel tool dispatch; special-cases `spawn_agent` + `delegate_task`; threads `cwdOverride` into every `ToolExecutorContext`                                                |
+| [`policyHook.ts`](../src/agent/loop/policyHook.ts)           | `HookBus` + `PolicyHook` interface. Hooks fire via `runAfter` (post-tool) and `runEmptyResponse` (no tool calls this turn)                                                   |
+| [`builtInHooks.ts`](../src/agent/loop/builtInHooks.ts)       | `defaultPolicyHooks()` wraps the seven built-ins as `PolicyHook` adapters (autoFix · isolateRewrite · stubCheck · critic · actionReprompt · completionGate · analysisCritic) |
+| [`criticHook.ts`](../src/agent/loop/criticHook.ts)           | Adversarial critic — spawns a second LLM call to review the agent's edits; can push a synthetic user message demanding more work                                             |
+| [`gate.ts`](../src/agent/loop/gate.ts)                       | Completion gate — refuses to let the agent end the turn without running lint/tests when it claims to be done                                                                 |
+| [`stubCheck.ts`](../src/agent/loop/stubCheck.ts)             | Post-tool validator that rejects placeholder code (`TODO`, `// implement me`, …)                                                                                             |
+| [`notifications.ts`](../src/agent/loop/notifications.ts)     | `notifyIterationStart` + `maybeEmitProgressSummary` + `shouldStopAtCheckpoint` (user interrupt every N iterations)                                                           |
+| [`finalize.ts`](../src/agent/loop/finalize.ts)               | Post-loop teardown + next-step suggestion synthesis                                                                                                                          |
 
 ## Hook bus ordering
 
@@ -93,13 +93,13 @@ Two hook phases:
 
 Both the adversarial critic and the completion gate can push synthetic user messages into `state.messages`. They look superficially similar — both are post-turn policies that might keep the loop alive — but they fire in **different phases** and at **different moments in the turn**:
 
-| Hook | Phase | Fires when | Can inject? |
-| --- | --- | --- | --- |
-| `autoFix` | `afterToolResults` | Lint / build / test errors detected post-edit | ✅ |
-| `stubValidator` | `afterToolResults` | Placeholder code (`TODO`, `// implement me`) detected in the write | ✅ |
-| `adversarialCritic` | `afterToolResults` | After `write_file` / `edit_file` / failed `run_tests` | ✅ |
-| `completionGate` *(tool recording)* | `afterToolResults` | Every turn — feeds gate state with tool uses | ❌ never |
-| `completionGate` *(gate check)* | `emptyResponse` | Model tried to terminate without verifying edits | ✅ |
+| Hook                                | Phase              | Fires when                                                         | Can inject? |
+| ----------------------------------- | ------------------ | ------------------------------------------------------------------ | ----------- |
+| `autoFix`                           | `afterToolResults` | Lint / build / test errors detected post-edit                      | ✅          |
+| `stubValidator`                     | `afterToolResults` | Placeholder code (`TODO`, `// implement me`) detected in the write | ✅          |
+| `adversarialCritic`                 | `afterToolResults` | After `write_file` / `edit_file` / failed `run_tests`              | ✅          |
+| `completionGate` _(tool recording)_ | `afterToolResults` | Every turn — feeds gate state with tool uses                       | ❌ never    |
+| `completionGate` _(gate check)_     | `emptyResponse`    | Model tried to terminate without verifying edits                   | ✅          |
 
 Because the critic fires in `afterToolResults` and the gate's **injecting** method (`onEmptyResponse`) fires in `emptyResponse`, **they cannot both inject on the same turn** — those are mutually exclusive branches in [`loop.ts`](../src/agent/loop.ts). The gate's `afterToolResults` method runs on every turn but is purely for tool-use tracking; it never pushes a message.
 
@@ -149,7 +149,7 @@ sequenceDiagram
 - **Critic — per-file injection cap.** `MAX_CRITIC_INJECTIONS_PER_FILE = 2` in [`src/agent/loop/criticHook.ts`](../src/agent/loop/criticHook.ts) — after two critic blocks on the same file within a run, the critic skips further blocks for that file. **Applies to `edit` triggers only.**
 - **Critic — test-failure triggers are NOT per-file-capped.** The per-file counter is keyed by `filePath`, and `test_failure` triggers don't name a single file. A gate-forced test run that keeps failing can keep firing the critic turn after turn. In practice this is bounded by the outer iteration cap; in the worst case you burn critic calls (Haiku: ~$0.02 each on Anthropic backends) until `maxIterations` trips.
 - **Gate — total injection cap.** `MAX_GATE_INJECTIONS = 2` in [`src/agent/loop/gate.ts`](../src/agent/loop/gate.ts). After two gate reprompts in a run, the gate logs a warning and allows termination with unverified edits rather than looping forever.
-- **Loop — iteration cap.** `sidecar.agentMaxIterations` (default 25). Ultimate backstop.
+- **Loop — iteration cap.** `sidecar.agentMaxIterations` (default 50). Ultimate backstop.
 - **Cycle detection.** Same tool+args tuple repeated N times triggers `detectCycleAndBail`.
 - **Burst cap.** Too many tools attempted in one iteration triggers `exceedsBurstCap`.
 
@@ -175,7 +175,7 @@ You can burn 20+ iterations and 10+ critic calls before the outer cap fires. For
 
 ### Why the test-failure trigger is unbounded
 
-It's a deliberate design trade, not an oversight: a test that keeps failing for *different reasons* across iterations is exactly the situation where the critic's analysis is most valuable. Bounding test-failure triggers per-file would mute the critic precisely when an agent is flailing. The unbounded behavior is bounded-enough-in-practice by `maxIterations` + `MAX_GATE_INJECTIONS`. A future improvement would be a per-test-output hash cap (don't re-fire the critic when the test output hasn't materially changed) — tracked as an open item.
+It's a deliberate design trade, not an oversight: a test that keeps failing for _different reasons_ across iterations is exactly the situation where the critic's analysis is most valuable. Bounding test-failure triggers per-file would mute the critic precisely when an agent is flailing. The unbounded behavior is bounded-enough-in-practice by `maxIterations` + `MAX_GATE_INJECTIONS`. A future improvement would be a per-test-output hash cap (don't re-fire the critic when the test output hasn't materially changed) — tracked as an open item.
 
 ## Prompt pruner safety model
 
@@ -210,14 +210,14 @@ The contract is: the pruner **NEVER** touches user message text, assistant reaso
 
   ```typescript
   const DEDUP_EXEMPT_TOOLS = new Set([
-    'read_file',       // agent reads foo.ts, edits it, re-reads it — MUST see new content
+    'read_file', // agent reads foo.ts, edits it, re-reads it — MUST see new content
     'get_diagnostics', // lint/type errors change after edits
-    'git_diff',        // diff vs. HEAD changes after every stage/commit
-    'git_status',      // working-tree state changes after every tool call
+    'git_diff', // diff vs. HEAD changes after every stage/commit
+    'git_status', // working-tree state changes after every tool call
   ]);
   ```
 
-  These tools' outputs are **expected to vary across consecutive calls with identical inputs**. Dedup'ing them with a back-reference ("identical to previous tool_result") is a trap: the agent gets the *stale* content by reference even though it wrote a newer version. The audit finding that added this exemption (v0.62.1 p.2b) caught exactly this trap in an eval scenario where the agent couldn't tell its own edit had landed.
+  These tools' outputs are **expected to vary across consecutive calls with identical inputs**. Dedup'ing them with a back-reference ("identical to previous tool*result") is a trap: the agent gets the \_stale* content by reference even though it wrote a newer version. The audit finding that added this exemption (v0.62.1 p.2b) caught exactly this trap in an eval scenario where the agent couldn't tell its own edit had landed.
 
   **Truncation still applies to exempt tools** — size management is always legitimate; the exemption is only about the back-reference shortcut.
 
@@ -266,22 +266,22 @@ flowchart LR
 
 **Truncation-friendly tools** — head+tail captures the actual signal:
 
-| Tool | Why head+tail works |
-| --- | --- |
-| `run_command`, `run_tests` | Error banner at top; exit code + failing-assertion summary at bottom. Middle = test-runner chatter, build steps, progress bars. |
-| `get_diagnostics` | Errors come back severity-sorted; highest-severity items are in the head. Tail repeats the summary counts. |
-| `git_log`, `git_diff` | Most recent commit / first hunk at top. Tail varies (final commit / last hunk) but the head carries the "what changed recently" signal. |
-| `read_file` *with line range* | When the agent passes `start_line`/`end_line`, the output is small enough that truncation never fires. Risk only on full-file reads of giant files. |
+| Tool                          | Why head+tail works                                                                                                                                 |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_command`, `run_tests`    | Error banner at top; exit code + failing-assertion summary at bottom. Middle = test-runner chatter, build steps, progress bars.                     |
+| `get_diagnostics`             | Errors come back severity-sorted; highest-severity items are in the head. Tail repeats the summary counts.                                          |
+| `git_log`, `git_diff`         | Most recent commit / first hunk at top. Tail varies (final commit / last hunk) but the head carries the "what changed recently" signal.             |
+| `read_file` _with line range_ | When the agent passes `start_line`/`end_line`, the output is small enough that truncation never fires. Risk only on full-file reads of giant files. |
 
 **Truncation-hostile tools** — head+tail can drop the match the agent needed:
 
-| Tool | Failure mode |
-| --- | --- |
-| `grep` | Matches distribute throughout the searched file. A 200-match grep result truncated at `maxToolResultTokens` might elide matches 40–160; the agent sees matches 1–40 and 160–200, which are usually the least interesting (boilerplate imports + trailing tests). |
-| `search_files` | Returns by relevance + freshness; there's no position-ordering guarantee. The middle of the list can carry the hit the agent actually wants. |
-| `web_search` | Results are ranked by the search provider, but the *most actionable* result for an error-message lookup is often result 3–5 (Stack Overflow answer, not the marketing page at rank 1). Middle-elision drops those. |
-| `project_knowledge_search` | Hits come back with `vector:` and `graph:` relationship labels interleaved. Graph-walk hits (callers/callees 1–2 hops out) often sit in the middle of the ranked list and are the "oh that's why" evidence for the agent. |
-| `list_directory` | Alphabetical listing. For a directory with 500 files, the file the agent was looking for is statistically not at the first or last 40%. |
+| Tool                       | Failure mode                                                                                                                                                                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grep`                     | Matches distribute throughout the searched file. A 200-match grep result truncated at `maxToolResultTokens` might elide matches 40–160; the agent sees matches 1–40 and 160–200, which are usually the least interesting (boilerplate imports + trailing tests). |
+| `search_files`             | Returns by relevance + freshness; there's no position-ordering guarantee. The middle of the list can carry the hit the agent actually wants.                                                                                                                     |
+| `web_search`               | Results are ranked by the search provider, but the _most actionable_ result for an error-message lookup is often result 3–5 (Stack Overflow answer, not the marketing page at rank 1). Middle-elision drops those.                                               |
+| `project_knowledge_search` | Hits come back with `vector:` and `graph:` relationship labels interleaved. Graph-walk hits (callers/callees 1–2 hops out) often sit in the middle of the ranked list and are the "oh that's why" evidence for the agent.                                        |
+| `list_directory`           | Alphabetical listing. For a directory with 500 files, the file the agent was looking for is statistically not at the first or last 40%.                                                                                                                          |
 
 **Practical guidance**:
 

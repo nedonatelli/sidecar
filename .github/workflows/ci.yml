@@ -25,6 +25,12 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      # tsconfig.json does not include tests/, so the step above never saw it.
+      # lint-staged runs this config too, but only when a tests/ file is staged
+      # — a src/ change that breaks a test file's types reached main unnoticed.
+      - name: Type check tests
+        run: npm run compile:tests
+
       - name: Lint
         run: npm run lint
 
