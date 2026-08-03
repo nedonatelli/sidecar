@@ -158,6 +158,46 @@ export function mountWorkspaceRoot(root: string): () => void {
 }
 
 /**
+ * Give a TypeScript fixture a project, so `tsc` has something to check.
+ *
+ * A fixture is a bare temp directory. Without a tsconfig, `npx tsc --noEmit` —
+ * a reasonable and encouraged way for an agent to verify an edit — finds no
+ * project and prints its help text: 5,301 characters of it, ending in
+ * `(exit code: 1)`. The failure is reported, but the reason never is, and the
+ * diagnostics the agent asked for never arrive. It happened 121 times across
+ * 394 recorded runs, concentrated in the models that verify their work at all.
+ *
+ * `noEmit` is load-bearing rather than stylistic. With a project present, a
+ * bare `tsc` would compile the fixture and drop `.js` files beside every `.ts`,
+ * and those land in the snapshot the scorers assert against. Verification must
+ * not be able to mutate the workspace it is verifying.
+ *
+ * Only fixtures that actually contain TypeScript get one — a Python or plain-JS
+ * case has no use for it — and a fixture that ships its own is left alone.
+ */
+async function writeFixtureTsconfig(root: string, fixture: WorkspaceFixture): Promise<void> {
+  if (fixture['tsconfig.json'] !== undefined) return;
+  if (!Object.keys(fixture).some((p) => /\.tsx?$/.test(p))) return;
+
+  const tsconfig = {
+    compilerOptions: {
+      target: 'ES2022',
+      // NodeNext so the `./foo.js` specifiers the fixtures use resolve to their
+      // `.ts` sources, which is how this repo imports and how the cases are
+      // written. Under `node10` resolution those imports fail to resolve and
+      // every fixture reports errors it does not have.
+      module: 'NodeNext',
+      moduleResolution: 'NodeNext',
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      forceConsistentCasingInFileNames: true,
+    },
+  };
+  await fs.writeFile(path.join(root, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2) + '\n', 'utf-8');
+}
+
+/**
  * Install a fresh sandbox for one eval case. Materializes the fixture,
  * points the vscode mock at the temp dir, and returns a handle with a
  * teardown hook the caller must invoke in a `finally` block.
@@ -171,6 +211,8 @@ export async function installSandbox(fixture: WorkspaceFixture, caseId: string):
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, content, 'utf-8');
   }
+
+  await writeFixtureTsconfig(root, fixture);
 
   const restore = mountWorkspaceRoot(root);
 
