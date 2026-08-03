@@ -1,7 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import { logger } from '../system/logger.js';
 import * as path from 'path';
-import { INDEX_EXCLUDE_PATTERN } from './indexExcludes.js';
+import { INDEX_EXCLUDE_PATTERN, INDEX_MAX_FILES_PER_PATTERN, indexScanTruncated } from './indexExcludes.js';
 
 /**
  * Documentation comment extracted from source code or markdown files.
@@ -74,11 +74,15 @@ export class DocumentationIndexer {
     const docFiles: Uri[] = [];
     for (const pattern of docPatterns) {
       try {
-        const uris = await workspace.findFiles(
-          pattern,
-          INDEX_EXCLUDE_PATTERN,
-          100, // max files per pattern
-        );
+        const uris = await workspace.findFiles(pattern, INDEX_EXCLUDE_PATTERN, INDEX_MAX_FILES_PER_PATTERN);
+        // Was 100 per pattern, and silent about it. `docs/**/*.md` passes 100
+        // in any project that documents itself seriously, and the entries this
+        // index produces compete with the symbol graph on the same retrieval
+        // path — so a truncated docs index does not just omit answers, it lets
+        // worse ones win. The symbol indexer's 1000 had exactly this shape and
+        // cost 30 of src/config's 64 files (#40).
+        const warning = indexScanTruncated('documentationIndexer', pattern, uris.length);
+        if (warning) logger.warn(warning);
         docFiles.push(...uris);
       } catch {
         // Pattern not found or error — continue
