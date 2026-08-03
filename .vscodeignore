@@ -71,3 +71,14 @@ tsconfig.bench.json
 bench/**
 .husky/**
 .github/**
+
+# Python virtualenvs. `.graphify-venv` (created for the code-graph differential)
+# put 4,181 files and 139 MB into the 0.122.4 VSIX before anyone looked at the
+# packaged tree — `.gitignore` covers it, `.vscodeignore` is a separate list and
+# did not. Matched by the packages directory too, so a venv under any name is
+# caught rather than the two conventional ones.
+**/.venv/**
+**/venv/**
+**/*-venv/**
+**/site-packages/**
+**/dist-packages/**
