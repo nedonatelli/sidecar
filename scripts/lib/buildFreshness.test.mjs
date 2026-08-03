@@ -75,9 +75,14 @@ describe('findStaleArtifacts', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'freshness-'));
     await mkdir(path.join(root, 'src'), { recursive: true });
     await mkdir(path.join(root, 'out', 'src'), { recursive: true });
+    await mkdir(path.join(root, 'out', 'agent'), { recursive: true });
     await mkdir(path.join(root, 'dist'), { recursive: true });
     await writeFile(path.join(root, 'src', 'a.ts'), 'export const a = 1;\n');
     await writeFile(path.join(root, 'out', 'src', 'a.js'), 'exports.a = 1;\n');
+    // The compile output, written by `npm run compile` and require()d by the
+    // integration tests. A fixture without it makes every case report a
+    // missing artifact rather than the one thing it is testing.
+    await writeFile(path.join(root, 'out', 'agent', 'tool.js'), 'exports.t = 1;\n');
     await writeFile(path.join(root, 'dist', 'extension.js'), '// bundle\n');
     return root;
   };
@@ -88,6 +93,7 @@ describe('findStaleArtifacts', () => {
     try {
       await age(path.join(root, 'src', 'a.ts'), 1_000);
       await age(path.join(root, 'out', 'src', 'a.js'), 2_000);
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 2_000);
       await age(path.join(root, 'dist', 'extension.js'), 2_000);
       expect(await findStaleArtifacts(root)).toEqual([]);
     } finally {
@@ -103,6 +109,7 @@ describe('findStaleArtifacts', () => {
     try {
       await age(path.join(root, 'out', 'src', 'a.js'), 1_000);
       await age(path.join(root, 'src', 'a.ts'), 2_000);
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 3_000);
       await age(path.join(root, 'dist', 'extension.js'), 3_000);
       const problems = await findStaleArtifacts(root);
       expect(problems).toHaveLength(1);
@@ -119,6 +126,7 @@ describe('findStaleArtifacts', () => {
       await age(path.join(root, 'dist', 'extension.js'), 1_000);
       await age(path.join(root, 'src', 'a.ts'), 2_000);
       await age(path.join(root, 'out', 'src', 'a.js'), 3_000);
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 3_000);
       const problems = await findStaleArtifacts(root);
       expect(problems).toHaveLength(1);
       expect(problems[0]).toContain('dist/extension.js');
@@ -127,13 +135,54 @@ describe('findStaleArtifacts', () => {
     }
   });
 
-  it('reports both artifacts when both are behind', async () => {
+  it('catches a stale out/ (the compile output) while out/src and dist are current', async () => {
+    // The artifact the first version of this guard missed. The integration
+    // suite loads its TEST FILES from out/src but `require()`s the CODE UNDER
+    // TEST from out/agent — written by `npm run compile`, which test:integration
+    // did not run. Removing out/ and checking vitest + bundle proves nothing
+    // about a consumer that is neither of those.
+    const root = await build();
+    try {
+      await mkdir(path.join(root, 'out', 'agent'), { recursive: true });
+      await writeFile(path.join(root, 'out', 'agent', 'tool.js'), '');
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 1_000);
+      await age(path.join(root, 'src', 'a.ts'), 2_000);
+      await age(path.join(root, 'out', 'src', 'a.js'), 3_000);
+      await age(path.join(root, 'dist', 'extension.js'), 3_000);
+      const problems = await findStaleArtifacts(root);
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain('npm run compile');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let a fresh out/src mask a stale compile output', async () => {
+    // Counting the newest .js anywhere under out/ would let the integration
+    // tsc's own output vouch for a compile tree it never wrote.
+    const root = await build();
+    try {
+      await mkdir(path.join(root, 'out', 'agent'), { recursive: true });
+      await writeFile(path.join(root, 'out', 'agent', 'tool.js'), '');
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 1_000);
+      await age(path.join(root, 'src', 'a.ts'), 5_000);
+      await age(path.join(root, 'out', 'src', 'a.js'), 9_000);
+      await age(path.join(root, 'dist', 'extension.js'), 9_000);
+      const problems = await findStaleArtifacts(root);
+      expect(problems.some((p) => p.includes('npm run compile'))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports every artifact that is behind', async () => {
     const root = await build();
     try {
       await age(path.join(root, 'out', 'src', 'a.js'), 1_000);
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 1_000);
       await age(path.join(root, 'dist', 'extension.js'), 1_000);
       await age(path.join(root, 'src', 'a.ts'), 2_000);
-      expect(await findStaleArtifacts(root)).toHaveLength(2);
+      expect(await findStaleArtifacts(root)).toHaveLength(3);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -146,6 +195,7 @@ describe('findStaleArtifacts', () => {
     try {
       await age(path.join(root, 'src', 'a.ts'), 1_000);
       await age(path.join(root, 'out', 'src', 'a.js'), 2_000);
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 2_000);
       await age(path.join(root, 'dist', 'extension.js'), 2_000);
       const decl = path.join(root, 'src', 'a.d.ts');
       await writeFile(decl, 'export declare const a: number;\n');
@@ -163,6 +213,7 @@ describe('findStaleArtifacts', () => {
     try {
       await age(path.join(root, 'src', 'a.ts'), 1_000);
       await age(path.join(root, 'out', 'src', 'a.js'), 2_000);
+      await age(path.join(root, 'out', 'agent', 'tool.js'), 2_000);
       await age(path.join(root, 'dist', 'extension.js'), 2_000);
       const copied = path.join(root, 'out', 'src', 'copy.ts');
       await writeFile(copied, 'export const a = 1;\n');
@@ -196,12 +247,15 @@ describe('assertFreshBuild', () => {
     try {
       await mkdir(path.join(root, 'src'), { recursive: true });
       await mkdir(path.join(root, 'out', 'src'), { recursive: true });
+      await mkdir(path.join(root, 'out', 'agent'), { recursive: true });
       await mkdir(path.join(root, 'dist'), { recursive: true });
       await writeFile(path.join(root, 'src', 'a.ts'), '');
       await writeFile(path.join(root, 'out', 'src', 'a.js'), '');
+      await writeFile(path.join(root, 'out', 'agent', 'tool.js'), '');
       await writeFile(path.join(root, 'dist', 'extension.js'), '');
       await utimes(path.join(root, 'src', 'a.ts'), t(1_000), t(1_000));
       await utimes(path.join(root, 'out', 'src', 'a.js'), t(2_000), t(2_000));
+      await utimes(path.join(root, 'out', 'agent', 'tool.js'), t(2_000), t(2_000));
       await utimes(path.join(root, 'dist', 'extension.js'), t(2_000), t(2_000));
       await expect(assertFreshBuild(root)).resolves.toBeUndefined();
     } finally {

@@ -36,7 +36,7 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'out', 'dist', '.vscode-test'
  * Newest mtime (ms) among files under `dir` matching `matches`, or 0 when the
  * directory is absent or holds no match.
  */
-export async function newestMtime(dir, matches) {
+export async function newestMtime(dir, matches, skip = null) {
   let newest = 0;
   let entries;
   try {
@@ -48,7 +48,8 @@ export async function newestMtime(dir, matches) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
-      newest = Math.max(newest, await newestMtime(full, matches));
+      if (skip && path.resolve(full) === path.resolve(skip)) continue;
+      newest = Math.max(newest, await newestMtime(full, matches, skip));
     } else if (matches(entry.name)) {
       const s = await stat(full);
       newest = Math.max(newest, s.mtimeMs);
@@ -91,7 +92,17 @@ export async function findStaleArtifacts(root = process.cwd()) {
 
   const newestSourceFile = await newestFileNamed(srcDir, isTs, newestSourceMtime, root);
 
-  const outMtime = await newestMtime(path.join(root, 'out', 'src'), (n) => n.endsWith('.js'));
+  const isJs = (n) => n.endsWith('.js');
+  const outMtime = await newestMtime(path.join(root, 'out', 'src'), isJs);
+  // `npm run compile` writes everything under out/ EXCEPT out/src, which the
+  // integration tsconfig owns. Checked separately because the integration
+  // suite loads from BOTH: its test files come from out/src, but the code
+  // under test is `require()`d from out/agent — see the callTool helper in
+  // src/test/integration/diagnostics.test.ts. Missing this was the third
+  // stale artifact hiding behind the same symptom as #17, and it survived the
+  // first fix because removing out/ and running vitest + bundle proves nothing
+  // about a consumer that is neither.
+  const compileMtime = await newestMtime(path.join(root, 'out'), isJs, path.join(root, 'out', 'src'));
   let distMtime = 0;
   try {
     distMtime = (await stat(path.join(root, 'dist', 'extension.js'))).mtimeMs;
@@ -101,11 +112,18 @@ export async function findStaleArtifacts(root = process.cwd()) {
 
   return [
     staleness({
-      name: 'out/src/ (the code the integration tests require())',
+      name: 'out/src/ (the integration test files themselves)',
       artifactMtime: outMtime,
       newestSourceMtime,
       newestSourceFile,
       builtBy: 'tsc -p src/test/integration/tsconfig.json',
+    }),
+    staleness({
+      name: 'out/ (the compiled code the integration tests require())',
+      artifactMtime: compileMtime,
+      newestSourceMtime,
+      newestSourceFile,
+      builtBy: 'npm run compile',
     }),
     staleness({
       name: 'dist/extension.js (the extension the host loads)',
