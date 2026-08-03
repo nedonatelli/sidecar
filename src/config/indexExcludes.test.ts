@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { INDEX_EXCLUDE_DIRS, INDEX_EXCLUDE_PATTERN } from './indexExcludes.js';
+import {
+  INDEX_EXCLUDE_DIRS,
+  INDEX_EXCLUDE_PATTERN,
+  INDEX_MAX_FILES_PER_PATTERN,
+  indexScanTruncated,
+} from './indexExcludes.js';
 
 // Four scanners walk the whole workspace. They had four different exclude
 // lists, and v0.122.2 converged only two of them — so the symbol graph and the
@@ -79,4 +84,54 @@ describe('INDEX_EXCLUDE_DIRS', () => {
     expect(INDEX_EXCLUDE_PATTERN.endsWith('}/**')).toBe(true);
     expect(INDEX_EXCLUDE_PATTERN).toContain('.vscode-test');
   });
+});
+
+// `workspace.findFiles` truncates at maxResults and returns nothing to say it
+// did — a short array from a truncated scan is identical to a short array from
+// a small workspace. The symbol indexer asked for 1000 against this repo's 1035
+// `.ts` files, so every run dropped a different ~35 and reported success. 30 of
+// src/config's 64 files were absent from the cached graph, taking ~72 exported
+// symbols out of find_references, analyze_impact and PKI retrieval (#40).
+
+describe('indexScanTruncated', () => {
+  it('is silent for a scan that came back under the limit', () => {
+    expect(indexScanTruncated('symbolIndexer', '**/*.ts', INDEX_MAX_FILES_PER_PATTERN - 1)).toBeNull();
+  });
+
+  it('warns when a scan comes back exactly at the limit', () => {
+    // At-the-limit is the truncation signal: findFiles stops once it has
+    // maxResults, so equality is the only evidence available.
+    const w = indexScanTruncated('symbolIndexer', '**/*.ts', INDEX_MAX_FILES_PER_PATTERN);
+    expect(w).toContain('truncated');
+    expect(w).toContain('INCOMPLETE');
+  });
+
+  it('names the scanner and the pattern that truncated', () => {
+    // Four scanners walk the workspace with different patterns. A warning that
+    // says only "truncated" sends the reader looking through all of them.
+    const w = indexScanTruncated('workspaceIndex', '**/*.py', INDEX_MAX_FILES_PER_PATTERN);
+    expect(w).toContain('workspaceIndex');
+    expect(w).toContain('**/*.py');
+  });
+
+  it('sets the limit far above any plausible single-language file count', () => {
+    // The old limits (1000 symbol / 500 workspace) were below this repo's own
+    // file count, so truncation was the normal case rather than the exception.
+    expect(INDEX_MAX_FILES_PER_PATTERN).toBeGreaterThanOrEqual(10_000);
+  });
+});
+
+describe('the whole-workspace scanners use the shared limit', () => {
+  // The exclude-list bug was one list diverging into four. This is the same
+  // shape: a scanner with its own hardcoded maxResults is a fifth limit waiting
+  // to be too low, and its truncation would be silent again.
+  for (const file of ['src/config/symbolIndexer.ts', 'src/config/workspaceIndex.ts']) {
+    it(`${file} requests INDEX_MAX_FILES_PER_PATTERN and reports truncation`, () => {
+      const src = readFileSync(resolve(process.cwd(), file), 'utf-8');
+      expect(src).toContain('INDEX_MAX_FILES_PER_PATTERN');
+      expect(src).toContain('indexScanTruncated');
+      // No bare numeric maxResults left behind on a findFiles call.
+      expect(src).not.toMatch(/findFiles\([^)]*,\s*\d+\s*\)/);
+    });
+  }
 });
