@@ -46,12 +46,26 @@ if (!existsSync(REF_GRAPH)) {
 const ours = JSON.parse(readFileSync(SIDECAR_GRAPH, 'utf-8'));
 const ref = JSON.parse(readFileSync(REF_GRAPH, 'utf-8'));
 
-// Ours stores workspace-relative paths (src/…); graphify's are relative to the
-// directory it scanned (src), so strip the prefix to compare.
+// Both sides are normalized to a path relative to `src/`, because the two
+// extractors do not agree on the prefix and have not agreed consistently over
+// time: ours stores workspace-relative (`src/foo.ts`), while graphify has
+// emitted both that and scan-dir-relative (`foo.ts`) depending on version.
+//
+// This used to strip `src/` from ours only, on the assumption graphify emitted
+// the bare form. Against a graphify that emits the prefix, NOTHING matched:
+// the differential reported 934 missing files out of 952 — it was comparing
+// `mcpServer/agentServer.ts` against `src/mcpServer/agentServer.ts` — and the
+// true gap was 95. A differential that cannot align its two inputs reports
+// total failure and total success with equal confidence, which is the exact
+// failure mode this script exists to catch elsewhere.
+const relToSrc = (f) => (f.startsWith('src/') ? f.slice(4) : f);
 const ourFiles = new Set(
-  ours.symbols.map((s) => s.filePath).filter((f) => f?.startsWith('src/')).map((f) => f.slice(4)),
+  ours.symbols
+    .map((s) => s.filePath)
+    .filter((f) => f?.startsWith('src/'))
+    .map(relToSrc),
 );
-const refFiles = new Set(ref.nodes.map((n) => n.source_file).filter(Boolean));
+const refFiles = new Set(ref.nodes.map((n) => n.source_file).filter(Boolean).map(relToSrc));
 
 const missing = [...refFiles]
   .filter((f) => !ourFiles.has(f))

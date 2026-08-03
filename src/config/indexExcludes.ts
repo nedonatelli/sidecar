@@ -24,6 +24,13 @@ export const INDEX_EXCLUDE_DIRS = [
   '.nuxt',
   '.venv',
   'venv',
+  // Any Python environment, whatever its directory is called. `.venv`/`venv`
+  // above only catch the two conventional names — a `.graphify-venv` created
+  // for the code-graph differential put 23,284 symbols across 1,348
+  // site-packages files into the symbol graph, 76% of its entire contents.
+  // Every virtualenv layout puts its packages under `site-packages`, so
+  // excluding that catches the class rather than the instance.
+  'site-packages',
   '__pycache__',
   'target',
   'vendor',
