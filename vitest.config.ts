@@ -47,7 +47,11 @@ export default defineConfig({
     // polyglot test DATA named *.test.ts) holds pure unit tests of eval infra
     // (verdict logic, statistics) — no model, no network — so they run in the fast
     // suite. Model-driven eval cases are *.eval.ts under vitest.eval.config.ts.
-    include: ['src/**/*.test.ts', 'bench/**/*.test.ts', 'tests/llm-eval/*.test.ts'],
+    // scripts/ was matched by nothing, so the release and build tooling ran
+    // untested — the same blind spot tests/ had before tsconfig.tests.json.
+    // These are .mjs because the scripts they cover are plain ESM, run by node
+    // without a compile step.
+    include: ['src/**/*.test.ts', 'bench/**/*.test.ts', 'tests/llm-eval/*.test.ts', 'scripts/**/*.test.mjs'],
     exclude: ['src/test/integration/**'],
     coverage: {
       provider: 'v8',
