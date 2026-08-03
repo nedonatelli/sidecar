@@ -22,7 +22,12 @@ import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 
 const REPO = process.cwd();
-const SIDECAR_GRAPH = path.join(REPO, '.sidecar/cache/symbol-graph.json');
+// Overridable so the differential can be pointed at a freshly built graph
+// without disturbing the workspace cache. The cache is written by whatever
+// build is INSTALLED, which lags `main` — comparing it measures the release
+// you are running, not the code you just changed, and those differ exactly
+// when it matters.
+const SIDECAR_GRAPH = process.env.SIDECAR_GRAPH ?? path.join(REPO, '.sidecar/cache/symbol-graph.json');
 const REF_GRAPH = process.argv[2] ?? path.join(REPO, 'graphify-out/graph.json');
 
 /** Files the reference extractor indexes that ours legitimately should not. */
