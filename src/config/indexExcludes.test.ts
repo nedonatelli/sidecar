@@ -125,7 +125,15 @@ describe('the whole-workspace scanners use the shared limit', () => {
   // The exclude-list bug was one list diverging into four. This is the same
   // shape: a scanner with its own hardcoded maxResults is a fifth limit waiting
   // to be too low, and its truncation would be silent again.
-  for (const file of ['src/config/symbolIndexer.ts', 'src/config/workspaceIndex.ts']) {
+  for (const file of [
+    'src/config/symbolIndexer.ts',
+    'src/config/workspaceIndex.ts',
+    // The documentation index feeds the SAME retrieval path as the symbol
+    // graph, so a truncated docs index does not merely omit answers — it lets
+    // worse ones win. It sat at 100 per glob, which `docs/**/*.md` passes in
+    // any project that documents itself seriously.
+    'src/config/documentationIndexer.ts',
+  ]) {
     it(`${file} requests INDEX_MAX_FILES_PER_PATTERN and reports truncation`, () => {
       const src = readFileSync(resolve(process.cwd(), file), 'utf-8');
       expect(src).toContain('INDEX_MAX_FILES_PER_PATTERN');

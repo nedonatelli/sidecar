@@ -24,7 +24,20 @@ export const CHUNK_RETRIEVER_PATTERNS = ['**/*.md', '**/*.mdx', '**/*.txt', '**/
 /** Glob patterns excluded from file discovery. */
 export const CHUNK_RETRIEVER_EXCLUDE = '{**/node_modules/**,**/.git/**,**/.sidecar/**,**/dist/**,**/build/**}';
 
-/** Maximum files fetched per glob pattern. */
+/**
+ * Maximum files fetched per glob pattern.
+ *
+ * Deliberately NOT `INDEX_MAX_FILES_PER_PATTERN`, and deliberately low. This
+ * runs per query, not once per workspace: it is a latency budget, not a claim
+ * to have seen everything. The index scanners were raised to 10,000 and made to
+ * report truncation (#40) because a silent cap there produced an incomplete
+ * index that answered as if it were complete — but this retriever is already
+ * a best-effort ranked sample by construction, so stopping at 200 is the
+ * intended behaviour rather than a gap in it.
+ *
+ * If this ever becomes the backing store for something that must be exhaustive,
+ * it needs the shared limit and `indexScanTruncated`, not a bigger number here.
+ */
 const MAX_FILES_PER_PATTERN = 200;
 
 /**
