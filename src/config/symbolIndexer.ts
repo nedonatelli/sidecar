@@ -18,7 +18,12 @@ import {
 } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
 import { assignOrdinals, makeSymbolId, type SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
-import { INDEX_EXCLUDE_DIRS, INDEX_EXCLUDE_PATTERN } from './indexExcludes.js';
+import {
+  INDEX_EXCLUDE_DIRS,
+  INDEX_EXCLUDE_PATTERN,
+  INDEX_MAX_FILES_PER_PATTERN,
+  indexScanTruncated,
+} from './indexExcludes.js';
 
 const CACHE_FILE = 'cache/symbol-graph.json';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -119,10 +124,17 @@ export class SymbolIndexer implements Disposable {
     // Discover workspace files — all patterns in parallel
     const excludePattern = INDEX_EXCLUDE_PATTERN;
     const foundUris = await Promise.all(
-      filePatterns.map((pattern) => workspace.findFiles(pattern, excludePattern, 1000)),
+      filePatterns.map((pattern) => workspace.findFiles(pattern, excludePattern, INDEX_MAX_FILES_PER_PATTERN)),
     );
     const allUris: Uri[] = [];
-    for (const uris of foundUris) allUris.push(...uris);
+    for (const [i, uris] of foundUris.entries()) {
+      // findFiles truncates at maxResults and returns no indication that it
+      // did. At the previous limit of 1000 against this repo's 1035 `.ts`
+      // files, every run dropped a different ~35 of them and reported success.
+      const warning = indexScanTruncated('symbolIndexer', filePatterns[i], uris.length);
+      if (warning) logger.warn(warning);
+      allUris.push(...uris);
+    }
 
     // Filter to code files
     const codeUris = allUris.filter((uri) => {

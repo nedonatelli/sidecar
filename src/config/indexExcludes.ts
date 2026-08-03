@@ -45,3 +45,38 @@ export const INDEX_EXCLUDE_DIRS = [
 
 /** VS Code `findFiles` exclude pattern covering all of {@link INDEX_EXCLUDE_DIRS}. */
 export const INDEX_EXCLUDE_PATTERN = `**/{${INDEX_EXCLUDE_DIRS.join(',')}}/**`;
+
+/**
+ * `maxResults` for a whole-workspace index scan.
+ *
+ * `workspace.findFiles` truncates at `maxResults` and says nothing about it —
+ * the caller receives a short array indistinguishable from a small workspace.
+ * The symbol indexer passed 1000 while this repo has 1035 `.ts` files, so every
+ * index run silently dropped ~35 of them, a different ~35 each time depending
+ * on walk order. 30 of `src/config`'s 64 files were missing on the run that
+ * produced the cached graph, taking ~72 exported symbols out of
+ * `find_references`, `analyze_impact` and PKI retrieval with them.
+ *
+ * A cap is still wanted — an unbounded scan of a huge monorepo is its own
+ * failure — but it has to be high enough that reaching it is genuinely
+ * exceptional, and reaching it has to be audible. See
+ * {@link indexScanTruncated}.
+ */
+export const INDEX_MAX_FILES_PER_PATTERN = 10_000;
+
+/**
+ * Warning text for a scan that came back at its limit, or null when it did not.
+ *
+ * Split out as a pure function so the condition can be tested without a
+ * workspace: this is the check that turns a silent wrong answer into a loud
+ * one, and it fires only on workspaces larger than any fixture.
+ */
+export function indexScanTruncated(scanner: string, pattern: string, returned: number): string | null {
+  if (returned < INDEX_MAX_FILES_PER_PATTERN) return null;
+  return (
+    `[${scanner}] "${pattern}" returned ${returned} files, the maximum this scan requests. ` +
+    `Results are truncated, so the index is INCOMPLETE — symbols and files past the limit are ` +
+    `invisible to search, find_references and analyze_impact. Narrow the workspace, or exclude ` +
+    `directories that do not need indexing.`
+  );
+}

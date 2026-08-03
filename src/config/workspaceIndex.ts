@@ -11,7 +11,12 @@ import { getConfig } from './settings.js';
 import { getCurrentContextRules, applyContextRules } from './structuredContextRules.js';
 import { tokenize } from './workspaceIndex/tokenize.js';
 import type { FileNode, RankedFile } from './workspaceIndex/types.js';
-import { INDEX_EXCLUDE_DIRS, INDEX_EXCLUDE_PATTERN } from './indexExcludes.js';
+import {
+  INDEX_EXCLUDE_DIRS,
+  INDEX_EXCLUDE_PATTERN,
+  INDEX_MAX_FILES_PER_PATTERN,
+  indexScanTruncated,
+} from './indexExcludes.js';
 export type { FileNode, RankedFile } from './workspaceIndex/types.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -284,12 +289,22 @@ export class WorkspaceIndex implements Disposable {
     const scanStart = Date.now();
 
     const allUris: Uri[] = [];
-    const foundUris = await Promise.all(patterns.map((p) => workspace.findFiles(p, EXCLUDE_PATTERN, 500)));
-    for (const uris of foundUris) allUris.push(...uris);
+    const foundUris = await Promise.all(
+      patterns.map((p) => workspace.findFiles(p, EXCLUDE_PATTERN, INDEX_MAX_FILES_PER_PATTERN)),
+    );
+    for (const [i, uris] of foundUris.entries()) {
+      // Was 500 — lower than the symbol indexer's 1000 and lower still than
+      // this repo's file count, so the workspace index silently described a
+      // fraction of the tree. Truncation is now audible; see indexScanTruncated.
+      const warning = indexScanTruncated('workspaceIndex', patterns[i], uris.length);
+      if (warning) logger.warn(warning);
+      allUris.push(...uris);
+    }
 
     // Stat all files concurrently — replaces the previous serial batch-of-20 loop.
-    // findFiles caps at 500 results so at most ~500 concurrent stat calls; each
-    // is a lightweight syscall and VS Code's FS layer handles the concurrency.
+    // Each is a lightweight syscall and VS Code's FS layer handles the
+    // concurrency. The old note here justified the fan-out by findFiles capping
+    // at 500; that cap was the bug, not the safeguard.
     const statResults = await Promise.allSettled(allUris.map((uri) => workspace.fs.stat(uri)));
     const freshFiles = new Map<string, FileNode>();
     for (let j = 0; j < allUris.length; j++) {
