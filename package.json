@@ -3452,7 +3452,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:integration": "tsc -p src/test/integration/tsconfig.json && find src -name '*.js' -not -path 'src/test/*' -delete 2>/dev/null; vscode-test",
+    "test:integration": "npm run bundle && tsc -p src/test/integration/tsconfig.json && { find src -name '*.js' -not -path 'src/test/*' -delete 2>/dev/null || true; } && vscode-test",
     "eval:llm": "vitest run --config vitest.eval.config.ts",
     "eval:smoke": "SIDECAR_EVAL_TAGS=smoke vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
     "eval:agent": "vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
