@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as vscode from 'vscode';
+import { execFileSync } from 'child_process';
+import { readFileSync, existsSync } from 'fs';
+import * as path from 'path';
 import { installSandbox, type Sandbox } from './workspaceSandbox.js';
 
 // The sandbox's `findFiles` is what `search_files` and `run_tests` see during
@@ -65,5 +68,107 @@ describe('sandbox findFiles glob support', () => {
   it('matches nested paths through **/', async () => {
     sandbox = await installSandbox({ 'a.py': '', 'src/deep/b.py': '' }, 'glob-nested');
     expect(names(await find('**/*.py'))).toEqual(['a.py', 'b.py']);
+  });
+});
+
+// A fixture is a bare temp dir, so `npx tsc --noEmit` found no project and
+// printed 5,301 characters of help instead of diagnostics — 121 times across
+// 394 recorded runs, concentrated in the models that verify their own work.
+//
+// The end-to-end tests below invoke the real compiler. Asserting that the
+// config file exists, or that its JSON has the right keys, would repeat the
+// exact mistake this fixes: checking the shape of a thing rather than whether
+// it does anything. A tsconfig that parses but resolves nothing looks identical
+// from the outside.
+
+// This repo's own compiler, by absolute path. `npx tsc` cannot be used here:
+// the cwd is a temp dir outside the repo, so npx does not find node_modules and
+// falls through to the registry — where `tsc` is an unrelated abandoned package
+// (`tsc@2.0.4`), not the TypeScript compiler. That passes locally on any
+// machine with a global tsc and fails on CI, which is how it got here.
+const TSC = path.resolve(process.cwd(), 'node_modules', 'typescript', 'bin', 'tsc');
+
+/** Run tsc in `root`, returning combined output — it exits non-zero on both a
+ *  type error and a missing project, so the output is the only real signal. */
+const runTsc = (root: string, args: string[] = ['--noEmit']): string => {
+  try {
+    return execFileSync(process.execPath, [TSC, ...args], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string };
+    return `${err.stdout ?? ''}${err.stderr ?? ''}`;
+  }
+};
+
+describe('fixture tsconfig', () => {
+  it('gives tsc a project, so a type error comes back as a diagnostic', () => {
+    // The whole point. Without this the output is tsc's help text and the
+    // agent learns nothing about the code it just wrote.
+    return installSandbox({ 'src/a.ts': 'export const n: number = "not a number";\n' }, 'tsconf-error').then(
+      async (sb) => {
+        sandbox = sb;
+        const out = runTsc(sb.root);
+        expect(out).toContain('TS2322');
+        expect(out).toContain('src/a.ts');
+        expect(out).not.toContain('COMMON COMMANDS');
+      },
+    );
+  });
+
+  it('reports nothing for a fixture that is actually clean', () => {
+    // A checker that always complains is as useless as one that never does.
+    return installSandbox({ 'src/a.ts': 'export const n: number = 1;\n' }, 'tsconf-clean').then(async (sb) => {
+      sandbox = sb;
+      expect(runTsc(sb.root).trim()).toBe('');
+    });
+  });
+
+  it('resolves the ./x.js specifiers the fixtures are written with', () => {
+    // NodeNext, not node10. Under the wrong resolution every multi-file
+    // TypeScript fixture reports import errors it does not have, which reads
+    // as the agent having broken something.
+    return installSandbox(
+      {
+        'src/dateUtils.ts': 'export function formatDate(d: Date): string {\n  return d.toISOString();\n}\n',
+        'src/report.ts':
+          "import { formatDate } from './dateUtils.js';\n" +
+          'export function build(d: Date): string {\n  return formatDate(d);\n}\n',
+      },
+      'tsconf-nodenext',
+    ).then(async (sb) => {
+      sandbox = sb;
+      expect(runTsc(sb.root).trim()).toBe('');
+    });
+  });
+
+  it('does not let a bare tsc emit .js beside the fixture sources', () => {
+    // noEmit is load-bearing. Emitted output lands in the snapshot the scorers
+    // assert against, so verification would mutate the workspace it verifies.
+    return installSandbox({ 'src/a.ts': 'export const n = 1;\n' }, 'tsconf-noemit').then(async (sb) => {
+      sandbox = sb;
+      runTsc(sb.root, []); // bare tsc — exit code is not the signal here, the file system is
+      expect(existsSync(path.join(sb.root, 'src', 'a.js'))).toBe(false);
+      expect(Object.keys(await sb.snapshot())).not.toContain('src/a.js');
+    });
+  });
+
+  it('leaves a fixture that ships its own tsconfig untouched', () => {
+    const own = '{ "compilerOptions": { "strict": false } }\n';
+    return installSandbox({ 'src/a.ts': 'export const n = 1;\n', 'tsconfig.json': own }, 'tsconf-own').then((sb) => {
+      sandbox = sb;
+      expect(readFileSync(path.join(sb.root, 'tsconfig.json'), 'utf-8')).toBe(own);
+    });
+  });
+
+  it('does not add one to a fixture with no TypeScript in it', () => {
+    // A Python or plain-JS case has no use for a tsconfig, and an unexplained
+    // extra file in the workspace is something the agent has to reason about.
+    return installSandbox({ 'calc.py': 'def add(a, b):\n    return a + b\n' }, 'tsconf-python').then((sb) => {
+      sandbox = sb;
+      expect(existsSync(path.join(sb.root, 'tsconfig.json'))).toBe(false);
+    });
   });
 });
