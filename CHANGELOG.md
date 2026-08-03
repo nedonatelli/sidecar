@@ -4,6 +4,28 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.122.4] - 2026-08-03
+
+### Fixed
+
+- **Every whole-workspace scan truncated silently, and the limits were below this repo's own file count.** `workspace.findFiles` stops at `maxResults` and returns nothing to say it did — a short array from a truncated scan is indistinguishable from a small workspace. The symbol indexer asked for 1000 against 1035 `.ts` files, so every index run dropped ~35 of them and reported success; the workspace index asked for 500, the documentation index 100 per glob. The dropped set is walk-order dependent, so it differs run to run: one rebuild had 30 of `src/config`'s 64 files missing, taking ~72 exported symbols out of `find_references`, `analyze_impact` and PKI retrieval, and a later rebuild at the same limit dropped a different set entirely. That order-dependence is why no test could have caught it and why the cached graph looked plausible throughout. All three scanners now share one limit (10,000) and report truncation through `indexScanTruncated` rather than absorbing it. `chunkRetriever` deliberately keeps its 200 and now says why: it runs per query rather than once per workspace, so its cap is a latency budget, not a claim to have seen everything — recorded so the next audit can tell an intentional bound from an unnoticed one, which is the ambiguity that left the documentation indexer behind in the first place. Found by running the code-graph differential against an independent extractor, not by the suite. (`src/config/indexExcludes.ts`, `src/config/symbolIndexer.ts`, `src/config/workspaceIndex.ts`, `src/config/documentationIndexer.ts`)
+
+- **A Python virtualenv in the workspace drowned the symbol graph.** `.venv` and `venv` were excluded by name, but a venv under any other name — or a vendored dependency tree — was indexed in full: 15,626 of this repo's 22,753 cached symbols came from `site-packages`, 76% of the graph describing third-party library internals the user never wrote. Those entries compete with the user's own code at retrieval, so the cost is not only index time. `site-packages` and `dist-packages` are now excluded by path segment, which catches the directory wherever it sits and whatever the environment above it is called. (`src/config/indexExcludes.ts`)
+
+- **Terminal output reached the model with raw escape sequences in it.** Commands run through the VS Code terminal path returned shell-integration OSC markers and zsh prompt styling — `]633;C`, `[1m[7m%[27m` — mixed into stdout. The command's real output was correct, so nothing failed; the model simply had to decide, on every command, whether `[1m[7m%` was output it should reason about. Stripped now on the terminal path only, leaving the sentinel parsing that depends on those markers intact. The eval suite could not have found this: it routes through `ShellSession`, a plain child process with no shell integration, so 0 of 394 recorded runs contained a single escape sequence. (`src/terminal/agentExecutor.ts`)
+
+- **The no-op edit error pointed at the field the model got right.** `edit_file` with `search === replace` arrives from two opposite mistakes and the message assumed one of them. If the model sent its intended *new* text in both fields, `search` is wrong and the existing "copy the current text into search" answer is correct. If it sent the file's *current* text in both — which is the shape observed in practice — `search` was already right and `replace` is at fault, and the message sent the model to correct the one field it had got right, quoting back text it had just supplied. Measured on gemma4:e4b during a cross-file rename: it recovered, but on iteration 11 of 12, and ran out of budget before finishing. The shapes are distinguishable by whether `search` appears verbatim in the file. (`src/agent/tools/fs.ts`)
+
+- **Fence-write coercion overrode a model that had deliberately declined to edit.** A model answering *"no changes are needed, the code already does that"* had its illustrating code fence written to disk anyway, because coercion fired on the request shape without checking whether the response had declined. Coercion now requires that the model did not decline. (`src/agent/loop/actionReprompt.ts`, `src/agent/loop/streamTurn.ts`)
+
+### Changed
+
+- **The agent iteration ceiling is 25 → 50.** Measured rather than guessed: across a five-model baseline sweep no failing run reached 50 and 64 of 101 stopped under 12, so the ceiling was not what bounded these models. Raising it costs nothing on runs that finish early and removes a variable from every future comparison. (`src/agent/loop/state.ts`)
+
+### Stats
+- 8607 total tests (463 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.122.3] - 2026-07-31
 
 ### Fixed
