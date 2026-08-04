@@ -4,7 +4,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-## [0.122.4] - 2026-08-03
+## [0.122.4] - 2026-08-04
 
 ### Fixed
 
@@ -18,12 +18,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 - **Fence-write coercion overrode a model that had deliberately declined to edit.** A model answering *"no changes are needed, the code already does that"* had its illustrating code fence written to disk anyway, because coercion fired on the request shape without checking whether the response had declined. Coercion now requires that the model did not decline. (`src/agent/loop/actionReprompt.ts`, `src/agent/loop/streamTurn.ts`)
 
+- **Exported generators were invisible to the code graph.** `export function*` and `export async function*` produced no `function` symbol, so 40 declarations across 17 files were absent from `find_references`, `analyze_impact` and PKI retrieval — and they are the streaming core: `parseSse`, `streamOpenAiSse`, `translateAnthropicStream`, `pullModelStream`, `parseThinkTags`, `scanCode`. Asking who calls any of them returned nothing, which is indistinguishable from a symbol with no callers. Both analyzers missed them for unrelated reasons, so neither covered for the other: tree-sitter parses `function*` as `generator_function_declaration`, its own node type rather than a modifier on `function_declaration`, and only the latter was mapped; the regex fallback gated on `line.includes('function ')`, which is false for `function*` because the star sits exactly where the space would be. Class methods (`*iter()`) were already correct. **`GRAPH_VERSION` 4 → 5, so existing caches repopulate on upgrade** — reconciliation is by content hash and none of the 17 files changed, so without the bump an existing graph would stay generator-free forever. Found by auditing the four files that still had zero symbols after the truncation fix above; the other three were benign (two re-export barrels and a type-only index). (`src/parsing/treeSitterAnalyzer.ts`, `src/astContext.ts`, `src/config/symbolGraph.ts`)
+
+- **The code-graph differential could only ever check the installed build.** It read `.sidecar/cache/symbol-graph.json` and nothing else — a file written by whichever extension build is installed, which lags the working tree. So running it after a fix measured the release you happen to be running rather than the code you just changed. Concretely: run immediately after the generator fix, it would have reported all 40 generators still missing. The check that exists to find extractor gaps would have reported a gap that was already closed, with no way to tell that from a real finding. `SIDECAR_GRAPH` now overrides the path. Against current source the differential is clean: 2 unindexed source files, both legitimately symbol-less, against a baseline of 7. (`scripts/graph-differential.mjs`)
+
 ### Changed
 
 - **The agent iteration ceiling is 25 → 50.** Measured rather than guessed: across a five-model baseline sweep no failing run reached 50 and 64 of 101 stopped under 12, so the ceiling was not what bounded these models. Raising it costs nothing on runs that finish early and removes a variable from every future comparison. (`src/agent/loop/state.ts`)
 
 ### Stats
-- 8607 total tests (463 test files)
+- 8619 total tests (464 test files)
 - 87 built-in tools, 11 skills
 
 ## [0.122.3] - 2026-07-31
