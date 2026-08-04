@@ -55,6 +55,11 @@ describe('INDEX_EXCLUDE_DIRS', () => {
       // holds on macOS and lapses on the platform most likely to hit it.
       'site-packages',
       'dist-packages',
+      // Malformed byte fixtures. graph-differential.mjs lists this directory as
+      // a legitimate miss while the indexer ingested it — two components
+      // disagreeing about what counts as source, which is the differential's
+      // whole job to be independent about.
+      '__corpus__',
     ]) {
       expect(INDEX_EXCLUDE_DIRS, `${dir} must stay excluded`).toContain(dir);
     }
@@ -150,4 +155,27 @@ describe('the whole-workspace scanners use the shared limit', () => {
       expect(src).not.toMatch(/findFiles\([^)]*,\s*\d+\s*\)/);
     });
   }
+});
+
+describe('the indexer and the graph differential agree on what counts as source', () => {
+  // `scripts/graph-differential.mjs` is the independent check on the symbol
+  // graph — the only thing positioned to see what the extractor FAILS to
+  // produce. It carries its own list of paths our indexer "legitimately should
+  // not" index, and that list was aspirational: it named `__corpus__` while the
+  // indexer happily ingested 23 symbols from it.
+  //
+  // A check calibrated against a different file set than the thing it checks is
+  // measuring something other than what it reports. This pins the two together
+  // for the directory-shaped entries; extension-shaped ones (`.md`, `.json`,
+  // `.txt`) are handled by CODE_EXTENSIONS, not by the exclude list.
+  it('every directory the differential expects to miss is actually excluded', () => {
+    const src = readFileSync(resolve(process.cwd(), 'scripts/graph-differential.mjs'), 'utf-8');
+    const block = src.slice(src.indexOf('EXPECTED_MISSES'), src.indexOf(']', src.indexOf('EXPECTED_MISSES')));
+    // Directory-shaped entries look like /\/__corpus__\//
+    const dirs = [...block.matchAll(/\\\/([\w.-]+)\\\//g)].map((m) => m[1]);
+    expect(dirs.length, 'no directory-shaped EXPECTED_MISSES found — did the format change?').toBeGreaterThan(0);
+    for (const d of dirs) {
+      expect(INDEX_EXCLUDE_DIRS, `differential expects to miss "${d}" — the indexer must exclude it`).toContain(d);
+    }
+  });
 });

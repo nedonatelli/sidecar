@@ -41,6 +41,18 @@ export const INDEX_EXCLUDE_DIRS = [
   '.sidecar',
   '.turbo',
   '.cache',
+  // Deliberately malformed byte fixtures — BOM variants, CR/CRLF/mixed line
+  // endings, NBSP, trailing whitespace, no-final-newline — used to test file
+  // handling. Not source, and 23 of their symbols were reaching the graph,
+  // where they compete at retrieval with the code that handles those cases.
+  // `scripts/graph-differential.mjs` already listed this directory as a
+  // legitimate miss, so the indexer and the check disagreed about what counts
+  // as source; this makes reality match the check.
+  //
+  // The sibling `__fixtures__` needs no entry: its files are all `.py.txt`, so
+  // no code extension matches and nothing indexes them. Adding it would be a
+  // guess dressed as symmetry.
+  '__corpus__',
   // Stryker copies the entire repo into a sandbox per mutation run.
   '.stryker-tmp',
   // graphify writes its ~7 MB graph into the directory it scans.
