@@ -61,7 +61,15 @@ class RegexAnalyzer implements CodeAnalyzer {
 const regexAnalyzer = new RegexAnalyzer();
 
 let treeSitterAnalyzer: CodeAnalyzer | null = null;
-let treeSitterLoadAttempted = false;
+// The in-flight load, memoized. A boolean `attempted` flag here was a race: it
+// flipped the instant the first caller arrived, while the analyzer it gates on
+// is not assigned until grammar loading finishes ~seconds later. The symbol
+// indexer calls getAnalyzer CONCURRENTLY for every file in the workspace via
+// Promise.allSettled, so all but the first saw the flag already set, skipped
+// the load block, found treeSitterAnalyzer still null and took the regex
+// fallback. The grammars loaded fine — into a variable nobody was waiting on.
+// Holding the promise makes every concurrent caller await the same load.
+let treeSitterLoad: Promise<void> | null = null;
 let extensionGrammarsPath: string | null = null;
 
 /**
@@ -87,36 +95,35 @@ export function getGrammarsPath(): string | null {
  * Lazy-loads tree-sitter on first call. Falls back to regex on failure.
  */
 export async function getAnalyzer(fileExtension: string): Promise<CodeAnalyzer> {
-  if (!treeSitterLoadAttempted && extensionGrammarsPath) {
-    treeSitterLoadAttempted = true;
-    try {
-      // A LITERAL specifier, deliberately. This used to route through a
-      // `const modulePath = './treeSitterAnalyzer.js'` indirection whose comment
-      // said the module was optional — it is tracked in git and always present,
-      // so that was stale. What the indirection still did was stop esbuild
-      // resolving it, leaving a runtime import in the bundle that pointed at a
-      // file `dist/` does not contain. Every packaged install therefore threw
-      // ERR_MODULE_NOT_FOUND here and fell back to regex, having shipped 28 MB
-      // of grammars it could not load. Measured on 0.122.4: the cached graph
-      // matched the regex analyzer's symbol count (6,541) and not
-      // tree-sitter's (5,836).
-      //
-      // Grammar loading stays lazy — the expensive part is inside
-      // createTreeSitterAnalyzer, not the import.
-      const mod = await import('./treeSitterAnalyzer.js');
-      treeSitterAnalyzer = await mod.createTreeSitterAnalyzer(extensionGrammarsPath);
-    } catch (err) {
-      // NOT swallowed. The previous `.catch(() => null)` sat inside this try and
-      // absorbed exactly the failure above, so the warning never fired and a
-      // silently degraded parser looked identical to a working one. If this is
-      // ever reached again it must be visible in the log.
-      logger.warn(
-        '[SideCar] Tree-sitter failed to load — falling back to the regex parser. ' +
-          'Symbol extraction will be less precise (find_references, analyze_impact, PKI retrieval).',
-        err,
-      );
-    }
+  if (!treeSitterLoad && extensionGrammarsPath) {
+    const grammarsPath = extensionGrammarsPath;
+    treeSitterLoad = (async () => {
+      try {
+        // A LITERAL specifier, deliberately. This used to route through a
+        // `const modulePath = './treeSitterAnalyzer.js'` indirection whose
+        // comment said the module was optional — it is tracked in git and
+        // always present, so that was stale. What the indirection still did was
+        // stop esbuild resolving it, leaving a runtime import in the bundle
+        // pointing at a file `dist/` does not contain, so every packaged
+        // install threw ERR_MODULE_NOT_FOUND here (#47).
+        const mod = await import('./treeSitterAnalyzer.js');
+        treeSitterAnalyzer = await mod.createTreeSitterAnalyzer(grammarsPath);
+      } catch (err) {
+        // NOT swallowed. A `.catch(() => null)` used to sit inside this try and
+        // absorb exactly the failure above, so a silently degraded parser
+        // looked identical to a working one.
+        logger.warn(
+          '[SideCar] Tree-sitter failed to load — falling back to the regex parser. ' +
+            'Symbol extraction will be less precise (find_references, analyze_impact, PKI retrieval).',
+          err,
+        );
+      }
+    })();
   }
+  // Await the shared load. Individual grammars that fail (an ABI mismatch on
+  // one language, say) are handled inside createTreeSitterAnalyzer and do not
+  // deny the rest — only a total failure lands in the catch above.
+  if (treeSitterLoad) await treeSitterLoad;
 
   if (treeSitterAnalyzer?.supportedExtensions.has(fileExtension)) {
     return treeSitterAnalyzer;
