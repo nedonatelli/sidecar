@@ -39,7 +39,16 @@ export type {
 //     `function` symbols. Same reasoning as v4 — none of the 17 affected files
 //     changed, so without the bump an existing cache would serve a graph with
 //     no generator symbols forever.
-export const GRAPH_VERSION = 5;
+// v6: tree-sitter actually loads now (#47). Until that fix the packaged
+//     extension parsed everything with the regex fallback, so every cached
+//     graph in the wild was built by a DIFFERENT extractor — no `method`
+//     symbols at all, ~2x the `function` count, 214 classes against 201.
+//     Swapping the extractor changes no file's content, and reconciliation is
+//     by content hash, so without this bump an upgraded install would keep
+//     serving its regex-built graph forever. Measured: after installing the
+//     fixed build, the cache was still regex-shaped because it restored
+//     cleanly at v5 and nothing was re-parsed.
+export const GRAPH_VERSION = 6;
 
 export class SymbolGraph {
   // Primary storage: symbols indexed by file
