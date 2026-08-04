@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { SymbolIndexer } from './symbolIndexer.js';
 import { workspace } from 'vscode';
+import { logger } from '../system/logger.js';
 import { getAnalyzer, setGrammarsPath } from '../parsing/registry.js';
 import { grammarsDir, hasGrammars } from '../parsing/grammarsTestSupport.js';
 
@@ -259,6 +260,47 @@ describe('SymbolIndexer', () => {
       indexer.removeFileFromGraph('src/gone.ts');
 
       expect(removeFileSpy).toHaveBeenCalledWith('src/gone.ts');
+    });
+
+    it('skips a file over the size limit and says so', async () => {
+      // The skip used to be silent, so a file invisible to find_references gave
+      // the user nothing to go on — the same shape as the scan truncation in
+      // #40, smaller. Raising the limit only moves the cliff; naming it is what
+      // makes falling off it observable.
+      const body = `export function tiny() { return 1; }\n` + 'x'.repeat(600 * 1024);
+      vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/huge.ts' }] as never);
+      vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: body.length, mtime: Date.now() } as never);
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(body) as never);
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const indexer = new SymbolIndexer(null);
+      await indexer.initialize(['**/*.ts']);
+
+      expect(indexer.getGraph().symbolCount()).toBe(0);
+      const msg = warn.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(msg).toContain('src/huge.ts');
+      expect(msg).toContain('500 KB');
+
+      vi.restoreAllMocks();
+    });
+
+    it('indexes a file that would have exceeded the OLD 100 KB limit', async () => {
+      // The reason for raising it. This repo's p99 is 41 KB, but generated
+      // TypeScript users legitimately want indexed — GraphQL types, protobuf
+      // output, OpenAPI clients — routinely passes 100 KB.
+      const body = `export function realSymbol() { return 1; }\n` + '// pad\n'.repeat(30 * 1024);
+      expect(body.length).toBeGreaterThan(100 * 1024);
+      expect(body.length).toBeLessThan(500 * 1024);
+      vi.spyOn(workspace, 'findFiles').mockResolvedValue([{ fsPath: '/mock-workspace/src/generated.ts' }] as never);
+      vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: body.length, mtime: Date.now() } as never);
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(body) as never);
+
+      const indexer = new SymbolIndexer(null);
+      await indexer.initialize(['**/*.ts']);
+
+      expect(indexer.getGraph().symbolCount()).toBeGreaterThan(0);
+
+      vi.restoreAllMocks();
     });
 
     it('respects maxSymbolsPerFile when capping large files', async () => {
