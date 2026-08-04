@@ -26,7 +26,22 @@ import {
 } from './indexExcludes.js';
 
 const CACHE_FILE = 'cache/symbol-graph.json';
-const MAX_FILE_SIZE = 100 * 1024; // 100KB
+/**
+ * Largest file the symbol indexer will parse.
+ *
+ * Was 100 KB, which is low for real source: this repo's own p99 is 41 KB, but
+ * generated TypeScript that users legitimately want indexed — GraphQL types,
+ * protobuf output, OpenAPI clients, large const tables — routinely passes it.
+ * The pathological files a cap exists to stop (minified bundles, vendored
+ * trees) mostly sit in directories INDEX_EXCLUDE_DIRS already removes, so the
+ * cap was doing less protective work than its size suggested.
+ *
+ * Measured with tree-sitter, roughly linear: 136 KB → 81ms, 272 KB → 130ms,
+ * 680 KB → 289ms. 500 KB costs ~215ms worst case against a full index, which
+ * is affordable. Past that, skipping is genuinely right — a multi-MB `.ts` is
+ * almost certainly generated or minified and its symbols would be noise.
+ */
+const MAX_FILE_SIZE = 500 * 1024; // 500KB
 const MAX_JSON_SIZE = 50 * 1024 * 1024; // 50MB persistence limit
 
 /** Outcome of `replaySymbolsToEmbeddingIndex` — used to log real numbers (and
@@ -153,7 +168,19 @@ export class SymbolIndexer implements Disposable {
         if (restored && this.graph.getFileHash(relativePath) === hash) return;
         const bytes = await workspace.fs.readFile(uri);
         const content = Buffer.from(bytes).toString('utf-8');
-        if (content.length > MAX_FILE_SIZE) return;
+        if (content.length > MAX_FILE_SIZE) {
+          // Say so. The skip used to be silent, so a user whose file was
+          // invisible to find_references had no way to discover why — the same
+          // shape as the scan truncation in #40, just smaller. Raising the cap
+          // only moves the cliff; naming it is what makes falling off it
+          // observable.
+          logger.warn(
+            `[SideCar] Not indexing ${relativePath} — ${Math.round(content.length / 1024)} KB exceeds the ` +
+              `${MAX_FILE_SIZE / 1024} KB limit. Its symbols will be absent from find_references, ` +
+              `analyze_impact and PKI retrieval.`,
+          );
+          return;
+        }
         await this.indexFile(relativePath, content, hash);
         parsed++;
       }),
