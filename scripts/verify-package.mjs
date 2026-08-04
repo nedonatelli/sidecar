@@ -95,6 +95,12 @@ const forbidden = [
   ['internal/ private docs', /^internal[/\\]/],
   ['.sidecar/ workspace state', /^\.sidecar[/\\]/],
   ['.env files', /^\.env($|\.)/],
+  // A Python virtualenv created for tooling. `.graphify-venv` (built for the
+  // code-graph differential) put 4,181 files and 139 MB into the 0.122.4
+  // package: .gitignore covered it, .vscodeignore is a separate list and did
+  // not. Matched by the packages directory as well as the name, so a venv
+  // called anything at all is caught.
+  ['python virtualenv', /(^|[/\\])(\.?[\w.-]*venv)[/\\]|[/\\](site|dist)-packages[/\\]/],
 ];
 const leaked = forbidden
   .map(([name, re]) => [name, files.filter((f) => re.test(f))])
@@ -109,6 +115,31 @@ if (leaked.length > 0) {
   process.exit(1);
 }
 
+// Size ceiling. The deny-list only catches what someone thought to name, and
+// this check passed a 4,785-file package without comment because it only ever
+// asked whether required things were PRESENT — never whether anything unwanted
+// had joined them. A count this far above the norm means something bulk landed
+// in the tree, whatever it is called.
+const FILE_CEILING = 1200;
+if (files.length > FILE_CEILING) {
+  console.error(
+    `✖ VSIX size check FAILED — ${files.length} files, ceiling ${FILE_CEILING}.\n` +
+      `  A normal package is ~600. Something bulk is being included that the deny-list\n` +
+      `  above does not name. Inspect with: npx @vscode/vsce ls --tree\n` +
+      `  Then exclude it in .vscodeignore — note that .gitignore does NOT apply here.`,
+  );
+  const top = {};
+  for (const f of files) {
+    const seg = f.split(/[/\\]/).slice(0, 2).join('/');
+    top[seg] = (top[seg] ?? 0) + 1;
+  }
+  console.error('\n  Largest directories by file count:');
+  for (const [dir, n] of Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    console.error(`    ${String(n).padStart(5)}  ${dir}`);
+  }
+  process.exit(1);
+}
+
 console.log(
-  `✓ VSIX smoke check passed — all runtime dependencies present (platform: ${platform}, files: ${files.length}).`,
+  `✓ VSIX smoke check passed — all runtime dependencies present (platform: ${platform}, files: ${files.length}/${FILE_CEILING}).`,
 );

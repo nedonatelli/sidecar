@@ -47,6 +47,14 @@ describe('INDEX_EXCLUDE_DIRS', () => {
       'vendor',
       'target',
       '.vscode-test',
+      // A virtualenv under a non-conventional name (`.graphify-venv`) put
+      // 23,284 symbols across 1,348 files into the graph — 76% of its entire
+      // contents — because `.venv`/`venv` only catch the two usual names.
+      // Excluding the packages directory catches the class instead. Linux
+      // system Python uses `dist-packages`, so both are needed or the fix
+      // holds on macOS and lapses on the platform most likely to hit it.
+      'site-packages',
+      'dist-packages',
     ]) {
       expect(INDEX_EXCLUDE_DIRS, `${dir} must stay excluded`).toContain(dir);
     }

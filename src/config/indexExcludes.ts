@@ -31,6 +31,10 @@ export const INDEX_EXCLUDE_DIRS = [
   // Every virtualenv layout puts its packages under `site-packages`, so
   // excluding that catches the class rather than the instance.
   'site-packages',
+  // Debian and Ubuntu system Python install to `dist-packages` instead, so
+  // `site-packages` alone fixes this on macOS and leaves it on the platform
+  // where a system interpreter is most likely to be on the workspace path.
+  'dist-packages',
   '__pycache__',
   'target',
   'vendor',
