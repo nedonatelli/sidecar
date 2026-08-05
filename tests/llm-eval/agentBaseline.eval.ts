@@ -24,7 +24,13 @@
 import { describe, it } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { runAgentCase, pickAgentBackend, DEFAULT_CASE_TIMEOUT_MS, runConfigForProvenance } from './agentHarness.js';
+import {
+  runAgentCase,
+  pickAgentBackend,
+  DEFAULT_CASE_TIMEOUT_MS,
+  runConfigForProvenance,
+  isWrappedInfraFailure,
+} from './agentHarness.js';
 import type { AgentEvalCase } from './agentTypes.js';
 import { compareProvenance, currentProvenance, type BaselineProvenance } from './baselineProvenance.js';
 import { ALL_AGENT_CASES } from './allCases.js';
@@ -160,7 +166,31 @@ describe.skipIf(!backend)('agent regression baseline', () => {
                   `(a reachable /api/tags does not mean it can serve).`,
               );
             }
-            const r = await runAgentCase(c, backend!);
+            // runAgentCase THROWS on infra breakage rather than returning. That
+            // suits agent.eval.ts, where each case is its own `it` — the throw
+            // fails one test. Here every case shares a single `it`, so an
+            // unguarded throw ends the model's entire run: llama3.2 died at
+            // case 16 of 70 on "This operation was aborted", and the
+            // incremental flush then left a 16-case file where a 69-case one
+            // had been.
+            //
+            // An infra throw and the `apiUnavailable` return mean the same
+            // thing — the backend gave nothing usable — so they are handled
+            // identically, including counting toward the circuit breaker.
+            let r: Awaited<ReturnType<typeof runAgentCase>>;
+            try {
+              r = await runAgentCase(c, backend!);
+            } catch (err) {
+              if (!isWrappedInfraFailure(err)) throw err; // a real harness bug must still fail
+              consecutiveUnavailable++;
+              totalUnavailable++;
+              console.warn(
+                `[baseline] ${c.id}: infra failure — not recorded ` +
+                  `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting): ` +
+                  `${(err as Error).message.slice(0, 120)}`,
+              );
+              continue;
+            }
             if (r.apiUnavailable) {
               consecutiveUnavailable++;
               totalUnavailable++;
@@ -234,7 +264,16 @@ describe.skipIf(!backend)('agent regression baseline', () => {
 
       for (const c of cases) {
         const base = baseline.cases[c.id];
-        const r = await runAgentCase(c, backend!);
+        // Same guard as the record loop: an infra throw here would abandon the
+        // whole verification rather than excluding one case.
+        let r: Awaited<ReturnType<typeof runAgentCase>>;
+        try {
+          r = await runAgentCase(c, backend!);
+        } catch (err) {
+          if (!isWrappedInfraFailure(err)) throw err;
+          console.warn(`[baseline] ${c.id}: infra failure — excluded from the check`);
+          continue;
+        }
         if (r.apiUnavailable) {
           console.warn(`[baseline] ${c.id}: API unavailable — excluded from the check`);
           continue;

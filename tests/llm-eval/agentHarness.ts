@@ -282,6 +282,24 @@ export function runConfigForProvenance(): Record<string, unknown> {
  * The breaker is infrastructure announcing that infrastructure is down. It must
  * never be readable as a regression.
  */
+/**
+ * Marker on the error `runAgentCase` throws for infra breakage, so a caller can
+ * recognise it without matching prose.
+ *
+ * The throw is deliberate: in `agent.eval.ts` every case is its own `it`, so it
+ * fails that one test and the suite carries on. The BASELINE recorder runs all
+ * cases inside a single `it`, so the same throw killed the entire model run —
+ * llama3.2 died at case 16 of 70 on "This operation was aborted" and left a
+ * 16-case file where a 69-case one had been. Wrapping strips `err.name`, so
+ * `isInfraFailure` cannot recognise the re-thrown error either; hence a marker.
+ */
+export const INFRA_FAILURE_PREFIX = 'Agent run failed (infra, not a regression): ';
+
+/** True when an error is the wrapped infra failure thrown by `runAgentCase`. */
+export function isWrappedInfraFailure(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith(INFRA_FAILURE_PREFIX);
+}
+
 export function isInfraFailure(err: Error): boolean {
   if (err.name === 'AbortError') return true;
   return /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|timed out|terminated|temporarily disabled after repeated failures|\b429\b|too many requests|overloaded|service unavailable|\b50[23]\b/i.test(
@@ -511,7 +529,7 @@ export async function runAgentCase(
     // treats them as infra breakage rather than case regressions.
     // The distinction matches prompt.eval.ts's pattern.
     if (isInfraFailure(runError)) {
-      throw new Error(`Agent run failed (infra, not a regression): ${runError.message}`);
+      throw new Error(`${INFRA_FAILURE_PREFIX}${runError.message}`);
     }
     // Everything else counts as a case failure — record it so the
     // report shows which case died and why.
