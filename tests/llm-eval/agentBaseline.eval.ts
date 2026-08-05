@@ -28,6 +28,7 @@ import { runAgentCase, pickAgentBackend, DEFAULT_CASE_TIMEOUT_MS, runConfigForPr
 import type { AgentEvalCase } from './agentTypes.js';
 import { compareProvenance, currentProvenance, type BaselineProvenance } from './baselineProvenance.js';
 import { ALL_AGENT_CASES } from './allCases.js';
+import { appendHistory } from './baselineHistory.js';
 
 // The eval and the baseline MUST run the same cases; they drifted to 70 vs 61.
 const ALL_CASES: AgentEvalCase[] = ALL_AGENT_CASES;
@@ -119,42 +120,77 @@ describe.skipIf(!backend)('agent regression baseline', () => {
         // that looked perfectly alive. A liveness signal is not evidence the
         // thing works.
         let consecutiveUnavailable = 0;
+        let totalUnavailable = 0;
         const CIRCUIT_BREAKER_THRESHOLD = 3;
+        const startedAt = Date.now();
 
-        for (const [i, c] of cases.entries()) {
-          if (consecutiveUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
-            // Stop rather than skip. Everything recorded so far is already on
-            // disk, so aborting costs nothing and burning the remaining budget
-            // against a dead backend costs hours.
-            throw new Error(
-              `[baseline] circuit breaker: ${consecutiveUnavailable} consecutive cases returned nothing from ` +
-                `"${model}" — the backend is not serving. ${Object.keys(baseline.cases).length} cases are already ` +
-                `written to ${rel(bpath)}; re-run to continue. Check the backend is up and actually generating ` +
-                `(a reachable /api/tags does not mean it can serve).`,
+        // Append the run to the history log whatever happens to it. The log is
+        // the only place a truncated run stays visible next to the complete ones
+        // it replaced — twice in one sweep a partial write overwrote a better
+        // baseline, and both were recoverable only from hand-taken copies.
+        const recordHistory = (complete: boolean, abortReason?: string) => {
+          const entries = Object.entries(baseline.cases);
+          appendHistory(BASELINE_DIR, {
+            at: new Date().toISOString(),
+            model,
+            version: baseline.version,
+            provenance,
+            casesRun: entries.length,
+            casesAvailable: cases.length,
+            passed: entries.filter(([, v]) => v.passed).length,
+            failed: entries.filter(([, v]) => !v.passed).length,
+            unavailable: totalUnavailable,
+            complete,
+            ...(abortReason ? { abortReason } : {}),
+            failedCases: entries.filter(([, v]) => !v.passed).map(([id]) => id),
+            durationSec: Math.round((Date.now() - startedAt) / 1000),
+          });
+        };
+
+        try {
+          for (const [i, c] of cases.entries()) {
+            if (consecutiveUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
+              // Stop rather than skip. Everything recorded so far is already on
+              // disk, so aborting costs nothing and burning the remaining budget
+              // against a dead backend costs hours.
+              throw new Error(
+                `[baseline] circuit breaker: ${consecutiveUnavailable} consecutive cases returned nothing from ` +
+                  `"${model}" — the backend is not serving. ${Object.keys(baseline.cases).length} cases are already ` +
+                  `written to ${rel(bpath)}; re-run to continue. Check the backend is up and actually generating ` +
+                  `(a reachable /api/tags does not mean it can serve).`,
+              );
+            }
+            const r = await runAgentCase(c, backend!);
+            if (r.apiUnavailable) {
+              consecutiveUnavailable++;
+              totalUnavailable++;
+              console.warn(
+                `[baseline] ${c.id}: API unavailable — not recorded ` +
+                  `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting)`,
+              );
+              continue;
+            }
+            consecutiveUnavailable = 0;
+            baseline.cases[c.id] = { passed: r.passed, iterationsUsed: r.iterationsUsed, durationMs: r.durationMs };
+            // Flush after EVERY case. The write used to happen once, after the
+            // loop, so a run that died at case 32 of 70 discarded all 32 real
+            // measurements — which is exactly what a 4h timeout did to three
+            // models overnight, costing 12 hours and producing nothing. A partial
+            // baseline is worth far more than none: the provenance guard makes it
+            // safe to compare, and the missing cases simply are not compared.
+            flush();
+            console.log(
+              `[baseline] ${i + 1}/${cases.length} ${c.id}: ${r.passed ? 'pass' : 'FAIL'} (${Math.round(r.durationMs / 1000)}s)`,
             );
           }
-          const r = await runAgentCase(c, backend!);
-          if (r.apiUnavailable) {
-            consecutiveUnavailable++;
-            console.warn(
-              `[baseline] ${c.id}: API unavailable — not recorded ` +
-                `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting)`,
-            );
-            continue;
-          }
-          consecutiveUnavailable = 0;
-          baseline.cases[c.id] = { passed: r.passed, iterationsUsed: r.iterationsUsed, durationMs: r.durationMs };
-          // Flush after EVERY case. The write used to happen once, after the
-          // loop, so a run that died at case 32 of 70 discarded all 32 real
-          // measurements — which is exactly what a 4h timeout did to three
-          // models overnight, costing 12 hours and producing nothing. A partial
-          // baseline is worth far more than none: the provenance guard makes it
-          // safe to compare, and the missing cases simply are not compared.
-          flush();
-          console.log(
-            `[baseline] ${i + 1}/${cases.length} ${c.id}: ${r.passed ? 'pass' : 'FAIL'} (${Math.round(r.durationMs / 1000)}s)`,
-          );
+        } catch (err) {
+          // A run that dies still produced measurements, and the reason it died
+          // is the most useful field in the entry. Record, then rethrow — the
+          // failure must still fail the run.
+          recordHistory(false, (err as Error).message.slice(0, 200));
+          throw err;
         }
+        recordHistory(true);
         const total = Object.keys(baseline.cases).length;
         const passing = Object.values(baseline.cases).filter((c) => c.passed).length;
         console.log(`[baseline] recorded ${passing}/${total} passing for ${model} → ${rel(bpath)}`);
