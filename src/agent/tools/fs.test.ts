@@ -811,6 +811,40 @@ describe('writeFile enforce-edit-over-rewrite block', () => {
     const r = await mockedWrite({ path: 'gui_calculator.py', content: 'x' }, {});
     expect(r).toBe('File written: gui_calculator.py');
   });
+
+  it('confirms "no change needed" when the write content matches the current file', async () => {
+    // v0.122 gemma4: after a landed edit_file fix, the model printed the
+    // correct final file, the loop auto-converted it to write_file, and this
+    // guard told it the rewrite "keeps re-introducing the bug" — about content
+    // identical to the fixed file. The model spiralled into re-fixing a
+    // correct file. Identical content clobbers nothing: confirm the state.
+    const current = 'export function max(a: number, b: number): number {\n  return a >= b ? a : b;\n}\n';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(current) as never);
+    const filesEditedViaEditTool = new Set<string>(['src/minmax.ts']);
+    const r = await mockedWrite({ path: 'src/minmax.ts', content: current }, { filesEditedViaEditTool });
+    expect(r).toContain('No change needed');
+    expect(r).toContain('already matches');
+    expect(r).not.toContain('was NOT applied');
+  });
+
+  it('treats a trailing-newline / CRLF difference as matching content', async () => {
+    const current = 'line one\r\nline two\r\n';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(current) as never);
+    const filesEditedViaEditTool = new Set<string>(['notes.txt']);
+    const r = await mockedWrite({ path: 'notes.txt', content: 'line one\nline two' }, { filesEditedViaEditTool });
+    expect(r).toContain('No change needed');
+  });
+
+  it('still blocks when the write content genuinely differs from the current file', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('the current content\n') as never);
+    const filesEditedViaEditTool = new Set<string>(['src/minmax.ts']);
+    const r = await mockedWrite(
+      { path: 'src/minmax.ts', content: 'something else entirely\n' },
+      { filesEditedViaEditTool },
+    );
+    expect(r).toContain('was NOT applied');
+    expect(r).toContain('edit_file');
+  });
 });
 
 describe('writeFile verify-before-rewrite block', () => {
@@ -1127,6 +1161,46 @@ describe('already-applied detection (completion recognition)', () => {
       search: 'totally absent text',
       replace: 'totally absent text',
     });
+    expect(result).not.toContain('already contains the result');
+  });
+
+  it('fires on an operator-only edit whose result is already in the file', async () => {
+    // v0.122 gemma4: fixed `max` (`a < b` → `a >= b`) on iteration 2, then
+    // re-sent the same edit. The token heuristic compares identifier sets,
+    // which an operator swap leaves identical, so the retry got "search string
+    // not found" and the model burned 14 iterations re-fixing a correct file.
+    const fixed =
+      '// Returns the larger of two numbers.\n' +
+      'export function max(a: number, b: number): number {\n' +
+      '  return a >= b ? a : b;\n' +
+      '}\n';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(fixed) as never);
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear();
+
+    const result = await editMsg({
+      path: 'src/minmax.ts',
+      search: 'export function max(a: number, b: number): number {\n  return a < b ? a : b;\n}',
+      replace: 'export function max(a: number, b: number): number {\n  return a >= b ? a : b;\n}',
+    });
+
+    expect(result).toContain('already contains the result of this edit');
+    expect(result).not.toContain('search string not found');
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire when the replacement text appears more than once in the file', async () => {
+    // A duplicated block means "which one did my edit land on?" is ambiguous —
+    // that must stay a normal not-found failure, not a completion claim.
+    const doubled = 'return a >= b ? a : b;\n// ---\nreturn a >= b ? a : b;\n';
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(doubled) as never);
+
+    const result = await editMsg({
+      path: 'src/dup.ts',
+      search: 'return a < b ? a : b;',
+      replace: 'return a >= b ? a : b;',
+    });
+
     expect(result).not.toContain('already contains the result');
   });
 });

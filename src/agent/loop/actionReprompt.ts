@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../ollama/types.js';
+import type { ChatMessage, ToolResultContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { hasEditShapedCodeBlock } from './unappliedEdit.js';
@@ -117,6 +117,64 @@ export function isActionRequest(text: string): boolean {
 }
 
 /**
+ * A tool result reporting that the requested change is ALREADY in the file:
+ * edit_file's already-applied response and write_file's identical-content
+ * confirmation (both start "No change needed:", but results reach consumers
+ * wrapped in `<tool_output …>`, so match by inclusion). Single-sourced here —
+ * the completion gate and the loop-exit escape below must agree on what
+ * counts as this signal.
+ */
+export function isNoChangeNeededResult(text: string): boolean {
+  return text.includes('No change needed:') || text.includes('already contains the result of this edit');
+}
+
+/**
+ * True when the newest tool evidence says the work is already done: walking
+ * back from the latest message, a "No change needed" result is found before
+ * any successful mutation ("File edited/written") and before the user's real
+ * request. Read-only results (read_file, grep, tsc) and synthetic loop
+ * injections ('['-prefixed) don't break the scan — a model that re-checks and
+ * then finishes is the ideal path.
+ *
+ * Why this exists (v0.122 gemma4, fix-wrong-comparison-operator): after its
+ * fix landed, every retry was correctly answered "No change needed … if the
+ * overall task is complete, say so and finish." The model then did exactly
+ * that — narrated completion with no tool calls — and the action reprompt
+ * fired on the text-only turn, re-prompting it back into the edit loop for 14
+ * wasted iterations. The tool layer's "already done" signal must also disarm
+ * the loop's act-now machinery, or the two fight each other.
+ */
+export function recentResultsShowWorkAlreadyDone(messages: ChatMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const results = blocks.filter((b): b is ToolResultContentBlock => b.type === 'tool_result');
+    if (results.length === 0) {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join(' ');
+      if (text.startsWith('[')) continue; // synthetic loop injection — not a boundary
+      return false; // the user's real request — no completion evidence since then
+    }
+    // Batch-level, mutation wins: an "edited fileA + no-change fileB" batch is
+    // progress, not completion.
+    let sawNoChange = false;
+    for (const r of results) {
+      if (/File (?:edited|written): /.test(r.content)) return false;
+      if (isNoChangeNeededResult(r.content)) sawNoChange = true;
+    }
+    if (sawNoChange) return true;
+    // a batch of reads/checks/errors — keep walking
+  }
+  return false;
+}
+
+/**
  * True when the user asked for the workspace to be CHANGED, not merely read.
  *
  * Strictly narrower than {@link isActionRequest}, and deliberately so. The
@@ -219,6 +277,16 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   const userText = lastUserMessageText(state.messages);
   const triggered = isActionRequest(userText) || looksLikeDeferredAction(fullText);
   if (!triggered) return false;
+
+  // Loop-exit escape: the latest tool results said the work is already
+  // applied. A text-only turn after that signal is the model obeying "if the
+  // task is complete, say so and finish" — re-prompting it to act is what
+  // kept the post-success edit loop alive. Let the narration stand; the
+  // completion gate still decides whether verification evidence suffices.
+  if (recentResultsShowWorkAlreadyDone(state.messages)) {
+    state.logger?.info('Action-request reprompt suppressed: latest tool results reported the change already applied');
+    return false;
+  }
 
   state.actionRepromptCount++;
   const shape = codeAsText || fakeOutput ? 'code-as-text' : 'generic';

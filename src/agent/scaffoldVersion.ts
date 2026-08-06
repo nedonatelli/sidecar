@@ -80,6 +80,31 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **4.0.2** (2026-08) — the "already done" signal disarms the act-now
+ *   machinery. The action reprompt and fence-write coercion now stand down
+ *   when the newest tool evidence is a "No change needed"/already-applied
+ *   result (walking back past read-only results and synthetic injections,
+ *   stopping at any real mutation or the user's actual request). Without this
+ *   the two mechanisms fought the 4.0.1 messages: the model obeyed "if the
+ *   task is complete, say so and finish", and its text-only completion turn
+ *   triggered "No tool calls detected — re-prompting" plus a coerced write of
+ *   its own summary fence — the exact loop the already-applied response exists
+ *   to end. Marker predicate single-sourced (isNoChangeNeededResult) with the
+ *   completion gate's no-op-edit bookkeeping. PATCH: firing-condition tuning
+ *   within two existing mechanisms; no mechanism added, removed, or
+ *   re-defaulted.
+ * - **4.0.1** (2026-08) — landed-fix recognition in the rewrite guards.
+ *   `isEditAlreadyApplied` gains an exact-outcome signal (replacement present
+ *   verbatim exactly once + search gone ⇒ "already applied") — the token
+ *   heuristic compares identifier sets, so an operator-only edit (`a < b` →
+ *   `a >= b`) could never be recognized as landed and read as "search string
+ *   not found" forever. The enforce-edit-over-rewrite guard now confirms "no
+ *   change needed" when the write content is identical (modulo CRLF/trailing
+ *   newline) to the file's current state, instead of a clobber lecture about
+ *   content that clobbers nothing. Evidence: gemma4:e4b burned 14 iterations
+ *   re-fixing an already-correct minmax.ts (fix-wrong-comparison-operator,
+ *   2026-08-02 and 2026-08-05). PATCH: recognition tuning within existing
+ *   guards; no mechanism added, removed, or re-defaulted.
  * - **4.0.0** (2026-07) — edit_file collapses to ONE operation. insert_before /
  *   insert_after / new_text and the V2 insert convention are removed, along with
  *   the splitFusedAnchor recovery. The field names contradicted their semantics
@@ -104,7 +129,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '4.0.0';
+export const SCAFFOLD_VERSION = '4.0.2';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

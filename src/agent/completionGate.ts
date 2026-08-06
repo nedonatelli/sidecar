@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE } from './completionGate/pathUtil.js';
+import { isNoChangeNeededResult } from './loop/actionReprompt.js';
 
 /**
  * Completion gate — a deterministic verification barrier that fires when the
@@ -341,7 +342,7 @@ export function recordToolCall(
     // as an edit would reset lintObserved and demand re-verification of work
     // already verified — feeding the very post-success edit loop the
     // already-applied message exists to end (v0.119 dogfood).
-    if (resultText.startsWith('No change needed:') || resultText.includes('already contains the result of this edit')) {
+    if (isNoChangeNeededResult(resultText)) {
       return;
     }
     const raw = (tu.input.path ?? tu.input.file_path) as string | undefined;

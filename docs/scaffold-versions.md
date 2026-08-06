@@ -38,6 +38,51 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 4.0.2 — the "already done" signal disarms the act-now machinery (2026-08)
+
+PATCH. Firing-condition tuning within two existing mechanisms — no change to
+which mechanisms run.
+
+- **Action reprompt stands down** when the newest tool evidence is a
+  "No change needed" / already-applied result. A text-only completion turn
+  after that signal is the model obeying the message's own instruction ("if
+  the task is complete, say so and finish") — re-prompting it to use tools
+  re-entered the edit loop.
+- **Fence-write coercion stands down** under the same evidence: a final-state
+  code fence after "No change needed" is a completion summary, not an
+  unapplied edit, and synthesizing a `write_file` from it fed the loop.
+- **Evidence walk**: newest-first through tool-result batches, past read-only
+  results and synthetic `[`-prefixed injections; any successful mutation
+  ("File edited/written") or the user's real request ends the walk. Marker
+  predicate (`isNoChangeNeededResult`) single-sourced with the completion
+  gate's no-op-edit bookkeeping.
+- **Why**: without this, 4.0.1's messages and the loop fought each other —
+  gemma4 obeyed "say so and finish" and was re-prompted straight back into
+  re-fixing an already-correct file (fix-wrong-comparison-operator,
+  2026-08-05: 14 wasted iterations). Both suppressions log, so firing counts
+  are observable in run logs.
+
+### 4.0.1 — landed-fix recognition in the rewrite guards (2026-08)
+
+PATCH. Tunes recognition within two existing guards — no change to which
+mechanisms run.
+
+- **`isEditAlreadyApplied` gains an exact-outcome signal**: the edit is
+  reported "already applied" when the replacement text is present verbatim
+  exactly once and the searched-for text is gone. The token heuristic compares
+  identifier sets, so an edit whose only delta is an operator (`a < b` →
+  `a >= b`) was invisible to it and read as "search string not found" forever.
+- **The enforce-edit-over-rewrite guard confirms instead of blocking** when the
+  write content is identical (modulo CRLF / trailing newline) to the file's
+  current state — "No change needed … the file is in the state you want" —
+  instead of claiming the rewrite "keeps re-introducing the bug".
+- **Evidence** (gemma4:e4b, `fix-wrong-comparison-operator`, 2026-08-02 and
+  2026-08-05 trajectories): the fix landed via `edit_file` on iteration 2 and
+  verified clean with `tsc --noEmit`; the model then burned 14 iterations
+  re-sending the edit ("search string not found") and re-stating the file
+  (blocked with the clobber lecture), never once being told the fix was in.
+  Both retry shapes now get an explicit "already done — finish" signal.
+
 ### 4.0.0 — edit_file collapses to one operation (2026-07)
 
 MAJOR. A mechanism was removed and the repair path changed, so results either

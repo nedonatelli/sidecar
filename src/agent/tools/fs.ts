@@ -166,14 +166,33 @@ function findNearestMatch(fileText: string, search: string): string | null {
  * "search string not found" — technically true, uselessly so — and it edited
  * until cycle detection bailed. The file was right the whole time.
  *
- * The signal is deterministic: the tokens the edit meant to REMOVE are absent
- * from the file, and the tokens it meant to ADD are present. Nothing is left
- * to do. Deliberately conservative — it fires only when the search introduces
- * at least one distinctive token that is now gone AND every distinctive token
- * the replacement adds is already there, so a half-finished rename (old name
- * still present somewhere) still reads as a normal failure.
+ * Two signals, both deterministic:
+ *
+ * 1. Exact outcome: the replacement text is present verbatim exactly once and
+ *    the searched-for text is gone — the file is already in the requested end
+ *    state. This is the only signal that can see an edit whose delta is pure
+ *    punctuation or an operator (`a < b` → `a >= b`): the token heuristic
+ *    below compares identifier sets, which such an edit leaves identical, so
+ *    without this check a landed operator fix reads as "search string not
+ *    found" forever (v0.122 gemma4: fixed `max` correctly on iteration 2, then
+ *    burned 14 iterations re-sending the edit).
+ *
+ * 2. Token delta: the tokens the edit meant to REMOVE are absent from the
+ *    file, and the tokens it meant to ADD are present. Nothing is left to do.
+ *    Deliberately conservative — it fires only when the search introduces at
+ *    least one distinctive token that is now gone AND every distinctive token
+ *    the replacement adds is already there, so a half-finished rename (old
+ *    name still present somewhere) still reads as a normal failure.
  */
 function isEditAlreadyApplied(fileText: string, search: string, replace: string): boolean {
+  const norm = (s: string) => s.replace(/\r\n/g, '\n');
+  const text = norm(fileText);
+  const replaced = norm(replace);
+  if (replaced.trim().length >= 5 && !text.includes(norm(search))) {
+    const occurrences = text.split(replaced).length - 1;
+    if (occurrences === 1) return true;
+  }
+
   const tokens = (s: string) => new Set((s.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? []).map((t) => t));
   const searchTokens = tokens(search);
   const replaceTokens = tokens(replace);
@@ -740,7 +759,25 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // file, a full write_file would clobber them — regenerating the whole file
   // re-introduces the bug the edit just fixed (dogfooding caught exactly that
   // write→edit→write→edit loop on a recurring syntax error). Force edit_file.
+  //
+  // Exception: content identical to the file's current state clobbers nothing.
+  // That is a model re-stating the finished file (usually a final-state code
+  // block auto-converted to write_file), and the clobber lecture is actively
+  // wrong there — v0.122 gemma4 fixed `max` via edit_file, printed the correct
+  // final file, was told it "keeps re-introducing the bug", and spiralled into
+  // re-fixing a file that was already right. Confirm the state instead.
   if (context?.filesEditedViaEditTool && pathInSetByBasename(filePath, context.filesEditedViaEditTool)) {
+    const currentText = isAuditModeActive(context)
+      ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
+      : await readDiskViaWorkspace(context, filePath);
+    const norm = (s: string) => s.replace(/\r\n/g, '\n').replace(/\n$/, '');
+    if (currentText !== undefined && norm(currentText) === norm(content)) {
+      return (
+        `No change needed: \`${filePath}\` already matches this content exactly — your earlier edit is in place ` +
+        `and the file is in the state you want. Do NOT rewrite it or repeat the edit. If the task is complete, ` +
+        `say so and finish; otherwise move on to the next step.`
+      );
+    }
     throw new Error(
       `write_file to \`${filePath}\` was NOT applied. You've been making targeted edits to this file, and a full ` +
         `rewrite would clobber them — regenerating the whole file keeps re-introducing the bug you just fixed with ` +
