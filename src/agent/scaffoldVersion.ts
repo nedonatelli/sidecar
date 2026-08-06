@@ -80,6 +80,20 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **4.0.3** (2026-08) — cycle detection distinguishes hammering from
+ *   recovery. Three linked changes: (1) the consecutive-identical threshold
+ *   is decoupled from cycleDetectionMinRepeats and fixed at 4 — defined as
+ *   config+1, it had silently risen 4→11 when the normalized default went
+ *   3→10, tolerance meant for varying-content retries applied to
+ *   byte-identical resubmissions that can never self-correct; (2) a new
+ *   identical-mutation pass counts byte-identical mutation calls ACROSS
+ *   interleaved reads (gemma4 sent one failing edit 5× with reads between —
+ *   longest streak 2, nothing fired); (3) length-2..4 pattern bails exempt
+ *   the recovery shape (pattern includes a read of a file under active
+ *   mutation — the exact behavior the edit errors prescribe), which
+ *   previously died at 2 cycles, before edit_file's 3rd-failure escalation
+ *   tier could run; the identical-mutation pass bounds the truly-stuck
+ *   variant at 4. PATCH: threshold/exemption tuning within one mechanism.
  * - **4.0.2** (2026-08) — the "already done" signal disarms the act-now
  *   machinery. The action reprompt and fence-write coercion now stand down
  *   when the newest tool evidence is a "No change needed"/already-applied
@@ -129,7 +143,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '4.0.2';
+export const SCAFFOLD_VERSION = '4.0.3';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

@@ -143,6 +143,12 @@ export interface LoopState {
   // file appears in more iterations than WRITE_TARGET_THRESHOLD within the window.
   recentWriteTargets: string[][];
 
+  // Ring buffer of exact per-call signatures for MUTATION tools only, one entry
+  // per mutation call (not per iteration). Lets cycle detection count identical
+  // resubmissions of the same failing edit even when reads interleave — the
+  // consecutive-streak check misses those. cycleDetection.ts is the only writer.
+  recentMutationCalls: string[];
+
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
 
@@ -372,6 +378,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentToolCalls: [],
     recentNormalizedCalls: [],
     recentWriteTargets: [],
+    recentMutationCalls: [],
     autoFixRetriesByFile: new Map<string, number>(),
     fullRewriteCountByFile: new Map<string, number>(),
     isolateNudgesByFile: new Map<string, number>(),

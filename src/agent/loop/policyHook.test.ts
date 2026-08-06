@@ -43,6 +43,7 @@ function makeState(logger?: AgentLogger): LoopState {
     } as any,
     recentToolCalls: [],
     recentNormalizedCalls: [],
+    recentMutationCalls: [],
     recentWriteTargets: [],
     autoFixRetriesByFile: new Map(),
     fullRewriteCountByFile: new Map(),

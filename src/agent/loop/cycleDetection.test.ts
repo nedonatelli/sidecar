@@ -191,20 +191,19 @@ describe('detectCycleAndBail', () => {
     }
   });
 
-  it('trims the ring buffer at CYCLE_WINDOW=8 entries', () => {
-    // Window = (cycleDetectionMinRepeats + 1) + REPEAT_WINDOW_MARGIN. Pin
-    // minRepeats=2 to reproduce the exact window size (3+5=8) this test was
-    // originally written against — the assertions below test ring-buffer
-    // eviction mechanics, not the configured threshold itself.
+  it('trims the exact ring buffer at its fixed window (9 entries)', () => {
+    // Window = max(MIN_IDENTICAL_CONSECUTIVE + REPEAT_WINDOW_MARGIN, 2 × MAX_CYCLE_LEN)
+    // = max(9, 8) = 9, independent of cycleDetectionMinRepeats — the identical
+    // threshold is decoupled from that config (see MIN_IDENTICAL_CONSECUTIVE).
     const state = stubLoopStateWithMinRepeats(2);
     const cb = stubCallbacks();
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 12; i++) {
       detectCycleAndBail([makeToolUse(`t${i}`)], state, cb);
     }
-    expect(state.recentToolCalls).toHaveLength(8);
+    expect(state.recentToolCalls).toHaveLength(9);
     // Oldest entries dropped.
-    expect(state.recentToolCalls[0]).toContain('t2:');
-    expect(state.recentToolCalls[7]).toContain('t9:');
+    expect(state.recentToolCalls[0]).toContain('t3:');
+    expect(state.recentToolCalls[8]).toContain('t11:');
   });
 
   it('handles multi-tool-call turns by joining signatures with |', () => {
@@ -274,17 +273,25 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     }
   });
 
-  it('fires on a normalized length-2 cycle when the cycle REPEATS the same content (truly stuck)', () => {
-    // read(a.ts) → edit(a.ts, SAME edit) repeated = a stuck loop, not progress.
+  it('read→same-edit alternation is the recovery shape: no 2-cycle bail, bails on the 4th identical edit', () => {
+    // read(a.ts) → edit(a.ts, SAME edit) repeating used to bail at 2 cycles as a
+    // length-2 pattern. But the read is what the edit errors themselves prescribe
+    // ("call read_file, then retry"), and bailing at 2 preempted edit_file's
+    // 3rd-failure escalation tier. The pattern is exempt; the identical-mutation
+    // pass bounds it instead — the 4th byte-identical edit bails.
     const state = stubLoopState();
     const cb = stubCallbacks();
     const A = () => [makeToolUse('read_file', { path: 'a.ts' })];
     const B = () => [makeToolUse('edit_file', { path: 'a.ts', search: 'x', replace: 'y' })];
     expect(detectCycleAndBail(A(), state, cb)).toBe(false); // [A]
-    expect(detectCycleAndBail(B(), state, cb)).toBe(false); // [A,B]
-    expect(detectCycleAndBail(A(), state, cb)).toBe(false); // [A,B,A]
-    expect(detectCycleAndBail(B(), state, cb)).toBe(true); // [A,B,A,B] same content → loop
-    expect(cb.texts[0]).toContain('length 2');
+    expect(detectCycleAndBail(B(), state, cb)).toBe(false); // edit #1
+    expect(detectCycleAndBail(A(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(B(), state, cb)).toBe(false); // edit #2 — old code bailed HERE
+    expect(detectCycleAndBail(A(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(B(), state, cb)).toBe(false); // edit #3 — fs escalation's shot
+    expect(detectCycleAndBail(A(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(B(), state, cb)).toBe(true); // edit #4 — resubmission bail
+    expect(cb.texts[0]).toContain('submitted 4 times');
   });
 
   it('does NOT fire a length-2 cycle when each round has DIFFERENT content (iterating, not stuck)', () => {
@@ -514,14 +521,24 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
   /** Push `totalRepeats` identical edit_file calls to the same file (one
    *  unique filler read every 3rd call), returning each edit's
    *  detectCycleAndBail result in order (fillers excluded). */
-  function pushRepeatedEdit(state: LoopState, cb: ReturnType<typeof stubCallbacks>, totalRepeats: number): boolean[] {
-    const edit = [makeToolUse('edit_file', { path: 'a.ts', search: 'x', replace: 'y' })];
+  // Byte-identical edits now bail at 4 via the identical-mutation pass no matter
+  // what cycleDetectionMinRepeats says (identical resubmission can never
+  // self-correct), so the configurable threshold is exercised with what it still
+  // governs: same-signature calls with VARYING args — here, read-only scans of a
+  // file that is NOT under mutation, with different line ranges each time.
+  function pushRepeatedScan(state: LoopState, cb: ReturnType<typeof stubCallbacks>, totalRepeats: number): boolean[] {
     const results: boolean[] = [];
     let fillerIdx = 0;
     for (let i = 0; i < totalRepeats; i++) {
-      results.push(detectCycleAndBail(edit, state, cb));
+      results.push(
+        detectCycleAndBail(
+          [makeToolUse('read_file', { path: 'big.ts', start_line: i * 10, end_line: i * 10 + 40 })],
+          state,
+          cb,
+        ),
+      );
       if ((i + 1) % 3 === 0 && i < totalRepeats - 1) {
-        detectCycleAndBail([makeToolUse('read_file', { path: `filler${fillerIdx++}.ts` })], state, cb);
+        detectCycleAndBail([makeToolUse('list_directory', { path: `filler${fillerIdx++}` })], state, cb);
       }
     }
     return results;
@@ -530,7 +547,7 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
   it('defaults to 10 repeats when config does not set cycleDetectionMinRepeats', () => {
     const state = stubLoopState(); // no config override — falls back to the default
     const cb = stubCallbacks();
-    const results = pushRepeatedEdit(state, cb, 10);
+    const results = pushRepeatedScan(state, cb, 10);
     expect(results.slice(0, 9)).toEqual(Array(9).fill(false));
     expect(results[9]).toBe(true); // 10th identical repeat
     expect(cb.texts[0]).toContain('repeated');
@@ -539,7 +556,7 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
   it('honors a smaller configured threshold (5)', () => {
     const state = stubLoopStateWithMinRepeats(5);
     const cb = stubCallbacks();
-    const results = pushRepeatedEdit(state, cb, 5);
+    const results = pushRepeatedScan(state, cb, 5);
     expect(results.slice(0, 4)).toEqual(Array(4).fill(false));
     expect(results[4]).toBe(true); // 5th identical repeat
   });
@@ -547,7 +564,7 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
   it('honors a larger configured threshold (10) and does not fire at 9', () => {
     const state = stubLoopStateWithMinRepeats(10);
     const cb = stubCallbacks();
-    const results = pushRepeatedEdit(state, cb, 9);
+    const results = pushRepeatedScan(state, cb, 9);
     expect(results).toEqual(Array(9).fill(false));
     expect(cb.texts).toHaveLength(0);
   });
@@ -558,7 +575,7 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
     // 10th repeat actually bails — proof the window grew to accommodate it.
     const state = stubLoopStateWithMinRepeats(10);
     const cb = stubCallbacks();
-    const results = pushRepeatedEdit(state, cb, 10);
+    const results = pushRepeatedScan(state, cb, 10);
     expect(results[9]).toBe(true);
   });
 });
@@ -643,19 +660,23 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
     expect(cb.texts).toHaveLength(0);
   });
 
-  it('content is the differentiator: a SAME-content edit→diagnostics loop fires (no gate)', () => {
+  it('content is the differentiator: a SAME-content edit→diagnostics loop bails on the 4th identical edit', () => {
     // With different edits each round this is iteration (allowed). With the SAME
-    // edit repeated it's a stuck loop → fires, regardless of gate supervision.
+    // edit repeated it's stuck — but the diagnostics read of the file under
+    // mutation makes it the recovery shape, so the 2-cycle pattern bail stands
+    // down and the identical-mutation pass bounds it at 4 resubmissions.
     const state = stubLoopState(); // no syntaxGateFixTargets
     const cb = stubCallbacks();
-    const seq: ToolUseContentBlock[][] = [
-      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's', replace: 'r' })],
-      [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
-      [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's', replace: 'r' })],
-      [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })],
-    ];
-    const results = seq.map((c) => detectCycleAndBail(c, state, cb));
-    expect(results[results.length - 1]).toBe(true); // same-content cycle → fires
+    const edit = () => [makeToolUse('edit_file', { path: 'gui_calculator.py', search: 's', replace: 'r' })];
+    const diag = () => [makeToolUse('get_diagnostics', { path: 'gui_calculator.py' })];
+    const results: boolean[] = [];
+    for (let i = 0; i < 3; i++) {
+      results.push(detectCycleAndBail(edit(), state, cb));
+      results.push(detectCycleAndBail(diag(), state, cb));
+    }
+    expect(results).toEqual(Array(6).fill(false)); // 3 identical edits — still recovering
+    expect(detectCycleAndBail(edit(), state, cb)).toBe(true); // 4th identical edit
+    expect(cb.texts[0]).toContain('submitted 4 times');
   });
 
   it('does NOT fire on a file under active auto-fix even when the loop WOULD otherwise fire', () => {
@@ -722,5 +743,85 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
     expect(state.recentWriteTargets).toHaveLength(0);
     detectCycleAndBail([makeToolUse('read_file', { path: 'src/foo.ts' })], state, cb);
     expect(state.recentWriteTargets[0]).toHaveLength(0); // no mutation tools → empty targets
+  });
+});
+
+describe('detectCycleAndBail — identical-mutation resubmission pass', () => {
+  // v0.122 gemma4 (thinking-missing-await-in-loop): the same failing edit_file
+  // was submitted at positions 10, 14, 15, 17, 18 of the run. The consecutive
+  // check (threshold then 11, and streaks broken by interleaved reads) never
+  // fired; the run only died when a [read, edit, edit] block happened to repeat
+  // verbatim. Identical mutation calls are now counted across interleaves.
+
+  it('fires on the 4th identical edit even with varied reads interleaved (the gemma4 shape)', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const edit = () => [makeToolUse('edit_file', { path: 'src/dl.ts', search: 'old', replace: 'new' })];
+    expect(detectCycleAndBail(edit(), state, cb)).toBe(false); // #1
+    expect(
+      detectCycleAndBail([makeToolUse('read_file', { path: 'src/dl.ts', start_line: 1, end_line: 4 })], state, cb),
+    ).toBe(false);
+    expect(detectCycleAndBail(edit(), state, cb)).toBe(false); // #2
+    expect(
+      detectCycleAndBail([makeToolUse('read_file', { path: 'src/dl.ts', start_line: 6, end_line: 10 })], state, cb),
+    ).toBe(false);
+    expect(detectCycleAndBail(edit(), state, cb)).toBe(false); // #3
+    expect(detectCycleAndBail([makeToolUse('read_file', { path: 'src/dl.ts' })], state, cb)).toBe(false);
+    expect(detectCycleAndBail(edit(), state, cb)).toBe(true); // #4 — bail
+    expect(cb.texts[0]).toContain('submitted 4 times');
+  });
+
+  it('does NOT count varying edits — different content each attempt is progress', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 6; i++) {
+      const r = detectCycleAndBail(
+        [makeToolUse('edit_file', { path: 'src/dl.ts', search: `s${i}`, replace: `r${i}` })],
+        state,
+        cb,
+      );
+      expect(r).toBe(false);
+      detectCycleAndBail([makeToolUse('read_file', { path: 'src/dl.ts', start_line: i })], state, cb);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('does NOT count identical read-only or command calls — only mutations', () => {
+    // fix→test loops legitimately re-run the identical test command many times.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    for (let i = 0; i < 6; i++) {
+      detectCycleAndBail([makeToolUse('edit_file', { path: 'a.py', search: `s${i}`, replace: `r${i}` })], state, cb);
+      const r = detectCycleAndBail([makeToolUse('run_command', { command: 'pytest' })], state, cb);
+      expect(r).toBe(false);
+    }
+    expect(cb.texts).toHaveLength(0);
+  });
+});
+
+describe('detectCycleAndBail — recovery-shape exemption boundaries', () => {
+  it('a length-2 pattern with NO read of a mutated file still bails at 2 cycles', () => {
+    // The exemption is for the read→retry recovery shape only. An identical
+    // command/diff alternation touching no file under mutation is plain thrash.
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const A = () => [makeToolUse('run_command', { command: 'python3 -m pytest' })];
+    const B = () => [makeToolUse('git_diff', { ref1: 'HEAD' })];
+    expect(detectCycleAndBail(A(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(B(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(A(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(B(), state, cb)).toBe(true); // 2 full cycles → bail
+    expect(cb.texts[0]).toContain('length 2');
+  });
+
+  it('consecutive identical calls still bail at the fixed threshold of 4', () => {
+    const state = stubLoopState(); // default config (minRepeats 10) must NOT raise this
+    const cb = stubCallbacks();
+    const call = () => [makeToolUse('run_command', { command: 'node build.js' })];
+    expect(detectCycleAndBail(call(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(call(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(call(), state, cb)).toBe(false);
+    expect(detectCycleAndBail(call(), state, cb)).toBe(true); // 4th identical in a row
+    expect(cb.texts[0]).toContain('4 times in a row');
   });
 });

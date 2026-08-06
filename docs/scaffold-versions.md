@@ -38,6 +38,35 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 4.0.3 — cycle detection distinguishes hammering from recovery (2026-08)
+
+PATCH. Threshold and exemption tuning within the cycle-detection mechanism —
+no change to which mechanisms run.
+
+The tolerances were inverted: blind byte-identical resubmission got
+`cycleDetectionMinRepeats + 1` = **11** chances, while the prescribed recovery
+loop (read the file, then retry — exactly what the edit errors instruct) formed
+a length-2 pattern that bailed after **2** cycles, before `edit_file`'s
+3rd-failure escalation tier could run.
+
+- **Consecutive-identical threshold decoupled and fixed at 4.** As config+1 it
+  silently rose 4→11 when the normalized default went 3→10 — tolerance meant
+  for varying-content retries applied to resubmissions that get the same
+  deterministic answer every time.
+- **New identical-mutation pass**: byte-identical mutation calls counted
+  ACROSS interleaved reads; 4th occurrence bails. Evidence: gemma4
+  (`thinking-missing-await-in-loop`) sent one failing edit at positions
+  10/14/15/17/18 — longest consecutive streak 2, so nothing fired until a
+  [read, edit, edit] block happened to repeat verbatim.
+- **Recovery-shape exemption** for length-2..4 pattern bails (exact and
+  normalized): a pattern containing a read of a file under active mutation is
+  the model doing work — reading a larger slice, retrying per instructions.
+  Truly stuck variants still bail via the identical-mutation pass (a
+  content-identical pattern necessarily repeats its mutation byte-for-byte).
+- Granite baseline evidence: `no-op-recognition`, `run-fix-iteration-cycle`,
+  `thinking-semantic-version-compare`, `dogfood-rename-no-corruption` all died
+  as "pattern of length 2/3" mid-recovery.
+
 ### 4.0.2 — the "already done" signal disarms the act-now machinery (2026-08)
 
 PATCH. Firing-condition tuning within two existing mechanisms — no change to

@@ -33,6 +33,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     episodicMemory: new EpisodicMemoryStore(),
     recentNormalizedCalls: [],
     recentWriteTargets: [],
+    recentMutationCalls: [],
     autoFixRetriesByFile: new Map(),
     fullRewriteCountByFile: new Map(),
     isolateNudgesByFile: new Map(),
