@@ -478,7 +478,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // One-shot: a resumed checkpoint's plan seeds exactly the next run.
     const resumePlan = state.pendingResumePlan;
     state.pendingResumePlan = null;
-    const updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, state.abortController.signal, {
+    // One-shot: /sandbox flags exactly the next run for shadow isolation.
+    const forceShadow = state.forceShadowNextRun;
+    state.forceShadowNextRun = false;
+    const loopOptions: Parameters<typeof runAgentLoop>[4] = {
       logger: state.agentLogger,
       changelog: state.changelog,
       durableMemoryStore: state.durableMemoryStore ?? undefined,
@@ -522,7 +525,28 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
       toolTier: resolveToolTier(turnText),
       episodicMemory: state.episodicMemoryStore ?? undefined,
       testController: state.testController ?? undefined,
-    });
+    };
+
+    // Shadow isolation: an explicit /sandbox request or shadowWorkspace.mode
+    // 'always' routes through the sandbox wrapper (ephemeral git worktree +
+    // accept/reject at run's end). The loop mutates chatMessages in place, so
+    // the post-loop pipeline reads the same array on both paths.
+    let updatedMessages: typeof chatMessages;
+    if (forceShadow || config.shadowWorkspaceMode === 'always') {
+      const { runAgentLoopInSandbox } = await import('../../agent/shadow/sandbox.js');
+      await runAgentLoopInSandbox(state.client, chatMessages, agentCbs, state.abortController.signal, loopOptions, {
+        forceShadow,
+      });
+      updatedMessages = chatMessages;
+    } else {
+      updatedMessages = await runAgentLoop(
+        state.client,
+        chatMessages,
+        agentCbs,
+        state.abortController.signal,
+        loopOptions,
+      );
+    }
 
     if (state.chatGeneration !== generationAtStart) {
       return;

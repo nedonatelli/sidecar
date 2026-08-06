@@ -416,6 +416,12 @@ export function buildDispatchHandlers(
     executePlan: () => handleExecutePlan(state),
     revisePlan: (msg) => handleRevisePlan(state, msg.text || ''),
     batch: (msg) => handleBatch(state, msg.text || ''),
+    sandboxTask: async (msg) => {
+      const task = (msg.text || '').trim();
+      if (!task) return;
+      state.forceShadowNextRun = true;
+      await handleUserMessage(state, task);
+    },
     saveSession: (msg) => handleSaveSession(state, msg.text || 'Untitled'),
     loadSession: (msg) => handleLoadSession(state, msg.text || ''),
     deleteSession: (msg) => handleDeleteSession(state, msg.text || ''),

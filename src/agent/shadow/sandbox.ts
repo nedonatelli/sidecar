@@ -40,12 +40,11 @@ export interface SandboxResult {
  * working tree stays pristine until they accept the resulting diff.
  *
  * Behavior by `sidecar.shadowWorkspace.mode`:
- *   - `off`    → delegates straight to `runAgentLoop` (main tree).
- *   - `opt-in` → delegates straight to `runAgentLoop`; callers opt a
- *                specific task into a shadow by calling this function
- *                explicitly with `forceShadow: true`. (Slash command
- *                wiring is follow-up work — for v0.59 MVP callers
- *                pass `forceShadow` directly.)
+ *   - `off` / `opt-in` → delegates straight to `runAgentLoop` (main
+ *                tree) unless the caller passes `forceShadow: true` —
+ *                the `/sandbox <task>` chat command does exactly that.
+ *                An explicit per-task request wins regardless of mode,
+ *                because the user asked for isolation by name.
  *   - `always` → every invocation wraps in a shadow unconditionally.
  *
  * When sandboxed, every tool call carries `context.cwd = shadow.path`
@@ -69,9 +68,7 @@ export async function runAgentLoopInSandbox(
 ): Promise<SandboxResult> {
   const cfg = options.config ?? getConfig();
   const shouldSandbox =
-    !sandboxOptions.suppressShadow &&
-    (cfg.shadowWorkspaceMode === 'always' ||
-      (cfg.shadowWorkspaceMode === 'opt-in' && sandboxOptions.forceShadow === true));
+    !sandboxOptions.suppressShadow && (cfg.shadowWorkspaceMode === 'always' || sandboxOptions.forceShadow === true);
 
   if (!shouldSandbox) {
     await runAgentLoop(client, messages, callbacks, signal, options);

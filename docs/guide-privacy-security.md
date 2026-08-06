@@ -2,7 +2,7 @@
 title: Privacy and Security
 layout: docs
 nav_order: 9
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Privacy and Security
@@ -42,7 +42,7 @@ SideCar does not send your entire filesystem, only what the agent actually needs
 ### What SideCar never sends
 
 - **API keys** — stored in VS Code SecretStorage, never serialized into prompts or settings files
-- **Full filesystem scans** — the indexer respects `sidecar.maxFiles`, `sidecar.maxIndexedFiles`, and `.sidecarignore`
+- **Full filesystem scans** — the indexer respects `sidecar.maxFiles` and `.sidecarignore`
 - **Your own telemetry** — SideCar has no analytics endpoint
 
 ---
@@ -197,7 +197,7 @@ Shadow Workspaces go further than Audit Mode. Instead of buffering writes in mem
 "sidecar.shadowWorkspace.mode": "always"
 ```
 
-Or use `"opt-in"` to shadow only tasks that explicitly request it via the `/sandbox` slash command.
+Use `"opt-in"` to shadow only tasks you explicitly request with `/sandbox <task>` in chat. (An explicit `/sandbox` shadows the task in any mode, including `off`.)
 
 ### What it protects against
 
@@ -218,14 +218,14 @@ Fork mode (`/fork`) forces shadow mode unconditionally — every parallel branch
 
 ## macOS Seatbelt sandbox
 
-On macOS, SideCar wraps every `run_command` and `run_tests` call with `/usr/bin/sandbox-exec` and a deny-default SBPL profile. The profile allows:
+On macOS, SideCar can wrap agent shell commands with `/usr/bin/sandbox-exec` and a deny-default SBPL profile — **but only on the child-process fallback executor**. Commands run through the VS Code terminal — the path taken whenever shell integration is available, which is the default — are **not** sandboxed. The profile, where it applies, allows:
 
 - **Reads** from anywhere (agents need to read source files during builds)
 - **Writes** to the workspace root, `/tmp`, and common build caches (`~/.npm`, `~/.cargo`, `~/.gradle`, `~/.m2`)
 - **Outbound network** connections
 - **Everything else denied** — writes outside the workspace, sensitive system paths, process spawning outside the restricted set
 
-This means a misbehaving agent command like `rm -rf ~` or `cp ~/.ssh/id_rsa /tmp/exfil` will fail with a permission denied at the OS level, not just a SideCar approval dialog.
+On the sandboxed (fallback) path, a misbehaving command like `rm -rf ~` or `cp ~/.ssh/id_rsa /tmp/exfil` fails with a permission denied at the OS level. On the default terminal path those commands are stopped only by the approval modes — **do not treat the sandbox as a containment boundary** (see SECURITY.md). It also fails open silently when `/usr/bin/sandbox-exec` is absent.
 
 `sidecar.sandbox.enabled` defaults to `true` on macOS and is automatically disabled on Linux and Windows where `sandbox-exec` is unavailable. Disable it only if a specific tool you rely on writes legitimately outside the allowed paths and you have verified it is safe:
 
@@ -241,9 +241,9 @@ Note: the Seatbelt sandbox covers shell execution only. File writes through Side
 
 ### Staged file scanning
 
-Before any `git_commit`, SideCar scans staged file content against `SECRET_PATTERNS` — a catalog of regexes covering AWS access keys and secret keys, GitHub tokens (`ghp/gho/ghu/ghs/ghr`), Anthropic keys (`sk-ant-...`), OpenAI keys (`sk-...`), HuggingFace tokens, Cohere, Replicate, Stripe live secrets, Twilio Account SIDs, SendGrid, Mailgun, Google API keys (`AIza...`), Azure storage connection strings, npm tokens, PyPI tokens, Slack tokens (`xox[bprs]-...`), PEM private keys, JWTs, database connection strings with inline credentials, and generic `api_key=`/`secret=`/`password=`/`token=` heuristics.
+On demand — run `SideCar: Scan Staged Files for Secrets` (or `/scan` in chat) — SideCar scans staged file content against `SECRET_PATTERNS` — a catalog of regexes covering AWS access keys and secret keys, GitHub tokens (`ghp/gho/ghu/ghs/ghr`), Anthropic keys (`sk-ant-...`), OpenAI keys (`sk-...`), HuggingFace tokens, Cohere, Replicate, Stripe live secrets, Twilio Account SIDs, SendGrid, Mailgun, Google API keys (`AIza...`), Azure storage connection strings, npm tokens, PyPI tokens, Slack tokens (`xox[bprs]-...`), PEM private keys, JWTs, database connection strings with inline credentials, and generic `api_key=`/`secret=`/`password=`/`token=` heuristics.
 
-Matches surface as diagnostics in the VS Code **Problems** panel. The scan is advisory — it surfaces findings without blocking the commit. Treat a match as a signal to rotate the exposed credential immediately, even if it appeared in a test file.
+Results open as a markdown report with a warning toast. The scan is advisory and manual — `git_commit` does not run it automatically, so make it part of your pre-commit habit. (Every agent _write_ is scanned automatically at write time; the staged scan is the explicit pre-commit sweep.) Treat a match as a signal to rotate the exposed credential immediately, even if it appeared in a test file.
 
 Pattern gaps exist. A key format we haven't catalogued yet will slip through. If you find one, report it at `sidecarai.vscode@gmail.com` with subject `[security]`.
 

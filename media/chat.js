@@ -1146,6 +1146,7 @@
     { cmd: '/init', desc: 'Generate SIDECAR.md project notes from codebase' },
     { cmd: '/bg', desc: 'Run a task in the background' },
     { cmd: '/fork', desc: 'Run N parallel approaches to the same task and pick the winner' },
+    { cmd: '/sandbox', desc: 'Run one task in an isolated Shadow Workspace (accept/reject the diff at the end)' },
     { cmd: '/arena', desc: 'Open Model Arena — compare 2–4 models side-by-side with ELO ratings' },
     { cmd: '/arena agent', desc: 'Model Arena agent mode — run a task through different models and pick the winner' },
     { cmd: '/notebook', desc: 'Enter source-grounded research mode with mandatory citations' },
@@ -1551,6 +1552,10 @@
         syntax: '/fork <task>',
         desc: 'Run N parallel approaches to the same task in isolated Shadow Workspaces, then pick the winner',
       },
+      '/sandbox': {
+        syntax: '/sandbox <task>',
+        desc: 'Run one task in an isolated Shadow Workspace — your working tree is untouched until you accept the diff',
+      },
       '/arena agent': {
         syntax: '/arena agent <task>',
         desc: 'Run a task through different models in parallel and compare results',
@@ -1570,6 +1575,13 @@
     if (text.startsWith('/batch ') || text.startsWith('/batch\n')) {
       appendMessage('user', text);
       vscode.postMessage({ command: 'batch', text: text.slice(7) });
+      input.value = '';
+      input.style.height = 'auto';
+      return;
+    }
+    if (text.startsWith('/sandbox ')) {
+      appendMessage('user', text);
+      vscode.postMessage({ command: 'sandboxTask', text: text.slice(9).trim() });
       input.value = '';
       input.style.height = 'auto';
       return;

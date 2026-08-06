@@ -42,6 +42,8 @@ const MAX_HISTORY_CHARS = 2_000_000; // ~2MB
 export class ChatState {
   /** Externalized plan from a resumed checkpoint — consumed (and cleared) by the next agent run. */
   pendingResumePlan: import('../agent/plans/externalPlan.js').ExternalPlan | null = null;
+  /** Set by the /sandbox slash command — the next agent run executes in a Shadow Workspace. One-shot. */
+  forceShadowNextRun = false;
   client: SideCarClient;
   /**
    * Conversation history. Mutation invariant: mutations are safe from

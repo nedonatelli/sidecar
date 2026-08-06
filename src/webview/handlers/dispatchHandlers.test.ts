@@ -214,6 +214,27 @@ describe('buildDispatchHandlers', () => {
     expect(pendingState.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
   });
 
+  // ── /sandbox one-shot shadow flag ─────────────────────────────────────────
+
+  it('sandboxTask sets the one-shot forceShadow flag and forwards the task', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const s = makeState({});
+    const h = buildDispatchHandlers({ ...deps, state: s });
+    await invoke(h, 'sandboxTask', { text: 'upgrade eslint' });
+    expect(s.forceShadowNextRun).toBe(true);
+    expect(vi.mocked(handleUserMessage)).toHaveBeenCalledWith(s, 'upgrade eslint');
+  });
+
+  it('sandboxTask with empty text is a no-op', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    vi.mocked(handleUserMessage).mockClear();
+    const s = makeState({});
+    const h = buildDispatchHandlers({ ...deps, state: s });
+    await invoke(h, 'sandboxTask', { text: '   ' });
+    expect(s.forceShadowNextRun).toBeFalsy();
+    expect(vi.mocked(handleUserMessage)).not.toHaveBeenCalled();
+  });
+
   // ── openExternal security guard ───────────────────────────────────────────
 
   it('openExternal rejects file:// URLs silently', async () => {

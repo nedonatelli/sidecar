@@ -16,19 +16,25 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 | `sidecar.baseUrl`      | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
 | `sidecar.apiKey`       | string | `ollama`                 | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers                                    |
 | `sidecar.model`        | string | `gemma4:e4b`             | Model for chat (e.g., `gemma4:e4b`, `ministral-3:latest`, `qwen3-coder:30b`, `claude-sonnet-4-6`, or any model on your server)                                                            |
-| `sidecar.provider`     | enum   | `auto`                   | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`. Auto-detects from URL                                                                                             |
+| `sidecar.provider`     | enum   | `auto`                   | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`, `openrouter`, `groq`, `fireworks`, `gemini`, `copilot`, `bedrock`. Auto-detects from URL                          |
 | `sidecar.systemPrompt` | string | `""`                     | Custom system prompt appended to the default                                                                                                                                              |
 
 ### Switching backends (recommended)
 
 You don't have to edit these settings by hand. Click the **⚙ gear** in the chat header and pick a backend from the **Backend** section of the settings menu — SideCar's built-in profiles flip `baseUrl`, `provider`, and `model` in one click:
 
-| Profile          | Provider    | Base URL                    | Default model                                                      |
-| ---------------- | ----------- | --------------------------- | ------------------------------------------------------------------ |
-| Local Ollama     | `ollama`    | `http://localhost:11434`    | `qwen2.5-coder:7b`                                                 |
-| Anthropic Claude | `anthropic` | `https://api.anthropic.com` | `claude-sonnet-4-6`                                                |
-| OpenAI           | `openai`    | `https://api.openai.com`    | `gpt-4o`                                                           |
-| Kickstand        | `kickstand` | `http://localhost:11435`    | Token auto-loaded from `~/.config/kickstand/token` — no key prompt |
+| Profile          | Provider     | Base URL                                           | Default model                                                                   |
+| ---------------- | ------------ | -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Local Ollama     | `ollama`     | `http://localhost:11434`                           | `gemma4:e4b`                                                                    |
+| Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                        | `claude-haiku-4-5`                                                              |
+| OpenAI           | `openai`     | `https://api.openai.com`                           | `gpt-4o`                                                                        |
+| OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                     | `anthropic/claude-sonnet-4.5`                                                   |
+| Groq             | `groq`       | `https://api.groq.com/openai/v1`                   | `llama-3.3-70b-versatile`                                                       |
+| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`            | `qwen2p5-coder-32b-instruct`                                                    |
+| Kickstand        | `kickstand`  | `http://localhost:11435`                           | Token auto-loaded from `~/.config/kickstand/token` — no key prompt              |
+| AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`  | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |
+| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/openai` | `gemini-2.0-flash`                                                              |
+| GitHub Copilot   | `copilot`    | `vscode://github.copilot`                          | `gpt-4o` (uses your Copilot subscription — no API key)                          |
 
 Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your OpenAI key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
@@ -43,6 +49,7 @@ When `sidecar.provider` is `auto` (default), SideCar detects the backend from th
 - **`localhost:11434`** → Ollama (native API)
 - **`anthropic.com`** → Anthropic (Messages API with prompt caching)
 - **`localhost:11435`** → Kickstand — reads bearer token from `~/.config/kickstand/token` automatically
+- **`openrouter.ai`** → OpenRouter · **`groq.com`** → Groq · **`fireworks.ai`** → Fireworks · **`generativelanguage.googleapis.com`** → Gemini · **`bedrock-runtime.*.amazonaws.com`** → AWS Bedrock
 - **Everything else** → OpenAI-compatible (`/v1/chat/completions`)
 
 Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or a local Kickstand dev build on a non-standard port.
@@ -262,11 +269,11 @@ When enabled, SideCar automatically runs VS Code's language diagnostics after th
 
 ## Adversarial Critic (v0.48+)
 
-| Setting                              | Type    | Default | Description                                                                                                                                                                                                                                                                                     |
-| ------------------------------------ | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.critic.enabled`             | boolean | `false` | Run an adversarial critic LLM call after every `write_file` / `edit_file` and after every failed `run_tests`. Disabled by default because it doubles API spend on edit turns.                                                                                                                   |
-| `sidecar.critic.model`               | string  | `""`    | Model for the critic call. Empty = reuse `sidecar.model`. Set to a cheaper model (e.g. `claude-haiku-4-5`) to reduce cost.                                                                                                                                                                      |
-| `sidecar.critic.blockOnHighSeverity` | boolean | `false` | Let a high-severity critic finding BLOCK the agent until addressed. Default false — the critic annotates but cannot redirect the run; a false finding sends the agent chasing a problem that isn't there. Deterministic checks (lint/tests/syntax) block; a model-judges-model verdict advises. |
+| Setting                              | Type    | Default | Description                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------ | ------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.critic.enabled`             | boolean | `false` | Run an adversarial critic LLM call once, at completion, over the cumulative diff of every file the run edited. Findings surface as annotations; blocking requires `critic.blockOnHighSeverity`. Disabled by default — the per-edit design measured net-negative and one extra LLM call per run is still a real cost. |
+| `sidecar.critic.model`               | string  | `""`    | Model for the critic call. Empty = reuse `sidecar.model`. Set to a cheaper model (e.g. `claude-haiku-4-5`) to reduce cost.                                                                                                                                                                                           |
+| `sidecar.critic.blockOnHighSeverity` | boolean | `false` | Let a high-severity critic finding BLOCK the agent until addressed. Default false — the critic annotates but cannot redirect the run; a false finding sends the agent chasing a problem that isn't there. Deterministic checks (lint/tests/syntax) block; a model-judges-model verdict advises.                      |
 
 The critic is capped at 2 injections per file per run to prevent unbounded spend on stuck loops.
 
@@ -968,11 +975,11 @@ Exposes one tool: `run_agent_task(task, maxIterations?, approvalMode?)`. Other t
 
 ## Notebook Mode (v0.82+)
 
-| Setting                                  | Type    | Default | Description                                                                                                                                                                                                                                      |
-| ---------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sidecar.notebookMode.enabled`           | boolean | `false` | Enable the source-grounded research tool suite: `ingest_source`, `generate_briefing`, `generate_study_guide`, `generate_faq`, `generate_timeline`, `generate_outline`. Each artifact carries per-sentence citations back to the ingested source. |
-| `sidecar.notebookMode.requireCitations`  | boolean | `true`  | Instruct the agent to re-generate any section that contains uncited claims.                                                                                                                                                                      |
-| `sidecar.notebookMode.studyAids.enabled` | boolean | `true`  | Enable `generate_study_guide` and `generate_faq`. Disable to keep only the core ingest, briefing, timeline, and outline pipeline.                                                                                                                |
+| Setting                                  | Type    | Default  | Description                                                                                                                                                                                                                                      |
+| ---------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sidecar.notebookMode.enabled`           | boolean | `false`  | Enable the source-grounded research tool suite: `ingest_source`, `generate_briefing`, `generate_study_guide`, `generate_faq`, `generate_timeline`, `generate_outline`. Each artifact carries per-sentence citations back to the ingested source. |
+| `sidecar.notebookMode.requireCitations`  | enum    | `strict` | Citation enforcement for notebook sections: `strict` (re-generate uncited sections), `advisory` (warn only), `off`.                                                                                                                              |
+| `sidecar.notebookMode.studyAids.enabled` | boolean | `true`   | Enable `generate_study_guide` and `generate_faq`. Disable to keep only the core ingest, briefing, timeline, and outline pipeline.                                                                                                                |
 
 ## Zotero Integration (v0.75+)
 
@@ -1028,6 +1035,9 @@ Loop-safety scaffolding tuning. See also the scaffolding roadmap in `docs/`.
 | `sidecar.scaffolding.keepBest`                  | boolean | `true`  | Pareto-safe keep-best ratchet: snapshot files when scaffolding first drives extra work and revert if the extra work proved no test signal.                                                                         |
 | `sidecar.scaffolding.keepBestOverEngineerBytes` | number  | `0`     | Byte growth past which a scaffold-driven patch that improved no test signal is reverted as over-engineered. `0` = any unproven growth reverts.                                                                     |
 | `sidecar.scaffolding.cycleDetectionMinRepeats`  | number  | `10`    | Repeats of the same tool + file (content-aware) before the loop bails as a stuck cycle. Higher gives weak models more self-correction attempts.                                                                    |
+| `sidecar.recovery.codeAsText`                   | boolean | `true`  | Recovery package for models that print code instead of calling tools (call-expression parsing, fence-write synthesis, literal-escape decode, fused-anchor split). Dormant on capable models; proven on weak ones.  |
+| `sidecar.editFile.steerToWrite`                 | boolean | `false` | When `edit_file` keeps failing on one file, steer the model to rewrite it with `write_file`. Manual-use flag — campaigned to a powered null.                                                                       |
+| `sidecar.editFile.steerToWriteThreshold`        | number  | `3`     | Consecutive `edit_file` failures on one file before the steer fires.                                                                                                                                               |
 
 ## AWS Bedrock
 
@@ -1044,6 +1054,6 @@ Endpoint selection for the Bedrock backend. Auth is the AWS credential chain (se
 | ------------------------------------- | ----------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `sidecar.injectionGuard.enabled`      | boolean     | `true`  | Prompt-injection guard: scan tool output (files, web search, fetched URLs, shell/CI logs, tickets) for injection attempts and warn. |
 | `sidecar.agentSeed`                   | number/null | `null`  | Fixed RNG seed for reproducible generation (benchmarks / ablation). `null` leaves generation unseeded.                              |
-| `sidecar.evalHistory.enabled`         | boolean     | `false` | Enable the `query_history` agent tool (read-only SELECT over the local eval-history DB in `.sidecar/history/`).                     |
+| `sidecar.evalHistory.enabled`         | boolean     | `false` | Enable the `query_history` agent tool (read-only SELECT over the local eval-history DB at `.sidecar/history.db`).                   |
 | `sidecar.notebookMode.sources.webUrl` | boolean     | `true`  | Allow Notebook Mode to ingest sources from web URLs via `ingest_source`.                                                            |
 | `sidecar.whatsNew.enabled`            | boolean     | `true`  | Show a one-time release-notes notification after SideCar updates. The `SideCar: What's New` command works regardless of this flag.  |

@@ -510,6 +510,22 @@
             "minimum": 1,
             "description": "Repeats of the same tool + file (content-aware) before the agent loop bails as a stuck cycle. Default 10 — was a fixed 3. Weaker/smaller models sometimes need a few attempts to self-correct from a hint (e.g. an edit_file search/replace mistake) before genuinely succeeding; raising this gives more retries before the safety net stops the loop, at the cost of a truly stuck model burning more iterations first. Lower it (e.g. back to 3) for a stricter, faster-to-bail loop."
           },
+          "sidecar.recovery.codeAsText": {
+            "type": "boolean",
+            "default": true,
+            "description": "Code-as-text recovery for models that print code instead of calling tools: parses call-expression syntax emitted as prose (write_file(path=…, content=…)), detects fabricated <tool_output> blocks, decodes literal-escape contamination (\\n as two characters), splits fused anchor+content inserts, and synthesizes a bounded write from a complete code fence on a mutation request. Every layer is a rescue path dormant unless its failure shape occurs, so it is a no-op on capable models. Default-on since v0.120 (proven: 0/28 → 11/27 on qwen2.5-coder, p=0.001; zero net-negative discordants across five model families)."
+          },
+          "sidecar.editFile.steerToWrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "When edit_file keeps failing on the same file (a weak model echoing existing content into the insert fields, never producing the delta), steer the model to rewrite the whole file with write_file — the shape it can do. Off by default: a 30-pair campaign measured a real powered null (symmetric discordants with the steer firing 37×), so it ships for manual use only."
+          },
+          "sidecar.editFile.steerToWriteThreshold": {
+            "type": "number",
+            "default": 3,
+            "minimum": 2,
+            "description": "Consecutive edit_file failures on one file before the steer-to-write reprompt fires (when sidecar.editFile.steerToWrite is on)."
+          },
           "sidecar.critic.model": {
             "type": "string",
             "default": "",
@@ -1270,7 +1286,7 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "Controls the Shadow Workspace feature — a git-worktree sandbox at `.sidecar/shadows/<task-id>/` where the agent iterates without touching the main working tree. On task completion, the user sees a diff and can accept (apply to main) or reject (discard).\n\n- `off` (default) — disabled. Agent writes land directly in main.\n- `opt-in` — agent tasks run in the main tree; the user can opt a specific task into a shadow via a slash command. *(Not yet wired up in v0.59 MVP.)*\n- `always` — every agent task runs in a shadow. Safe but introduces per-task setup cost (worktree checkout) and a review step at end.\n\nThis is the v0.59 MVP tier. Per-hunk review UI, gate-command integration, symlinked build dirs, and rebase-on-moved-main conflict handling land in v0.60+."
+            "markdownDescription": "Controls the Shadow Workspace feature — a git-worktree sandbox at `.sidecar/shadows/<task-id>/` where the agent iterates without touching the main working tree. On task completion, the user sees a diff and can accept (apply to main) or reject (discard).\n\n- `off` (default) — disabled. Agent writes land directly in main.\n- `opt-in` — agent tasks run in the main tree; opt a specific task into a shadow with `/sandbox <task>` in chat. (An explicit `/sandbox` request shadows the task in any mode, including `off`.)\n- `always` — every agent task runs in a shadow. Safe but introduces per-task setup cost (worktree checkout) and a review step at end.\n\nThis is the v0.59 MVP tier. Per-hunk review UI, gate-command integration, symlinked build dirs, and rebase-on-moved-main conflict handling land in v0.60+."
           },
           "sidecar.shadowWorkspace.autoCleanup": {
             "type": "boolean",
@@ -2749,6 +2765,12 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "sidecar.ci.fixFromDiagnostic",
+        "title": "Fix CI Failure from Diagnostic",
+        "category": "SideCar",
+        "icon": "$(wrench)"
+      },
+      {
         "command": "sidecar.pr.postReview",
         "title": "Post PR Review with Inline Comments (Agent)",
         "category": "SideCar",
@@ -3163,6 +3185,10 @@
     ],
     "menus": {
       "commandPalette": [
+        {
+          "command": "sidecar.ci.fixFromDiagnostic",
+          "when": "false"
+        },
         {
           "command": "sidecar.acceptInlineEdit",
           "when": "sidecar.hasInlineEdit"

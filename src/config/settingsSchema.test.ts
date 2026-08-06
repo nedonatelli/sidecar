@@ -130,11 +130,14 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + diagnostics.analysisBudgetMs (+1: how long get_diagnostics waits for a
     //   language server to analyze the file it was given; 0 disables the
     //   open-and-close entirely).
+    // + recovery.codeAsText, editFile.steerToWrite, editFile.steerToWriteThreshold
+    //   (+3: previously read by settings.ts but never declared — invisible in
+    //   the Settings UI despite codeAsText being default-on).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(240);
+    expect(totalKeys).toBe(243);
   });
 
   it('no setting key is duplicated across sections', () => {

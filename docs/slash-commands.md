@@ -2,7 +2,7 @@
 title: Slash Commands
 layout: docs
 nav_order: 3
-nav_section: "Agent"
+nav_section: 'Agent'
 ---
 
 # Slash Commands
@@ -11,65 +11,66 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 
 ## Command reference
 
-| Command | Description |
-|---------|-------------|
-| `/undo` | Revert all AI file changes |
-| `/model <name>` | Switch model mid-conversation |
-| `/help` | Show available commands |
-| `/batch` | Run multiple tasks |
-| `/doc` | Generate documentation |
-| `/spec` | Generate structured requirements |
-| `/insight` | Activity analytics |
-| `/insights` | Conversation pattern analysis |
-| `/save <name>` | Save current session |
-| `/sessions` | Browse saved conversations |
-| `/scan` | Scan staged files for secrets |
-| `/usage` | Token usage dashboard |
-| `/context` | Visualize context window |
-| `/test` | Generate tests |
-| `/lint` | Run linter |
-| `/arena [models]` | Side-by-side model comparison (chat or agent mode) |
-| `/fork <task>` | Run N parallel approaches to the same task, pick the winner |
-| `/deps` | Scan dependencies for drift and vulnerabilities |
-| `/scaffold <type>` | Generate boilerplate |
-| `/commit` | Generate commit message and commit |
-| `/commit-message` | Generate and copy a commit message without committing |
-| `/review` | Review current git changes |
-| `/pr` | Push branch and open a draft pull request |
-| `/pr-summary` | Generate PR title and summary from branch diff |
-| `/pr-ci` | Check the CI status of the current branch PR |
-| `/pr-ready` | Mark the current branch PR as ready for review |
-| `/pr-respond` | Dispatch the agent to respond to all open PR review threads |
-| `/review-comments` | Fetch and display PR review comments for the current branch |
-| `/ci` | Analyze the latest failing CI run on this branch |
-| `/audit` | Agent action audit log |
-| `/mcp` | MCP server status |
-| `/memories` | Browse agent memories |
-| `/memory-search` | Search agent memories |
-| `/init` | Generate SIDECAR.md project notes |
-| `/bg <task>` | Run a task in the background |
-| `/notebook` | Enter source-grounded research mode |
-| `/code` | Exit Notebook Mode and return to coding-agent mode |
-| `/branch [name]` | Fork the current conversation into a new named thread |
-| `/compact` | Summarize older turns to free context window space |
-| `/guards` | Show active regression guards and built-in guard catalog |
-| `/research` | Set active research project or log an observation |
-| `/verbose` | Toggle verbose mode |
-| `/prompt` | Show system prompt |
-| `/resume` | Resume a response that was cut off mid-stream |
-| `/skills` | Open the Skills Picker — searchable QuickPick with registry tags, tool-allowlist chips, and Stack mode |
-| `/skills stack` | Open the Skills Picker in multi-select (Stack) mode to compose multiple skills for one run |
-| `/releases` | List GitHub releases |
-| `/release` | Show, create, or delete a release |
-| `/move` | Move or rename a file |
-| `/clone` | Clone a repository |
+| Command            | Description                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------ |
+| `/undo`            | Revert all AI file changes                                                                             |
+| `/model <name>`    | Switch model mid-conversation                                                                          |
+| `/help`            | Show available commands                                                                                |
+| `/batch`           | Run multiple tasks                                                                                     |
+| `/doc`             | Generate documentation                                                                                 |
+| `/spec`            | Generate structured requirements                                                                       |
+| `/insight`         | Activity analytics                                                                                     |
+| `/insights`        | Conversation pattern analysis                                                                          |
+| `/save <name>`     | Save current session                                                                                   |
+| `/sessions`        | Browse saved conversations                                                                             |
+| `/scan`            | Scan staged files for secrets                                                                          |
+| `/usage`           | Token usage dashboard                                                                                  |
+| `/context`         | Visualize context window                                                                               |
+| `/test`            | Generate tests                                                                                         |
+| `/lint`            | Run linter                                                                                             |
+| `/arena [models]`  | Side-by-side model comparison (chat or agent mode)                                                     |
+| `/fork <task>`     | Run N parallel approaches to the same task, pick the winner                                            |
+| `/sandbox <task>`  | Run one task in an isolated Shadow Workspace; accept/reject the diff at the end                        |
+| `/deps`            | Scan dependencies for drift and vulnerabilities                                                        |
+| `/scaffold <type>` | Generate boilerplate                                                                                   |
+| `/commit`          | Generate commit message and commit                                                                     |
+| `/commit-message`  | Generate and copy a commit message without committing                                                  |
+| `/review`          | Review current git changes                                                                             |
+| `/pr`              | Push branch and open a draft pull request                                                              |
+| `/pr-summary`      | Generate PR title and summary from branch diff                                                         |
+| `/pr-ci`           | Check the CI status of the current branch PR                                                           |
+| `/pr-ready`        | Mark the current branch PR as ready for review                                                         |
+| `/pr-respond`      | Dispatch the agent to respond to all open PR review threads                                            |
+| `/review-comments` | Fetch and display PR review comments for the current branch                                            |
+| `/ci`              | Analyze the latest failing CI run on this branch                                                       |
+| `/audit`           | Agent action audit log                                                                                 |
+| `/mcp`             | MCP server status                                                                                      |
+| `/memories`        | Browse agent memories                                                                                  |
+| `/memory-search`   | Search agent memories                                                                                  |
+| `/init`            | Generate SIDECAR.md project notes                                                                      |
+| `/bg <task>`       | Run a task in the background                                                                           |
+| `/notebook`        | Enter source-grounded research mode                                                                    |
+| `/code`            | Exit Notebook Mode and return to coding-agent mode                                                     |
+| `/branch [name]`   | Fork the current conversation into a new named thread                                                  |
+| `/compact`         | Summarize older turns to free context window space                                                     |
+| `/guards`          | Show active regression guards and built-in guard catalog                                               |
+| `/research`        | Set active research project or log an observation                                                      |
+| `/verbose`         | Toggle verbose mode                                                                                    |
+| `/prompt`          | Show system prompt                                                                                     |
+| `/resume`          | Resume a response that was cut off mid-stream                                                          |
+| `/skills`          | Open the Skills Picker — searchable QuickPick with registry tags, tool-allowlist chips, and Stack mode |
+| `/skills stack`    | Open the Skills Picker in multi-select (Stack) mode to compose multiple skills for one run             |
+| `/releases`        | List GitHub releases                                                                                   |
+| `/release`         | Show, create, or delete a release                                                                      |
+| `/move`            | Move or rename a file                                                                                  |
+| `/clone`           | Clone a repository                                                                                     |
 
 The following commands are also available from the **Command Palette** (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
-| Command | Description |
-|---------|-------------|
-| `SideCar: Review Changes` | AI-powered review of uncommitted changes |
-| `SideCar: Summarize PR` | Generate a PR summary from the current branch |
+| Command                   | Description                                   |
+| ------------------------- | --------------------------------------------- |
+| `SideCar: Review Changes` | AI-powered review of uncommitted changes      |
+| `SideCar: Summarize PR`   | Generate a PR summary from the current branch |
 
 ---
 
@@ -96,6 +97,7 @@ Generates JSDoc or docstring documentation for the active file or selected code.
 ### `/test`
 
 Generates tests for the active file or selection. Auto-detects your test framework:
+
 - **JavaScript/TypeScript**: Vitest, Jest
 - **Python**: pytest
 - **Go**: Go test
@@ -108,16 +110,16 @@ Creates a properly named test file (e.g., `foo.test.ts` for `foo.ts`).
 
 Generates boilerplate code from built-in templates. Available types:
 
-| Type | What it generates |
-|------|-------------------|
-| `component` | React/Vue/Svelte component |
-| `api` | REST API endpoint |
-| `test` | Test file with framework setup |
-| `model` | Data model / schema |
-| `cli` | CLI tool scaffold |
-| `hook` | React hook |
-| `middleware` | Express/Koa middleware |
-| `service` | Service class with dependency injection |
+| Type         | What it generates                       |
+| ------------ | --------------------------------------- |
+| `component`  | React/Vue/Svelte component              |
+| `api`        | REST API endpoint                       |
+| `test`       | Test file with framework setup          |
+| `model`      | Data model / schema                     |
+| `cli`        | CLI tool scaffold                       |
+| `hook`       | React hook                              |
+| `middleware` | Express/Koa middleware                  |
+| `service`    | Service class with dependency injection |
 
 Run `/scaffold` with no arguments to see all available templates.
 
@@ -132,6 +134,7 @@ Generates structured requirements using EARS notation (Easy Approach to Requirem
 ### `/lint`
 
 Runs your project's linter with auto-detection:
+
 - **ESLint** (JavaScript/TypeScript)
 - **Ruff** (Python)
 - **golangci-lint** (Go)
@@ -161,6 +164,7 @@ Configure via `sidecar.deps.enabled` and `sidecar.deps.checkVulnerabilities`.
 ### `/usage`
 
 Shows a token usage dashboard:
+
 - Cumulative token consumption
 - Estimated Anthropic API cost
 - Per-run history
@@ -169,6 +173,7 @@ Shows a token usage dashboard:
 ### `/context`
 
 Visualizes what's in the current context window:
+
 - System prompt
 - SIDECAR.md content
 - Workspace files with token counts
@@ -218,6 +223,7 @@ If no servers are configured, shows setup instructions. See [MCP Servers](mcp-se
 ### `/insight`
 
 Generates an activity analytics report:
+
 - Tool call frequency and duration
 - Error rates
 - Token statistics per run
@@ -280,6 +286,7 @@ Switches to a different model mid-conversation. The conversation history is pres
 ### `/verbose`
 
 Toggles verbose mode on or off. When enabled, SideCar shows:
+
 - The full assembled system prompt at the start of each run
 - Per-iteration summaries with elapsed time and token counts
 - Tool selection explanations before each tool call
@@ -324,6 +331,7 @@ Spawns a background agent that works autonomously without blocking the main conv
 ```
 
 Background agents:
+
 - Run with their own independent LLM client (no shared state with the main chat)
 - Execute in **autonomous mode** with a 15-iteration cap
 - Stream output to a collapsible dashboard panel below the chat header
@@ -333,7 +341,7 @@ Up to 3 agents run concurrently (configurable via `sidecar.bgMaxConcurrent`). Ad
 
 See [Agent Mode — Background agents](agent-mode#background-agents) for details.
 
-## Model Arena *(new in v0.90)*
+## Model Arena _(new in v0.90)_
 
 ### `/arena [models]`
 
@@ -351,7 +359,7 @@ Opens the **Model Arena** — a full-editor panel that streams the same prompt t
 
 Configured via `sidecar.arena.enabled` (default `true`) and `sidecar.arena.defaultModels` (pre-fill list so the QuickPick is skipped). Also available from the Command Palette as `SideCar: Open Model Arena (Chat)` and `SideCar: Open Model Arena (Agent Task)`.
 
-## Fork & Parallel Solve *(new in v0.67)*
+## Fork & Parallel Solve _(new in v0.67)_
 
 ### `/fork <task>`
 
@@ -364,13 +372,21 @@ Spawns N parallel approaches to the same task. Each fork runs a full agent loop 
 
 Semantic differs from `/bg` (one background agent, runs autonomously) and Facets (N specialists on different subtasks, multi-select review): Fork runs N attempts at the **same** task, and you pick one winner.
 
+### `/sandbox <task>`
+
+Runs a single task inside one Shadow Workspace — an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off your current `HEAD`. Your working tree is untouched while the agent iterates; at the end you accept the diff (applied to main) or reject it (discarded). Works in any `sidecar.shadowWorkspace.mode`, including `off` — an explicit request wins.
+
+```
+/sandbox upgrade eslint to v9 and fix whatever breaks
+```
+
 ### `SideCar: Fork & Compare` (Command Palette)
 
 Same flow as `/fork <task>` but prompts for the task via an input box rather than reading it from the chat line. Useful when you want to fork without a chat session active.
 
 Configured via `sidecar.fork.enabled` (default `true`), `sidecar.fork.defaultCount` (default `3`, clamp 2–10), `sidecar.fork.maxConcurrent` (default `3`, clamp 1–10).
 
-## Facets *(new in v0.66)*
+## Facets _(new in v0.66)_
 
 ### `SideCar: Facets: Dispatch Specialists` (Command Palette)
 
@@ -386,7 +402,7 @@ Configured via `sidecar.facets.enabled` (default `true`), `sidecar.facets.maxCon
 
 See [Extending SideCar — Facets](extending-sidecar#facets) for the full schema, dispatch model, and trust semantics.
 
-## Kickstand model & adapter management *(new in v0.67)*
+## Kickstand model & adapter management _(new in v0.67)_
 
 Palette-only entries — no slash-command form. Kickstand exposes a backend-native API for model lifecycle, HuggingFace repo browsing, and LoRA adapter hot-swap that SideCar wires directly into the command palette when the active backend is Kickstand.
 

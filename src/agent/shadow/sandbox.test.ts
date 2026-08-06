@@ -70,6 +70,57 @@ describe('runAgentLoopInSandbox', () => {
     });
   });
 
+  // /sandbox is an explicit per-task request — it must shadow regardless of
+  // mode, including 'off'. Only `suppressShadow` (nested-shadow guard) wins.
+  describe.each(['off', 'opt-in'] as const)('mode = %s with forceShadow', (mode) => {
+    it('creates a shadow', async () => {
+      vi.spyOn(settings, 'getConfig').mockReturnValue({ shadowWorkspaceMode: mode } as never);
+      vi.spyOn(loopModule, 'runAgentLoop').mockResolvedValue([] as never);
+      const createMock = vi.fn().mockResolvedValue(undefined);
+      shadowMockCtor.mockReturnValue({
+        id: 'task-force123',
+        path: '/tmp/shadows/task-force123',
+        mainRoot: '/mock-workspace',
+        create: createMock,
+        diff: vi.fn().mockResolvedValue(''),
+        applyToMain: vi.fn(),
+        dispose: vi.fn().mockResolvedValue(undefined),
+        isActive: true,
+      });
+
+      const result = await runAgentLoopInSandbox(
+        {} as never,
+        [],
+        callbacks,
+        new AbortController().signal,
+        {},
+        { forceShadow: true },
+      );
+
+      expect(shadowMockCtor).toHaveBeenCalledOnce();
+      expect(createMock).toHaveBeenCalledOnce();
+      expect(result.mode).toBe('shadow');
+    });
+
+    it('suppressShadow still wins over forceShadow', async () => {
+      vi.spyOn(settings, 'getConfig').mockReturnValue({ shadowWorkspaceMode: mode } as never);
+      const loopSpy = vi.spyOn(loopModule, 'runAgentLoop').mockResolvedValue([] as never);
+
+      const result = await runAgentLoopInSandbox(
+        {} as never,
+        [],
+        callbacks,
+        new AbortController().signal,
+        {},
+        { forceShadow: true, suppressShadow: true },
+      );
+
+      expect(loopSpy).toHaveBeenCalledOnce();
+      expect(shadowMockCtor).not.toHaveBeenCalled();
+      expect(result.mode).toBe('direct');
+    });
+  });
+
   describe('mode = always', () => {
     function stubShadow(overrides: Partial<{ diff: string; applyThrows: boolean }>) {
       const createMock = vi.fn().mockResolvedValue(undefined);

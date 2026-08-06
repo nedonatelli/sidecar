@@ -2,7 +2,7 @@
 title: Setting Up Your Workspace
 layout: docs
 nav_order: 1
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Setting Up Your Workspace
@@ -53,6 +53,7 @@ Run `/init` in chat. SideCar scans your file tree, entry-point files, and existi
 # Project: acme-platform
 
 ## Build
+
 - `pnpm run build` — compile all packages (turborepo, cached)
 - `pnpm run test` — run all tests (Vitest, co-located with source)
 - `pnpm run lint` — ESLint + Prettier check
@@ -60,6 +61,7 @@ Run `/init` in chat. SideCar scans your file tree, entry-point files, and existi
 - `pnpm --filter @acme/api run dev` — start the API dev server
 
 ## Conventions
+
 - TypeScript strict mode everywhere; no `any`
 - `.js` extensions on all imports (NodeNext resolution)
 - Zod schemas in `src/schemas/`; inferred types from schema, never hand-written duplicates
@@ -70,26 +72,31 @@ Run `/init` in chat. SideCar scans your file tree, entry-point files, and existi
 ## Architecture
 
 <!-- @paths: packages/api/** -->
+
 API package (`packages/api/`) is an Express app. Routes in `src/routes/`, middleware in
 `src/middleware/`. Shared request context flows via `AsyncLocalStorage` in `src/context.ts`.
 DB access goes through `src/db/` only — never import `pg` directly in routes.
 
 <!-- @paths: packages/ui/** -->
+
 UI package (`packages/ui/`) is React + Vite. Design tokens from `src/theme/tokens.ts`.
 Use `cn()` from `src/lib/utils.ts` for conditional class names (Tailwind).
 All data fetching via React Query hooks in `src/hooks/`.
 
 <!-- @paths: packages/shared/** -->
+
 Shared types and utilities in `packages/shared/`. Anything used by both API and UI lives here.
 Entry point is `packages/shared/src/index.ts` — don't import internal paths directly.
 
 ## No-go zones
+
 - Never modify files under `packages/*/src/generated/` — these are auto-generated from Protobuf
 - Never edit `pnpm-lock.yaml` manually
 - Never add dependencies to `packages/shared` without team review
 - `migrations/` — applied migrations are immutable; only add new files, never edit existing ones
 
 ## Gotchas
+
 - Use `packages/api/src/errors.ts` for error types — do not invent new error classes
 - Feature flags live in `packages/shared/src/flags.ts`; check there before building conditional logic
 - Tests that need a DB use the `withTestDb` helper from `packages/api/src/test/db.ts`, not manual setup
@@ -103,13 +110,17 @@ Add an HTML comment with glob patterns immediately under any section heading:
 
 ```markdown
 ## API Routes
+
 <!-- @paths: packages/api/src/routes/**, packages/api/src/middleware/** -->
+
 Routes follow the pattern in `src/routes/health.ts`. Use the `requireAuth` middleware
 for every protected endpoint. Input validation goes through the Zod schema at the top
 of each route file.
 
 ## Database
+
 <!-- @paths: packages/api/src/db/**, migrations/** -->
+
 Raw SQL via `pg`. Query files in `src/db/queries/`; use named parameters only.
 Never write inline SQL in route handlers.
 ```
@@ -147,7 +158,7 @@ PKI is on by default (`sidecar.projectKnowledge.enabled: true`). To trigger an i
 ```json
 "sidecar.projectKnowledge.enabled": true,
 "sidecar.projectKnowledge.graphWalkDepth": 2,
-"sidecar.projectKnowledge.maxGraphHits": 10,
+"sidecar.retrieval.graphExpansion.maxHits": 8,
 "sidecar.projectKnowledge.maxSymbolsPerFile": 500
 ```
 
@@ -197,11 +208,11 @@ Now add rate limiting to the /api/login route.
 
 ### When to use each
 
-| Mechanism | Best for |
-|-----------|----------|
-| `sidecar.pinnedContext` | Team-wide shared files; check into `.vscode/settings.json` |
-| `@pin:` in chat | Files you realize mid-session should always be present |
-| `/memories` panel | Per-entry boost tuning; pinning specific H2 sections of a large file |
+| Mechanism               | Best for                                                             |
+| ----------------------- | -------------------------------------------------------------------- |
+| `sidecar.pinnedContext` | Team-wide shared files; check into `.vscode/settings.json`           |
+| `@pin:` in chat         | Files you realize mid-session should always be present               |
+| `/memories` panel       | Per-entry boost tuning; pinning specific H2 sections of a large file |
 
 ### Pinned Memory vs. SIDECAR.md
 
@@ -317,13 +328,13 @@ On projects with deep nesting (e.g., deeply nested monorepo `node_modules` or te
 
 `sidecar.agentMode` controls how much the agent can do without asking you first:
 
-| Mode | Behavior | Use when |
-|------|----------|----------|
-| `cautious` (default) | Asks before file writes and shell commands | New codebases; exploratory tasks |
-| `autonomous` | Executes without interruption | You trust the task; want hands-off runs |
-| `manual` | Asks before every single tool call | Auditing agent behavior; learning a codebase |
-| `review` | Buffers all file writes in memory; presents a diff at the end | Batch changes you want to review before anything lands |
-| `plan` | Generates a written plan for approval before executing any tools | Complex multi-file changes; want to verify scope first |
+| Mode                 | Behavior                                                         | Use when                                               |
+| -------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| `cautious` (default) | Asks before file writes and shell commands                       | New codebases; exploratory tasks                       |
+| `autonomous`         | Executes without interruption                                    | You trust the task; want hands-off runs                |
+| `manual`             | Asks before every single tool call                               | Auditing agent behavior; learning a codebase           |
+| `review`             | Buffers all file writes in memory; presents a diff at the end    | Batch changes you want to review before anything lands |
+| `plan`               | Generates a written plan for approval before executing any tools | Complex multi-file changes; want to verify scope first |
 
 For most development work, start with `cautious`. Switch to `autonomous` once you've seen the agent handle your codebase well.
 
@@ -335,14 +346,16 @@ For tasks that touch many files or make structural changes, enable Shadow Worksp
 "sidecar.shadowWorkspace.mode": "opt-in"
 ```
 
-In `opt-in` mode, you select shadow isolation per task from the command palette or chat. In `always` mode, every agent task runs in a shadow. Either way, the agent writes to an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off your current `HEAD`. Your main tree is untouched until you explicitly accept the diff at the end.
+In `always` mode, every agent task runs in a shadow. In `opt-in` mode, prefix a task with `/sandbox` in chat to shadow just that one — and an explicit `/sandbox` works in any mode, including `off`. Either way, the agent writes to an ephemeral git worktree at `.sidecar/shadows/<task-id>/` off your current `HEAD`. Your main tree is untouched until you explicitly accept the diff at the end.
 
 Use `always` for:
+
 - Refactors that touch 20+ files
 - Dependency upgrades
 - Automated mode tasks you're running unattended
 
-Use `opt-in` for:
+Use `opt-in` (with `/sandbox`) for:
+
 - Normal development where you want shadow isolation on demand
 - Any task you're not sure about before running it
 
@@ -414,4 +427,4 @@ Use this to verify your workspace setup is complete before running your first re
 - [ ] `sidecar.workspaceRoots` is set if you're in a monorepo and want to focus on specific packages
 - [ ] `sidecar.agentMode` is set to the level of autonomy you want (`cautious` is the safe default)
 - [ ] `sidecar.completionGate.enabled` is `true`
-- [ ] `sidecar.shadowWorkspace.mode` is `opt-in` or `always` for any task that modifies more than a handful of files
+- [ ] `sidecar.shadowWorkspace.mode` is `always` — or the task is run via `/sandbox` — for any task that modifies more than a handful of files

@@ -107,7 +107,10 @@ export function setupChatView(
 
   const terminalErrorWatcher = new TerminalErrorWatcher({
     enabled: () => getConfig().terminalErrorInterception,
-    ignoredTerminalNames: new Set(['SideCar']),
+    // Must include the agent's own terminal (default 'SideCar Agent') — its
+    // command failures are handled by the agent loop itself, and reporting
+    // them here would open a diagnose-in-chat feedback loop.
+    ignoredTerminalNames: new Set(['SideCar', getConfig().terminalExecutionTerminalName]),
     onError: async (event) => {
       const truncated = event.commandLine.length > 60 ? event.commandLine.slice(0, 57) + '...' : event.commandLine;
       const choice = await window.showWarningMessage(
