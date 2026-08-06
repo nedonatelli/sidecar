@@ -134,8 +134,12 @@ export const THINKING_CASES: AgentEvalCase[] = [
     tags: ['edit', 'reasoning', 'async'],
     workspace: {
       'src/downloader.ts':
+        // "in order" deliberately absent from the doc comment: the case tests
+        // the return-type fix (strings, not Promises), and both the loop-await
+        // and Promise.all shapes are accepted. A sequential-fetch hint would
+        // imply a requirement the checker doesn't enforce.
         '/**\n' +
-        ' * Fetches each URL in order and returns the response bodies.\n' +
+        ' * Fetches each URL and returns the response bodies.\n' +
         ' */\n' +
         'export async function downloadAll(\n' +
         '  urls: string[],\n' +
@@ -156,9 +160,16 @@ export const THINKING_CASES: AgentEvalCase[] = [
       // measures, and whole-file rewrite is a supported strategy.
       toolsCalledAny: ['edit_file', 'write_file'],
       files: {
-        contain: [{ path: 'src/downloader.ts', substrings: ['await fetch(url)'] }],
+        // Accept either correct shape: awaiting inside the loop
+        // (`results.push(await fetch(url))`) or collecting via
+        // `Promise.all(urls.map(fetch))` / `Promise.all(urls.map((u) => fetch(u)))`.
+        // Both return resolved strings in url order, which is the tested
+        // behavior. The old literal `await fetch(url)` hardcoded the loop
+        // shape and rejected gemma4's correct Promise.all fix twice
+        // (2026-08-02, 2026-08-05).
+        matchesRegex: [{ path: 'src/downloader.ts', patterns: [/await fetch\(url\)|Promise\.all\(\s*urls\.map\(/] }],
         notContain: [
-          // The un-awaited call must be gone.
+          // The un-awaited push must be gone.
           { path: 'src/downloader.ts', substrings: ['results.push(fetch(url))'] },
         ],
       },
