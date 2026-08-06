@@ -43,11 +43,27 @@ const BASELINE_DIR = path.resolve(__dirname, 'baselines');
 const RECORD_MODE = process.env.SIDECAR_RECORD_AGENT_BASELINE === '1';
 const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim());
 const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+// Trials per case. Default 1 keeps the historical behaviour and cost; above 1
+// the recorded `passed` becomes a MAJORITY of trials rather than a single
+// sample, and the rate is stored beside it. agent.eval.ts has had this for a
+// while — it reports `[flaky] case: 13/25` — but the recorder never used it, so
+// every baseline in the repo is one sample per case with no reliability.
+const TRIALS = Math.max(1, parseInt(process.env.SIDECAR_EVAL_TRIALS ?? '1', 10) || 1);
 
 interface CaseBaseline {
   passed: boolean;
   iterationsUsed: number;
   durationMs: number;
+  /** Trials run for this case, and how many passed. Present only when recorded
+   *  with SIDECAR_EVAL_TRIALS > 1.
+   *
+   *  A single sample cannot separate a capable model from a lucky one. Measured
+   *  on the eleven cases that flipped between two sweeps: FIVE flip on seed
+   *  alone — `shell-error-recovery` passes 2 of 5 on granite4.1 — so a one-shot
+   *  baseline records whichever side the coin landed on, and the flip arrives
+   *  later as a phantom regression. */
+  trials?: number;
+  passes?: number;
 }
 interface AgentBaseline {
   model: string;
@@ -202,7 +218,31 @@ describe.skipIf(!backend)('agent regression baseline', () => {
               continue;
             }
             consecutiveUnavailable = 0;
-            baseline.cases[c.id] = { passed: r.passed, iterationsUsed: r.iterationsUsed, durationMs: r.durationMs };
+
+            // Extra trials, when asked for. The run above is trial 1, so this
+            // loop is skipped entirely at TRIALS=1 — cost and behaviour unchanged.
+            const results = [r];
+            for (let t = 1; t < TRIALS; t++) {
+              try {
+                const extra = await runAgentCase(c, backend!);
+                if (!extra.apiUnavailable) results.push(extra);
+              } catch (err) {
+                if (!isWrappedInfraFailure(err)) throw err;
+                // An infra failure on a later trial costs that trial, not the case.
+              }
+            }
+            const passes = results.filter((x) => x.passed).length;
+            baseline.cases[c.id] = {
+              // Majority, so one unlucky trial cannot condemn a case that
+              // usually works. At TRIALS=1 this is exactly the single result.
+              passed: passes * 2 > results.length,
+              iterationsUsed: r.iterationsUsed,
+              durationMs: r.durationMs,
+              ...(results.length > 1 ? { trials: results.length, passes } : {}),
+            };
+            if (results.length > 1 && passes > 0 && passes < results.length) {
+              console.log(`[baseline] ${c.id}: MARGINAL — ${passes}/${results.length} trials passed`);
+            }
             // Flush after EVERY case. The write used to happen once, after the
             // loop, so a run that died at case 32 of 70 discarded all 32 real
             // measurements — which is exactly what a 4h timeout did to three

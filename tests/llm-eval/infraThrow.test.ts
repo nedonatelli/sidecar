@@ -56,11 +56,40 @@ describe('the recorder survives an infra throw', () => {
     const src = await import('fs').then((fs) => fs.readFileSync('tests/llm-eval/agentBaseline.eval.ts', 'utf-8'));
     // No bare call left outside a try.
     expect(src).not.toMatch(/^\s*const r = await runAgentCase\(/m);
-    // Both loops guard — matching the CALL, not the import, which is why this
-    // counts `isWrappedInfraFailure(err)` rather than the bare name.
-    expect(src.match(/isWrappedInfraFailure\(err\)/g) ?? []).toHaveLength(2);
+    // Every runAgentCase call site guards — matching the CALL, not the import.
+    // Three of them now: the record loop, the verify loop, and the extra-trials
+    // loop, where an infra failure costs that trial rather than the case.
+    expect(src.match(/isWrappedInfraFailure\(err\)/g) ?? []).toHaveLength(3);
     // ...and the record loop counts it, so a dead backend still trips the breaker
     // rather than looping through all 70 cases one throw at a time.
     expect(src).toMatch(/isWrappedInfraFailure\(err\)\) throw err;[\s\S]{0,120}consecutiveUnavailable\+\+/);
+  });
+});
+
+describe('the recorder honours SIDECAR_EVAL_TRIALS', () => {
+  // Asserted against the source for the same reason as the guard above: driving
+  // the loop needs a live model, and the property that matters is structural.
+  //
+  // Five of the eleven cases that flipped between two sweeps flip on seed alone
+  // — `shell-error-recovery` passes 2 of 5 on granite4.1 — so a one-shot
+  // baseline records a coin toss and the flip resurfaces later as a phantom
+  // regression. agent.eval.ts has reported flakiness for a while; the recorder
+  // ignored the same knob.
+  const src = () => import('fs').then((fs) => fs.readFileSync('tests/llm-eval/agentBaseline.eval.ts', 'utf-8'));
+
+  it('reads the trials knob', async () => {
+    expect(await src()).toMatch(/SIDECAR_EVAL_TRIALS/);
+  });
+
+  it('records a majority rather than the last trial', async () => {
+    // `passes * 2 > results.length` — at TRIALS=1 this is the single result, so
+    // the default path is unchanged.
+    expect(await src()).toMatch(/passed: passes \* 2 > results\.length/);
+  });
+
+  it('stores the rate so a marginal case is visible in the file itself', async () => {
+    const s = await src();
+    expect(s).toMatch(/trials: results\.length, passes/);
+    expect(s).toMatch(/MARGINAL/);
   });
 });
