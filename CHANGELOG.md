@@ -36,7 +36,7 @@ Rolls up the v0.122.4 fixes (below, never published to the marketplace) plus the
 - **All five model baselines re-measured on the repaired harness** (gemma4:e4b, ministral-3, granite4.1:3b, qwen2.5-coder:7b, llama3.2), recorded under the provenance guard with history entries. Per the multi-trial analysis, single-sample deltas of ±1–2 cases are within seed noise — treat these as a floor, not a measurement.
 
 ### Stats
-- 8647 total tests (468 test files)
+- 8654 total tests (468 test files)
 - 87 built-in tools, 11 skills
 
 ## [0.122.4] - 2026-08-04
