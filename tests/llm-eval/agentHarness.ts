@@ -202,25 +202,36 @@ export function pickAgentBackend(): AgentEvalBackend | null {
 }
 
 /**
- * Per-case timeout override. Set SIDECAR_EVAL_CASE_TIMEOUT (milliseconds) to
- * give slow local models more time to process the large system prompt before
- * the outer AbortController fires. Default is 120 000 ms (2 min), which is
- * comfortable for cloud models but tight for large Ollama models on consumer
- * hardware. Example: SIDECAR_EVAL_CASE_TIMEOUT=300000 for 5 min per case.
+ * Per-case wall-clock budget. Set SIDECAR_EVAL_CASE_TIMEOUT (milliseconds) to
+ * override. Distinct from the ITERATION ceiling (`DEFAULT_MAX_ITERATIONS`,
+ * raised to 50) — a run can finish well inside its iteration budget and still
+ * be cut off by this one, and conflating the two hides which limit bound a
+ * result.
  */
 export const DEFAULT_CASE_TIMEOUT_MS = (() => {
   const raw = process.env.SIDECAR_EVAL_CASE_TIMEOUT;
   const parsed = raw ? parseInt(raw, 10) : NaN;
-  // 300s, not 120s, because evals now run with THINKING ON — matching the
-  // shipped default (`sidecar.ollama.disableThinking` is false for real users).
-  // Every eval script used to export SIDECAR_DISABLE_THINKING=true, so every
-  // local number ever recorded measured a configuration nobody ships, and
-  // gemma4's function-calling accuracy in particular is documented to improve
-  // materially with thinking. Extended reasoning costs ~25-30s per turn, so
-  // keeping the old 120s budget would just trade a known bias for a worse one:
-  // timeouts that read as capability failures. Per-model exceptions belong in
-  // MODELS_WITH_PROBLEMATIC_THINKING, which is what that list is for.
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 300_000;
+  // Was 120s, then 300s when evals moved to THINKING ON — matching the shipped
+  // default (`sidecar.ollama.disableThinking` is false for real users). Extended
+  // reasoning costs ~25-30s per turn, so the old 120s budget traded a known bias
+  // for a worse one: timeouts that read as capability failures.
+  //
+  // 600s now, because 300s was still binding and was measured doing so:
+  //   - ministral-3 hit it on ~29% of its cases in the 2026-08-04 sweep
+  //   - claude-sonnet-5 hit it on `run-tests-after-fix` at 300006ms — a
+  //     FRONTIER model brushing the cap on a case whose whole purpose is
+  //     shelling out to a test runner
+  //
+  // That last one is the argument. A limit a frontier model reaches is not
+  // separating capable models from incapable ones, it is measuring how long a
+  // subprocess takes. Nothing observed needed more than 600s once the machine
+  // stayed awake.
+  //
+  // A cap-hit is NOT automatically a failure: the abort stops the loop and the
+  // workspace is scored as it stands, so a truncated run can still pass — which
+  // is exactly why this was easy to miss. Per-model exceptions belong in
+  // MODELS_WITH_PROBLEMATIC_THINKING.
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000;
 })();
 
 /**
@@ -271,6 +282,24 @@ export function runConfigForProvenance(): Record<string, unknown> {
  * The breaker is infrastructure announcing that infrastructure is down. It must
  * never be readable as a regression.
  */
+/**
+ * Marker on the error `runAgentCase` throws for infra breakage, so a caller can
+ * recognise it without matching prose.
+ *
+ * The throw is deliberate: in `agent.eval.ts` every case is its own `it`, so it
+ * fails that one test and the suite carries on. The BASELINE recorder runs all
+ * cases inside a single `it`, so the same throw killed the entire model run —
+ * llama3.2 died at case 16 of 70 on "This operation was aborted" and left a
+ * 16-case file where a 69-case one had been. Wrapping strips `err.name`, so
+ * `isInfraFailure` cannot recognise the re-thrown error either; hence a marker.
+ */
+export const INFRA_FAILURE_PREFIX = 'Agent run failed (infra, not a regression): ';
+
+/** True when an error is the wrapped infra failure thrown by `runAgentCase`. */
+export function isWrappedInfraFailure(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith(INFRA_FAILURE_PREFIX);
+}
+
 export function isInfraFailure(err: Error): boolean {
   if (err.name === 'AbortError') return true;
   return /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|timed out|terminated|temporarily disabled after repeated failures|\b429\b|too many requests|overloaded|service unavailable|\b50[23]\b/i.test(
@@ -500,7 +529,7 @@ export async function runAgentCase(
     // treats them as infra breakage rather than case regressions.
     // The distinction matches prompt.eval.ts's pattern.
     if (isInfraFailure(runError)) {
-      throw new Error(`Agent run failed (infra, not a regression): ${runError.message}`);
+      throw new Error(`${INFRA_FAILURE_PREFIX}${runError.message}`);
     }
     // Everything else counts as a case failure — record it so the
     // report shows which case died and why.

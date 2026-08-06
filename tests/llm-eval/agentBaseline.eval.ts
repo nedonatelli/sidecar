@@ -24,10 +24,17 @@
 import { describe, it } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { runAgentCase, pickAgentBackend, DEFAULT_CASE_TIMEOUT_MS, runConfigForProvenance } from './agentHarness.js';
+import {
+  runAgentCase,
+  pickAgentBackend,
+  DEFAULT_CASE_TIMEOUT_MS,
+  runConfigForProvenance,
+  isWrappedInfraFailure,
+} from './agentHarness.js';
 import type { AgentEvalCase } from './agentTypes.js';
 import { compareProvenance, currentProvenance, type BaselineProvenance } from './baselineProvenance.js';
 import { ALL_AGENT_CASES } from './allCases.js';
+import { appendHistory } from './baselineHistory.js';
 
 // The eval and the baseline MUST run the same cases; they drifted to 70 vs 61.
 const ALL_CASES: AgentEvalCase[] = ALL_AGENT_CASES;
@@ -36,11 +43,27 @@ const BASELINE_DIR = path.resolve(__dirname, 'baselines');
 const RECORD_MODE = process.env.SIDECAR_RECORD_AGENT_BASELINE === '1';
 const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim());
 const CASE_FILTER = process.env.SIDECAR_EVAL_CASE?.split(',').map((s) => s.trim());
+// Trials per case. Default 1 keeps the historical behaviour and cost; above 1
+// the recorded `passed` becomes a MAJORITY of trials rather than a single
+// sample, and the rate is stored beside it. agent.eval.ts has had this for a
+// while — it reports `[flaky] case: 13/25` — but the recorder never used it, so
+// every baseline in the repo is one sample per case with no reliability.
+const TRIALS = Math.max(1, parseInt(process.env.SIDECAR_EVAL_TRIALS ?? '1', 10) || 1);
 
 interface CaseBaseline {
   passed: boolean;
   iterationsUsed: number;
   durationMs: number;
+  /** Trials run for this case, and how many passed. Present only when recorded
+   *  with SIDECAR_EVAL_TRIALS > 1.
+   *
+   *  A single sample cannot separate a capable model from a lucky one. Measured
+   *  on the eleven cases that flipped between two sweeps: FIVE flip on seed
+   *  alone — `shell-error-recovery` passes 2 of 5 on granite4.1 — so a one-shot
+   *  baseline records whichever side the coin landed on, and the flip arrives
+   *  later as a phantom regression. */
+  trials?: number;
+  passes?: number;
 }
 interface AgentBaseline {
   model: string;
@@ -119,42 +142,126 @@ describe.skipIf(!backend)('agent regression baseline', () => {
         // that looked perfectly alive. A liveness signal is not evidence the
         // thing works.
         let consecutiveUnavailable = 0;
+        let totalUnavailable = 0;
         const CIRCUIT_BREAKER_THRESHOLD = 3;
+        const startedAt = Date.now();
 
-        for (const [i, c] of cases.entries()) {
-          if (consecutiveUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
-            // Stop rather than skip. Everything recorded so far is already on
-            // disk, so aborting costs nothing and burning the remaining budget
-            // against a dead backend costs hours.
-            throw new Error(
-              `[baseline] circuit breaker: ${consecutiveUnavailable} consecutive cases returned nothing from ` +
-                `"${model}" — the backend is not serving. ${Object.keys(baseline.cases).length} cases are already ` +
-                `written to ${rel(bpath)}; re-run to continue. Check the backend is up and actually generating ` +
-                `(a reachable /api/tags does not mean it can serve).`,
+        // Append the run to the history log whatever happens to it. The log is
+        // the only place a truncated run stays visible next to the complete ones
+        // it replaced — twice in one sweep a partial write overwrote a better
+        // baseline, and both were recoverable only from hand-taken copies.
+        const recordHistory = (complete: boolean, abortReason?: string) => {
+          const entries = Object.entries(baseline.cases);
+          appendHistory(BASELINE_DIR, {
+            at: new Date().toISOString(),
+            model,
+            version: baseline.version,
+            provenance,
+            casesRun: entries.length,
+            casesAvailable: cases.length,
+            filtered: Boolean(CASE_FILTER || TAG_FILTER),
+            passed: entries.filter(([, v]) => v.passed).length,
+            failed: entries.filter(([, v]) => !v.passed).length,
+            unavailable: totalUnavailable,
+            complete,
+            ...(abortReason ? { abortReason } : {}),
+            failedCases: entries.filter(([, v]) => !v.passed).map(([id]) => id),
+            durationSec: Math.round((Date.now() - startedAt) / 1000),
+          });
+        };
+
+        try {
+          for (const [i, c] of cases.entries()) {
+            if (consecutiveUnavailable >= CIRCUIT_BREAKER_THRESHOLD) {
+              // Stop rather than skip. Everything recorded so far is already on
+              // disk, so aborting costs nothing and burning the remaining budget
+              // against a dead backend costs hours.
+              throw new Error(
+                `[baseline] circuit breaker: ${consecutiveUnavailable} consecutive cases returned nothing from ` +
+                  `"${model}" — the backend is not serving. ${Object.keys(baseline.cases).length} cases are already ` +
+                  `written to ${rel(bpath)}; re-run to continue. Check the backend is up and actually generating ` +
+                  `(a reachable /api/tags does not mean it can serve).`,
+              );
+            }
+            // runAgentCase THROWS on infra breakage rather than returning. That
+            // suits agent.eval.ts, where each case is its own `it` — the throw
+            // fails one test. Here every case shares a single `it`, so an
+            // unguarded throw ends the model's entire run: llama3.2 died at
+            // case 16 of 70 on "This operation was aborted", and the
+            // incremental flush then left a 16-case file where a 69-case one
+            // had been.
+            //
+            // An infra throw and the `apiUnavailable` return mean the same
+            // thing — the backend gave nothing usable — so they are handled
+            // identically, including counting toward the circuit breaker.
+            let r: Awaited<ReturnType<typeof runAgentCase>>;
+            try {
+              r = await runAgentCase(c, backend!);
+            } catch (err) {
+              if (!isWrappedInfraFailure(err)) throw err; // a real harness bug must still fail
+              consecutiveUnavailable++;
+              totalUnavailable++;
+              console.warn(
+                `[baseline] ${c.id}: infra failure — not recorded ` +
+                  `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting): ` +
+                  `${(err as Error).message.slice(0, 120)}`,
+              );
+              continue;
+            }
+            if (r.apiUnavailable) {
+              consecutiveUnavailable++;
+              totalUnavailable++;
+              console.warn(
+                `[baseline] ${c.id}: API unavailable — not recorded ` +
+                  `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting)`,
+              );
+              continue;
+            }
+            consecutiveUnavailable = 0;
+
+            // Extra trials, when asked for. The run above is trial 1, so this
+            // loop is skipped entirely at TRIALS=1 — cost and behaviour unchanged.
+            const results = [r];
+            for (let t = 1; t < TRIALS; t++) {
+              try {
+                const extra = await runAgentCase(c, backend!);
+                if (!extra.apiUnavailable) results.push(extra);
+              } catch (err) {
+                if (!isWrappedInfraFailure(err)) throw err;
+                // An infra failure on a later trial costs that trial, not the case.
+              }
+            }
+            const passes = results.filter((x) => x.passed).length;
+            baseline.cases[c.id] = {
+              // Majority, so one unlucky trial cannot condemn a case that
+              // usually works. At TRIALS=1 this is exactly the single result.
+              passed: passes * 2 > results.length,
+              iterationsUsed: r.iterationsUsed,
+              durationMs: r.durationMs,
+              ...(results.length > 1 ? { trials: results.length, passes } : {}),
+            };
+            if (results.length > 1 && passes > 0 && passes < results.length) {
+              console.log(`[baseline] ${c.id}: MARGINAL — ${passes}/${results.length} trials passed`);
+            }
+            // Flush after EVERY case. The write used to happen once, after the
+            // loop, so a run that died at case 32 of 70 discarded all 32 real
+            // measurements — which is exactly what a 4h timeout did to three
+            // models overnight, costing 12 hours and producing nothing. A partial
+            // baseline is worth far more than none: the provenance guard makes it
+            // safe to compare, and the missing cases simply are not compared.
+            flush();
+            console.log(
+              `[baseline] ${i + 1}/${cases.length} ${c.id}: ${r.passed ? 'pass' : 'FAIL'} (${Math.round(r.durationMs / 1000)}s)`,
             );
           }
-          const r = await runAgentCase(c, backend!);
-          if (r.apiUnavailable) {
-            consecutiveUnavailable++;
-            console.warn(
-              `[baseline] ${c.id}: API unavailable — not recorded ` +
-                `(${consecutiveUnavailable}/${CIRCUIT_BREAKER_THRESHOLD} before aborting)`,
-            );
-            continue;
-          }
-          consecutiveUnavailable = 0;
-          baseline.cases[c.id] = { passed: r.passed, iterationsUsed: r.iterationsUsed, durationMs: r.durationMs };
-          // Flush after EVERY case. The write used to happen once, after the
-          // loop, so a run that died at case 32 of 70 discarded all 32 real
-          // measurements — which is exactly what a 4h timeout did to three
-          // models overnight, costing 12 hours and producing nothing. A partial
-          // baseline is worth far more than none: the provenance guard makes it
-          // safe to compare, and the missing cases simply are not compared.
-          flush();
-          console.log(
-            `[baseline] ${i + 1}/${cases.length} ${c.id}: ${r.passed ? 'pass' : 'FAIL'} (${Math.round(r.durationMs / 1000)}s)`,
-          );
+        } catch (err) {
+          // A run that dies still produced measurements, and the reason it died
+          // is the most useful field in the entry. Record, then rethrow — the
+          // failure must still fail the run.
+          recordHistory(false, (err as Error).message.slice(0, 200));
+          throw err;
         }
+        recordHistory(true);
         const total = Object.keys(baseline.cases).length;
         const passing = Object.values(baseline.cases).filter((c) => c.passed).length;
         console.log(`[baseline] recorded ${passing}/${total} passing for ${model} → ${rel(bpath)}`);
@@ -198,7 +305,16 @@ describe.skipIf(!backend)('agent regression baseline', () => {
 
       for (const c of cases) {
         const base = baseline.cases[c.id];
-        const r = await runAgentCase(c, backend!);
+        // Same guard as the record loop: an infra throw here would abandon the
+        // whole verification rather than excluding one case.
+        let r: Awaited<ReturnType<typeof runAgentCase>>;
+        try {
+          r = await runAgentCase(c, backend!);
+        } catch (err) {
+          if (!isWrappedInfraFailure(err)) throw err;
+          console.warn(`[baseline] ${c.id}: infra failure — excluded from the check`);
+          continue;
+        }
         if (r.apiUnavailable) {
           console.warn(`[baseline] ${c.id}: API unavailable — excluded from the check`);
           continue;
