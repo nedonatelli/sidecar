@@ -199,13 +199,13 @@ npm run package   # Build + create .vsix package for distribution
 
 ## Adding a new tool
 
-1. Define the tool schema in `src/agent/tools.ts` (follow existing patterns)
+1. Define the tool schema in the matching subsystem file under `src/agent/tools/` (or a new one) — `tools.ts` is only the composer that spreads the per-subsystem arrays into `TOOL_REGISTRY`
 2. Implement the executor function
 3. Add to `TOOL_REGISTRY` array
 4. If the tool needs approval, set `requiresApproval: true`
 5. If the tool needs special handling (like `ask_user`), add a case in `executor.ts`
 6. Add tests in the appropriate `.test.ts` file
-7. Update `docs/agent-mode.md` tool table and `README.md` tool registry
+7. Update `docs/agent-mode.md`'s tool table, `docs/tools-reference.md`, and the tool count pinned in `tools.test.ts` (the README carries only the count)
 8. Run `npm run bump` to update tool counts everywhere
 
 ## Debugging methodology

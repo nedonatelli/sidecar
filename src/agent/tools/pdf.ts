@@ -137,8 +137,8 @@ export const pdfTools: RegisteredTool[] = [
     definition: {
       name: 'index_pdf',
       description:
-        'Chunk and index a PDF file into .sidecar/literature/ so its contents can be searched with project_knowledge_search. ' +
-        'Run this once per PDF before trying to search it. ' +
+        'Chunk and index a PDF file into .sidecar/literature/ so its contents surface in system-prompt retrieval (requires `sidecar.literature.enabled: true`; note project_knowledge_search does NOT search PDFs — it queries the code symbol index only). ' +
+        'Run this once per PDF; its chunks are then retrieved automatically for relevant questions. ' +
         'Accepts a workspace-relative or absolute path ending in .pdf. ' +
         'Example: `index_pdf(path="papers/attention-is-all-you-need.pdf")`.',
       input_schema: {

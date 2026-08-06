@@ -168,7 +168,7 @@ export const updateSettingDef: ToolDefinition = {
     'Use when the user explicitly asks to change a setting durably ("bump the daily budget to $20", "make the chat compact", "turn off mermaid rendering", "set the shell timeout to 300 seconds"). ' +
     'Not for switching backends — use `switch_backend`, which applies a vetted profile list. ' +
     'Not for one-off tweaks — changes persist across sessions, so only call when the user wants a durable change rather than a temporary override for the current turn. ' +
-    'Security-sensitive keys are denied outright (before the approval modal): API keys, tool permissions, custom tools/modes, MCP server definitions, event hooks, scheduled tasks, system prompt override, outbound allowlist, backend URLs, and arbitrary context path lists. The tool reports which categories are blocked. ' +
+    'Security-sensitive keys are denied outright — the call is refused even if approved: API keys, tool permissions, custom tools/modes, MCP server definitions, event hooks, scheduled tasks, system prompt override, outbound allowlist, backend URLs, and arbitrary context path lists. The tool reports which categories are blocked. ' +
     'Example: `update_setting(key="dailyBudget", value=20)`, `update_setting(key="chatDensity", value="compact")`, `update_setting(key="enableMermaid", value=false)`, `update_setting(key="promptPruning.enabled", value=true)`.',
   input_schema: {
     type: 'object',

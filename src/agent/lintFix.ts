@@ -94,7 +94,8 @@ export async function runLint(command?: string): Promise<{ output: string; succe
   const lintCmd = command || (await detectLintCommand());
   if (!lintCmd) {
     return {
-      output: 'No lint command detected. Configure via sidecar.lintCommand or add a lint script to package.json.',
+      output:
+        'No lint command detected. Add a `lint` script to package.json (or an ESLint/Biome config) so SideCar can find one.',
       success: false,
     };
   }

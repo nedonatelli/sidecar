@@ -4,17 +4,17 @@ Press `⌘⇧P` (Mac) or `Ctrl+Shift+P` and type **`SideCar:`**. Every user-faci
 
 **Most useful commands:**
 
-| Command | What it does |
-|---------|---|
-| `SideCar: Toggle Chat` | Open or hide the chat sidebar |
-| `SideCar: Inline Chat` | Inline prompt in the editor |
-| `SideCar: Set / Refresh API Key` | Paste or rotate your key |
-| `SideCar: Switch Backend` | Pick Ollama, Anthropic, OpenAI, or Kickstand *(coming soon)* |
-| `SideCar: Show Session Spend` | Breakdown of tokens & $ for paid backends |
-| `SideCar: Review Changes` | Get an AI review of your working tree |
-| `SideCar: Summarize Pull Request` | Fetch a PR and generate a summary |
-| `SideCar: Generate Commit Message` | Stage files first, then let SideCar write the message |
-| `SideCar: Scan Staged Files for Secrets` | Pre-commit secret scan |
+| Command                                  | What it does                                                                                                                 |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `SideCar: Toggle Chat`                   | Open or hide the chat sidebar                                                                                                |
+| `SideCar: Inline Chat`                   | Inline prompt in the editor                                                                                                  |
+| `SideCar: Set / Refresh API Key`         | Paste or rotate your key                                                                                                     |
+| `SideCar: Switch Backend`                | Pick any of the 10 backends — Ollama, Anthropic, OpenAI, Kickstand, OpenRouter, Groq, Fireworks, Gemini, Copilot, or Bedrock |
+| `SideCar: Show Session Spend`            | Breakdown of tokens & $ for paid backends                                                                                    |
+| `SideCar: Review Changes`                | Get an AI review of your working tree                                                                                        |
+| `SideCar: Summarize Pull Request`        | Fetch a PR and generate a summary                                                                                            |
+| `SideCar: Generate Commit Message`       | Stage files first, then let SideCar write the message                                                                        |
+| `SideCar: Scan Staged Files for Secrets` | Pre-commit secret scan                                                                                                       |
 
 ### Problems panel integration
 

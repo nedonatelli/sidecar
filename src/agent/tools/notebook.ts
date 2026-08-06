@@ -241,10 +241,10 @@ export const notebookTools: RegisteredTool[] = [
     definition: {
       name: 'generate_briefing',
       description:
-        'Generate a multi-section briefing document from indexed research sources. ' +
+        'Scaffold a briefing-document SKELETON from indexed research sources — section headers plus [placeholder] slots; the returned message tells you the follow-up prompt that fills it in. ' +
         'Sections: Executive summary, Key findings, Methodology, Limitations, Open questions. ' +
-        'Run ingest_source first — this synthesizes only from indexed sources. ' +
-        'Writes output to .sidecar/research/<project>/generated/briefing.md. Example: `generate_briefing()`.',
+        'Run ingest_source first — the skeleton cites only indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/briefing.md. Example: `generate_briefing(source_ids="*")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -309,10 +309,9 @@ export const notebookTools: RegisteredTool[] = [
     definition: {
       name: 'generate_study_guide',
       description:
-        'Generate progressive Q&A pairs from indexed sources at four depth levels: ' +
-        'recall, comprehension, application, synthesis. ' +
-        'Run ingest_source first — this synthesizes only from indexed sources. ' +
-        'Writes output to .sidecar/research/<project>/generated/study_guide.md. Example: `generate_study_guide()`.',
+        'Scaffold a study-guide SKELETON — [placeholder] Q&A slots at four depth levels (recall, comprehension, application, synthesis); the returned message tells you the follow-up prompt that fills it in. ' +
+        'Run ingest_source first — the skeleton cites only indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/study_guide.md. Example: `generate_study_guide(source_ids="*")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -378,9 +377,9 @@ export const notebookTools: RegisteredTool[] = [
     definition: {
       name: 'generate_faq',
       description:
-        'Generate a FAQ document with the top likely-asked questions and cited answers from indexed sources. ' +
-        'Run ingest_source first — this synthesizes only from indexed sources. ' +
-        'Writes output to .sidecar/research/<project>/generated/faq.md. Example: `generate_faq()`.',
+        'Scaffold a FAQ SKELETON — [question]/[answer] placeholder slots to be filled from indexed sources; the returned message tells you the follow-up prompt that fills it in. ' +
+        'Run ingest_source first — the skeleton cites only indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/faq.md. Example: `generate_faq(source_ids="*")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -429,9 +428,9 @@ export const notebookTools: RegisteredTool[] = [
     definition: {
       name: 'generate_timeline',
       description:
-        'Extract dated events, milestones, and entities from sources into a chronological timeline. ' +
-        'Run ingest_source first — this synthesizes only from indexed sources. ' +
-        'Writes output to .sidecar/research/<project>/generated/timeline.md. Example: `generate_timeline()`.',
+        'Scaffold a chronological-timeline SKELETON — a table of [date]/[event]/[source citation] placeholder rows; the returned message tells you the follow-up prompt that fills it in. ' +
+        'Run ingest_source first — the skeleton cites only indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/timeline.md. Example: `generate_timeline(source_ids="*")`.',
       input_schema: {
         type: 'object',
         properties: {
@@ -480,9 +479,9 @@ export const notebookTools: RegisteredTool[] = [
     definition: {
       name: 'generate_outline',
       description:
-        'Generate a hierarchical topic outline from indexed sources with per-node source attribution. ' +
-        'Run ingest_source first — this synthesizes only from indexed sources. ' +
-        'Writes output to .sidecar/research/<project>/generated/outline.md. Example: `generate_outline()`.',
+        'Scaffold a hierarchical topic-outline SKELETON with placeholder nodes and per-node source-attribution slots; the returned message tells you the follow-up prompt that fills it in. ' +
+        'Run ingest_source first — the skeleton cites only indexed sources. ' +
+        'Writes output to .sidecar/research/<project>/generated/outline.md. Example: `generate_outline(source_ids="*")`.',
       input_schema: {
         type: 'object',
         properties: {

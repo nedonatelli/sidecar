@@ -24,10 +24,10 @@ import type { ChatMessage } from '../ollama/types.js';
 //     `hasInterrupt()` so the loop caller can abort the live stream
 //     before the boundary.
 //
-// Chunk 3.1 is the pure service — no loop wiring, no webview. The
-// loop integration lives in chunk 3.2 (drain on iteration boundary,
-// interrupt triggers AbortController.abort()) and the UI strip lives
-// in chunk 3.3.
+// This module is the pure service. The loop integration lives in
+// loop/steerDrain.ts plus the interrupt subscription in loop.ts (drain
+// on iteration boundary; interrupt aborts the in-flight turn's
+// AbortController). The UI strip lives in media/chat.js.
 // ---------------------------------------------------------------------------
 
 export type SteerUrgency = 'nudge' | 'interrupt';

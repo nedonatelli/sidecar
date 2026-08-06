@@ -128,8 +128,8 @@ export interface ScaffoldDescriptor {
 }
 
 /** Snapshot the active scaffold from a config/arm. `completionGate`,
- *  `injectionGuard` and `adaptiveScaffolding` default ON (mirroring settings.ts);
- *  the rest default OFF.
+ *  `injectionGuard`, `adaptiveScaffolding` and `keepBestRatchet` default ON
+ *  (mirroring settings.ts); the rest default OFF.
  *
  *  These defaults MUST track settings.ts. `adaptiveScaffolding` read an absent
  *  field as `false` until its real default flipped to `true` — which would have
@@ -147,7 +147,7 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
       impactGate: cfg.impactGateEnabled === true,
       numericalContractGate: cfg.numericalContractGateEnabled === true,
       analyticBoundsGate: cfg.analyticBoundsGateEnabled === true,
-      keepBestRatchet: cfg.keepBestRatchetEnabled === true,
+      keepBestRatchet: cfg.keepBestRatchetEnabled !== false,
       injectionGuard: cfg.injectionGuardEnabled !== false,
       diagnosticsReactiveFix: cfg.diagnosticsReactiveFixEnabled === true,
     },

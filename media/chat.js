@@ -1147,6 +1147,7 @@
     { cmd: '/bg', desc: 'Run a task in the background' },
     { cmd: '/fork', desc: 'Run N parallel approaches to the same task and pick the winner' },
     { cmd: '/sandbox', desc: 'Run one task in an isolated Shadow Workspace (accept/reject the diff at the end)' },
+    { cmd: '/revise', desc: 'Revise the current plan with feedback' },
     { cmd: '/arena', desc: 'Open Model Arena — compare 2–4 models side-by-side with ELO ratings' },
     { cmd: '/arena agent', desc: 'Model Arena agent mode — run a task through different models and pick the winner' },
     { cmd: '/notebook', desc: 'Enter source-grounded research mode with mandatory citations' },
@@ -1890,36 +1891,8 @@
       appendMessage(
         'assistant',
         '**Available chat commands:**\n' +
-          '`/help` — Show this list\n' +
-          '`/model <name>` — Switch model (persists across turns)\n' +
-          '`@opus` / `@sonnet` / `@haiku` / `@local` — one-turn model pin (v0.64)\n' +
-          '`/batch <tasks>` — Run multiple tasks\n' +
-          '`/doc` — Generate documentation\n' +
-          '`/spec <desc>` — Spec-driven development\n' +
-          '`/insight` — Codebase insight report\n' +
-          '`/commit` — Generate commit message & commit\n' +
-          '`/save <name>` — Save session\n' +
-          '`/sessions` — Browse conversations\n' +
-          '`/move <src> <dest>` — Move/rename file\n' +
-          '`/clone <url>` — Clone repository\n' +
-          '`/scan` — Scan staged files for secrets\n' +
-          '`/usage` — Token usage & cost dashboard\n' +
-          '`/context` — Show context window breakdown\n' +
-          '`/test` — Generate tests for active file\n' +
-          '`/lint` — Run linter and show results\n' +
-          '`/deps` — Analyze project dependencies\n' +
-          '`/scaffold <type>` — Generate code from template\n' +
-          '`/audit [filters]` — Agent action audit log\n' +
-          '`/insights` — Conversation pattern analysis\n' +
-          '`/mcp` — MCP server status\n' +
-          '`/verbose` — Toggle verbose mode (show agent reasoning)\n' +
-          '`/compact` — Summarize older turns to free context window space\n' +
-          '`/undo` — Revert last agent file changes and trim last turn\n' +
-          '`/guards` — Show active regression guards and built-in guard catalog\n' +
-          '`/branch [name]` — Fork the current conversation into a new named thread\n' +
-          '`/research [observe <note>]` — Set active research project or log an observation\n' +
-          '`/init` — Generate SIDECAR.md project notes from codebase\n' +
-          '`/prompt` — Show the current system prompt',
+          slashCommands.map((sc) => '`' + sc.cmd + '` — ' + sc.desc).join('\n') +
+          '\n`@opus` / `@sonnet` / `@haiku` / `@local` — one-turn model pin',
       );
       input.value = '';
       input.style.height = 'auto';

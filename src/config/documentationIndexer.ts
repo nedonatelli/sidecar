@@ -45,9 +45,9 @@ export interface DocumentationEntry {
  * matches ("install", "TypeScript", "API key"). The semantic index
  * targets code files and benefits from embedding-level similarity
  * ("auth flow" matching `jwt.ts`, `login.ts`, etc.) where no shared
- * token exists. Future work (see cycle-2 audit) is a retriever fusion
- * layer that merges results from both sources with reciprocal-rank
- * scoring instead of concatenating them.
+ * token exists. The retriever fusion layer that merges results from
+ * both sources with reciprocal-rank scoring shipped in
+ * src/agent/retrieval/ (fuseRetrieversMultiQuery).
  */
 export class DocumentationIndexer {
   private entries = new Map<string, DocumentationEntry>();

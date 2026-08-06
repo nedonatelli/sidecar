@@ -146,7 +146,7 @@ eval_baselines(model, case_id, pass_rate, last_passed, run_count, last_updated)
 -- pass rates by model:
 SELECT model, ROUND(AVG(passed)*100,1) as pct, COUNT(*) as runs FROM eval_runs GROUP BY model ORDER BY pct DESC
 -- recent failures for a case:
-SELECT model, failures, timestamp FROM eval_runs WHERE case_id=? AND passed=0 ORDER BY timestamp DESC LIMIT 5
+SELECT model, failures, timestamp FROM eval_runs WHERE case_id='fix-simple-bug' AND passed=0 ORDER BY timestamp DESC LIMIT 5
 -- regression check (last_passed=0 means most recent run failed):
 SELECT model, case_id, pass_rate, last_passed FROM eval_baselines WHERE last_passed=0 ORDER BY pass_rate DESC`;
   }

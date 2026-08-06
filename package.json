@@ -56,7 +56,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand *(coming soon)* | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
+            "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
           },
           "sidecar.apiKey": {
             "type": "string",
@@ -344,7 +344,7 @@
               "sidecar",
               "agent"
             ],
-            "markdownDescription": "Temperature for agent tool-calling requests.\n\n- `0.1-0.3` — deterministic tool selection (recommended for agent loops)\n- `0.7-1.0` — creative, more exploration\n\nNon-tool requests always use `0`."
+            "markdownDescription": "Temperature for LLM requests.\n\n- `0.1-0.3` — deterministic tool selection (recommended for agent loops)\n- `0.7-1.0` — creative, more exploration\n\nApplied to every request on Ollama and Kickstand; on Anthropic/Bedrock applied where the model supports it; on OpenAI-compatible backends applied only to tool-bearing requests (plain requests use the provider default)."
           },
           "sidecar.agentSeed": {
             "type": [
@@ -602,7 +602,7 @@
               "per-hunk"
             ],
             "default": "per-file",
-            "description": "How the Pending Changes panel presents a multi-file edit. 'bulk' = accept/reject all as one unit, 'per-file' = walk each file individually with Accept / Reject / diff (default), 'per-hunk' = walk each file's individual diff hunks with checkboxes so you can accept some edits and discard others within the same file."
+            "description": "How the AUDIT-MODE review (SideCar: Review Audited Changes) presents buffered edits. 'bulk' = accept/reject all as one unit, 'per-file' = walk each file individually with Accept / Reject / diff (default), 'per-hunk' = walk each file's individual diff hunks so you can accept some and discard others. Has no effect on the Pending Agent Changes view used outside audit mode."
           },
           "sidecar.retrieval.graphExpansion.enabled": {
             "type": "boolean",
@@ -885,7 +885,7 @@
           "sidecar.pr.create.draftByDefault": {
             "type": "boolean",
             "default": true,
-            "markdownDescription": "*(Draft PR, v0.68)* When true (default), `SideCar: Create Pull Request` opens PRs as drafts — so CI runs but no reviewer is pinged until you mark ready. Set false to open a ready-for-review PR on the first push."
+            "markdownDescription": "*(Draft PR, v0.68)* When true (default), `SideCar: Create Pull Request (Draft from Branch)` opens PRs as drafts — so CI runs but no reviewer is pinged until you mark ready. Set false to open a ready-for-review PR on the first push."
           },
           "sidecar.pr.create.baseBranch": {
             "type": "string",
@@ -1057,7 +1057,7 @@
               "sidecar",
               "context"
             ],
-            "markdownDescription": "Override the context token limit for local models. `0` = auto-detect — uses the value Ollama reports for the model, capped at 128K. Set explicitly (e.g. `32768`) to reduce KV-cache pressure on low-VRAM machines, or raise it beyond 128K for models that support more. Ignored for paid backends — their limits come from the API."
+            "markdownDescription": "Override the context token limit for local models. `0` = auto-detect — uses the value Ollama reports for the model, capped at 128K. Set explicitly (e.g. `32768`) to reduce KV-cache pressure on low-VRAM machines, or raise it beyond 128K for models that support more (some global-attention models carry lower per-model caps). On paid backends the API-reported limit wins; this value is used only when the API reports none."
           },
           "sidecar.pinnedContext": {
             "type": "array",
@@ -1108,7 +1108,7 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "*(Project Knowledge Index — graph walk, v0.110)* Max hops to walk the symbol graph from a direct vector hit. Set to `0` to disable graph expansion (return only direct cosine-similarity hits). `1` surfaces immediate callers; `2` (default) also surfaces their callers. Higher values add more context at the cost of a larger retrieval budget.\n\nHas no effect when `sidecar.retrieval.graphExpansion.enabled` is `false`."
+            "markdownDescription": "*(Project Knowledge Index — graph walk, v0.110)* Max hops to walk the symbol graph from a direct vector hit, for system-prompt retrieval. Set to `0` to disable graph expansion (return only direct cosine-similarity hits). `1` surfaces immediate callers; `2` (default) also surfaces their callers.\n\nHas no effect when `sidecar.retrieval.graphExpansion.enabled` is `false`, and the `project_knowledge_search` TOOL uses its own per-call depth (default 1, max 3) rather than this setting."
           },
           "sidecar.merkleIndex.enabled": {
             "type": "boolean",
@@ -1286,7 +1286,7 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "Controls the Shadow Workspace feature — a git-worktree sandbox at `.sidecar/shadows/<task-id>/` where the agent iterates without touching the main working tree. On task completion, the user sees a diff and can accept (apply to main) or reject (discard).\n\n- `off` (default) — disabled. Agent writes land directly in main.\n- `opt-in` — agent tasks run in the main tree; opt a specific task into a shadow with `/sandbox <task>` in chat. (An explicit `/sandbox` request shadows the task in any mode, including `off`.)\n- `always` — every agent task runs in a shadow. Safe but introduces per-task setup cost (worktree checkout) and a review step at end.\n\nThis is the v0.59 MVP tier. Per-hunk review UI, gate-command integration, symlinked build dirs, and rebase-on-moved-main conflict handling land in v0.60+."
+            "markdownDescription": "Controls the Shadow Workspace feature — a git-worktree sandbox at `.sidecar/shadows/<task-id>/` where the agent iterates without touching the main working tree. On task completion, the user sees a diff and can accept (apply to main) or reject (discard).\n\n- `off` (default) — disabled. Agent writes land directly in main.\n- `opt-in` — agent tasks run in the main tree; opt a specific task into a shadow with `/sandbox <task>` in chat. (An explicit `/sandbox` request shadows the task in any mode, including `off`.)\n- `always` — every agent task runs in a shadow. Safe but introduces per-task setup cost (worktree checkout) and a review step at end.\n\nStill open on this feature: per-hunk review UI, gate-command integration (`shadowWorkspace.gateCommand` is declared but not yet run), symlinked build dirs, and rebase-on-moved-main conflict handling."
           },
           "sidecar.shadowWorkspace.autoCleanup": {
             "type": "boolean",
@@ -1304,7 +1304,7 @@
             "tags": [
               "sidecar"
             ],
-            "markdownDescription": "Shell command run inside the shadow before the accept/reject prompt opens, so failing builds can't ship as accepted diffs. Defaults to `npm run check` which runs tsc + eslint + vitest per the SideCar project's own convention. Override for non-JS projects (e.g. `cargo check && cargo test`, `pytest && mypy`).\n\n**Not yet wired up in v0.59 MVP** — the setting exists so the gate lands zero-config in v0.60."
+            "markdownDescription": "Shell command intended to run inside the shadow before the accept/reject prompt opens, so failing builds can't ship as accepted diffs. Override for non-JS projects (e.g. `cargo check && cargo test`, `pytest && mypy`).\n\n**Not yet wired** — shadow runs currently go straight to the accept/reject prompt without running this command. The setting is declared so the gate can land zero-config when wired."
           },
           "sidecar.shadowWorkspace.sweepStaleOnActivation": {
             "type": "boolean",
@@ -1467,7 +1467,7 @@
           "sidecar.nextEdit.model": {
             "type": "string",
             "default": "",
-            "description": "Model override for next-edit LLM scoring (leave empty to use the chat model). Reserved for a future release that adds ranked patch previews."
+            "description": "Reserved — currently has NO effect. Next Edit ranking is a pure symbol-graph walk with no LLM call; this setting exists for a future release that adds LLM-ranked patch previews."
           },
           "sidecar.nextEdit.autoTriggerOnSave": {
             "type": "boolean",
@@ -1511,13 +1511,13 @@
               "red-team"
             ],
             "enumDescriptions": [
-              "Standard thinking (single perspective)",
-              "Model debates pros and cons with itself",
-              "Model structures thinking as a tree of possibilities",
-              "Model role-plays adversarial critique"
+              "Plain label — default",
+              "Label only: does NOT alter prompts or make the model debate itself",
+              "Label only: does NOT restructure the model's thinking",
+              "Label only: does NOT trigger adversarial critique"
             ],
             "default": "single",
-            "description": "Thinking visualization mode (when using Claude models with extended thinking enabled)"
+            "description": "Label stamped into the frontmatter of saved thinking logs (.sidecar/thinking/*.md) for any backend that emits thinking events. This is metadata for organizing your logs — it does not change prompts, add turns, or alter model behavior."
           },
           "sidecar.pinnedMemory.enabled": {
             "type": "boolean",
@@ -1884,7 +1884,7 @@
               "cost",
               "agent"
             ],
-            "markdownDescription": "Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research (file reads, greps, searches) to a local Ollama worker and receive a compact summary, cutting paid-model token usage on heavy exploration tasks. **No-op on local-only setups.**"
+            "markdownDescription": "Expose the `delegate_task` tool when the provider is Anthropic or OpenAI. The orchestrator can offload read-only research (file reads, greps, searches) to a local Ollama worker and receive a compact summary, cutting paid-model token usage on heavy exploration tasks. **Not offered on other backends** (incl. OpenRouter/Groq/Fireworks/Gemini/Bedrock) or local-only setups."
           },
           "sidecar.delegateTask.workerModel": {
             "type": "string",
@@ -2042,7 +2042,7 @@
           "sidecar.visualVerify.screenshotsDir": {
             "type": "string",
             "default": ".sidecar/screenshots",
-            "description": "Directory where screenshot_page saves captured PNGs. Relative to workspace root. This directory is gitignored automatically."
+            "description": "Directory where screenshot_page saves captured PNGs. Relative to workspace root. New workspaces get a `screenshots/` entry in the auto-created .sidecar/.gitignore; in an existing workspace add it yourself if you don't want captures committed."
           },
           "sidecar.visualVerify.maxAttempts": {
             "type": "number",
@@ -2277,14 +2277,14 @@
             "default": 102400,
             "minimum": 10240,
             "maximum": 10485760,
-            "description": "Maximum file size (in bytes) the agent will read in full. Files larger than this are streamed up to sidecar.streamingReadThreshold bytes."
+            "description": "Byte cap on file content pulled into WORKSPACE CONTEXT ranking (not the agent's read_file tool). Files over sidecar.streamingReadThreshold are summarized with a head+tail elision, bounded by this many bytes."
           },
           "sidecar.streamingReadThreshold": {
             "type": "number",
             "default": 51200,
             "minimum": 10240,
             "maximum": 10485760,
-            "description": "When reading a file larger than sidecar.maxFileSizeBytes, stream up to this many bytes from the start. Acts as a soft cap for large files."
+            "description": "File size (bytes) above which workspace-context ingestion switches to summary mode — a head+tail excerpt (bounded by sidecar.maxFileSizeBytes) instead of full content. Applies to context ranking, not the agent's read_file tool."
           },
           "sidecar.maxTraversalDepth": {
             "type": "number",
@@ -2320,7 +2320,7 @@
           "sidecar.enableSemanticSearch": {
             "type": "boolean",
             "default": true,
-            "description": "Enable semantic (embedding-based) search as a fallback when keyword search returns no results in the workspace index.",
+            "description": "Blend semantic (embedding-based) similarity into every workspace-index ranking pass, alongside keyword scoring (see sidecar.semanticSearchWeight for the mix). Not a fallback — it participates in every query when enabled.",
             "requiresWindowReload": true
           },
           "sidecar.semanticSearchWeight": {

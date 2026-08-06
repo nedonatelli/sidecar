@@ -6,16 +6,22 @@ describe('describeScaffold', () => {
     expect(describeScaffold({}).version).toBe(SCAFFOLD_VERSION);
   });
 
-  it('defaults completionGate and injectionGuard ON, others OFF', () => {
+  it('defaults completionGate, injectionGuard, adaptiveScaffolding and keepBestRatchet ON, others OFF', () => {
+    // Mirrors settings.ts defaults — keepBest flipped default-on in v0.118
+    // (scaffold 2.1.0). An absent field must stamp the settings default, or
+    // a run manifest misreports the scaffold that actually ran.
     const f = describeScaffold({}).features;
     expect(f.completionGate).toBe(true);
     expect(f.injectionGuard).toBe(true);
+    expect(f.adaptiveScaffolding).toBe(true);
+    expect(f.keepBestRatchet).toBe(true);
     expect(f.critic).toBe(false);
-    expect(f.keepBestRatchet).toBe(false);
     expect(f.analyticBoundsGate).toBe(false);
   });
 
   it('captures the ablation scaffold-off arm as bare', () => {
+    // A bare arm must set every default-ON mechanism to false explicitly —
+    // absence means "settings default", not "off".
     const off = describeScaffold({
       completionGateEnabled: false,
       criticEnabled: false,
@@ -24,6 +30,7 @@ describe('describeScaffold', () => {
       impactGateEnabled: false,
       numericalContractGateEnabled: false,
       injectionGuardEnabled: false,
+      keepBestRatchetEnabled: false,
     });
     expect(Object.values(off.features).every((v) => v === false)).toBe(true);
   });
@@ -36,6 +43,9 @@ describe('describeScaffold', () => {
       adaptiveScaffoldingEnabled: true,
       impactGateEnabled: true,
       numericalContractGateEnabled: true,
+      // Excluded from the pre-2.0 arm explicitly — absence now means
+      // "settings default" (ON since v0.118), not "off".
+      keepBestRatchetEnabled: false,
     });
     expect(on.features).toMatchObject({
       completionGate: true,
@@ -59,13 +69,14 @@ describe('scaffoldLabel', () => {
   });
 
   it('shows "bare" when nothing is on', () => {
-    // adaptiveScaffolding defaults ON now, so "bare" means every mechanism
-    // explicitly off — an EMPTY config is no longer bare.
+    // adaptiveScaffolding and keepBestRatchet default ON now, so "bare"
+    // means every mechanism explicitly off — an EMPTY config is not bare.
     const label = scaffoldLabel(
       describeScaffold({
         completionGateEnabled: false,
         injectionGuardEnabled: false,
         adaptiveScaffoldingEnabled: false,
+        keepBestRatchetEnabled: false,
       }),
     );
     expect(label).toContain('bare');

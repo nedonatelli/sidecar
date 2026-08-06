@@ -578,7 +578,9 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
       }
     } else {
       lines.push('You have not run a static check on your edits this turn. Call:');
-      lines.push('  get_diagnostics   (checks every edited file — works for all languages)');
+      lines.push(
+        '  get_diagnostics with the path of each edited file   (a path-less call only lists already-reported diagnostics)',
+      );
       if (jstsFiles.length > 0) {
         lines.push(`Or, for the JS/TS files specifically: run_command with command: npx eslint ${jstsFiles.join(' ')}`);
       }

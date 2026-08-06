@@ -207,7 +207,7 @@ export const runCommandDef: ToolDefinition = {
   name: 'run_command',
   nondeterministicOutput: true,
   description:
-    'Execute a shell command in a persistent shell session. Environment variables, aliases, and working directory changes persist between calls. ' +
+    'Execute a shell command in a persistent shell session. Environment variables and working directory changes persist between calls (aliases and shell functions deliberately do not). ' +
     'Examples: "npm test", "git status", "python main.py". ' +
     'For long-running processes, set background=true to get a command ID, then call again with just command_id to check output. ' +
     'The command and command_id parameters are mutually exclusive — provide one or the other, not both.',

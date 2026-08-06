@@ -19,7 +19,7 @@ function isDispatchableName(name: string, toolNames: Set<string>): boolean {
 // ---------------------------------------------------------------------------
 // Text-level parsing + cleanup helpers for runAgentLoop.
 //
-// Two pure functions that used to live at the bottom of loop.ts and
+// Pure text-parsing helpers that used to live at the bottom of loop.ts and
 // were getting in the way of the main orchestration story. They're
 // independently unit-tested (loop.test.ts exercises both), so moving
 // them here doesn't change behavior — loop.ts re-exports them so

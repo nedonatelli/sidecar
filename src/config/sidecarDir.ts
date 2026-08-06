@@ -50,6 +50,8 @@ export class SidecarDir {
     'scratchpad/',
     'audit-buffer/',
     'literature/',
+    'screenshots/',
+    'thinking/',
     'pids.json',
     '',
   ].join('\n');

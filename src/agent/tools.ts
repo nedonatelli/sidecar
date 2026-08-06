@@ -152,7 +152,7 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
       name: 'describe_tool',
       description:
         'Return the full schema and parameter documentation for any registered tool. ' +
-        "Use this before calling a tool whose definition is marked '(describe_tool for full schema)' — " +
+        'Use this before calling a tool whose definition carries a `[stub — …]` marker pointing here — ' +
         'those tools show only a one-line summary in the prompt to save context; this call fetches the real parameter list. ' +
         "Example: `describe_tool(name='latex_compile')` returns the full input schema with all parameters and their types.",
       input_schema: {
@@ -277,7 +277,7 @@ export const DELEGATE_TASK_DEFINITION: ToolDefinition = {
   name: 'delegate_task',
   description:
     'Offload a focused, read-only research task to a local Ollama worker model, saving tokens on this paid backend. ' +
-    'The worker can read files, grep, search, list directories, inspect diagnostics, find references, and query git — but CANNOT write, edit, run commands, or make changes. It returns a structured summary. ' +
+    'The worker can read files, grep, search, list directories, inspect diagnostics, find references, query git, and run a filtered set of safe read-only shell commands — but CANNOT write or edit files. It returns a structured summary. ' +
     'IDEAL use cases: "Find all callers of the deprecated authenticate() function", "Read the three files in src/agent/ and summarize how tool execution flows", "Grep for any TODO comments related to caching and list them with file:line". ' +
     'BAD use cases: tasks requiring code changes, tasks needing user interaction, tasks where you need the exact raw bytes of a file (the worker summarizes), tasks that are trivially small (< 500 tokens of tool output). ' +
     'Use this liberally for codebase exploration on large repos — every delegated file read is a token you do not pay for.',

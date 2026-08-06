@@ -263,7 +263,7 @@ export interface AgentOptions {
    */
   commandFilter?: (command: string) => boolean;
   /**
-   * Extra policy hooks registered after the four built-in ones
+   * Extra policy hooks registered after the eight built-in ones
    * (auto-fix, stub validator, critic, completion gate). Runs in
    * registration order inside the same HookBus as the built-ins;
    * later hooks see the mutations earlier hooks made to state.messages.
@@ -406,13 +406,13 @@ export async function runAgentLoop(
       state.logger?.info('Steer queue: interrupt-urgency steer aborted in-flight stream');
     }) ?? (() => {});
 
-  // Build the policy hook bus. Four built-in hooks ship by default
-  // (auto-fix, stub validator, critic, completion gate); regression
-  // guards defined in `sidecar.regressionGuards` register next if the
-  // workspace-trust prompt is accepted; extra hooks supplied via
-  // options.extraPolicyHooks register last and see every earlier
-  // hook's mutations. This replaces the direct helper calls the
-  // orchestrator made in v0.53.
+  // Build the policy hook bus. Eight built-in hooks ship by default
+  // (see defaultPolicyHooks: autoFix → isolateRewrite → unappliedEdit →
+  // stubValidator → adversarialCritic → actionReprompt → completionGate →
+  // analysisCritic); regression guards defined in `sidecar.regressionGuards`
+  // register next if the workspace-trust prompt is accepted; then
+  // options.extraPolicyHooks; SDK-registered hooks register last and see
+  // every earlier hook's mutations.
   const hookBus = new HookBus();
   hookBus.registerAll(defaultPolicyHooks());
   const regressionGuardHooks = await buildRegressionGuardHooks();
@@ -442,6 +442,18 @@ export async function runAgentLoop(
       // steerQueue is unset or empty.
       await drainSteerQueueAtBoundary(state, options.steerQueue, signal, callbacks, {
         coalesceWindowMs: state.config.steerQueueCoalesceWindowMs,
+      });
+
+      // beforeIteration phase. No built-in hook implements it; this call
+      // exists so SDK/extra hooks that do are actually invoked — the phase
+      // is part of the documented PolicyHook surface.
+      await hookBus.runBefore(state, {
+        client,
+        config: state.config,
+        options,
+        signal,
+        callbacks,
+        runId: state.runId,
       });
 
       // Pre-turn budget compression. Returns 'exhausted' when
@@ -825,10 +837,11 @@ export async function runAgentLoop(
       // iteration doesn't open over budget.
       maybeCompressPostTool(state);
 
-      // afterToolResults phase: all four built-in hooks fire here in
-      // registration order (auto-fix → stub → critic → completion gate
-      // tool tracking). Any user-supplied extraPolicyHooks run after the
-      // built-ins. Each hook may push a synthetic user message asking
+      // afterToolResults phase: the five built-ins implementing it fire in
+      // registration order (autoFix → isolateRewrite → unappliedEdit →
+      // stubValidator → completionGate tool tracking; the critics fire in
+      // onEmptyResponse instead). Any user-supplied extraPolicyHooks and
+      // SDK hooks run after the built-ins. Each hook may push a synthetic user message asking
       // the agent to do more work before ending the turn — the return
       // value is currently informational only, because the loop
       // continues iterating regardless (the tool call sequence is what
@@ -872,6 +885,17 @@ export async function runAgentLoop(
       throw err;
     }
   } finally {
+    // onTermination phase — runs once regardless of break reason, per the
+    // documented PolicyHook surface. Never throws (per-hook errors are
+    // caught and logged by the bus).
+    await hookBus.runTermination(state, {
+      client,
+      config: state.config,
+      options,
+      signal,
+      callbacks,
+      runId: state.runId,
+    });
     disposeSteerListener();
     currentTurnController = null;
     clearCompressionCache();

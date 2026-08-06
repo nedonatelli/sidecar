@@ -6,9 +6,9 @@
  * single fingerprint that changes iff any symbol in the workspace
  * changed.
  *
- * This primitive is static (build it, query it); keystroke-live
- * updates and integration with `SymbolEmbeddingIndex` land in d.2
- * and d.3. Keeping the tree as a pure data structure here means the
+ * This primitive is static (build it, query it); `SymbolEmbeddingIndex`
+ * wires it in for incremental refresh and search-time descent (see its
+ * Merkle hooks). Keeping the tree as a pure data structure here means the
  * wiring layers can test against it without spinning up the full
  * embedding pipeline.
  *

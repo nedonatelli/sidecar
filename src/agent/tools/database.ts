@@ -88,7 +88,9 @@ async function dbListConnections(
       p.dialect === 'sqlite' || p.dialect === 'duckdb'
         ? (p.filePath ?? '(no file path)')
         : `${p.host ?? 'localhost'}:${p.port ?? defaultPort(p.dialect)}/${p.database ?? ''}`;
-    return `${p.name} [${p.dialect}] — ${location} (${connected})${p.readOnly === false ? '' : ' [read-only]'}`;
+    // Lead with p.id — it is what every other db_* tool's connection_id must match.
+    const label = p.name && p.name !== p.id ? ` (${p.name})` : '';
+    return `${p.id}${label} [${p.dialect}] — ${location} (${connected})${p.readOnly === false ? '' : ' [read-only]'}`;
   });
   return lines.join('\n');
 }
@@ -393,8 +395,8 @@ export const databaseTools: RegisteredTool[] = [
       description:
         'List all configured database connections and their current status (connected / not connected). ' +
         "Returns each connection's name, dialect (sqlite/postgres/mysql/duckdb), host/file location, and read-only flag. " +
-        'Use this FIRST to discover valid connection_id values before calling db_list_tables, db_describe_table, or db_query. ' +
-        'Example: `db_list_connections()` → "my-results [sqlite] — /data/results.db ○ not connected [read-only]".',
+        'Use this FIRST to discover valid connection_id values before calling db_list_tables, db_describe_table, or db_query — the leading token of each line is the connection_id. ' +
+        'Example: `db_list_connections()` → "my-results [sqlite] — /data/results.db (not connected) [read-only]".',
       input_schema: {
         type: 'object',
         properties: {},
@@ -491,7 +493,7 @@ export const databaseTools: RegisteredTool[] = [
       description:
         'Execute a write SQL statement (INSERT, UPDATE, DELETE, DDL) on a database connection. ' +
         'Requires the connection profile to have readOnly set to false. ' +
-        'Always requires user approval before execution. ' +
+        'Requires approval under your approval mode (autonomous mode skips the prompt, as with other mutating tools). ' +
         'In Audit Mode the statement is buffered at .sidecar/audit/db/{connectionId}/{timestamp}.sql for review instead of executing immediately. ' +
         'Example: `db_execute(connection_id="my-db", sql="INSERT INTO logs (msg) VALUES (?)", params=["hello"])`.',
       input_schema: {
@@ -518,7 +520,7 @@ export const databaseTools: RegisteredTool[] = [
       description:
         'Run database migrations to the latest version using a supported ORM or migration tool. ' +
         'Supported tools: prisma, alembic, flyway, drizzle, custom. ' +
-        'Always requires user approval. Use dry_run=true first to preview the command without executing it. ' +
+        'Requires approval under your approval mode. Use dry_run=true first to preview the command without executing it. ' +
         'Example: `db_migrate_up(connection_id="my-db", tool="prisma", migration_dir="prisma")` ' +
         'or `db_migrate_up(connection_id="my-db", tool="alembic", migration_dir="migrations", dry_run=true)`.',
       input_schema: {

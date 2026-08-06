@@ -446,6 +446,6 @@ export async function buildNoFileWriteReprompt(
   return (
     `Your task mentioned ${fileList} but you finished without writing to ${unwritten.length === 1 ? 'it' : 'any of them'}. ` +
     `If the task required changes to ${unwritten.length === 1 ? 'that file' : 'those files'}, make them now. ` +
-    `If you already completed everything the task asked for, ignore this and call done again.`
+    `If you already completed everything the task asked for, ignore this and finish with a plain text answer (no tool calls).`
   );
 }

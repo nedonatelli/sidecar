@@ -36,7 +36,7 @@ export function classifyError(message: string): {
     return { errorType: 'connection', errorAction: 'Check Connection', errorActionCommand: 'openSettings' };
   }
   if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
-    return { errorType: 'rate_limit', errorAction: 'Wait and Retry', errorActionCommand: 'retry' };
+    return { errorType: 'rate_limit', errorAction: 'Retry', errorActionCommand: 'retry' };
   }
   if (
     lower.includes('content_policy') ||

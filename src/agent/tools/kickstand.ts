@@ -48,7 +48,7 @@ export const kickstandListLorasDef: ToolDefinition = {
   nondeterministicOutput: true,
   description:
     'List LoRA adapters currently attached to a Kickstand-hosted model. Returns each adapter with its `id`, `path`, and `scale`. Requires the active backend to be Kickstand with a loaded model — other backends return a clear "not supported" error. ' +
-    'Example: `kickstand_list_loras(model_id="qwen2.5-coder:7b")` → `[ { id: "ad-xyz", path: "/Users/me/loras/python-style.gguf", scale: 1.0 } ]`.',
+    'Example: `kickstand_list_loras(model_id="qwen2.5-coder:7b")` → `- ad-xyz (scale 1) → /Users/me/loras/python-style.gguf`.',
   input_schema: {
     type: 'object',
     properties: {

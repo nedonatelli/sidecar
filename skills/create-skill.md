@@ -10,6 +10,7 @@ The user wants to create a new skill. Guide them through the process and generat
 ## Skill File Format
 
 Skills are Markdown files with YAML frontmatter. They live in one of these directories:
+
 - `~/.claude/commands/` — personal skills (available in all projects)
 - `<workspace>/.claude/commands/` — project-specific skills (shared via git)
 - `<workspace>/.sidecar/skills/` — SideCar native project skills
@@ -45,11 +46,12 @@ Instructions for the AI agent when this skill is invoked.
    - Structured markdown body with step-by-step instructions
 4. Write the file using `write_file`
 5. Confirm the skill was created and explain how to use it (`/skill-id` in chat)
-6. If the user has `sidecar.skills.userRegistry` configured, ask: "Would you like to publish this skill to your registry so it's available on all your machines?" If yes, run the command `sidecar.skills.publish` with the file path.
+6. If the user has `sidecar.skills.userRegistry` configured, ask: "Would you like to publish this skill to your registry so it's available on all your machines?" If yes, tell them to run `SideCar: Publish Skill to Registry` from the Command Palette with the new file open — you cannot invoke VS Code commands yourself.
 
 ## Naming Convention
 
 The filename (without `.md`) becomes the slash command. Use kebab-case:
+
 - `fix-tests.md` → `/fix-tests`
 - `add-component.md` → `/add-component`
 - `review-pr.md` → `/review-pr`

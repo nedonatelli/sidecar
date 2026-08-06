@@ -399,7 +399,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     gateState: createGateState(lastUserText(copiedMessages)),
     currentEditPlan: null,
     checkpointFired: false,
-    // Keep-best ratchet: opt-in and disabled in audit mode (writes are buffered
+    // Keep-best ratchet: default-on since v0.118; disabled in audit mode (writes are buffered
     // in memory there, so a disk-level revert doesn't apply).
     ratchet: initRatchetRunState(
       (options.config ?? getConfig()).keepBestRatchetEnabled === true &&

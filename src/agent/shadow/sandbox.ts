@@ -55,8 +55,9 @@ export interface SandboxResult {
  * Accept → `shadow.applyToMain()` stages the patch onto main; reject
  * → the shadow is discarded and main is untouched.
  *
- * This is the v0.59 MVP. Per-hunk review UI, gate-command integration,
- * conflict-rebase handling, and symlinked build dirs ship in v0.60+.
+ * Still open on this feature: per-hunk review UI, gate-command
+ * integration (shadowWorkspace.gateCommand is declared but not yet run
+ * here), conflict-rebase handling, and symlinked build dirs.
  */
 export async function runAgentLoopInSandbox(
   client: SideCarClient,

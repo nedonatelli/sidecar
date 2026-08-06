@@ -47,9 +47,11 @@ describe('notebookSystemPromptPrefix', () => {
 
 describe('handleNotebookStart', () => {
   beforeEach(() => {
+    __resetConfigCacheForTests();
     vi.spyOn(notebookModule, 'listIngestedSources').mockReturnValue([]);
     vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
       get: <T>(key: string, defaultValue?: T): T => {
+        if (key === 'notebookMode.enabled') return true as unknown as T;
         if (key === 'notebookMode.requireCitations') return 'strict' as unknown as T;
         return defaultValue as T;
       },
@@ -57,6 +59,26 @@ describe('handleNotebookStart', () => {
       update: async () => {},
       has: () => false,
     } as unknown as ReturnType<typeof workspace.getConfiguration>);
+  });
+
+  it('refuses activation and explains the setting when notebookMode.enabled is off', () => {
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: <T>(key: string, defaultValue?: T): T => {
+        if (key === 'notebookMode.enabled') return false as unknown as T;
+        return defaultValue as T;
+      },
+      inspect: () => undefined,
+      update: async () => {},
+      has: () => false,
+    } as unknown as ReturnType<typeof workspace.getConfiguration>);
+    __resetConfigCacheForTests();
+    const state = makeMockState();
+    handleNotebookStart(state);
+    expect(isNotebookModeActive(state)).toBe(false);
+    const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c0: unknown[]) => (c0[0] as { command?: string }).command === 'assistantMessage',
+    );
+    expect(call?.[0].content).toContain('sidecar.notebookMode.enabled');
   });
 
   it('sets notebookModeActive on state', () => {
@@ -140,6 +162,7 @@ describe('getNotebookRequireCitations', () => {
     __resetConfigCacheForTests();
     vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
       get: <T>(key: string, defaultValue?: T): T => {
+        if (key === 'notebookMode.enabled') return true as unknown as T;
         if (key === 'notebookMode.requireCitations') return 'advisory' as unknown as T;
         return defaultValue as T;
       },

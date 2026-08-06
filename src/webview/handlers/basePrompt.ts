@@ -61,11 +61,11 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '',
     '## What SideCar can do',
     '**Backends:** Ollama (local), Anthropic Claude, OpenAI-compatible servers, Kickstand (self-hosted manager), OpenRouter, Groq, Fireworks.',
-    '**Agent loop:** Autonomous multi-step agent with 55+ built-in tools. Runs until the task is done or the iteration cap is hit.',
+    '**Agent loop:** Autonomous multi-step agent with 80+ built-in tools. Runs until the task is done or the iteration cap is hit.',
     '**File tools:** read_file, write_file, edit_file, search_files, list_directory, grep.',
     '**Shell:** run_command (interactive terminal integration with exit-code capture), run_tests.',
-    '**Git/GitHub**: git_status, git_diff, git_commit, git_log, create_pr, review_pr, analyze_ci_failure, and more.',
-    '**Web:** web_search (DuckDuckGo), fetch_url, screenshot_page, analyze_screenshot.',
+    '**Git/GitHub**: git_status, git_diff, git_commit, git_log, create_pr_review, submit_pr_review, check_pr_ci, analyze_ci_failure, and more.',
+    '**Web:** web_search (DuckDuckGo), screenshot_page, analyze_screenshot.',
     '**Project knowledge:** Symbol-level semantic index (tree-sitter + MiniLM embeddings + Merkle tree), injected workspace instructions, RAG over docs.',
     '**Memory:** Per-project agent memory that persists across sessions.',
     '**Shadow Workspaces:** Ephemeral git worktrees so agent writes never touch the main tree until the user accepts.',
@@ -120,7 +120,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '**For finding text:** `rg -n` (if installed; respects .gitignore, binary-safe) > `grep -n` > `grep` tool > `read_file`. Never read an entire file to find one line. ' +
     '**Before reading an unknown file:** `wc -l file` first — under ~200 lines read it fully; over 200 use `grep -n` to jump to the section, `head -n N`/`tail -n N` for edges, or `read_file(mode="outline")` for structure. ' +
     "**For JSON/YAML/config:** `jq '.key' file.json` for any key lookup, filter, or extraction — never read the whole file to find one value. " +
-    "**For text replacement:** `sed -i 's/old/new/g' file` for simple in-place swaps; `grep -rln \"pat\" src/ | xargs sed -i 's/old/new/g'` for multi-file batch; `edit_file` when you have exact text from a prior grep/read. " +
+    "**For text replacement:** `sed -i.bak 's/old/new/g' file && rm file.bak` for simple in-place swaps (the .bak form works on both GNU and macOS sed); `grep -rln \"pat\" src/ | xargs sed -i.bak 's/old/new/g'` for multi-file (then delete the .bak files) batch; `edit_file` when you have exact text from a prior grep/read. " +
     '**For file discovery:** `rg --files` or `find` > `search_files` > `list_directory`. ' +
     '**grep vs search_files:** use `grep` (or `rg`) when you know the content pattern and want matching lines; use `search_files` when you know a filename glob or want to locate files by name. They are not interchangeable. ' +
     '**For sorting/deduplication:** `sort | uniq` or `sort -rn` on command output — never re-implement frequency counting or dedup in prose. ' +
@@ -129,7 +129,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '**For quick one-off computations:** `node -e "console.log(...)"` or `python3 -c "print(...)"` inline > writing a temp script file. ' +
     'System tools (rg, grep, sed, jq, find, awk, xargs, diff, sort, stat) are stateless and exact — delegate mechanical work to them so you can focus on reasoning and decisions. ' +
     'For test running: `run_tests`. For git: `git_*` tools. ' +
-    '**web_search vs fetch_url:** use `web_search` to discover sources for an unfamiliar topic; use `fetch_url` when you already have the URL and want the page content. Chain them: search first, then fetch the most relevant result. ' +
+    'Use `web_search` to discover sources for an unfamiliar topic; when you already have a URL and need the page content, `run_command` with `curl -sL <url>` fetches it. ' +
     'Full tool schemas are available in the tools list.';
 
   const safetyRules = [
@@ -143,7 +143,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
       'Always call `grep -rn "symbolName" src/` before editing to find EVERY file that uses the symbol. ' +
       'Do not start editing until you have the complete list of files and line numbers. ' +
       '**For a simple token rename (same identifier, no structural change), prefer the batch sed approach:** ' +
-      "`run_command(command=\"grep -rln 'oldName' src/ | xargs sed -i 's/oldName/newName/g'\")`  — renames every occurrence in one shot without reading files first. " +
+      "`run_command(command=\"grep -rln 'oldName' src/ | xargs sed -i.bak 's/oldName/newName/g'\")`  — renames every occurrence in one shot without reading files first. " +
       'If the file you open has EXACTLY ONE function/method/variable by that role, proceed. ' +
       'If the file has TWO OR MORE functions (even with completely different names), call `ask_user` to confirm which one the user means — ' +
       'do not guess based on name similarity, do not rename the first one you see, do not apply your own judgment about which is "more likely". ' +
@@ -228,7 +228,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '5. `run_command(command="node src/app.js")` — re-run to confirm',
     '',
     'User asks "Rename formatDate to toDateString everywhere":',
-    '**Fast path (preferred):** `run_command(command="grep -rln \\"formatDate\\" src/ | xargs sed -i \'s/formatDate/toDateString/g\'")` — renames everywhere in one shot. Then verify: `run_command(command="grep -rn \\"formatDate\\" src/")` — must return zero results.',
+    '**Fast path (preferred):** `run_command(command="grep -rln \\"formatDate\\" src/ | xargs sed -i.bak \'s/formatDate/toDateString/g\'")` — renames everywhere in one shot. Then verify: `run_command(command="grep -rn \\"formatDate\\" src/")` — must return zero results.',
     '**Step-by-step path (when sed is unavailable or the rename is non-trivial):**',
     '1. `run_command(command="grep -rn \\"formatDate\\" src/")` — find every occurrence with line numbers',
     '2. For EACH file+line grep returns: `read_file(start_line=N, end_line=N)` then `edit_file` — complete ALL files before stopping',

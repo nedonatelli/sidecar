@@ -31,6 +31,11 @@ const SCAFFOLD_ON: ArmOverrides = {
   adaptiveScaffoldingEnabled: true,
   impactGateEnabled: true,
   numericalContractGateEnabled: true,
+  // Explicitly OFF: keepBest flipped default-on in v0.118, and without this
+  // pin the scaffold-on arm silently inherited the ratchet from the user's
+  // config — making it indistinguishable from scaffold-on-ratchet. The
+  // separate ratchet arm is what isolates the ratchet's effect.
+  keepBestRatchetEnabled: false,
 };
 
 const SCAFFOLD_OFF: ArmOverrides = {
@@ -41,6 +46,7 @@ const SCAFFOLD_OFF: ArmOverrides = {
   impactGateEnabled: false,
   numericalContractGateEnabled: false,
   diagnosticsReactiveFixEnabled: false,
+  keepBestRatchetEnabled: false,
   regressionGuards: [],
 };
 
@@ -49,9 +55,9 @@ const SCAFFOLD_OFF: ArmOverrides = {
 const GATE_ONLY: ArmOverrides = { ...SCAFFOLD_OFF, completionGateEnabled: true };
 const CRITIC_ONLY: ArmOverrides = { ...SCAFFOLD_OFF, criticEnabled: true };
 
-// scaffold-on + the keep-best ratchet (scaffold 2.0.1 default: any unproven
-// scaffold-tail growth reverts). Not yet in SCAFFOLD_ON itself (see
-// docs/scaffold-versions.md's 2.0.0 note) — a separate arm isolates the
+// scaffold-on + the keep-best ratchet (any unproven scaffold-tail growth
+// reverts). Kept OUT of SCAFFOLD_ON deliberately even though the shipped
+// default is now ON (v0.118) — the separate arm is what isolates the
 // ratchet's effect on the established scaffold-on behavior.
 const SCAFFOLD_ON_RATCHET: ArmOverrides = { ...SCAFFOLD_ON, keepBestRatchetEnabled: true };
 

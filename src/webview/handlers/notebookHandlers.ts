@@ -49,6 +49,22 @@ export function notebookSystemPromptPrefix(requireCitations: 'strict' | 'advisor
 
 export function handleNotebookStart(state: ChatState): void {
   const config = getConfig();
+
+  // The notebook tool group (ingest_source + the five generate_* tools) is
+  // gated on this setting — "activating" the mode without it hands the user
+  // instructions for tools the model cannot see or call.
+  if (!config.notebookModeEnabled) {
+    state.postMessage({
+      command: 'assistantMessage',
+      content:
+        '**Notebook Mode is disabled.** Its tools (`ingest_source`, the study-aid generators) are gated ' +
+        'behind `sidecar.notebookMode.enabled`, which is off by default. Enable it in Settings ' +
+        '(search "notebook"), then run `/notebook` again.',
+    });
+    state.postMessage({ command: 'done' });
+    return;
+  }
+
   const requireCitations = config.notebookModeRequireCitations;
 
   state.notebookModeActive = true;

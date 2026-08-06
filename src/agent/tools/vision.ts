@@ -347,6 +347,24 @@ async function runPlaywrightCode(input: Record<string, unknown>): Promise<string
   await fs.promises.mkdir(tmpDir, { recursive: true });
   const scriptPath = path.join(tmpDir, `script-${Date.now()}.mjs`);
 
+  // ESM specifier resolution walks up from the SCRIPT's directory, not the
+  // extension host — so a bare `import ... from "playwright-core"` in the
+  // temp dir finds nothing. Link the extension's node_modules next to the
+  // script so the documented import actually resolves.
+  try {
+    const pwPkg = require.resolve('playwright-core/package.json');
+    const nodeModulesRoot = path.dirname(path.dirname(pwPkg));
+    const linkPath = path.join(tmpDir, 'node_modules');
+    try {
+      await fs.promises.symlink(nodeModulesRoot, linkPath, 'junction');
+    } catch {
+      // EEXIST from a prior run — the link is already in place.
+    }
+  } catch {
+    // playwright-core not installed (optional peer) — scripts that don't
+    // import it still run; ones that do get the module-not-found error.
+  }
+
   try {
     await fs.promises.writeFile(scriptPath, script, 'utf-8');
   } catch (err) {
@@ -466,7 +484,7 @@ export const visionTools: RegisteredTool[] = [
         'Analyze a screenshot against stated visual criteria using a vision-capable model. ' +
         'Runs a fast heuristic pre-filter (blank canvas, edge clipping) before calling the VLM. ' +
         'Returns a structured verdict: { pass: boolean, issues: string[] }. ' +
-        'Works on any local PNG/JPEG file — use after screenshot_page or after running a script that generates an image. ' +
+        'Works on workspace-relative PNG/JPEG paths (absolute paths and paths outside the workspace are rejected) — use after screenshot_page or after running a script that generates an image. ' +
         'Example: `analyze_screenshot(image_path="output.png", criteria="axes are labeled, no clipping, -3dB near 1kHz")`. ' +
         'Requires a vision-capable model (Claude 3+, GPT-4o, or an Ollama vision model like llava).',
       input_schema: {

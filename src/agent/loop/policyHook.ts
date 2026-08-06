@@ -72,19 +72,17 @@ export interface HookResult {
  *
  * Phases, in call order:
  *   - `beforeIteration`: start of each iteration, before streaming.
- *     Intended for future hooks that want to short-circuit or
- *     mutate state before the request goes out. No built-in hook
- *     uses this today.
+ *     No built-in hook uses this; invoked for SDK/extra hooks that do.
  *   - `afterToolResults`: after tool execution + history append.
- *     Where auto-fix, stub validator, critic, and the gate's
- *     tool-call recording all fire.
+ *     Where autoFix, isolateRewrite, unappliedEdit, stubValidator,
+ *     and the gate's tool-call recording fire.
  *   - `onEmptyResponse`: reached when the model produced no tool
- *     calls AND no recoverable text. Where the completion gate
- *     fires its empty-response check — if nothing injects, the
- *     loop breaks.
- *   - `onTermination`: run once at the end, regardless of break
- *     reason. Intended for final telemetry / cleanup. No built-in
- *     hook uses this today.
+ *     calls AND no recoverable text. Where the adversarial critic,
+ *     action reprompt, completion gate check, and analysis critic
+ *     fire — if nothing injects, the loop breaks.
+ *   - `onTermination`: run once in the loop's finally, regardless of
+ *     break reason. Final telemetry / cleanup; per-hook errors are
+ *     logged, never thrown. No built-in hook uses this today.
  */
 export interface PolicyHook {
   /** Short identifier used in logs. E.g. 'autoFix', 'stubValidator'. */

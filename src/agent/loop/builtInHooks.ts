@@ -27,11 +27,13 @@ import type { LoopState } from './state.js';
  *
  * Order inside `defaultPolicyHooks()` is the same order v0.53 ran them
  * in: auto-fix first (cheapest, catches the most common regression),
- * stub validator second (deterministic text match), critic last (most
- * expensive, gated behind `sidecar.critic.enabled`). Completion gate
- * is both a tool-recording hook AND an empty-response hook — the
- * single adapter implements both phases on one object so there's one
- * thing to enable/disable.
+ * then the edit-shape nudges (isolateRewrite, unappliedEdit), then the
+ * stub validator (deterministic text match); the critics are the most
+ * expensive and fire in onEmptyResponse (adversarialCritic before the
+ * gate check, analysisCritic after it). Completion gate is both a
+ * tool-recording hook AND an empty-response hook — the single adapter
+ * implements both phases on one object so there's one thing to
+ * enable/disable.
  */
 
 const autoFixHook: PolicyHook = {

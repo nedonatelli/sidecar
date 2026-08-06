@@ -18,7 +18,9 @@ export interface RegressionGuardConfig {
   command: string;
   /** When the guard runs. `post-write` only fires when the turn
    *  included a file-mutation tool; `post-turn` fires after every
-   *  turn; `pre-completion` fires when the model tries to finish. */
+   *  tool-bearing turn (text-only turns take the empty-response path
+   *  and skip it); `pre-completion` fires when the model tries to
+   *  finish. */
   trigger: 'post-write' | 'post-turn' | 'pre-completion';
   /** When `blocking: true` (default), a failing guard injects a
    *  synthetic user message so the agent must address it. With

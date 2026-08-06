@@ -21,7 +21,8 @@ const WORKER_ALLOWED_TOOLS = new Set([
   'git_diff',
   'git_status',
   'git_log',
-  'git_branch',
+  // git_branch deliberately excluded: its create/switch actions mutate the
+  // repo, and the delegate is promised to the orchestrator as read-only.
   'display_diagram',
   'run_command', // Safe commands only — filtered by isWorkerSafeCommand()
 ]);
@@ -151,10 +152,10 @@ const WORKER_SYSTEM_PROMPT = `You are a local research worker spawned by a front
 ## Rules
 
 - Do the task efficiently. No chit-chat, no clarifying questions.
-- You have read-only tools: read_file, grep, search_files, list_directory, get_diagnostics, find_references, git_*, display_diagram.
+- You have read-only tools: read_file, grep, search_files, list_directory, get_diagnostics, find_references, git_diff, git_status, git_log, display_diagram.
 - You can run SAFE read-only shell commands via run_command: cat, head, tail, grep, find, ls, tree, wc, file, stat, jq, awk, sed -n, etc.
 - Destructive commands (rm, mv, cp, chmod, >, >>) are blocked — don't try them.
-- You CANNOT write files, run commands, or edit code. If the task asks for changes, describe what *should* change — do not attempt it.
+- You CANNOT write files or edit code, and only the safe read-only commands above are allowed. If the task asks for changes, describe what *should* change — do not attempt it.
 - Your final reply is the ONLY thing the orchestrator will see. Make it count.
 
 ## Output format

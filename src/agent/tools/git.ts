@@ -367,7 +367,7 @@ export async function gitStash(input: Record<string, unknown>, context?: ToolExe
 export const gitSearchHistoryDef: ToolDefinition = {
   name: 'git_search_history',
   description:
-    'Semantically search git history to find when something was introduced, changed, or removed. ' +
+    'Search git history to find when something was introduced, changed, or removed. ' +
     'Supports three search modes: `message` searches commit messages (good for feature names, ticket refs, author intent); ' +
     "`content` searches the actual code changes using git's pickaxe — finds the exact commit that added or deleted a string, function name, or symbol; " +
     '`both` runs both searches and deduplicates. ' +
