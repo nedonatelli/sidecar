@@ -31,8 +31,16 @@ export interface BaselineHistoryEntry {
   provenance: BaselineProvenance;
   /** Cases that produced a result. NOT the size of the case suite. */
   casesRun: number;
-  /** Size of the suite this run was drawn from, so truncation is visible. */
+  /** Size of the selection this run drew from — the FILTERED size when a case
+   *  or tag filter was set, which is why `filtered` exists alongside it. */
   casesAvailable: number;
+  /** True when SIDECAR_EVAL_CASE / SIDECAR_EVAL_TAGS narrowed the run.
+   *
+   *  A filtered run is a legitimate 4-of-4 and a nonsense datapoint: the
+   *  llama3.2 window redo recorded `1/4, complete` next to its `26/70`, which
+   *  reads as the model collapsing to 25%. Completeness alone cannot express
+   *  that — the run DID finish everything it was asked to do. */
+  filtered: boolean;
   passed: number;
   failed: number;
   /** Cases skipped because the backend returned nothing. */
@@ -84,16 +92,25 @@ export function readHistory(dir: string): BaselineHistoryEntry[] {
 }
 
 /**
- * The timeline for one model, oldest first, complete runs only.
+ * The timeline for one model, oldest first: full runs that finished.
  *
- * Incomplete runs are excluded because they compare a fragment against a whole:
- * llama3.2's 6/16 next to its 27/69 reads as a collapse and is nothing of the
- * sort. They stay in the file — the record of what happened matters — but they
- * do not belong in a trend.
+ * Two exclusions, for different reasons.
+ *
+ * INCOMPLETE runs compare a fragment against a whole — llama3.2's aborted 6/16
+ * next to its 27/69 reads as a collapse and is nothing of the sort.
+ *
+ * FILTERED runs are worse, because they look fine. The window redo recorded
+ * `1/4, complete: true`; it ran everything it was asked to and finished, so
+ * completeness does not catch it, and a naive trend would show llama3.2 going
+ * 27/69 -> 26/70 -> 1/4. Targeted re-runs are common here, so this is not an
+ * edge case.
+ *
+ * Both stay in the file — the record of what happened matters — but neither is
+ * a point on a trend.
  */
 export function timelineFor(dir: string, model: string): BaselineHistoryEntry[] {
   return readHistory(dir)
-    .filter((e) => e.model === model && e.complete)
+    .filter((e) => e.model === model && e.complete && !e.filtered)
     .sort((a, b) => a.at.localeCompare(b.at));
 }
 

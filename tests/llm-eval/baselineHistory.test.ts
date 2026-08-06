@@ -39,6 +39,7 @@ const entry = (over: Partial<BaselineHistoryEntry> = {}): BaselineHistoryEntry =
   failed: 3,
   unavailable: 0,
   complete: true,
+  filtered: false,
   failedCases: ['a', 'b', 'c'],
   durationSec: 3600,
   ...over,
@@ -127,6 +128,38 @@ describe('deltaAgainstPrevious', () => {
     // measured against — that would report -45 and then +45.
     appendHistory(dir, entry({ at: '2026-08-01T00:00:00.000Z', passed: 66 }));
     appendHistory(dir, entry({ at: '2026-08-03T00:00:00.000Z', passed: 6, complete: false }));
+    appendHistory(dir, entry({ at: '2026-08-05T00:00:00.000Z', passed: 67 }));
+    const d = deltaAgainstPrevious(dir, 'gemma4:e4b');
+    expect(d?.delta).toBe(1);
+    expect(d?.previous.passed).toBe(66);
+  });
+});
+
+describe('filtered runs', () => {
+  it('are kept in the file but excluded from the trend', () => {
+    // The flaw this flag exists for, found in real data. The llama3.2 window
+    // redo recorded `1/4, complete: true` — it ran everything it was asked to
+    // and finished, so `complete` does not catch it. A naive trend would read
+    // 27/69 -> 26/70 -> 1/4 and call it a collapse.
+    appendHistory(dir, entry({ model: 'llama3.2', at: '2026-08-05T00:00:00.000Z', passed: 26, casesRun: 70 }));
+    appendHistory(
+      dir,
+      entry({
+        model: 'llama3.2',
+        at: '2026-08-05T01:00:00.000Z',
+        passed: 1,
+        casesRun: 4,
+        casesAvailable: 4,
+        filtered: true,
+      }),
+    );
+    expect(timelineFor(dir, 'llama3.2').map((e) => e.passed)).toEqual([26]);
+    expect(readHistory(dir)).toHaveLength(2);
+  });
+
+  it('does not let a filtered run become the thing a delta measures against', () => {
+    appendHistory(dir, entry({ at: '2026-08-01T00:00:00.000Z', passed: 66 }));
+    appendHistory(dir, entry({ at: '2026-08-03T00:00:00.000Z', passed: 1, casesRun: 4, filtered: true }));
     appendHistory(dir, entry({ at: '2026-08-05T00:00:00.000Z', passed: 67 }));
     const d = deltaAgainstPrevious(dir, 'gemma4:e4b');
     expect(d?.delta).toBe(1);

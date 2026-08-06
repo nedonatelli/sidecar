@@ -143,6 +143,7 @@ describe.skipIf(!backend)('agent regression baseline', () => {
             provenance,
             casesRun: entries.length,
             casesAvailable: cases.length,
+            filtered: Boolean(CASE_FILTER || TAG_FILTER),
             passed: entries.filter(([, v]) => v.passed).length,
             failed: entries.filter(([, v]) => !v.passed).length,
             unavailable: totalUnavailable,
