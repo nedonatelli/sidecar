@@ -2,7 +2,7 @@
 title: PR Review Workflow
 layout: docs
 nav_order: 6
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # PR Review Workflow
@@ -53,6 +53,7 @@ You can add your own review checklist to `.sidecar/SIDECAR.md`. SideCar injects 
 ## Review checklist
 
 When reviewing code, always check for:
+
 - Database queries inside loops (N+1)
 - Missing input validation on user-controlled fields
 - Error paths that swallow exceptions silently
@@ -64,6 +65,7 @@ Because SIDECAR.md sections support path scoping, you can also target specific p
 
 ```markdown
 ## Auth review checklist
+
 <!-- @paths: src/auth/**, src/middleware/auth** -->
 
 - All routes behind this middleware must validate the JWT expiry claim
@@ -96,13 +98,14 @@ Both facets run in parallel (bounded by `sidecar.facets.maxConcurrent`, default 
 
 When you want to post a formal code review directly on GitHub — with inline comments tied to specific lines — use the `sidecar.pr.postReview` command or let the agent call `create_pr_review` directly.
 
-**Via command palette**: `SideCar: Post PR Review` (or configure a keybinding for `sidecar.pr.postReview`). SideCar resolves the open PR for your current branch, fetches its diff, and dispatches the agent with this task:
+**Via command palette**: `SideCar: Post PR Review with Inline Comments (Agent)` (or configure a keybinding for `sidecar.pr.postReview`). SideCar resolves the open PR for your current branch, fetches its diff, and dispatches the agent with this task:
 
 1. Read the diff and relevant source files for full context
 2. Identify bugs, security concerns, style violations, and missing error handling
 3. Call `create_pr_review` once with a summary body, an `event` type, and an array of inline `comments`
 
 Each inline comment requires:
+
 - `path` — the file path relative to the repo root
 - `line` — the line number in the diff
 - `body` — the comment text (specific and actionable, with a suggested fix)
@@ -121,11 +124,11 @@ The agent calls `create_pr_review` and constructs the review. You can steer it m
 
 The `submit_pr_review` tool (and its corresponding agent invocation) submits a pending review with one of three events:
 
-| Event | When to use |
-|-------|-------------|
-| `APPROVE` | PR looks good — no blocking issues |
-| `REQUEST_CHANGES` | There are issues that must be fixed before merge |
-| `COMMENT` | Leaving notes without a formal approve/reject decision |
+| Event             | When to use                                            |
+| ----------------- | ------------------------------------------------------ |
+| `APPROVE`         | PR looks good — no blocking issues                     |
+| `REQUEST_CHANGES` | There are issues that must be fixed before merge       |
+| `COMMENT`         | Leaving notes without a formal approve/reject decision |
 
 When `/pr-respond` or `sidecar.pr.postReview` dispatches the agent, it defaults to `COMMENT` unless the agent determines a clear approve or request-changes verdict is warranted. You can override this by telling the agent explicitly:
 
@@ -149,9 +152,10 @@ The agent needs the `comment_id` (the thread's root comment ID from the GitHub A
 
 ### /pr-ci: reading GitHub Actions results
 
-Run `/pr-ci` in chat (or `SideCar: Check PR CI` from the Command Palette) to fetch a snapshot of all check runs for your branch's PR.
+Run `/pr-ci` in chat (or `SideCar: Check PR CI Status` from the Command Palette) to fetch a snapshot of all check runs for your branch's PR.
 
 SideCar:
+
 1. Resolves the current branch
 2. Finds the open PR
 3. Calls the GitHub Checks API for the PR's head SHA
@@ -200,7 +204,7 @@ The agent then reads the file, identifies the root cause, and proposes a fix.
 
 ### /pr: push and open a draft PR
 
-When you're ready to open a PR, run `/pr` in chat (or `SideCar: Create Pull Request` from the Command Palette). SideCar runs the full PR creation flow:
+When you're ready to open a PR, run `/pr` in chat (or `SideCar: Create Pull Request (Draft from Branch)` from the Command Palette). SideCar runs the full PR creation flow:
 
 1. Confirms you're on a feature branch (not the base)
 2. Resolves the base branch from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`
@@ -218,13 +222,13 @@ The confirm loop lets you edit the title before submitting — click "Edit title
 
 If your repo has a `.github/pull_request_template.md` (or `.github/PULL_REQUEST_TEMPLATE.md`), SideCar passes it to the model with the instruction to fill each section in place. The H2 structure is preserved; sections that don't apply get a short "(n/a)" note rather than being removed. If no template exists, the body uses standard sections: **Summary**, **Changes**, **Testing**, **Reviewer focus**.
 
-### sidecar.pr.create.* settings
+### sidecar.pr.create.\* settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.pr.create.draftByDefault` | `true` | Open PRs as drafts |
-| `sidecar.pr.create.baseBranch` | `"auto"` | Base branch: `"auto"` resolves via `origin/HEAD`, or set a fixed branch like `"develop"` |
-| `sidecar.pr.create.template` | `"auto"` | `"auto"` reads `.github/pull_request_template.md`; `"ignore"` skips it; an absolute path reads that file |
+| Setting                            | Default  | Description                                                                                              |
+| ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `sidecar.pr.create.draftByDefault` | `true`   | Open PRs as drafts                                                                                       |
+| `sidecar.pr.create.baseBranch`     | `"auto"` | Base branch: `"auto"` resolves via `origin/HEAD`, or set a fixed branch like `"develop"`                 |
+| `sidecar.pr.create.template`       | `"auto"` | `"auto"` reads `.github/pull_request_template.md`; `"ignore"` skips it; an absolute path reads that file |
 
 ```json
 "sidecar.pr.create.draftByDefault": false,
@@ -236,7 +240,7 @@ If you always merge into `develop` rather than `main`, set `baseBranch` to `"dev
 
 ### /pr-summary: title and body without pushing
 
-If you want to preview the generated PR description without creating the PR yet, use `/pr-summary` in chat (or `SideCar: Summarize PR` from the Command Palette). It generates the title and body from the branch-range diff and opens a Markdown preview — no push, no API call.
+If you want to preview the generated PR description without creating the PR yet, use `/pr-summary` in chat (or `SideCar: Summarize Pull Request` from the Command Palette). It generates the title and body from the branch-range diff and opens a Markdown preview — no push, no API call.
 
 This is useful for drafting the description in advance, copying it into an existing PR, or checking how the model summarizes a large diff before committing to it.
 
@@ -246,7 +250,7 @@ This is useful for drafting the description in advance, copying it into an exist
 
 ### /pr-ready: draft to ready-for-review
 
-When your draft PR is ready for human review, run `/pr-ready` in chat (or `SideCar: Mark PR Ready` from the Command Palette). SideCar:
+When your draft PR is ready for human review, run `/pr-ready` in chat (or `SideCar: Mark PR Ready for Review` from the Command Palette). SideCar:
 
 1. Finds the open PR for your current branch
 2. Calls the GitHub API to convert draft → ready-for-review
@@ -271,13 +275,14 @@ For `git_push`, the agent always requests approval before pushing (it's a destru
 
 ### /pr-respond: address all open review threads
 
-After reviewers have commented on your PR, run `/pr-respond` in chat (or `SideCar: Respond to PR Comments` from the Command Palette). SideCar:
+After reviewers have commented on your PR, run `/pr-respond` in chat (or `SideCar: Respond to PR Comments (Agent)` from the Command Palette). SideCar:
 
 1. Fetches all open review threads for your branch's PR
 2. Formats them as structured Markdown grouped by file
 3. Dispatches the agent with a prompt to address each thread
 
 For each thread the agent:
+
 - Reads the file and line referenced in the diff hunk for full context
 - Decides whether the reviewer's concern is valid
 - If valid: makes the code change and calls `reply_pr_comment` explaining what changed
@@ -294,19 +299,19 @@ To read the current review comments without triggering a response pass, run `/re
 
 ## The full PR lifecycle — cheat sheet
 
-| Step | SideCar command / tool |
-|------|------------------------|
-| Review incoming PR diff | `/review` or `SideCar: Review Changes` |
-| Deep security pass | Facets: `security-reviewer` |
-| Post inline review comments to GitHub | `SideCar: Post PR Review` (`sidecar.pr.postReview`) |
-| Submit approve / request-changes / comment | `submit_pr_review` tool (called by agent during review) |
-| Reply to a specific thread | `reply_pr_comment` tool or `/pr-respond` |
-| Read your PR's open threads | `/review-comments` |
-| Address all open review threads | `/pr-respond` |
-| Check CI check status | `/pr-ci` or `SideCar: Check PR CI` |
-| Diagnose failing CI logs | `/ci` or `SideCar: Analyze CI Failure` |
-| Create a PR from your branch | `/pr` or `SideCar: Create Pull Request` |
-| Preview PR title + body only | `/pr-summary` or `SideCar: Summarize PR` |
-| Move draft PR to ready-for-review | `/pr-ready` or `SideCar: Mark PR Ready` |
-| Commit staged changes | `/commit` |
-| Push to remote | `git_push` tool (agent), always requires approval |
+| Step                                       | SideCar command / tool                                                           |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| Review incoming PR diff                    | `/review` or `SideCar: Review Changes`                                           |
+| Deep security pass                         | Facets: `security-reviewer`                                                      |
+| Post inline review comments to GitHub      | `SideCar: Post PR Review with Inline Comments (Agent)` (`sidecar.pr.postReview`) |
+| Submit approve / request-changes / comment | `submit_pr_review` tool (called by agent during review)                          |
+| Reply to a specific thread                 | `reply_pr_comment` tool or `/pr-respond`                                         |
+| Read your PR's open threads                | `/review-comments`                                                               |
+| Address all open review threads            | `/pr-respond`                                                                    |
+| Check CI check status                      | `/pr-ci` or `SideCar: Check PR CI Status`                                        |
+| Diagnose failing CI logs                   | `/ci` or `SideCar: Analyze CI Failure`                                           |
+| Create a PR from your branch               | `/pr` or `SideCar: Create Pull Request (Draft from Branch)`                      |
+| Preview PR title + body only               | `/pr-summary` or `SideCar: Summarize Pull Request`                               |
+| Move draft PR to ready-for-review          | `/pr-ready` or `SideCar: Mark PR Ready for Review`                               |
+| Commit staged changes                      | `/commit`                                                                        |
+| Push to remote                             | `git_push` tool (agent), always requires approval                                |

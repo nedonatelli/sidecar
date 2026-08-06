@@ -2,7 +2,7 @@
 title: Team Setup
 layout: docs
 nav_order: 5
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Team Setup
@@ -15,13 +15,13 @@ Some SideCar configuration belongs in the repo and flows to every developer via 
 
 **Check into the repo — every developer gets it automatically:**
 
-| Path | What it does |
-|------|--------------|
-| `.sidecar/SIDECAR.md` | Project instructions injected into every agent turn |
-| `.sidecar/skills/*.md` | Project-scoped slash-command skills |
-| `.sidecar/facets/*.md` | Specialist sub-agents for this project |
-| `.sidecar/team-memory/*.md` | Shared context injected as `## Team Memory` |
-| `.sidecar/policy.json` | Tool restrictions that apply to every developer |
+| Path                        | What it does                                        |
+| --------------------------- | --------------------------------------------------- |
+| `.sidecar/SIDECAR.md`       | Project instructions injected into every agent turn |
+| `.sidecar/skills/*.md`      | Project-scoped slash-command skills                 |
+| `.sidecar/facets/*.md`      | Specialist sub-agents for this project              |
+| `.sidecar/team-memory/*.md` | Shared context injected as `## Team Memory`         |
+| `.sidecar/policy.json`      | Tool restrictions that apply to every developer     |
 
 **Per-machine only — never commit:**
 
@@ -55,9 +55,9 @@ Or generate a starter with `SideCar: Generate SIDECAR.md` from the Command Palet
 ```markdown
 ## Build
 
-npm run build      # compile + bundle
-npm run check      # compile + lint + test (full CI check)
-npx vitest run     # run tests only
+npm run build # compile + bundle
+npm run check # compile + lint + test (full CI check)
+npx vitest run # run tests only
 ```
 
 **PR and commit conventions** — stops the agent from doing the wrong thing silently:
@@ -98,12 +98,14 @@ For larger codebases, scope sections to specific file patterns so the agent only
 
 ```markdown
 ## API Layer
+
 <!-- @paths: src/api/**, src/lib/apiClient.ts -->
 
 All server communication flows through `apiClient.ts`. Use the typed wrappers
 in `src/api/` rather than calling `apiClient` directly.
 
 ## Database
+
 <!-- @paths: src/db/**, migrations/**, knexfile.ts -->
 
 Use Kysely for all queries. Migration files live in `migrations/` and are
@@ -132,16 +134,19 @@ allowed-tools: read_file, grep, list_directory, run_tests
 Review the code in the current context against this team checklist:
 
 **Correctness**
+
 - All error paths handled explicitly — no silent swallows
 - Null/undefined checked before use
 - No off-by-one errors on slice/splice/index operations
 
 **Security**
+
 - No secrets or credentials in strings or comments
 - User input validated before it reaches SQL, shell, or file paths
 - Auth checks present on any new route or endpoint
 
 **Consistency**
+
 - Follows the patterns in src/lib/ — no new abstractions for problems we've already solved
 - Named and structured like adjacent code in the same directory
 - JSDoc on exported functions
@@ -153,7 +158,7 @@ The `guards:` frontmatter activates the `lint-clean` and `tests-pass` built-in g
 
 ### Creating skills
 
-The fastest way is `SideCar: Create Skill` from the Command Palette. It opens a guided form that writes the frontmatter for you. For project-scoped skills, point the save location to `.sidecar/skills/`.
+Create a skill by writing a markdown file with the frontmatter shown below — for project-scoped skills, save it under `.sidecar/skills/`. (Related palette commands: `SideCar: Pick Skill`, `Sync Skill Registries`, `Publish Skill to Registry`, `Browse Skill Marketplace`.)
 
 ### Skills 2.0 frontmatter fields
 
@@ -161,10 +166,10 @@ The fastest way is `SideCar: Create Skill` from the Command Palette. It opens a 
 ---
 name: My Skill
 description: Shown in the slash-command picker and autocomplete
-preferred-model: claude-sonnet-4-6     # pin a model for this skill's run
-allowed-tools: read_file, grep, edit_file   # restrict what the agent can call
-disable-model-invocation: false         # set true to inject prompt only, no agent loop
-guards: lint-clean, tests-pass          # run built-in guards after every write
+preferred-model: claude-sonnet-4-6 # pin a model for this skill's run
+allowed-tools: read_file, grep, edit_file # restrict what the agent can call
+disable-model-invocation: false # set true to inject prompt only, no agent loop
+guards: lint-clean, tests-pass # run built-in guards after every write
 ---
 ```
 
@@ -196,13 +201,9 @@ In workspace settings (`.vscode/settings.json`) or user settings:
 
 ```json
 {
-  "sidecar.skills.teamRegistries": [
-    "git@github.com:your-org/sidecar-skills.git"
-  ],
+  "sidecar.skills.teamRegistries": ["git@github.com:your-org/sidecar-skills.git"],
   "sidecar.skills.autoPull": "on-start",
-  "sidecar.skills.trustedRegistries": [
-    "git@github.com:your-org/sidecar-skills.git"
-  ]
+  "sidecar.skills.trustedRegistries": ["git@github.com:your-org/sidecar-skills.git"]
 }
 ```
 
@@ -239,13 +240,14 @@ Create `.sidecar/facets/security-reviewer.md`:
 id: security-reviewer
 displayName: Security Reviewer
 preferredModel: claude-sonnet-4-6
-toolAllowlist: ["read_file", "grep", "list_directory", "web_search"]
+toolAllowlist: ['read_file', 'grep', 'list_directory', 'web_search']
 dependsOn: []
 ---
 
 You are a security reviewer for this codebase. Your scope:
 
 **Always check:**
+
 - Authentication and authorization: missing auth checks, privilege escalation paths
 - Input handling: SQL injection, path traversal, shell injection via unsanitized inputs
 - Secrets: hardcoded credentials, API keys in source, keys committed to git
@@ -253,6 +255,7 @@ You are a security reviewer for this codebase. Your scope:
 - Cryptography: weak algorithms (MD5, SHA1 for passwords), short key lengths, ECB mode
 
 **Our threat model:**
+
 - This is a multi-tenant web app. Each tenant's data must be isolated.
 - Auth is handled in `src/middleware/auth.ts`. Any new route that bypasses this middleware is a finding.
 - The database user has write access. SQL injection means full data breach.
@@ -275,13 +278,14 @@ You can dispatch multiple facets in one batch. Create `.sidecar/facets/api-contr
 id: api-contract-tester
 displayName: API Contract Tester
 preferredModel: claude-haiku-4-5
-toolAllowlist: ["read_file", "grep", "run_tests", "edit_file", "write_file"]
-dependsOn: ["security-reviewer"]
+toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
+dependsOn: ['security-reviewer']
 ---
 
 You are an API contract tester. Run after the security reviewer.
 
 For every changed route handler:
+
 1. Diff the OpenAPI schema against the previous version
 2. Identify any backward-incompatible changes (removed fields, changed types, new required params)
 3. Write or update contract tests in `tests/contracts/` that would catch these breaks
@@ -324,7 +328,7 @@ The files are sorted alphabetically by filename, so the injection order is stabl
 - The staging environment is at https://staging.example.com. Deploys happen automatically on merge to `main`.
 ```
 
-**Architecture rationale** — the *why* behind decisions, not just the *what*:
+**Architecture rationale** — the _why_ behind decisions, not just the _what_:
 
 ```markdown
 # Architecture Decisions
@@ -370,11 +374,11 @@ The policy file uses `version: 1` and a `toolPermissions` map:
 
 Permission levels:
 
-| Level | Behavior |
-|-------|----------|
-| `allow` | Always permitted without prompting |
-| `ask` | Requires per-call approval (same as the default cautious behavior) |
-| `deny` | Never permitted — the tool is removed from the agent's tool list |
+| Level   | Behavior                                                           |
+| ------- | ------------------------------------------------------------------ |
+| `allow` | Always permitted without prompting                                 |
+| `ask`   | Requires per-call approval (same as the default cautious behavior) |
+| `deny`  | Never permitted — the tool is removed from the agent's tool list   |
 
 Policy permission levels are **additive with the user's settings**: the more restrictive level always wins. If a developer's user settings have `git_push: ask` but the policy says `deny`, the effective level is `deny`.
 
@@ -489,9 +493,7 @@ Forward the necessary VS Code settings into the container via `customizations`:
   "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
   "customizations": {
     "vscode": {
-      "extensions": [
-        "nedonatelli.sidecar-ai"
-      ],
+      "extensions": ["nedonatelli.sidecar-ai"],
       "settings": {
         "sidecar.completionGate.enabled": true,
         "sidecar.terminalExecution.enabled": true,

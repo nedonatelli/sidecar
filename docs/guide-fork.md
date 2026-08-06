@@ -2,7 +2,7 @@
 title: Fork & Parallel Solve
 layout: docs
 nav_order: 10
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Fork & Parallel Solve
@@ -93,6 +93,7 @@ $(git-commit) Fork 3   2 files · 11.3s
 ```
 
 Each entry shows:
+
 - The fork label (`Fork 1`, `Fork 2`, etc.)
 - How many files it touched and how long it took
 - The first four touched files as a preview
@@ -137,6 +138,7 @@ Master toggle. When `false`, `/fork` and `SideCar: Fork & Compare` both show a o
 Number of parallel forks spawned per dispatch. This is the N in "run N approaches in parallel."
 
 **When to change it:**
+
 - Drop to `2` when you have a specific A vs. B comparison in mind and don't need a third option. Faster and half the cost.
 - Raise to `4–5` for genuinely open-ended tasks where you want more coverage of the approach space. Expect proportionally higher cost and longer wall-clock time.
 - Values above 5 rarely add value — the agent's variance on the same prompt has diminishing returns past 3–4, and the cost climbs linearly.
@@ -148,8 +150,9 @@ The setting is clamped to `[2, 10]` because `1` would just be a normal Shadow Wo
 Maximum number of forks in flight at the same time. With `defaultCount: 3` and `maxConcurrent: 3` (the defaults), all three forks start simultaneously. With `defaultCount: 5` and `maxConcurrent: 3`, the first three start together, and forks 4 and 5 start as slots free up.
 
 **When to change it:**
+
 - Lower this if your machine is struggling with concurrent Shadow Workspaces — each worktree incurs git I/O and any shell commands the agent runs are real shell sessions. On tight hardware, `maxConcurrent: 2` keeps disk churn under control.
-- Lower this if you're on a paid API (Anthropic, OpenRouter) and hitting rate limits from simultaneous requests. Three concurrent 25-iteration agent loops can briefly saturate per-minute token limits.
+- Lower this if you're on a paid API (Anthropic, OpenRouter) and hitting rate limits from simultaneous requests. Three concurrent 50-iteration agent loops can briefly saturate per-minute token limits.
 - Raise this to match `defaultCount` for maximum speed when your hardware and rate limits allow it.
 
 ### Cost consideration
@@ -169,12 +172,14 @@ Shadow Workspaces are always forced on for Fork regardless of your `sidecar.shad
 Fork's variance comes from the agent making different intermediate choices, not from vague prompts producing random outputs. A vague prompt produces N variations on a confused answer. A specific prompt produces N meaningfully different implementations of the same clear goal.
 
 Good fork prompt:
+
 ```
-/fork extract the token-refresh logic from AuthService into a standalone TokenRefresher class. 
+/fork extract the token-refresh logic from AuthService into a standalone TokenRefresher class.
 Keep the existing AuthService interface intact. Add a unit test for TokenRefresher.
 ```
 
 Less useful fork prompt:
+
 ```
 /fork improve the auth code
 ```

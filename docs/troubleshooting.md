@@ -133,7 +133,7 @@ Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `
 
 - Click the **Stop button** (red button that replaces Send during processing)
 - **Cycle detection** — SideCar automatically halts if the agent repeats the same tool call with identical arguments
-- Check `sidecar.agentMaxIterations` (default: 25) and `sidecar.agentMaxTokens` (default: 200,000)
+- Check `sidecar.agentMaxIterations` (default: 50) and `sidecar.agentMaxTokens` (default: 200,000)
 - Lower these values if the agent runs too long on your hardware
 
 ## Inline completions not working
@@ -155,7 +155,7 @@ Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `
 SideCar's terminal error watcher uses VS Code's shell integration API. If the **Diagnose in chat** notification never appears when a command fails, check:
 
 1. **Shell integration is active.** Run `echo $VSCODE_SHELL_INTEGRATION` in your terminal — it should print `1`. If it's empty, your shell isn't integrated. POSIX shells (bash, zsh, fish) and PowerShell integrate automatically in recent VS Code versions; other shells may need manual setup.
-2. **VS Code version is 1.93+.** The shell-execution events (`onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`) were added in 1.93. On older versions the watcher silently no-ops.
+2. **Shell-integration events are available.** SideCar requires VS Code 1.116+, so the shell-execution events (`onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`, added in 1.93) are always present — but the watcher still no-ops if shell integration itself is disabled in your terminal profile.
 3. **The setting is enabled.** Check `sidecar.terminalErrorInterception` in Settings — it defaults to `true` but may have been toggled off.
 4. **The command isn't being deduped.** Identical command lines within a 30-second cooldown window only notify once. Wait 30s and try again, or run a different command.
 5. **You're not in SideCar's own terminal.** The terminal named `SideCar` is skipped to avoid feedback loops from agent-driven shell commands.
@@ -165,16 +165,16 @@ SideCar's terminal error watcher uses VS Code's shell integration API. If the **
 
 SideCar classifies errors and shows actionable cards:
 
-| Error type     | When you'll see it                                   | Card action                                                                               |
-| -------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Connection     | `ECONNREFUSED`, `ENOTFOUND`, network failures        | "Check Connection" — opens settings                                                       |
-| Auth           | 401, 403, "Invalid API key"                          | "Check API Key" — opens settings (use `SideCar: Set API Key` to update via SecretStorage) |
-| Model          | 404 with "model not found"                           | "Install Model" — opens model dropdown                                                    |
-| Rate limit     | 429, "rate limit", "too many requests"               | "Wait and Retry"                                                                          |
-| Server error   | 500, 502, 503, 504, "overloaded"                     | "Retry"                                                                                   |
-| Content policy | Anthropic safety violations, "flagged"               | (no action — refine your prompt)                                                          |
-| Token limit    | "token limit exceeded", "too long", "maximum tokens" | "Reduce Context" — try lowering `sidecar.maxFiles` or running `/compact`                  |
-| Timeout        | Request didn't complete within `requestTimeout`      | "Retry" — resends the last message                                                        |
+| Error type     | When you'll see it                                   | Card action                                                                                         |
+| -------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Connection     | `ECONNREFUSED`, `ENOTFOUND`, network failures        | "Check Connection" — opens settings                                                                 |
+| Auth           | 401, 403, "Invalid API key"                          | "Check API Key" — opens settings (use `SideCar: Set / Refresh API Key` to update via SecretStorage) |
+| Model          | 404 with "model not found"                           | "Install Model" — opens model dropdown                                                              |
+| Rate limit     | 429, "rate limit", "too many requests"               | "Wait and Retry"                                                                                    |
+| Server error   | 500, 502, 503, 504, "overloaded"                     | "Retry"                                                                                             |
+| Content policy | Anthropic safety violations, "flagged"               | (no action — refine your prompt)                                                                    |
+| Token limit    | "token limit exceeded", "too long", "maximum tokens" | "Reduce Context" — try lowering `sidecar.maxFiles` or running `/compact`                            |
+| Timeout        | Request didn't complete within `requestTimeout`      | "Retry" — resends the last message                                                                  |
 
 Click the action button on the error card to resolve common issues quickly.
 
@@ -188,8 +188,8 @@ Click the action button on the error card to resolve common issues quickly.
 
 If the model responds with nothing (empty content, `done` immediately):
 
-- **Context too large** — local models have a limited context window. SideCar caps local models at 8K tokens. Reduce `sidecar.maxFiles` or unpin large files
-- **Tool definitions overwhelm the model** — ~~~~~~~~~~87 tool definitions add ~20K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
+- **Context too large** — local models have a limited context window. SideCar clamps the requested window to the model's per-model cap (up to 128K, `LOCAL_CONTEXT_CAP`), and a large KV cache slows first-token latency badly on consumer hardware. Reduce `sidecar.maxFiles`, unpin large files, or set `sidecar.ollama.numCtx` lower (e.g. 32768)
+- **Tool definitions overwhelm the model** — ~87 tool definitions add ~20K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
 - **Wrong model format** — some models don't support the chat template or tool format. Try a different model
 
 ## Getting help

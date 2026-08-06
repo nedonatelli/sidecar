@@ -2,7 +2,7 @@
 title: Your First Multi-file Refactor
 layout: docs
 nav_order: 2
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Your First Multi-file Refactor
@@ -29,11 +29,11 @@ This gives you a clean baseline. If anything goes wrong you can `git checkout .`
 
 Open the mode dropdown in the chat header (defaults to **Cautious**) and pick the tier that matches your confidence:
 
-| Mode | What it means for a refactor |
-|------|-------------------------------|
-| **Cautious** | Every file write opens a diff editor; you accept or reject before the agent moves on. Slower but you review each change in-flight. |
-| **Review** | All writes are buffered in memory — nothing lands on disk until you audit the whole batch in the **Pending Agent Changes** panel. Best for large refactors where per-file interruptions would break your concentration. |
-| **Autonomous** | The agent writes freely; you review after via `git diff`. Use only when you have a clean stash and trust the task scope. |
+| Mode           | What it means for a refactor                                                                                                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cautious**   | Every file write opens a diff editor; you accept or reject before the agent moves on. Slower but you review each change in-flight.                                                                                      |
+| **Review**     | All writes are buffered in memory — nothing lands on disk until you audit the whole batch in the **Pending Agent Changes** panel. Best for large refactors where per-file interruptions would break your concentration. |
+| **Autonomous** | The agent writes freely; you review after via `git diff`. Use only when you have a clean stash and trust the task scope.                                                                                                |
 
 For a first refactor, start with **Review** mode. You get full autonomy during the run and a single review session at the end.
 
@@ -71,6 +71,7 @@ The quality of the plan the agent builds is directly proportional to the specifi
 ### Three versions of the same task
 
 **Bad prompt:**
+
 ```
 Refactor the error handling
 ```
@@ -78,6 +79,7 @@ Refactor the error handling
 This gives the agent nothing to work with. It doesn't know which error handling, which files, what "refactor" means in this context, or what done looks like. Expect either a long clarifying-question loop or a random partial change.
 
 **Mediocre prompt:**
+
 ```
 Change all the places where we throw Error objects to use our custom AppError class instead
 ```
@@ -85,6 +87,7 @@ Change all the places where we throw Error objects to use our custom AppError cl
 Better — there's a clear goal. But "all the places" is unbounded (does that include tests? third-party adapters? generated code?), and there's no constraint on the public API surface or migration notes.
 
 **Good prompt:**
+
 ```
 Replace all `throw new Error(...)` calls in `src/` (not tests, not generated files under `src/generated/`) with `throw new AppError(...)`. AppError is defined in `src/errors/appError.ts`. Keep the message string as-is; just change the constructor. Don't touch `src/generated/` or any `.test.ts` file. When you're done, run `npm test` to verify nothing regressed.
 ```
@@ -242,7 +245,7 @@ Multiple agent turns in the same conversation share history. In Review mode, new
 
 ### Agent is looping
 
-Cycle detection fires automatically. SideCar tracks exact-match repetitions (same tool call 4 times in a row) and normalized-signature repetitions (same tool + same file with different content, 3 times). When either trips, the loop halts and a message appears in chat.
+Cycle detection fires automatically. SideCar tracks normalized-signature repetitions (same tool + same file with different content — 10 repeats by default, `sidecar.scaffolding.cycleDetectionMinRepeats`) and exact-match repetitions one repeat later. When either trips, the loop halts and a message appears in chat.
 
 If cycle detection fires before the task is done, steer out:
 

@@ -211,7 +211,8 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   // codeAsText / fakeOutput pick the WORDING, not the trigger — a code fence on
   // a plain question is a legitimate final answer, so firing still requires an
   // action-request user message or announced-but-unexecuted intent. Targeted
-  // wording is opt-in (unproven) — see codeAsTextRecoveryEnabled in settings.ts.
+  // wording is gated on codeAsTextRecoveryEnabled (default-on since v0.120) —
+  // see settings.ts.
   const wordingEnabled = state.config.codeAsTextRecoveryEnabled === true;
   const codeAsText = wordingEnabled && hasEditShapedCodeBlock(fullText);
   const fakeOutput = wordingEnabled && hasFakeToolOutput(fullText);

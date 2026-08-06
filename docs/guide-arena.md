@@ -2,7 +2,7 @@
 title: Model Arena
 layout: docs
 nav_order: 12
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Model Arena
@@ -52,7 +52,7 @@ If your backend is reachable, the QuickPick lists every installed model with mul
 
 If you set `sidecar.arena.defaultModels`, the QuickPick is skipped entirely and those models open immediately.
 
-Before the panel opens, SideCar runs a memory preflight check. At low RAM pressure (under 2 GiB free) you get a confirmation dialog. At critical pressure (under 1 GiB free) the launch is blocked. You can always check current RAM and GPU usage via the status bar memory indicator or `SideCar: Refresh Memory Status`.
+Before the panel opens, SideCar runs a memory preflight check. At low RAM pressure (under 2 GiB free) you get a confirmation dialog. At critical pressure (under 1 GiB free) the launch is blocked. You can always check current RAM and GPU usage via the status bar memory indicator or `SideCar: Refresh Memory Stats`.
 
 ### The panel layout
 
@@ -199,10 +199,10 @@ The file is written after every vote and is human-editable if you want to reset 
 
 ## Configuration
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `sidecar.arena.enabled` | boolean | `true` | Master toggle. When `false`, `/arena` and both palette commands show an info toast instead of opening the panel. |
-| `sidecar.arena.defaultModels` | string[] | `[]` | Pre-populated model list. When non-empty, the QuickPick is skipped and these models are used directly. Example: `["llama3.2:3b", "qwen3:8b"]`. |
+| Setting                       | Type     | Default | Description                                                                                                                                    |
+| ----------------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.arena.enabled`       | boolean  | `true`  | Master toggle. When `false`, `/arena` and both palette commands show an info toast instead of opening the panel.                               |
+| `sidecar.arena.defaultModels` | string[] | `[]`    | Pre-populated model list. When non-empty, the QuickPick is skipped and these models are used directly. Example: `["llama3.2:3b", "qwen3:8b"]`. |
 
 **Example: always compare the same two models:**
 

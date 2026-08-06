@@ -13,7 +13,7 @@ nav_section: 'Help'
 
 ### What version of VS Code does SideCar require?
 
-VS Code 1.93 or later. Some features (terminal error interception, shell-integration routing for agent commands) require 1.93+ specifically. Older builds may work for basic chat but are not tested.
+VS Code 1.116.0 or later — the Marketplace refuses to install on anything older (`engines.vscode: ^1.116.0`).
 
 ### Does SideCar work in Cursor, VSCodium, or other VS Code forks?
 
@@ -21,7 +21,7 @@ Cursor and VSCodium are broadly compatible — they share the VS Code extension 
 
 ### Can I use SideCar without installing Ollama?
 
-Yes. Ollama is the default backend but is not required. You can connect SideCar to the Anthropic API, OpenAI, OpenRouter, Groq, Fireworks, LM Studio, or any OpenAI-compatible server instead. Switch backends via the gear in the chat header. See [getting started](getting-started) for per-backend setup.
+Yes. Ollama is the default backend but is not required. You can connect SideCar to the Anthropic API, OpenAI, OpenRouter, Groq, Fireworks, Google Gemini, AWS Bedrock, your GitHub Copilot subscription, LM Studio, or any OpenAI-compatible server instead. Switch backends via the gear in the chat header. See [getting started](getting-started) for per-backend setup.
 
 ### What is Kickstand?
 
@@ -85,9 +85,9 @@ Yes, via model routing. Set `sidecar.modelRouting.enabled: true` and define rule
 
 ### The agent is repeating the same action. How do I stop it?
 
-SideCar has two-tier cycle detection built in. An exact-match ring buffer fires after 4 consecutive identical tool calls; a normalized-signature buffer catches "same tool, same file, different content" loops after 3 cycles. When either trips, the agent halts automatically and posts a message in chat explaining what happened.
+SideCar has two-tier cycle detection built in. A normalized-signature buffer catches "same tool, same file, different content" loops after 10 repeats (configurable via `sidecar.scaffolding.cycleDetectionMinRepeats`); the exact-match check fires one repeat later. When either trips, the agent halts automatically and posts a message in chat explaining what happened.
 
-If you are seeing a loop that was not caught: press Escape or click Stop to abort the run, then steer the agent with a follow-up message. You can also lower `sidecar.agentMaxIterations` (default 25) to set a harder cap.
+If you are seeing a loop that was not caught: press Escape or click Stop to abort the run, then steer the agent with a follow-up message. You can also lower `sidecar.agentMaxIterations` (default 50) to set a harder cap.
 
 ### How do I prevent the agent from touching certain files?
 
@@ -183,7 +183,7 @@ Enabled by default. Disable with `sidecar.projectKnowledge.enabled: false` to st
 
 ### Does SideCar send my code to the cloud?
 
-It depends on which backend you configure. If you use **Ollama** or **Kickstand**, all inference runs locally — no code leaves your machine. If you configure a cloud backend (Anthropic, OpenAI, OpenRouter, Groq, Fireworks), your code and conversation are sent to that provider's API under their data handling terms.
+It depends on which backend you configure. If you use **Ollama** or **Kickstand**, all inference runs locally — no code leaves your machine. If you configure a cloud backend (Anthropic, OpenAI, OpenRouter, Groq, Fireworks, Gemini, Bedrock, Copilot), your code and conversation are sent to that provider's API under their data handling terms.
 
 SideCar itself has no cloud component. There is no telemetry, no account, and no central server. The only network traffic is the API requests you configure.
 
@@ -207,7 +207,7 @@ The outbound allowlist (`sidecar.outboundAllowlist`) lets you whitelist specific
 
 ### Can the agent run arbitrary shell commands?
 
-The agent's `run_command` tool can execute shell commands — this is necessary for running tests, builds, and linters. In **cautious** and **manual** modes, every `run_command` call pops a blocking modal requiring your approval before execution. In **autonomous** mode, commands run without prompting. The macOS Seatbelt sandbox wraps every agent shell command regardless of agent mode, restricting write paths at the OS level.
+The agent's `run_command` tool can execute shell commands — this is necessary for running tests, builds, and linters. In **cautious** and **manual** modes, every `run_command` call pops a blocking modal requiring your approval before execution. In **autonomous** mode, commands run without prompting. On macOS a Seatbelt sandbox restricts write paths at the OS level, but **only on the child-process fallback executor** — commands run through the VS Code terminal (the default path whenever shell integration is available) are not sandboxed, and the sandbox fails open if `/usr/bin/sandbox-exec` is missing. Do not treat it as a containment boundary; the approval modes are the real control.
 
 To block shell execution entirely, set `"run_command": "deny"` and `"run_tests": "deny"` in `sidecar.toolPermissions`.
 
@@ -263,7 +263,7 @@ Skills are `.agent.md` files distributed via a git repository. Set up a team ski
 2. Add the repo URL to `sidecar.skills.teamRegistries` in `.vscode/settings.json`.
 3. SideCar clones and syncs the registry on activation. The Skills Picker tags each skill by origin.
 
-`sidecar.skills.autoPull` controls sync frequency (`"on-start"` or `"manual"`). For air-gapped teams, set `sidecar.skills.offline: true` after the initial clone. See [configuration — skills registry & sync](configuration#skills-registry--sync-v0112).
+`sidecar.skills.autoPull` controls sync frequency (`"on-start"`, `"hourly"`, `"daily"`, or `"manual"`). For air-gapped teams, set `sidecar.skills.offline: true` after the initial clone. See [configuration — skills registry & sync](configuration#skills-registry--sync-v0112).
 
 ### How do I share custom facets with the team?
 

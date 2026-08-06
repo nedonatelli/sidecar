@@ -13,94 +13,95 @@ SideCar ships **87 built-in tools** available to the agent loop. Most are always
 
 ## Quick Reference
 
-| Tool                                | Category           | Approval | Gating                             |
-| ----------------------------------- | ------------------ | -------- | ---------------------------------- |
-| `read_file`                         | File Operations    | No       | —                                  |
-| `write_file`                        | File Operations    | Yes      | —                                  |
-| `edit_file`                         | File Operations    | Yes      | —                                  |
-| `delete_file`                       | File Operations    | Yes      | —                                  |
-| `list_directory`                    | File Operations    | No       | —                                  |
-| `run_command`                       | Shell & Execution  | Yes      | —                                  |
-| `run_tests`                         | Shell & Execution  | Yes      | —                                  |
-| `get_diagnostics`                   | Shell & Execution  | No       | —                                  |
-| `system_monitor`                    | Shell & Execution  | No       | —                                  |
-| `git_diff`                          | Git                | No       | —                                  |
-| `git_status`                        | Git                | No       | —                                  |
-| `git_stage`                         | Git                | Yes      | —                                  |
-| `git_commit`                        | Git                | Yes      | —                                  |
-| `git_log`                           | Git                | No       | —                                  |
-| `git_push`                          | Git                | Yes      | —                                  |
-| `git_pull`                          | Git                | Yes      | —                                  |
-| `git_branch`                        | Git                | Yes      | —                                  |
-| `git_stash`                         | Git                | Yes      | —                                  |
-| `git_search_history`                | Git                | No       | —                                  |
-| `reply_pr_comment`                  | GitHub             | Yes      | —                                  |
-| `submit_pr_review`                  | GitHub             | Yes      | —                                  |
-| `create_pr_review`                  | GitHub             | Yes      | —                                  |
-| `mark_pr_ready`                     | GitHub             | Yes      | —                                  |
-| `check_pr_ci`                       | GitHub             | No       | —                                  |
-| `web_search`                        | Web & Search       | No       | —                                  |
-| `display_diagram`                   | Web & Search       | No       | —                                  |
-| `render_viz`                        | Web & Search       | No       | —                                  |
-| `search_files`                      | Web & Search       | No       | —                                  |
-| `grep`                              | Web & Search       | No       | —                                  |
-| `find_references`                   | Web & Search       | No       | —                                  |
-| `project_knowledge_search`          | Web & Search       | No       | `sidecar.projectKnowledge.enabled` |
-| `analyze_impact`                    | Code Graph         | No       | —                                  |
-| `query_code_graph`                  | Code Graph         | No       | —                                  |
-| `check_numerical_contracts`         | Code Graph         | No       | —                                  |
-| `check_shape_consistency`           | Code Graph         | No       | —                                  |
-| `db_list_connections`               | Databases          | No       | —                                  |
-| `db_list_tables`                    | Databases          | No       | —                                  |
-| `db_describe_table`                 | Databases          | No       | —                                  |
-| `db_query`                          | Databases          | No       | —                                  |
-| `db_execute`                        | Databases          | Yes      | —                                  |
-| `db_migrate_up`                     | Databases          | Yes      | —                                  |
-| `screenshot_page`                   | Vision & Browser   | No       | `sidecar.visualVerify.enabled`     |
-| `analyze_screenshot`                | Vision & Browser   | No       | `sidecar.visualVerify.enabled`     |
-| `open_in_browser`                   | Vision & Browser   | No       | `sidecar.visualVerify.enabled`     |
-| `run_playwright_code`               | Vision & Browser   | Always   | `sidecar.visualVerify.enabled`     |
-| `ask_user`                          | Agent Management   | No       | —                                  |
-| `describe_tool`                     | Agent Management   | No       | —                                  |
-| `query_history`                     | Agent Management   | No       | —                                  |
-| `spawn_agent`                       | Agent Management   | No       | —                                  |
-| `delegate_task`                     | Agent Management   | No       | Paid backends only                 |
-| `switch_backend`                    | Agent Management   | Always   | —                                  |
-| `get_setting`                       | Agent Management   | No       | —                                  |
-| `update_setting`                    | Agent Management   | Always   | —                                  |
-| `read_pdf`                          | PDF & Literature   | No       | —                                  |
-| `index_pdf`                         | PDF & Literature   | No       | —                                  |
-| `zotero_search`                     | PDF & Literature   | No       | —                                  |
-| `zotero_get_item`                   | PDF & Literature   | No       | —                                  |
-| `insert_citation`                   | PDF & Literature   | No       | —                                  |
-| `extract_constraints`               | Doc-to-Test        | No       | `sidecar.docTests.enabled`         |
-| `synthesize_tests`                  | Doc-to-Test        | No       | `sidecar.docTests.enabled`         |
-| `classify_test_failure`             | Doc-to-Test        | No       | `sidecar.docTests.enabled`         |
-| `mutation_test`                     | Doc-to-Test        | Yes      | `sidecar.mutation.enabled`         |
-| `synthesize_property_test`          | Doc-to-Test        | No       | —                                  |
-| `ingest_source`                     | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
-| `generate_briefing`                 | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
-| `generate_study_guide`              | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
-| `generate_faq`                      | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
-| `generate_timeline`                 | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
-| `generate_outline`                  | Notebook Mode      | No       | `sidecar.notebookMode.enabled`     |
-| `research_create_project`           | Research Assistant | No       | `sidecar.research.enabled`         |
-| `research_add_hypothesis`           | Research Assistant | No       | `sidecar.research.enabled`         |
-| `research_log_experiment`           | Research Assistant | Yes      | `sidecar.research.enabled`         |
-| `research_add_observation`          | Research Assistant | No       | `sidecar.research.enabled`         |
-| `research_update_hypothesis_status` | Research Assistant | No       | `sidecar.research.enabled`         |
-| `research_list_projects`            | Research Assistant | No       | `sidecar.research.enabled`         |
-| `research_set_project_status`       | Research Assistant | No       | `sidecar.research.enabled`         |
-| `research_export_report`            | Research Assistant | No       | `sidecar.research.enabled`         |
-| `check_dependencies`                | CI & Profiling     | No       | `sidecar.deps.enabled`             |
-| `analyze_ci_failure`                | CI & Profiling     | No       | `sidecar.ci.analysis.enabled`      |
-| `profile_code`                      | CI & Profiling     | Yes      | `sidecar.profiling.enabled`        |
-| `latex_compile`                     | LaTeX              | Yes      | `sidecar.latex.enabled`            |
-| `delegate_to_mcp`                   | MCP Delegation     | No       | `sidecar.mcpDelegation.enabled`    |
-| `monorepo_packages`                 | Monorepo           | No       | `sidecar.monorepo.enabled`         |
-| `kickstand_list_loras`              | Kickstand          | No       | —                                  |
-| `kickstand_attach_lora`             | Kickstand          | Yes      | —                                  |
-| `kickstand_detach_lora`             | Kickstand          | Yes      | —                                  |
+| Tool                                | Category           | Approval | Gating                                      |
+| ----------------------------------- | ------------------ | -------- | ------------------------------------------- |
+| `read_file`                         | File Operations    | No       | —                                           |
+| `write_file`                        | File Operations    | Yes      | —                                           |
+| `edit_file`                         | File Operations    | Yes      | —                                           |
+| `delete_file`                       | File Operations    | Yes      | —                                           |
+| `list_directory`                    | File Operations    | No       | —                                           |
+| `run_command`                       | Shell & Execution  | Yes      | —                                           |
+| `run_tests`                         | Shell & Execution  | Yes      | —                                           |
+| `get_diagnostics`                   | Shell & Execution  | No       | —                                           |
+| `system_monitor`                    | Shell & Execution  | No       | —                                           |
+| `git_diff`                          | Git                | No       | —                                           |
+| `git_status`                        | Git                | No       | —                                           |
+| `git_stage`                         | Git                | Yes      | —                                           |
+| `git_commit`                        | Git                | Yes      | —                                           |
+| `git_log`                           | Git                | No       | —                                           |
+| `git_push`                          | Git                | Yes      | —                                           |
+| `git_pull`                          | Git                | Yes      | —                                           |
+| `git_branch`                        | Git                | Yes      | —                                           |
+| `git_stash`                         | Git                | Yes      | —                                           |
+| `git_search_history`                | Git                | No       | —                                           |
+| `reply_pr_comment`                  | GitHub             | Yes      | —                                           |
+| `submit_pr_review`                  | GitHub             | Yes      | —                                           |
+| `create_pr_review`                  | GitHub             | Yes      | —                                           |
+| `mark_pr_ready`                     | GitHub             | Yes      | —                                           |
+| `check_pr_ci`                       | GitHub             | No       | —                                           |
+| `web_search`                        | Web & Search       | No       | —                                           |
+| `display_diagram`                   | Web & Search       | No       | —                                           |
+| `render_viz`                        | Web & Search       | No       | —                                           |
+| `search_files`                      | Web & Search       | No       | —                                           |
+| `grep`                              | Web & Search       | No       | —                                           |
+| `find_references`                   | Web & Search       | No       | —                                           |
+| `project_knowledge_search`          | Web & Search       | No       | `sidecar.projectKnowledge.enabled`          |
+| `analyze_impact`                    | Code Graph         | No       | —                                           |
+| `query_code_graph`                  | Code Graph         | No       | —                                           |
+| `check_numerical_contracts`         | Code Graph         | No       | —                                           |
+| `check_shape_consistency`           | Code Graph         | No       | —                                           |
+| `db_list_connections`               | Databases          | No       | —                                           |
+| `db_list_tables`                    | Databases          | No       | —                                           |
+| `db_describe_table`                 | Databases          | No       | —                                           |
+| `db_query`                          | Databases          | No       | —                                           |
+| `db_execute`                        | Databases          | Yes      | —                                           |
+| `db_migrate_up`                     | Databases          | Yes      | —                                           |
+| `screenshot_page`                   | Vision & Browser   | No       | `sidecar.visualVerify.enabled`              |
+| `analyze_screenshot`                | Vision & Browser   | No       | `sidecar.visualVerify.enabled`              |
+| `open_in_browser`                   | Vision & Browser   | No       | `sidecar.visualVerify.enabled`              |
+| `run_playwright_code`               | Vision & Browser   | Always   | `sidecar.visualVerify.enabled`              |
+| `ask_user`                          | Agent Management   | No       | —                                           |
+| `describe_tool`                     | Agent Management   | No       | —                                           |
+| `update_plan`                       | Agent Management   | No       | `sidecar.plan.externalized` (default off)   |
+| `query_history`                     | Agent Management   | No       | `sidecar.evalHistory.enabled` (default off) |
+| `spawn_agent`                       | Agent Management   | No       | —                                           |
+| `delegate_task`                     | Agent Management   | No       | Paid backends only                          |
+| `switch_backend`                    | Agent Management   | Always   | —                                           |
+| `get_setting`                       | Agent Management   | No       | —                                           |
+| `update_setting`                    | Agent Management   | Always   | —                                           |
+| `read_pdf`                          | PDF & Literature   | No       | —                                           |
+| `index_pdf`                         | PDF & Literature   | No       | —                                           |
+| `zotero_search`                     | PDF & Literature   | No       | —                                           |
+| `zotero_get_item`                   | PDF & Literature   | No       | —                                           |
+| `insert_citation`                   | PDF & Literature   | No       | —                                           |
+| `extract_constraints`               | Doc-to-Test        | No       | `sidecar.docTests.enabled`                  |
+| `synthesize_tests`                  | Doc-to-Test        | No       | `sidecar.docTests.enabled`                  |
+| `classify_test_failure`             | Doc-to-Test        | No       | `sidecar.docTests.enabled`                  |
+| `mutation_test`                     | Doc-to-Test        | Yes      | `sidecar.mutation.enabled`                  |
+| `synthesize_property_test`          | Doc-to-Test        | No       | —                                           |
+| `ingest_source`                     | Notebook Mode      | No       | `sidecar.notebookMode.enabled`              |
+| `generate_briefing`                 | Notebook Mode      | No       | `sidecar.notebookMode.enabled`              |
+| `generate_study_guide`              | Notebook Mode      | No       | `sidecar.notebookMode.enabled`              |
+| `generate_faq`                      | Notebook Mode      | No       | `sidecar.notebookMode.enabled`              |
+| `generate_timeline`                 | Notebook Mode      | No       | `sidecar.notebookMode.enabled`              |
+| `generate_outline`                  | Notebook Mode      | No       | `sidecar.notebookMode.enabled`              |
+| `research_create_project`           | Research Assistant | No       | `sidecar.research.enabled`                  |
+| `research_add_hypothesis`           | Research Assistant | No       | `sidecar.research.enabled`                  |
+| `research_log_experiment`           | Research Assistant | Yes      | `sidecar.research.enabled`                  |
+| `research_add_observation`          | Research Assistant | No       | `sidecar.research.enabled`                  |
+| `research_update_hypothesis_status` | Research Assistant | No       | `sidecar.research.enabled`                  |
+| `research_list_projects`            | Research Assistant | No       | `sidecar.research.enabled`                  |
+| `research_set_project_status`       | Research Assistant | No       | `sidecar.research.enabled`                  |
+| `research_export_report`            | Research Assistant | No       | `sidecar.research.enabled`                  |
+| `check_dependencies`                | CI & Profiling     | No       | `sidecar.deps.enabled`                      |
+| `analyze_ci_failure`                | CI & Profiling     | No       | `sidecar.ci.analysis.enabled`               |
+| `profile_code`                      | CI & Profiling     | Yes      | `sidecar.profiling.enabled`                 |
+| `latex_compile`                     | LaTeX              | Yes      | `sidecar.latex.enabled`                     |
+| `delegate_to_mcp`                   | MCP Delegation     | No       | `sidecar.mcpDelegation.enabled`             |
+| `monorepo_packages`                 | Monorepo           | No       | `sidecar.monorepo.enabled`                  |
+| `kickstand_list_loras`              | Kickstand          | No       | —                                           |
+| `kickstand_attach_lora`             | Kickstand          | Yes      | —                                           |
+| `kickstand_detach_lora`             | Kickstand          | Yes      | —                                           |
 
 **Approval** — `Yes` means the tool pauses for user confirmation in normal mode. `Always` means it pauses even in autonomous mode and cannot be bypassed by `toolPermissions`.
 
@@ -108,16 +109,20 @@ SideCar ships **87 built-in tools** available to the agent loop. Most are always
 
 ---
 
+> **Relevance gating:** rows showing `—` are not necessarily always advertised. The Kickstand tools appear only when the provider is Kickstand, the `db_*` tools only when at least one database profile is configured, and the `zotero_*` tools only when Zotero credentials are set (`RELEVANCE_GATED_GROUPS` in `tools.ts`). Tools absent from the catalog for these reasons are by design, not an error.
+
 ## File Operations
 
 ### `read_file`
 
 Read the contents of a file at the given relative path.
 
-| Parameter | Type                                   | Required | Description                                                                                                                       |
-| --------- | -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `path`    | string                                 | Yes      | Relative file path from the project root                                                                                          |
-| `mode`    | `"full"` \| `"compact"` \| `"outline"` | No       | `full` (default) returns raw content. `compact` strips comments and blank-line runs. `outline` returns only top-level signatures. |
+| Parameter    | Type                                   | Required | Description                                                                                                                       |
+| ------------ | -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `path`       | string                                 | Yes      | Relative file path from the project root                                                                                          |
+| `mode`       | `"full"` \| `"compact"` \| `"outline"` | No       | `full` (default) returns raw content. `compact` strips comments and blank-line runs. `outline` returns only top-level signatures. |
+| `start_line` | number                                 | No       | First line to return (1-based). Use with `end_line` to read a range of a large file.                                              |
+| `end_line`   | number                                 | No       | Last line to return (inclusive).                                                                                                  |
 
 Use `full` mode when you plan to call `edit_file` afterward — the `search` argument must match verbatim.
 
@@ -870,11 +875,11 @@ Returns title, authors, year, publication, DOI, URL, tags, and full abstract. Re
 
 Fetch a Zotero item and return it formatted as APA, MLA, Chicago, BibTeX, or LaTeX.
 
-| Parameter     | Type                                                         | Required | Description                                                                                                              |
-| ------------- | ------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `key`         | string                                                       | Yes      | Zotero item key.                                                                                                         |
-| `style`       | `"apa"` \| `"mla"` \| `"chicago"` \| `"bibtex"` \| `"latex"` | No       | Citation style. Auto-detected from `target_file` extension when omitted (`.bib` → BibTeX, `.tex` → LaTeX, default: APA). |
-| `target_file` | string                                                       | No       | Target file path used for style auto-detection.                                                                          |
+| Parameter | Type                                                         | Required | Description                                                                                                       |
+| --------- | ------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `key`     | string                                                       | Yes      | Zotero item key.                                                                                                  |
+| `style`   | `"apa"` \| `"mla"` \| `"chicago"` \| `"bibtex"` \| `"latex"` | No       | Citation style. Auto-detected from `file` extension when omitted (`.bib` → BibTeX, `.tex` → LaTeX, default: APA). |
+| `file`    | string                                                       | No       | Target file path used for style auto-detection.                                                                   |
 
 Requires Zotero credentials.
 
@@ -929,11 +934,36 @@ Returns `{ verdict: "impl_wrong" | "doc_wrong" | "extraction_wrong", reasoning, 
 
 Mutation testing — seed single-point faults into a source file and report which mutants SURVIVE the test suite (proof the tests would miss that class of bug). Opt-in via `sidecar.mutation.enabled`; requires a green baseline.
 
+| Parameter      | Type     | Required | Description                                                                                        |
+| -------------- | -------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `file`         | string   | Yes      | Source file to mutate (relative to the workspace root, or absolute).                               |
+| `test_command` | string   | Yes      | Command that runs the tests covering `file`. Must exit 0 on the unmodified file.                   |
+| `operators`    | string[] | No       | Mutation operator classes: `relational`, `arithmetic`, `logical`, `boolean-literal`. Default: all. |
+| `max_mutants`  | number   | No       | Cap on mutants generated/tested (bounds runtime). Defaults to `sidecar.mutation.maxMutants`.       |
+
 ---
 
 ### `synthesize_property_test`
 
 Property-based test synthesis (§5 numerical vertical) — generate a runnable Hypothesis property test for a numerical kernel that declares invariants (`# property: symmetric` / `idempotent` / `monotonic` / `non-negative`, `# bounds: 0 <= result <= 1`, `# invariant: sum(result) == sum(x)`). Emits random-input strategies + the declared assertions. Always available (read-only).
+
+| Parameter      | Type   | Required | Description                                             |
+| -------------- | ------ | -------- | ------------------------------------------------------- |
+| `file`         | string | Yes      | Relative path to the source file containing the kernel. |
+| `function`     | string | Yes      | Name of the function to synthesize a property test for. |
+| `max_examples` | number | No       | Hypothesis `max_examples` (default 100).                |
+
+---
+
+### `update_plan`
+
+Create or update the agent's externalized step-by-step plan for the current task (added v0.119, gated by `sidecar.plan.externalized`, default off). The harness re-shows the plan every turn so it survives long tasks and compaction; an `update_plan`-only turn does not consume the iteration budget.
+
+| Parameter     | Type     | Required | Description                                                               |
+| ------------- | -------- | -------- | ------------------------------------------------------------------------- |
+| `steps`       | string[] | Yes      | The COMPLETE ordered list of steps (restated in full every call).         |
+| `current`     | number   | No       | 1-based index of the step being worked on now. Default 1.                 |
+| `last_result` | string   | No       | One line: the outcome of the step just finished (omit on the first call). |
 
 ---
 

@@ -8,7 +8,7 @@ The tool system exposes the agent's full capability surface as a flat list of `R
 flowchart LR
     subgraph reg ["Tool catalog sent to the model"]
         direction TB
-        BuiltIn[TOOL_REGISTRY<br/>in tools.ts<br/>~27 built-ins]
+        BuiltIn[TOOL_REGISTRY<br/>in tools.ts<br/>87 built-ins]
         Paid{Paid backend?}
         Delegate[DELEGATE_TASK_DEFINITION<br/>read-only Ollama worker]
         Spawn[SPAWN_AGENT_DEFINITION<br/>sub-agent, max depth 3]
@@ -24,7 +24,7 @@ flowchart LR
 
     subgraph cat ["TOOL_REGISTRY categories"]
         direction TB
-        Fs[fs.ts<br/>read_file, write_file, edit_file,<br/>list_directory]
+        Fs[fs.ts<br/>read_file, write_file, edit_file,<br/>delete_file, list_directory]
         Search[search.ts<br/>search_files, grep,<br/>find_references]
         Shell[shell.ts<br/>run_command, run_tests]
         Diag[diagnostics.ts<br/>get_diagnostics]
@@ -136,7 +136,7 @@ flowchart TD
 
 Approval is resolved per call from three inputs that combine to pick one of `allow` / `ask` / `deny`:
 
-1. **`RegisteredTool.alwaysRequireApproval`** — when `true`, the user is prompted on every call regardless of anything else. Reserved for tools that change SideCar's own runtime state (`switch_backend`, `update_setting`). The user's durable configuration never changes without an explicit click.
+1. **`RegisteredTool.alwaysRequireApproval`** — when `true`, the user is prompted on every call regardless of anything else. Reserved for tools that change SideCar's own runtime state or execute arbitrary code (`switch_backend`, `update_setting`, `run_playwright_code`). The user's durable configuration never changes without an explicit click.
 2. **`modeToolPermissions`** (per-mode override) and **global `sidecar.toolPermissions`** — per-tool `allow` / `ask` / `deny`. Mode overrides win over global.
 3. **Agent mode** — the coarse-grained tier:
    - `cautious` — ask before every mutating tool.
@@ -150,18 +150,20 @@ See [`agent-mode.md`](agent-mode.md) for the full matrix.
 
 ## Tool categories
 
-| File | Tools | Approval |
-| --- | --- | --- |
-| [`fs.ts`](../src/agent/tools/fs.ts) | `read_file`, `write_file`, `edit_file`, `list_directory` | writes require approval |
-| [`search.ts`](../src/agent/tools/search.ts) | `search_files`, `grep`, `find_references` | none |
-| [`shell.ts`](../src/agent/tools/shell.ts) | `run_command`, `run_tests` | always require approval |
-| [`diagnostics.ts`](../src/agent/tools/diagnostics.ts) | `get_diagnostics` | none |
-| [`git.ts`](../src/agent/tools/git.ts) | `git_diff`, `git_status`, `git_stage`, `git_commit`, `git_log`, `git_push`, `git_pull`, `git_branch`, `git_stash` | mutating ops require approval |
-| [`knowledge.ts`](../src/agent/tools/knowledge.ts) | `web_search`, `display_diagram` | none |
-| [`projectKnowledge.ts`](../src/agent/tools/projectKnowledge.ts) | `project_knowledge_search` — PKI symbol-level RAG | none |
-| [`systemMonitor.ts`](../src/agent/tools/systemMonitor.ts) | `system_monitor` | none |
-| [`settings.ts`](../src/agent/tools/settings.ts) | `get_setting`, `update_setting`, `switch_backend` | update/switch always require approval |
-| (inline in tools.ts) | `ask_user` — clarifying prompt | handled by executor, not the normal dispatch path |
-| (inline) | `spawn_agent`, `delegate_task` | special-cased in `executeToolUses` |
+> The table below shows the **core** groups only. The full 87-tool catalog spans ~34 group files (git, github, database, diagnostics, knowledge, settings, vision, pdf, zotero, citation, deps, ci, research, latex, notebook, profiling, impact, codeGraphQuery, mutationTest, propertyTest, kickstand, mcpDelegate, and more) — see [tools-reference](tools-reference) for the complete list.
+
+| File                                                            | Tools                                                                                                             | Approval                                          |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| [`fs.ts`](../src/agent/tools/fs.ts)                             | `read_file`, `write_file`, `edit_file`, `delete_file`, `list_directory`                                           | writes require approval                           |
+| [`search.ts`](../src/agent/tools/search.ts)                     | `search_files`, `grep`, `find_references`                                                                         | none                                              |
+| [`shell.ts`](../src/agent/tools/shell.ts)                       | `run_command`, `run_tests`                                                                                        | always require approval                           |
+| [`diagnostics.ts`](../src/agent/tools/diagnostics.ts)           | `get_diagnostics`                                                                                                 | none                                              |
+| [`git.ts`](../src/agent/tools/git.ts)                           | `git_diff`, `git_status`, `git_stage`, `git_commit`, `git_log`, `git_push`, `git_pull`, `git_branch`, `git_stash` | mutating ops require approval                     |
+| [`knowledge.ts`](../src/agent/tools/knowledge.ts)               | `web_search`, `display_diagram`                                                                                   | none                                              |
+| [`projectKnowledge.ts`](../src/agent/tools/projectKnowledge.ts) | `project_knowledge_search` — PKI symbol-level RAG                                                                 | none                                              |
+| [`systemMonitor.ts`](../src/agent/tools/systemMonitor.ts)       | `system_monitor`                                                                                                  | none                                              |
+| [`settings.ts`](../src/agent/tools/settings.ts)                 | `get_setting`, `update_setting`, `switch_backend`                                                                 | update/switch always require approval             |
+| (inline in tools.ts)                                            | `ask_user` — clarifying prompt                                                                                    | handled by executor, not the normal dispatch path |
+| (inline)                                                        | `spawn_agent`, `delegate_task`                                                                                    | special-cased in `executeToolUses`                |
 
 Adding a tool usually means extending the relevant category file and re-exporting; the slim composition layer in [`tools.ts`](../src/agent/tools.ts) then picks it up automatically.

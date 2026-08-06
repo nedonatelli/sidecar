@@ -13,6 +13,8 @@ SideCar supports the [Model Context Protocol (MCP)](https://modelcontextprotocol
 
 MCP is an open protocol that lets AI assistants call external tools — databases, APIs, file systems, and custom scripts. MCP tools appear alongside SideCar's built-in tools and go through the same approval flow.
 
+This page covers the **client** direction (SideCar consuming external MCP servers). SideCar can also act as an MCP **server**, exposing its own agent as a `run_agent_task` tool over Streamable HTTP (port 3457) for other MCP clients — see the `sidecar.mcpServer.*` settings in [Configuration](configuration#mcp-server).
+
 ## Transport types
 
 SideCar supports three transport types:
@@ -236,7 +238,7 @@ This shows each server's name, connection status, transport type, tool count, up
 SideCar monitors MCP server health automatically:
 
 - **Connection failures** are reported with specific error messages
-- **Automatic reconnection** uses exponential backoff (2s, 5s, 15s)
+- **Automatic reconnection** uses exponential backoff (2s, 5s, 15s), then keeps retrying at a 60s steady-state interval — a disconnected server is never given up on; it recovers on its own when it comes back
 - **Settings changes** trigger automatic reconnection to all servers
 - **Workspace trust** — MCP servers from workspace settings or `.mcp.json` trigger a trust prompt before connecting (since they can spawn processes)
 

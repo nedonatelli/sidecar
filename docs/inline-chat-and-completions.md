@@ -2,7 +2,7 @@
 title: Inline Chat & Completions
 layout: docs
 nav_order: 5
-nav_section: "Agent"
+nav_section: 'Agent'
 ---
 
 # Inline Chat & Completions
@@ -43,12 +43,12 @@ Press `Tab` to accept a suggestion, `Escape` to dismiss. Completions are debounc
 
 SideCar routes completions differently per backend:
 
-| Backend | Completion method | Notes |
-|---------|-------------------|-------|
-| Ollama | FIM endpoint (`/api/generate` with `suffix`) | Requires a model with FIM support (qwen2.5-coder, codestral, deepseek-coder) |
-| Kickstand | Native FIM path (`ks_build_fim_tokens`) | Grammar-constrained; fastest local option |
-| Anthropic | Messages API with fill-in context | No native FIM; less accurate for mid-file insertions |
-| OpenAI-compat | `/v1/completions` FIM if available, else chat | Depends on the server |
+| Backend       | Completion method                             | Notes                                                                        |
+| ------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
+| Ollama        | FIM endpoint (`/api/generate` with `suffix`)  | Requires a model with FIM support (qwen2.5-coder, codestral, deepseek-coder) |
+| Kickstand     | Native FIM path (`ks_build_fim_tokens`)       | Grammar-constrained; fastest local option                                    |
+| Anthropic     | Messages API with fill-in context             | No native FIM; less accurate for mid-file insertions                         |
+| OpenAI-compat | `/v1/completions` FIM if available, else chat | Depends on the server                                                        |
 
 Not all Ollama models support FIM — models without a `<|fim_prefix|>` / `<|fim_suffix|>` / `<|fim_middle|>` token set fall back to the chat API and produce lower-quality suggestions.
 
@@ -65,15 +65,14 @@ Leave `completionDraftModel` empty to auto-discover the smallest available model
 
 ### Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.enableInlineCompletions` | `false` | Enable FIM autocomplete |
-| `sidecar.completionModel` | `""` | Separate model for completions (empty = use chat model) |
-| `sidecar.completionMaxTokens` | `256` | Max tokens per completion |
-| `sidecar.completionDebounceMs` | `300` | Minimum ms between requests |
-| `sidecar.speculativeDecoding.enabled` | `true` | Enable speculative draft-verify pipeline |
-| `sidecar.completionDraftModel` | `""` | Draft model for speculative decoding |
-| `sidecar.speculativeDecoding.lookahead` | `4` | Draft tokens proposed per cycle (1–16) |
+| Setting                               | Default | Description                                             |
+| ------------------------------------- | ------- | ------------------------------------------------------- |
+| `sidecar.enableInlineCompletions`     | `false` | Enable FIM autocomplete                                 |
+| `sidecar.completionModel`             | `""`    | Separate model for completions (empty = use chat model) |
+| `sidecar.completionMaxTokens`         | `256`   | Max tokens per completion                               |
+| `sidecar.completionDebounceMs`        | `300`   | Minimum ms between requests                             |
+| `sidecar.speculativeDecoding.enabled` | `true`  | Enable speculative draft-verify pipeline                |
+| `sidecar.completionDraftModel`        | `""`    | Draft model for speculative decoding                    |
 
 ### Tips
 
@@ -93,11 +92,7 @@ Enable it:
 "sidecar.nextEdit.enabled": true
 ```
 
-| Key | Action |
-|-----|--------|
-| `Tab` | Accept the highlighted suggestion |
-| `Alt+↓` / `Alt+↑` | Cycle through suggestions |
-| `Escape` | Dismiss all suggestions |
+The Next Edit commands ship without default keybindings — run them from the Command Palette (`SideCar: Accept Next Edit`, `… Next Suggestion`, `… Previous Suggestion`, `… Dismiss`) or bind your own keys in Keyboard Shortcuts.
 
 Settings: `sidecar.nextEdit.{debounceMs, crossFileEnabled, maxHops, topK, autoTriggerOnSave}` — see [Configuration → Next Edit Suggestions](configuration#next-edit-suggestions-v072).
 
@@ -117,12 +112,12 @@ Enable/disable via `sidecar.adaptivePaste.enabled` (default `true`). Set a minim
 
 Right-click on selected code (or press `Cmd+.` / `Ctrl+.`) to access SideCar code actions:
 
-| Action | What it does |
-|--------|-------------|
-| **Explain with SideCar** | Sends the selection to the sidebar chat with "Explain this code" |
-| **Fix with SideCar** | Sends the selection and any related diagnostic with "Fix this code" |
-| **Refactor with SideCar** | Sends the selection with "Refactor this code for clarity and maintainability" |
-| **Add tests with SideCar** | Generates a test file for the selected function or class |
+| Action                     | What it does                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| **Explain with SideCar**   | Sends the selection to the sidebar chat with "Explain this code"              |
+| **Fix with SideCar**       | Sends the selection and any related diagnostic with "Fix this code"           |
+| **Refactor with SideCar**  | Sends the selection with "Refactor this code for clarity and maintainability" |
+| **Add tests with SideCar** | Generates a test file for the selected function or class                      |
 
 All actions send to the sidebar agent which has its full tool set available — it can read related files, run tests, and iterate.
 
@@ -132,12 +127,12 @@ All actions send to the sidebar agent which has its full tool set available — 
 
 Use `@` syntax in chat messages to include specific context:
 
-| Syntax | Description |
-|--------|-------------|
-| `@file:src/index.ts` | Include a specific file's contents |
-| `@folder:src/utils/` | Include all files in a directory |
-| `@symbol:MyClass` | Include the definition of a symbol |
-| `@pin:src/types.ts` | Pin this file to always be included |
+| Syntax               | Description                         |
+| -------------------- | ----------------------------------- |
+| `@file:src/index.ts` | Include a specific file's contents  |
+| `@folder:src/utils/` | Include all files in a directory    |
+| `@symbol:MyClass`    | Include the definition of a symbol  |
+| `@pin:src/types.ts`  | Pin this file to always be included |
 
 References are resolved before sending the message to the model. Use them when the automatic workspace context doesn't include what you need.
 

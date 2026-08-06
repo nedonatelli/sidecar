@@ -279,43 +279,53 @@ Credentials are stored in the `env` block per server, not in SecretStorage — k
 
 The agent loop's [`HookBus`](../src/agent/loop/policyHook.ts) is an extensibility point for authors who want to inject behavior _inside_ the loop itself — gating turn completion, running post-tool validators, or pushing synthetic user messages to steer the agent.
 
-Today this surface is available to first-party code (the four built-in hooks + `sidecar.regressionGuards` config) and to callers who construct `AgentOptions.extraPolicyHooks` directly. There is **no packaged-plugin API** yet — hooks ship either in the SideCar repo itself or in a fork.
+This surface is available to first-party code (the eight built-in hooks + `sidecar.regressionGuards` config), to callers who construct `AgentOptions.extraPolicyHooks` directly, and to **other VS Code extensions via the SideCar SDK** — `SideCarSdkApi.registerHook(hook)` returns a `Disposable` and registers the hook for every subsequent run (see the SDK section below).
 
 ### Interface
 
 ```typescript
 // src/agent/loop/policyHook.ts
 export interface PolicyHook {
+  /** Short identifier used in logs. E.g. 'autoFix', 'stubValidator'. */
   name: string;
 
-  /**
-   * Fires after every successful tool-execution turn. Return `true` if
-   * the hook pushed a synthetic user message that should keep the loop
-   * alive; `false` for passive observation.
-   */
-  runAfter?(state: LoopState, context: HookContext): Promise<boolean> | boolean;
+  /** Fires at the start of each iteration, before the model streams. */
+  beforeIteration?(state: LoopState, ctx: HookContext): Promise<HookResult | void>;
+
+  /** Fires after every successful tool-execution turn. */
+  afterToolResults?(state: LoopState, ctx: HookContext): Promise<HookResult | void>;
 
   /**
-   * Fires when the model produced no tool calls in a turn. Return `true`
-   * to keep the loop alive (e.g., by pushing a "you're not done yet"
-   * reprompt); `false` for natural termination.
+   * Fires when the model produced no tool calls this turn. A hook that
+   * returns `{ mutated: true }` (e.g. after pushing a "you're not done
+   * yet" reprompt) keeps the loop alive; if no hook mutates, the loop
+   * terminates naturally.
    */
-  runEmptyResponse?(state: LoopState, context: HookContext): Promise<boolean> | boolean;
+  onEmptyResponse?(state: LoopState, ctx: HookContext): Promise<HookResult | void>;
+
+  /** Runs once at the end, regardless of break reason. Telemetry/cleanup. */
+  onTermination?(state: LoopState, ctx: HookContext): Promise<void>;
 }
 ```
+
+Each phase returns a `HookResult` (`{ mutated: boolean }`) or `void` (treated as not-mutated). A hook that throws raises `PolicyEnforcementError`, which halts the run with the hook name and phase — a hook bug ends user runs, so keep hook bodies defensive. (`runAfter`/`runEmptyResponse` are methods on the `HookBus` that _invoke_ these phases — they are not hook members.)
 
 The `state` parameter is the mutable `LoopState` — hooks can push messages into `state.messages`, inspect `state.iteration`, read gate state, etc. The `context` parameter carries the immutable per-call inputs (client, config, signal, callbacks, pending tool uses, tool results, full text).
 
 ### Built-in hooks (for reference)
 
-The four built-ins registered by `defaultPolicyHooks()`:
+The eight built-ins registered by `defaultPolicyHooks()`, in registration (= execution) order:
 
-| Hook              | Phase                            | What it does                                                                                                             |
-| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `auto-fix`        | afterToolResults                 | Detects common post-edit errors (lint, tsc, missing imports) and pushes a follow-up message asking the agent to fix them |
-| `stub-validator`  | afterToolResults                 | Rejects placeholder code (`TODO`, `// implement me`) in fresh writes                                                     |
-| `critic`          | afterToolResults                 | Adversarial LLM review of the turn's edits; pushes a blocking injection on high-severity findings                        |
-| `completion-gate` | afterToolResults + emptyResponse | Tracks whether the agent ran lint / tests after claiming to be done; reprompts if not                                    |
+| Hook                | Phase                              | What it does                                                                                                             |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `autoFix`           | afterToolResults                   | Detects common post-edit errors (lint, tsc, missing imports) and pushes a follow-up message asking the agent to fix them |
+| `isolateRewrite`    | afterToolResults                   | Nudges a model that overwrites whole files toward targeted `edit_file` changes before cycle detection bails              |
+| `unappliedEdit`     | afterToolResults                   | Fires when the model described an edit in a code fence but applied nothing — redirects it to an actual mutation tool     |
+| `stubValidator`     | afterToolResults                   | Rejects placeholder code (`TODO`, `// implement me`) in fresh writes                                                     |
+| `adversarialCritic` | onEmptyResponse                    | Reviews the run's cumulative diff at completion (default **off**; blocking only with `critic.blockOnHighSeverity`)       |
+| `actionReprompt`    | onEmptyResponse                    | Text-only turn on an action-shaped request → one reprompt telling the model to use tools                                 |
+| `completionGate`    | afterToolResults + onEmptyResponse | Tracks whether the agent verified its edits; reprompts on unverified termination (tool recording never injects)          |
+| `analysisCritic`    | onEmptyResponse                    | Fact-checks the final answer of a read-only analysis turn against the gathered read-evidence (default **off**)           |
 
 See [`src/agent/loop/builtInHooks.ts`](../src/agent/loop/builtInHooks.ts) for the adapters.
 
@@ -325,7 +335,8 @@ Registration order is execution order. The `HookBus` registers hooks in this ord
 
 1. Built-ins (via `defaultPolicyHooks()`)
 2. Regression guards loaded from `sidecar.regressionGuards` (gated behind `checkWorkspaceConfigTrust`)
-3. `options.extraPolicyHooks` — runs last, sees every earlier mutation
+3. `options.extraPolicyHooks`
+4. SDK-registered hooks (`registerHook`) — run last, see every earlier mutation
 
 Later hooks see what earlier hooks wrote to `state.messages`. Order matters when two hooks might want to inject into the same turn — whoever runs last wins on conflict.
 
@@ -335,14 +346,14 @@ Later hooks see what earlier hooks wrote to `state.messages`. Order matters when
 
 ```typescript
 export const myHook: PolicyHook = {
-  name: 'my-hook',
-  async runAfter(state, context) {
+  name: 'myHook',
+  async afterToolResults(state, ctx) {
     // Inspect the turn — what tools ran, what got edited, current state.
-    const editedFiles = context.pendingToolUses
+    const editedFiles = (ctx.pendingToolUses ?? [])
       .filter((t) => t.name === 'edit_file' || t.name === 'write_file')
       .map((t) => t.input.path as string);
 
-    if (editedFiles.length === 0) return false;
+    if (editedFiles.length === 0) return { mutated: false };
 
     // Run your check. If it finds a problem, push a synthetic user
     // message that tells the agent what to do next.
@@ -350,19 +361,24 @@ export const myHook: PolicyHook = {
     if (problem) {
       state.messages.push({
         role: 'user',
-        content: `Regression detected: ${problem}. Please investigate before ending the turn.`,
+        content: [
+          {
+            type: 'text',
+            text: `Regression detected: ${problem}. Please investigate before ending the turn.`,
+          },
+        ],
       });
-      return true; // loop continues
+      return { mutated: true }; // loop continues
     }
 
-    return false; // passive observation
+    return { mutated: false }; // passive observation
   },
 };
 ```
 
 ### Known gaps (future plugin surface)
 
-No third-party packaged-plugin API exists today. A hypothetical plugin system would need:
+The SDK covers tool and hook registration from another installed extension. A fuller packaged-plugin system would additionally need:
 
 - A discovery mechanism (e.g., `~/.sidecar/plugins/*.js` or VS Code extension contributions).
 - A stable JS API surface (export shape, versioning).
@@ -406,9 +422,11 @@ export function activate(context: vscode.ExtensionContext) {
 Registered tools join the agent catalog like built-ins: they appear in the
 tool list, dispatch through the same approval gates (`requiresApproval`
 controls the default), and are removed when your disposable is disposed.
-Trust semantics: an SDK tool runs with your extension's privileges — SideCar
-treats it as pre-trusted by installation, unlike workspace-configured custom
-tools which pass `checkWorkspaceConfigTrust`.
+Trust semantics: SDK registrations are **trust-gated like workspace config**
+— the first `registerTool`/`registerHook` call from your extension triggers a
+modal `checkWorkspaceConfigTrust('sdkTools', …)` prompt naming your extension
+ID, and registration throws if the user blocks it. Approval is remembered per
+extension ID.
 
 ## See also
 

@@ -10,15 +10,16 @@ SideCar uses lightweight AST parsing to extract relevant functions, classes, and
 
 ## Supported Languages
 
-| Language | Elements extracted | Block detection |
-|----------|-------------------|-----------------|
-| JavaScript / TypeScript | `function`, `const/let fn = () =>`, `class`, `import`, `export` | Brace counting `{ }` |
-| Python | `def`, `async def`, `class` | Indentation tracking |
-| Rust | `fn`, `pub fn`, `async fn` | Brace counting `{ }` |
-| Go | `func`, method receivers | Brace counting `{ }` |
-| Java / Kotlin | Methods, `fun`, `class` | Brace counting `{ }` |
+**19 tree-sitter grammars ship with the extension** (`grammars/*.wasm`): bash, C, C#, C++, Dart, Go, Java, JavaScript, Kotlin, Lua, PHP, Python, Ruby, Rust, Scala, Swift, TSX, TypeScript, and Vue. When the tree-sitter analyzer is unavailable, a regex fallback covers the same 28 file extensions (`REGEX_EXTENSIONS` in `src/parsing/registry.ts`), including shell scripts and header files:
 
-For unsupported languages, SideCar falls back to including the full file content.
+| Language family                                                                    | Elements extracted                                              | Fallback block detection |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------ |
+| JavaScript / TypeScript / TSX / Vue                                                | `function`, `const/let fn = () =>`, `class`, `import`, `export` | Brace counting `{ }`     |
+| Python                                                                             | `def`, `async def`, `class`                                     | Indentation tracking     |
+| Rust / Go / Java / Kotlin / C / C++ / C# / Swift / Scala / Dart / PHP / Lua / Ruby | Functions, methods, classes per language                        | Brace counting `{ }`     |
+| Shell (`sh`/`bash`/`zsh`)                                                          | Functions                                                       | Brace counting `{ }`     |
+
+For file types outside both paths, SideCar falls back to including the full file content.
 
 ## How It Works
 
@@ -51,6 +52,7 @@ This ordering ensures the most valuable context gets priority, especially on loc
 ## Configuration
 
 Smart context is enabled by default with no additional configuration. It applies automatically to:
+
 - Workspace index context (when the index is ready)
 - Fallback glob-based context (via `enhanceContextWithSmartElements`)
 

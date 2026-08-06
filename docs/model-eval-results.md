@@ -12,15 +12,40 @@ SideCar ships a deterministic LLM evaluation harness (`npm run eval:llm`) that m
 
 The suite has two layers:
 
-**Agent cases (47 total)** — the model runs inside the full agent loop with real tools against a sandboxed workspace. Cases test tool selection, file editing, code quality, error recovery, and operating rules (e.g. run tests after a fix, use `search_files` not `list_directory + filter`).
+**Agent cases (70 total)** — the model runs inside the full agent loop with real tools against a sandboxed workspace. Cases test tool selection, file editing, code quality, error recovery, multi-turn sessions, and operating rules (e.g. run tests after a fix, use `search_files` not `list_directory + filter`). Both the eval suite and the baseline recorder import the single `ALL_AGENT_CASES` source, so the denominators cannot drift.
 
-**Prompt cases (31 total)** — the model is tested against the base system prompt without tool calls: identity, honesty, conciseness, language mirroring, injection resistance, retrieval citation, and tool preference rules.
+**Prompt cases** — the model is tested against the base system prompt without tool calls: identity, honesty, conciseness, language mirroring, injection resistance, retrieval citation, and tool preference rules.
 
 Cases are scored deterministically (string matching, regex, trajectory inspection — no LLM-as-judge). A case passes only when every expectation holds. Some expectations use `softExpect` (reported but not counted toward pass/fail) for answer-quality checks where the core behavioral signal is in the trajectory.
 
-## Results
+## Current local baselines (2026-08-05/06)
 
-> Last updated: 2026-05-14. Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud.
+Recorded on the repaired harness (v0.122.3 extension, scaffold 4.0.0, thinking on,
+70 agent cases, provenance-guarded — see `tests/llm-eval/baselines/`). One trial
+per case, so treat these as a **floor, not a measurement**: the seed-sensitivity
+analysis showed marginal cases flip on seed alone. The run history lives in
+`baselines/history.jsonl`.
+
+| Model                | Size   | Agent baseline  | Notes                                                                                                                                    |
+| -------------------- | ------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `gemma4:e4b`         | 9 GB   | **67/70 (96%)** | Default local model; highest local score; fails: fix-two-independent-bugs, fix-wrong-comparison-operator, thinking-missing-await-in-loop |
+| `ministral-3:latest` | 6 GB   | **62/70 (89%)** | Lighter pick; 8 fails incl. rename-function-across-callers and the gate/stub/critic system cases                                         |
+| `granite4.1:3b`      | 2 GB   | **51/70 (73%)** | Low-RAM pick                                                                                                                             |
+| `qwen2.5-coder:7b`   | 4.5 GB | **49/70 (70%)** | Eval baseline model; code-as-text recovery (default-on since v0.120) is what lifted its multi-turn cases                                 |
+| `llama3.2:latest`    | 2 GB   | **27/70 (39%)** | Known limitation: edit-anchor grounding (guesses `search` text instead of copying) — the one model with no working lift path yet         |
+
+## Historical results (pre-harness-repair — NOT comparable)
+
+> **These numbers predate the v0.122.4–v0.123.0 measurement-layer repair** (invalid
+> `run_tests` glob, `tsc` returning help text instead of diagnostics, a baseline
+> that compared only 61 of 70 cases, cases that failed a model for choosing an
+> equally valid write tool). Per the comparability rule in
+> [scaffold-versions](scaffold-versions.md), results on either side of that
+> boundary are not directly comparable — the table below is kept as a historical
+> record of cloud-model runs and suite evolution, not as current rankings. The
+> local-model rows here are superseded by the baselines above.
+
+> Last updated: 2026-05-14 (historical). Run with `SIDECAR_EVAL_CASE_TIMEOUT=300000` for local models, `120000` for cloud.
 > **Suite v0.87d** (57 agent + 35 prompt = 92 cases) — current; adds 5 system-infrastructure cases (`gate-run-tests-after-fix`, `stub-validator-forces-real-impl`, `critic-security-path-traversal`, `sidecar-md-enforces-convention`, `cycle-detection-edit-pivot`) that measure how SideCar's built-in mechanisms compensate for known model failure modes. Last updated: 2026-05-14.
 > **Suite v0.87c** (51 agent + 34 prompt = 85 cases) — adds 4 reasoning cases (`thinking-cross-file-causality`, `thinking-semantic-version-compare`, `thinking-missing-await-in-loop`, `thinking-aliased-mutation`) with `softExpect.trajectoryHasThinking` assertions.
 > **Suite v0.87b** (47 agent + 34 prompt = 81 cases) — adds `rule5-no-alternatives-menu` and `rule9-ambiguous-target` + `rule9-meta-knowledge` prompt cases; includes prompt fixes for Rule 3/5/9.

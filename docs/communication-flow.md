@@ -29,6 +29,13 @@ SideCar operates as a multi-layered system where communication flows between the
                     │  │  Ollama     │   │  Anthropic  │   │
                     │  │  Backend    │   │  Backend    │   │
                     │  └─────────────┘   └─────────────┘   │
+                    │  ┌─────────────┐   ┌─────────────┐   │
+                    │  │ OpenAI-compat│  │ Kickstand / │   │
+                    │  │ (OpenAI,     │  │ Bedrock /   │   │
+                    │  │ OpenRouter,  │  │ Copilot     │   │
+                    │  │ Groq, Fire-  │  │ (vscode.lm) │   │
+                    │  │ works,Gemini)│  │             │   │
+                    │  └─────────────┘   └─────────────┘   │
                     │                                     │
                     │  ┌─────────────────────────────────┐ │
                     │  │     LLM API Interface         │ │
@@ -49,8 +56,9 @@ SideCar operates as a multi-layered system where communication flows between the
                     │  └───────────────────────────────┘  │
                     │                                     │
                     │  ┌───────────────────────────────┐  │
-                    │  │     Cloud API (Anthropic)     │  │
-                    │  │  (claude-sonnet, etc.)        │  │
+                    │  │  Cloud APIs (Anthropic, OpenAI,│ │
+                    │  │  OpenRouter, Groq, Fireworks,  │ │
+                    │  │  Gemini, Bedrock, Copilot)     │ │
                     │  └───────────────────────────────┘  │
                     └─────────────────────────────────────┘
                               │
@@ -87,12 +95,14 @@ SideCar operates as a multi-layered system where communication flows between the
 ## Data Flow Details
 
 ### 1. User Interaction Flow
+
 1. User types message in chat interface
 2. Webview sends message to Chat Handlers
 3. Handlers process message and prepare for agent loop
 4. Message sent to agent loop for processing
 
 ### 2. Agent Loop Flow
+
 1. Agent loop receives conversation history
 2. Sends request to LLM with available tools
 3. LLM responds with text and/or tool calls
@@ -101,6 +111,7 @@ SideCar operates as a multi-layered system where communication flows between the
 6. Loop continues until completion or tool limit reached
 
 ### 3. Tool Execution Flow
+
 1. Tool selected by LLM
 2. Approval check (if required)
 3. Security scan (especially for file operations)
@@ -108,6 +119,7 @@ SideCar operates as a multi-layered system where communication flows between the
 5. Results returned to agent loop
 
 ### 4. LLM Communication Flow
+
 - **Ollama**: Direct HTTP API calls to local Ollama server
 - **Anthropic**: HTTPS API calls to Anthropic endpoints
 - Both support streaming responses for real-time updates
@@ -116,21 +128,25 @@ SideCar operates as a multi-layered system where communication flows between the
 ## Key Communication Patterns
 
 ### 1. Streaming Responses
+
 - LLM responses streamed to webview in real-time
 - Tool output streamed during execution
 - Progress updates during long-running operations
 
 ### 2. Asynchronous Operations
+
 - Parallel tool execution for performance
 - Background shell commands
 - Async file operations
 
 ### 3. Context Management
+
 - Conversation history passed to LLM
 - Workspace context built from indexed files
 - Context compression when approaching token limits
 
 ### 4. Error Handling
+
 - Graceful handling of LLM timeouts
 - Tool execution failures
 - Network connectivity issues

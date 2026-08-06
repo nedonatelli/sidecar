@@ -2,7 +2,7 @@
 title: Debugging Agent Issues
 layout: docs
 nav_order: 7
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Debugging Agent Issues
@@ -13,11 +13,11 @@ This guide covers the most common failure modes when SideCar's agent doesn't beh
 
 ## The agent is looping or repeating the same action
 
-**What's happening.** SideCar has two layers of cycle detection. The first is an exact-match ring buffer: if the same tool call (same tool, same inputs) fires 4 times consecutively, the loop trips. The second is a normalized-signature ring buffer: it strips secondary arguments and compares `name:primaryResource` forms, so "same tool, same file, different edit content" still trips after 3 matches. This catches loops the exact-match check misses — for example, an agent that keeps editing the same file with slightly different content on each pass.
+**What's happening.** SideCar has two layers of cycle detection. The primary is a normalized-signature ring buffer: it strips secondary arguments and compares `name:primaryResource` forms, so "same tool, same file, different edit content" trips after 10 matches (configurable via `sidecar.scaffolding.cycleDetectionMinRepeats`). The exact-match check (same tool, same inputs) fires one repeat later. This catches loops the exact-match check misses — for example, an agent that keeps editing the same file with slightly different content on each pass.
 
 When either detector trips, the agent halts with a message in chat explaining the pattern it detected.
 
-There is also a burst cap on individual tools — no single tool may be called more than N times per session regardless of whether a cycle is detected.
+There is also a burst cap — at most 12 tool calls in a single streaming turn (`MAX_TOOL_CALLS_PER_ITERATION`), regardless of whether a cycle is detected.
 
 **What to do.**
 
@@ -89,6 +89,7 @@ If the agent keeps confusing files across a subsystem, add a path-scoped section
 
 ```markdown
 ## Auth module
+
 <!-- @paths: src/auth/** -->
 
 Token validation lives in `src/auth/validateToken.ts`. The JWT secret is read from `src/config/secrets.ts` — never from environment variables directly. The session model is in `src/models/session.ts`.

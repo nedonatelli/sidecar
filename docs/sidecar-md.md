@@ -2,7 +2,7 @@
 title: SIDECAR.md
 layout: docs
 nav_order: 2
-nav_section: "Configuration"
+nav_section: 'Configuration'
 ---
 
 # SIDECAR.md — Project instructions
@@ -21,10 +21,12 @@ SideCar reads `SIDECAR.md` on every message and includes it in the system prompt
 
 ## Where to put it
 
-SideCar checks two locations in order:
+SideCar checks two workspace-level locations in order:
 
 1. `.sidecar/SIDECAR.md` (preferred — keeps project instructions alongside other SideCar data)
 2. `SIDECAR.md` in the workspace root (fallback for backward compatibility)
+
+In addition, **per-directory `SIDECAR.md` files** along the active file's directory chain are loaded and injected root-to-leaf — so `src/parser/SIDECAR.md` applies whenever you're working on a file under `src/parser/`, layered on top of the workspace-level file.
 
 ```
 my-project/
@@ -54,23 +56,27 @@ my-project/
 # Project: My App
 
 ## Build
+
 - Run `npm run build` to compile
 - Run `npm test` to run tests (Vitest)
 - Run `npm run lint` to check code style
 
 ## Conventions
+
 - Use TypeScript strict mode
 - Prefer async/await over callbacks
 - Components go in src/components/
-- Tests go in src/__tests__/
+- Tests go in src/**tests**/
 - Use conventional commit messages
 
 ## Architecture
+
 - Express API in src/server/
 - React frontend in src/client/
 - Shared types in src/shared/types.ts
 
 ## Important
+
 - Never modify migration files after they've been applied
 - Environment variables are in .env.example (don't commit .env)
 ```
@@ -93,16 +99,21 @@ Add an HTML comment immediately under a section heading with comma-separated glo
 
 ```markdown
 ## Transforms
+
 <!-- @paths: src/transforms/**, src/dsp/** -->
+
 Filter kernels go under src/transforms/. Naming: fft, dct, dwt.
 Always validate the sample rate matches the expected window.
 
 ## UI Components
+
 <!-- @paths: src/components/**, src/views/** -->
+
 Use the design-token variables from src/theme/tokens.ts. Prefer
 controlled components over uncontrolled.
 
 ## Build
+
 - Run `npm test` to verify
 - Run `npm run lint` to check style
 ```
@@ -110,6 +121,7 @@ controlled components over uncontrolled.
 The comment form is invisible in GitHub's markdown preview and other standard renderers, so the file stays human-readable. Sections without a sentinel default to `priority: 'always'` — they always get injected, preserving pre-v0.67 behavior for unannotated files.
 
 Glob syntax:
+
 - `**` — any path depth (including `/`)
 - `*` — any run of non-`/` characters (segment wildcard)
 - `?` — any single non-`/` character
@@ -128,16 +140,18 @@ On overflow, whole sections drop in reverse priority order (low first, then scop
 ### When to use it
 
 Add `@paths` sentinels when:
+
 - Your SIDECAR.md has grown past ~5 KB
 - Different conventions apply to different parts of the codebase (e.g. `src/transforms/` has strict numerical stability rules that `src/ui/` doesn't)
 - You run SideCar on small-context local models where every token matters
 
 Leave sentinels off when:
+
 - Your SIDECAR.md is tight and globally relevant
 - You want strict backward-compat with pre-v0.67 behavior
 
 ### Mode override
 
-`sidecar.sidecarMd.mode: 'full'` forces the legacy whole-file behavior regardless of sentinel presence. The default (`sections`) degrades to `full` automatically when the file has zero `@paths` sentinels, so no migration is required.
+`sidecar.sidecarMd.mode` has three values: `full` forces the legacy whole-file behavior regardless of sentinel presence; the default `sections` degrades to `full` automatically when the file has zero `@paths` sentinels, so no migration is required; and `retrieval` selects sections by embedding similarity against the current query, tuned with `sidecar.sidecarMd.retrieval.topK` and `.minScore`.
 
 See [Configuration — SIDECAR.md Path-Scoped Section Injection](configuration#sidecarmd-path-scoped-section-injection-v067) for the config surface.

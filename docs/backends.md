@@ -2,7 +2,7 @@
 title: Backends
 layout: docs
 nav_order: 3
-nav_section: "Get Started"
+nav_section: 'Get Started'
 ---
 
 # Backends
@@ -42,11 +42,11 @@ ollama pull qwen2.5-coder:7b
 
 ### Connection
 
-| Setting | Value |
-|---------|-------|
-| `sidecar.baseUrl` | `http://localhost:11434` (default) |
+| Setting            | Value                              |
+| ------------------ | ---------------------------------- |
+| `sidecar.baseUrl`  | `http://localhost:11434` (default) |
 | `sidecar.provider` | `ollama` (auto-detected from port) |
-| `sidecar.model` | any model name from `ollama list` |
+| `sidecar.model`    | any model name from `ollama list`  |
 
 No API key is needed. The `sidecar.apiKey` setting is ignored for local Ollama.
 
@@ -115,12 +115,12 @@ The `⚙ gear → Anthropic Claude` profile sets all three automatically.
 
 ### Recommended models
 
-| Model | Use case | Max output tokens |
-|-------|----------|-------------------|
-| `claude-sonnet-4-6` | Agent work, code generation, complex reasoning | 64 000 |
-| `claude-haiku-4-5` | Fast, budget-friendly completions | 64 000 |
-| `claude-opus-4` | Maximum capability, highest cost | 32 000 |
-| `claude-3-5-sonnet-20241022` | Strong coding, previous generation | 8 192 |
+| Model                        | Use case                                       | Max output tokens |
+| ---------------------------- | ---------------------------------------------- | ----------------- |
+| `claude-sonnet-4-6`          | Agent work, code generation, complex reasoning | 64 000            |
+| `claude-haiku-4-5`           | Fast, budget-friendly completions              | 64 000            |
+| `claude-opus-4`              | Maximum capability, highest cost               | 32 000            |
+| `claude-3-5-sonnet-20241022` | Strong coding, previous generation             | 8 192             |
 
 `claude-sonnet-4-6` is the recommended default for agent tasks — it has the highest output ceiling (64 k tokens), strong tool use, and a good cost/capability ratio.
 
@@ -132,17 +132,43 @@ SideCar automatically enables Anthropic's prompt caching by adding `cache_contro
 
 The backend enforces per-model output token maximums before sending requests — the Anthropic API hard-rejects any `max_tokens` value above the model's ceiling. Ceilings are derived from the prefix table in `anthropicBackend.ts`:
 
-| Model prefix | Max output tokens |
-|--------------|-------------------|
-| `claude-opus-4` | 32 000 |
-| `claude-sonnet-4` / `claude-haiku-4` | 64 000 |
-| `claude-3-7-sonnet` | 64 000 |
-| `claude-3-5-sonnet` / `claude-3-5-haiku` | 8 192 |
-| `claude-3-opus` / `claude-3-sonnet` / `claude-3-haiku` | 4 096 |
+| Model prefix                                           | Max output tokens |
+| ------------------------------------------------------ | ----------------- |
+| `claude-opus-4`                                        | 32 000            |
+| `claude-sonnet-4` / `claude-haiku-4`                   | 64 000            |
+| `claude-3-7-sonnet`                                    | 64 000            |
+| `claude-3-5-sonnet` / `claude-3-5-haiku`               | 8 192             |
+| `claude-3-opus` / `claude-3-sonnet` / `claude-3-haiku` | 4 096             |
 
 ### Rate limiting
 
 The backend parses `x-ratelimit-*` response headers and tracks remaining request/token budgets. When a rate limit is hit, SideCar waits up to 60 seconds for the reset before surfacing the error to the user. If the wait exceeds 60 s it suggests switching to a fallback backend.
+
+---
+
+## OpenAI
+
+SideCar's `OpenAIBackend` speaks the standard Chat Completions API (`/v1/chat/completions`) with streaming and native tool calling. The same backend class also powers every OpenAI-compatible provider (OpenRouter, Groq, Fireworks, Gemini, LM Studio, vLLM) — this section covers the first-party OpenAI service.
+
+### API key setup
+
+1. Get a key at [platform.openai.com](https://platform.openai.com).
+2. Run `SideCar: Set / Refresh API Key` from the Command Palette and paste your key.
+3. Keys are stored in VS Code SecretStorage, never in `settings.json`.
+
+### Configuration
+
+```json
+"sidecar.baseUrl": "https://api.openai.com",
+"sidecar.provider": "openai",
+"sidecar.model": "gpt-4o"
+```
+
+The `⚙ gear → OpenAI` profile sets all three automatically (default model `gpt-4o`).
+
+### Rate-limit note
+
+SideCar's system prompt + tool schemas total ~23K tokens per request. Free-tier accounts (30K TPM) exhaust their per-minute budget after one or two agent requests, and even paid `gpt-4o-mini` / `gpt-4.1-mini` share a 200K TPM ceiling that agentic workloads can saturate. For sustained agent use, prefer `gpt-5` / `gpt-4o` on a paid tier or a provider with a higher TPM allocation.
 
 ---
 
@@ -164,15 +190,15 @@ Set your OpenRouter API key via `SideCar: Set / Refresh API Key`. Get a key at [
 
 OpenRouter uses fully qualified model IDs in the form `provider/model-name`. Examples:
 
-| Model | ID |
-|-------|----|
-| Claude Sonnet 4.6 | `anthropic/claude-sonnet-4-6` |
-| Claude Haiku 4.5 | `anthropic/claude-haiku-4-5` |
-| GPT-4o | `openai/gpt-4o` |
-| Gemini 2.0 Flash | `google/gemini-2.0-flash-001` |
-| DeepSeek V3 | `deepseek/deepseek-chat-v3-0324` |
-| Qwen3 235B | `qwen/qwen3-235b-a22b` |
-| Llama 3.3 70B | `meta-llama/llama-3.3-70b-instruct` |
+| Model             | ID                                  |
+| ----------------- | ----------------------------------- |
+| Claude Sonnet 4.6 | `anthropic/claude-sonnet-4-6`       |
+| Claude Haiku 4.5  | `anthropic/claude-haiku-4-5`        |
+| GPT-4o            | `openai/gpt-4o`                     |
+| Gemini 2.0 Flash  | `google/gemini-2.0-flash-001`       |
+| DeepSeek V3       | `deepseek/deepseek-chat-v3-0324`    |
+| Qwen3 235B        | `qwen/qwen3-235b-a22b`              |
+| Llama 3.3 70B     | `meta-llama/llama-3.3-70b-instruct` |
 
 ### Free tier
 
@@ -210,13 +236,13 @@ Set your Groq API key via `SideCar: Set / Refresh API Key`. Get a key at [consol
 
 ### Available models
 
-| Model | Context | Notes |
-|-------|---------|-------|
-| `moonshotai/kimi-k2-instruct` | 128 k | Strong coding and tool use |
-| `llama-3.3-70b-versatile` | 128 k | General purpose |
-| `llama-3.1-8b-instant` | 128 k | Fastest, lowest latency |
-| `mixtral-8x7b-32768` | 32 k | Strong reasoning |
-| `gemma2-9b-it` | 8 k | Efficient |
+| Model                         | Context | Notes                      |
+| ----------------------------- | ------- | -------------------------- |
+| `moonshotai/kimi-k2-instruct` | 128 k   | Strong coding and tool use |
+| `llama-3.3-70b-versatile`     | 128 k   | General purpose            |
+| `llama-3.1-8b-instant`        | 128 k   | Fastest, lowest latency    |
+| `mixtral-8x7b-32768`          | 32 k    | Strong reasoning           |
+| `gemma2-9b-it`                | 8 k     | Efficient                  |
 
 ### Speed vs. context trade-off
 
@@ -244,13 +270,13 @@ Set your Fireworks API key via `SideCar: Set / Refresh API Key`. Get a key at [f
 
 Fireworks uses fully qualified IDs with the `accounts/fireworks/models/` prefix:
 
-| Model | ID |
-|-------|----|
-| DeepSeek V3 (0324) | `accounts/fireworks/models/deepseek-v3-0324` |
-| Qwen2.5 Coder 32B | `accounts/fireworks/models/qwen2p5-coder-32b-instruct` |
-| Llama 3.3 70B | `accounts/fireworks/models/llama-v3p3-70b-instruct` |
-| Mixtral 8x22B | `accounts/fireworks/models/mixtral-8x22b-instruct` |
-| DeepSeek R1 | `accounts/fireworks/models/deepseek-r1` |
+| Model              | ID                                                     |
+| ------------------ | ------------------------------------------------------ |
+| DeepSeek V3 (0324) | `accounts/fireworks/models/deepseek-v3-0324`           |
+| Qwen2.5 Coder 32B  | `accounts/fireworks/models/qwen2p5-coder-32b-instruct` |
+| Llama 3.3 70B      | `accounts/fireworks/models/llama-v3p3-70b-instruct`    |
+| Mixtral 8x22B      | `accounts/fireworks/models/mixtral-8x22b-instruct`     |
+| DeepSeek R1        | `accounts/fireworks/models/deepseek-r1`                |
 
 ### Best models for coding
 
@@ -278,14 +304,14 @@ No API key is required. The model name must match the identifier LM Studio repor
 
 ### LM Studio vs. Ollama
 
-| | LM Studio | Ollama |
-|--|-----------|--------|
-| Model management | GUI | CLI (`ollama pull`) |
-| Auto-launch from SideCar | No | Yes |
-| FIM / inline completions | Yes | Yes |
-| Modelfile customization | No | Yes |
-| API surface | OpenAI-compat only | Native + OpenAI-compat |
-| Context window config | Per-model slider in UI | Modelfile `num_ctx` |
+|                          | LM Studio              | Ollama                 |
+| ------------------------ | ---------------------- | ---------------------- |
+| Model management         | GUI                    | CLI (`ollama pull`)    |
+| Auto-launch from SideCar | No                     | Yes                    |
+| FIM / inline completions | Yes                    | Yes                    |
+| Modelfile customization  | No                     | Yes                    |
+| API surface              | OpenAI-compat only     | Native + OpenAI-compat |
+| Context window config    | Per-model slider in UI | Modelfile `num_ctx`    |
 
 If you only need a CLI workflow, Ollama is simpler. If you prefer a GUI for organizing and loading models, LM Studio works equally well as a backend.
 
@@ -315,13 +341,13 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \
 
 ### vLLM vs. Ollama
 
-| | vLLM | Ollama |
-|--|------|--------|
-| Target use case | Multi-user serving, batch throughput | Single-user local dev |
-| Model format | HuggingFace safetensors | GGUF (quantized) |
-| GPU requirement | CUDA (NVIDIA), ROCm (AMD) | CUDA, Metal, CPU |
-| Context parallelism | Yes (PagedAttention) | No |
-| Auto-launch from SideCar | No | Yes |
+|                          | vLLM                                 | Ollama                |
+| ------------------------ | ------------------------------------ | --------------------- |
+| Target use case          | Multi-user serving, batch throughput | Single-user local dev |
+| Model format             | HuggingFace safetensors              | GGUF (quantized)      |
+| GPU requirement          | CUDA (NVIDIA), ROCm (AMD)            | CUDA, Metal, CPU      |
+| Context parallelism      | Yes (PagedAttention)                 | No                    |
+| Auto-launch from SideCar | No                                   | Yes                   |
 
 Use vLLM when you want to run a full-precision or lightly quantized model with maximum throughput, or when sharing an inference server across multiple users. Use Ollama for personal local dev where ease of setup matters more than throughput.
 
@@ -354,12 +380,12 @@ The `⚙ gear → Kickstand` profile sets `baseUrl` and `provider` for you.
 
 Kickstand exposes model management endpoints that SideCar hooks into directly:
 
-| Operation | Kickstand endpoint |
-|-----------|-------------------|
-| List registry | `GET /api/v1/models` |
-| Pull a model | `POST /api/v1/models/pull` (SSE progress) |
-| Load into GPU | `POST /api/v1/models/{id}/load` |
-| Unload from GPU | `POST /api/v1/models/{id}/unload` |
+| Operation       | Kickstand endpoint                        |
+| --------------- | ----------------------------------------- |
+| List registry   | `GET /api/v1/models`                      |
+| Pull a model    | `POST /api/v1/models/pull` (SSE progress) |
+| Load into GPU   | `POST /api/v1/models/{id}/load`           |
+| Unload from GPU | `POST /api/v1/models/{id}/unload`         |
 
 These are surfaced in SideCar's model dropdown — you can pull and load models without leaving VS Code.
 
@@ -368,7 +394,7 @@ These are surfaced in SideCar's model dropdown — you can pull and load models 
 Kickstand supports capabilities not available in standard Ollama or vLLM setups. Configure these via Kickstand's own settings rather than SideCar:
 
 - **Fill-in-the-Middle (FIM):** optimized code completion using prefix/suffix context — powers SideCar's inline completions on Kickstand.
-- **Flash Attention:** enabled by default on supported hardware, reducing memory usage and increasing throughput for long contexts.
+- **Flash Attention:** off by default in SideCar — enable per-load with `sidecar.kickstand.flashAttn` (reduces memory usage and increases throughput for long contexts on supported hardware).
 - **LoRA adapters:** load fine-tuned LoRA weights on top of a base model at runtime, without restarting the server.
 - **Grammar-constrained decoding:** force model output to conform to a JSON schema or EBNF grammar — useful for structured tool-call responses.
 
@@ -407,11 +433,11 @@ No API key prompt for IAM, but Bedrock also supports a single **Bedrock API key*
 
 The model dropdown is populated **live** by querying the Bedrock control plane (`ListInferenceProfiles` + `ListFoundationModels` on `bedrock.<region>.amazonaws.com`), filtered to Anthropic/Claude models — both cross-region inference profiles (`us.anthropic.…`, required for newer Claude) and on-demand foundation models. If the query is denied (e.g. a Bedrock API key scoped only to `InvokeModel`, or missing `bedrock:ListFoundationModels` permission), it falls back to a static list; you can always type any model / inference-profile id directly, e.g.:
 
-| Model | ID |
-|-------|----|
+| Model                                  | ID                                           |
+| -------------------------------------- | -------------------------------------------- |
 | Claude Sonnet 4 (cross-region profile) | `us.anthropic.claude-sonnet-4-20250514-v1:0` |
-| Claude 3.5 Sonnet v2 | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
-| Claude 3.5 Haiku | `anthropic.claude-3-5-haiku-20241022-v1:0` |
+| Claude 3.5 Sonnet v2                   | `anthropic.claude-3-5-sonnet-20241022-v2:0`  |
+| Claude 3.5 Haiku                       | `anthropic.claude-3-5-haiku-20241022-v1:0`   |
 
 Make sure the model is **enabled in your Bedrock account** for the chosen region (Bedrock console → Model access), or requests return an access error. Only Anthropic/Claude models are listed, since the backend speaks the Anthropic payload.
 
@@ -442,12 +468,12 @@ Note the base URL ends at `/openai` — do not append `/v1`. SideCar's `GeminiBa
 
 SideCar fetches the live model list from the Gemini API using your API key. Fallback list when the key is not yet available:
 
-| Model | Notes |
-|-------|-------|
+| Model                            | Notes                          |
+| -------------------------------- | ------------------------------ |
 | `gemini-2.5-flash-preview-04-17` | Latest Flash, strong reasoning |
-| `gemini-2.0-flash` | Fast, multimodal, tool use |
-| `gemini-1.5-pro` | Long context (up to 2M tokens) |
-| `gemini-1.5-flash` | Faster, lower cost |
+| `gemini-2.0-flash`               | Fast, multimodal, tool use     |
+| `gemini-1.5-pro`                 | Long context (up to 2M tokens) |
+| `gemini-1.5-flash`               | Faster, lower cost             |
 
 `gemini-2.0-flash` is the recommended default — it supports function calling (required for full agentic mode), has a 1M token context window, and is free within Google AI Studio's rate limits.
 

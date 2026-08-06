@@ -25,9 +25,10 @@ flowchart TD
     Health --> Reconnect[scheduleReconnect<br/>exponential backoff]
     Reconnect --> Attempt{attempts <<br/>RECONNECT_DELAYS?}
     Attempt -- yes --> Wait[wait 2s / 5s / 15s]
+    Attempt -- no --> Steady[wait 60s<br/>steady-state]
     Wait --> Retry[connectServer again]
+    Steady --> Retry
     Retry --> Rebuild
-    Attempt -- no --> Give[give up; status='failed']
 
     Dispose[Extension deactivation] --> Close[MCPManager.dispose<br/>close every client.transport]
 
@@ -80,11 +81,11 @@ sequenceDiagram
 
 ### Three transports
 
-| Transport | Entry in config | SDK class | When blocked |
-| --- | --- | --- | --- |
-| **stdio** | `command` + `args` + optional `env` | `StdioClientTransport` | Workspace not trusted — spawning arbitrary commands from a cloned repo's `.mcp.json` is a non-starter until the user accepts the workspace-trust prompt |
-| **http** | `url` + optional `headers` | `StreamableHTTPClientTransport` | — (no local process spawn) |
-| **sse** | `url` + optional `headers` | `SSEClientTransport` | — (no local process spawn) |
+| Transport | Entry in config                     | SDK class                       | When blocked                                                                                                                                            |
+| --------- | ----------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **stdio** | `command` + `args` + optional `env` | `StdioClientTransport`          | Workspace not trusted — spawning arbitrary commands from a cloned repo's `.mcp.json` is a non-starter until the user accepts the workspace-trust prompt |
+| **http**  | `url` + optional `headers`          | `StreamableHTTPClientTransport` | — (no local process spawn)                                                                                                                              |
+| **sse**   | `url` + optional `headers`          | `SSEClientTransport`            | — (no local process spawn)                                                                                                                              |
 
 ### Env-var expansion is scoped
 
@@ -101,16 +102,14 @@ stateDiagram-v2
     [*] --> connecting: connectServer
     connecting --> connected: handshake OK<br/>listTools OK
     connecting --> failed: transport error<br/>or listTools error
-    failed --> reconnecting: scheduleReconnect<br/>delay 2s → 5s → 15s
+    failed --> reconnecting: scheduleReconnect<br/>delay 2s → 5s → 15s,<br/>then 60s steady-state
     reconnecting --> connecting: timer fires<br/>close old client<br/>connectServer again
-    reconnecting --> gaveUp: attempts ≥ 3
     connected --> failed: mid-session transport error
     connected --> disconnected: MCPManager.disconnect<br/>or dispose
-    gaveUp --> disconnected: manual reconnect required
     disconnected --> [*]
 ```
 
-`RECONNECT_DELAYS = [2000, 5000, 15000]` — three tries, then the connection stays `failed` until the user explicitly triggers a reconnect (usually via `MCPManager.connect(servers)` with fresh settings). The backoff keeps one dead server from hammering itself against a down endpoint forever; the cap prevents retries during an extension shutdown from leaking timers.
+`RECONNECT_DELAYS = [2000, 5000, 15000]` — after the burst, retries continue at `RECONNECT_STEADY_STATE_DELAY` (60s) **indefinitely** rather than giving up, so a server that comes back recovers on its own without a manual reconnect. There is no `gaveUp` status. The backoff keeps one dead server from hammering a down endpoint; `dispose` cancels pending timers on extension shutdown.
 
 ## Tool invocation path
 
@@ -169,11 +168,11 @@ The chat panel polls this on open + whenever it re-renders the agent-mode picker
 
 ## Source layout
 
-| File | Role |
-| --- | --- |
-| [`src/agent/mcpManager.ts`](../src/agent/mcpManager.ts) | `MCPManager` class + `MCPConnection` + `MCPServerInfo` |
-| [`src/config/settings.ts`](../src/config/settings.ts) | `MCPServerConfig` type; merges VS Code settings + `.mcp.json` |
-| `@modelcontextprotocol/sdk/client/*` | Third-party SDK for the protocol itself |
+| File                                                    | Role                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------- |
+| [`src/agent/mcpManager.ts`](../src/agent/mcpManager.ts) | `MCPManager` class + `MCPConnection` + `MCPServerInfo`        |
+| [`src/config/settings.ts`](../src/config/settings.ts)   | `MCPServerConfig` type; merges VS Code settings + `.mcp.json` |
+| `@modelcontextprotocol/sdk/client/*`                    | Third-party SDK for the protocol itself                       |
 
 ## User-facing docs
 

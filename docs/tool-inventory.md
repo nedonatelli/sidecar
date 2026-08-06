@@ -7,7 +7,7 @@
 
 ## TL;DR
 
-SideCar ships **86 built-in agent tools** across 32 files in `src/agent/tools/`. The original review flagged this as feature sprawl threatening a small-team project. The data says the situation is **better than it looks** — two mitigations already exist:
+SideCar ships **87 built-in agent tools** (pinned by `tools.test.ts`) across ~34 tool-group files in `src/agent/tools/` (plus the inline tools in `tools.ts`). The original review flagged this as feature sprawl threatening a small-team project. The data says the situation is **better than it looks** — two mitigations already exist:
 
 1. **Config gating** — extended tool groups are excluded from the LLM catalog when their `sidecar.*.enabled` flag is off. `TOOL_REGISTRY` is a complete static catalog; the gate is applied **dynamically per request** by `getEnabledBuiltInTools(cfg)` (see `GATED_TOOL_GROUPS` in [tools.ts](../src/agent/tools.ts)).
 2. **Tier stubbing** — `getToolDefinitionsForTier('full', …)` sends non-core built-ins as one-line stubs (name + first sentence + `describe_tool` pointer) instead of full schemas, so extended tools cost ~1 line of catalog each.
@@ -27,7 +27,7 @@ This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gat
 
 ## Inventory
 
-### Core — always on, universally relevant (keep as-is): 28 tools
+### Core — always on, universally relevant (keep as-is): 31 tools
 
 | Group             | File                | LOC | Tools                                           |
 | ----------------- | ------------------- | --- | ----------------------------------------------- |
@@ -52,13 +52,13 @@ This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gat
 | Academic       | zotero.ts, pdf.ts, citation.ts | 5     | research/writing workflow            | pdf-parse (external)                                    |
 | Viz            | vizSpec.ts                     | 1     | diagram output wanted                | mermaid (bundled)                                       |
 
-### Default-ON gated groups (in catalog unless disabled): 5 tools
+### Default-ON gated groups (in catalog unless disabled): 6 tools
 
 `docTests` (3, default ON), `deps` (1, ON), `monorepo` (1, ON), `ci` (1, ON). Reasonable defaults; low noise.
 
-### Default-OFF gated groups (excluded until enabled): 22 tools
+### Default-OFF gated groups (excluded until enabled): 24 tools
 
-`vision` (4), `notebook` (6), `research` (8), `profiling` (1), `latex` (1), `mcpDelegation` (1), `evalHistory` (1). **Correctly invisible by default** — these carry zero catalog cost for typical users. This is the sprawl mitigation working as intended.
+`vision` (4), `notebook` (6), `research` (8), `profiling` (1), `latex` (1), `mcpDelegation` (1), `evalHistory` (1), `mutation` (1), `plan` (1). **Correctly invisible by default** — these carry zero catalog cost for typical users. This is the sprawl mitigation working as intended.
 
 ## Recommendation
 

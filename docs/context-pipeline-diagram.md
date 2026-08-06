@@ -1,6 +1,6 @@
 # Context Selection Pipeline
 
-Before every agent turn, SideCar assembles a system prompt that includes retrieved context relevant to the user's query. The retrieval layer fuses three independent sources — documentation, agent memory, and the workspace itself — under a single shared budget using reciprocal-rank fusion (RRF). This keeps one noisy source from dominating the limited context window.
+Before every agent turn, SideCar assembles a system prompt that includes retrieved context relevant to the user's query. The retrieval layer fuses six independent sources — documentation, workspace chunks, agent memory, PDFs, semantic (PKI) search, and SIDECAR.md sections — under a single shared budget using reciprocal-rank fusion (RRF) over a set of rewritten retrieval queries (`fuseRetrieversMultiQuery`). This keeps one noisy source from dominating the limited context window.
 
 ## Assembly flow
 
@@ -10,12 +10,20 @@ flowchart TD
     Inject --> Assemble[Assemble retrievers array]
 
     Assemble --> DR[DocRetriever<br/>DocumentationIndexer]
+    Assemble --> CR[ChunkRetriever<br/>workspace chunks]
     Assemble --> MR[MemoryRetriever<br/>AgentMemory]
-    Assemble --> SR[SemanticRetriever<br/>WorkspaceIndex]
+    Assemble --> PR[PdfRetriever]
+    Assemble --> SR[SemanticRetriever<br/>WorkspaceIndex / PKI]
+    Assemble --> SMR[SidecarMdRetriever]
 
-    DR --> Fuse[fuseRetrievers query, topK, perSourceK]
+    Turn --> QR[queryRewriter<br/>retrievalQueries array]
+    QR --> Fuse[fuseRetrieversMultiQuery queries, topK, perSourceK]
+    DR --> Fuse
+    CR --> Fuse
     MR --> Fuse
+    PR --> Fuse
     SR --> Fuse
+    SMR --> Fuse
 
     Fuse --> ReadyFilter[filter r.isReady]
     ReadyFilter --> Parallel[Promise.all<br/>retrieve per source]
@@ -26,11 +34,11 @@ flowchart TD
 
     classDef retrieverStyle fill:#dbeafe,stroke:#2563eb
     classDef fuseStyle fill:#fef3c7,stroke:#d97706
-    class DR,MR,SR retrieverStyle
+    class DR,CR,MR,PR,SR,SMR retrieverStyle
     class RRF,Slice fuseStyle
 ```
 
-Each retriever implements the `Retriever` interface in [`src/agent/retrieval/retriever.ts`](../src/agent/retrieval/retriever.ts): `isReady()` and `retrieve(query, k) → RetrievalHit[]`. `fuseRetrievers` silently skips retrievers that aren't ready, Promise.all's the rest, catches per-retriever throws (so one failing source doesn't kill the others), then feeds the ranked lists into RRF. The output is capped at `topK` hits and rendered as a single markdown block prepended to the system prompt.
+Each retriever implements the `Retriever` interface in [`src/agent/retrieval/retriever.ts`](../src/agent/retrieval/retriever.ts): `isReady()` and `retrieve(query, k) → RetrievalHit[]`. `fuseRetrieversMultiQuery` silently skips retrievers that aren't ready, Promise.all's the rest across each rewritten query, catches per-retriever throws (so one failing source doesn't kill the others), then feeds the ranked lists into RRF. The output is capped at `topK` hits and rendered as a single markdown block prepended to the system prompt.
 
 ## Inside SemanticRetriever (the workspace source)
 
@@ -69,7 +77,7 @@ flowchart TD
 **Symbol path** (PKI enabled, v0.62+):
 
 - Every parsed symbol's body is embedded (MiniLM, 384-dim) and stored in a `FlatVectorStore` keyed by `filePath::qualifiedName`.
-- When `sidecar.merkleIndex.enabled` (default `true`), a content-addressed Merkle tree sits over the vector store. Aggregated file-node embeddings let `descend(queryVec, k)` pick candidate subtrees *before* scoring leaves, turning `O(total symbols)` cosine scans into `O(picked files × avg symbols per file)`.
+- When `sidecar.merkleIndex.enabled` (default `true`), a content-addressed Merkle tree sits over the vector store. Aggregated file-node embeddings let `descend(queryVec, k)` pick candidate subtrees _before_ scoring leaves, turning `O(total symbols)` cosine scans into `O(picked files × avg symbols per file)`.
 - Hit IDs use a `workspace-sym:` prefix so the RRF fusion layer dedupes symbol hits independently from any legacy file-level hit that might still arrive from a parallel retriever in hybrid test setups.
 - Hit content renders as a fenced code block with the symbol's line-range slice — a tighter "evidence unit" than a file head.
 
@@ -106,7 +114,7 @@ RRF works well for this problem because it only needs **ordinal rank** from each
 
 - **Per-source K** — each retriever is asked for `perSourceK` items (default: `topK`). The fusion layer then picks `topK` across the union. Giving each source extra headroom means a weaker retriever can still contribute lower-ranked items when the stronger one also has matches.
 - **Char caps per hit**:
-  - Symbol hits: `sidecar.projectKnowledge.maxCharsPerSymbol` (default 1500).
+  - Symbol hits: 1,500 chars per symbol (`DEFAULT_MAX_CHARS_PER_SYMBOL` in `semanticRetriever.ts` — a code constant, not a setting).
   - File hits: `SemanticRetriever.maxCharsPerFile` (default 3000).
   - Doc hits + memory hits: each source owns its own truncation upstream.
 - **System-prompt budget** — injected context is capped at the system block's overall byte cap so it can't crowd out the conversation history. When the combined hits exceed the cap, the fusion output is sliced in order — highest-ranked hits survive.
@@ -117,16 +125,21 @@ The RAG-eval harness at [`src/test/retrieval-eval/`](../src/test/retrieval-eval/
 
 ## Source layout
 
-| File | Role |
-| --- | --- |
-| [`src/agent/retrieval/index.ts`](../src/agent/retrieval/index.ts) | `fuseRetrievers` + `renderFusedContext` — the public fusion entrypoint |
-| [`src/agent/retrieval/retriever.ts`](../src/agent/retrieval/retriever.ts) | `Retriever` interface + `RetrievalHit` type |
-| [`src/agent/retrieval/fusion.ts`](../src/agent/retrieval/fusion.ts) | `reciprocalRankFusion` — pure function, side-effect-free |
-| [`src/agent/retrieval/docRetriever.ts`](../src/agent/retrieval/docRetriever.ts) | Wraps `DocumentationIndexer` |
-| [`src/agent/retrieval/memoryRetriever.ts`](../src/agent/retrieval/memoryRetriever.ts) | Wraps `AgentMemory` |
-| [`src/agent/retrieval/semanticRetriever.ts`](../src/agent/retrieval/semanticRetriever.ts) | Wraps `WorkspaceIndex`; branches on PKI readiness |
-| [`src/config/symbolEmbeddingIndex.ts`](../src/config/symbolEmbeddingIndex.ts) | `SymbolEmbeddingIndex` — symbol-level vector store + optional Merkle descent |
-| [`src/config/merkleTree.ts`](../src/config/merkleTree.ts) | Content-addressed hash tree over symbol leaves |
-| [`src/config/vectorStore.ts`](../src/config/vectorStore.ts) | `VectorStore<M>` interface + `FlatVectorStore<M>` |
-| [`src/config/workspaceIndex.ts`](../src/config/workspaceIndex.ts) | File-level index used by the legacy path |
-| [`src/webview/handlers/systemPrompt.ts`](../src/webview/handlers/systemPrompt.ts) | `injectSystemContext` — the caller that assembles retrievers and renders into the prompt |
+| File                                                                                        | Role                                                                                     |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [`src/agent/retrieval/index.ts`](../src/agent/retrieval/index.ts)                           | `fuseRetrievers` + `renderFusedContext` — the public fusion entrypoint                   |
+| [`src/agent/retrieval/retriever.ts`](../src/agent/retrieval/retriever.ts)                   | `Retriever` interface + `RetrievalHit` type                                              |
+| [`src/agent/retrieval/fusion.ts`](../src/agent/retrieval/fusion.ts)                         | `reciprocalRankFusion` — pure function, side-effect-free                                 |
+| [`src/agent/retrieval/docRetriever.ts`](../src/agent/retrieval/docRetriever.ts)             | Wraps `DocumentationIndexer`                                                             |
+| [`src/agent/retrieval/memoryRetriever.ts`](../src/agent/retrieval/memoryRetriever.ts)       | Wraps `AgentMemory`                                                                      |
+| [`src/agent/retrieval/chunkRetriever.ts`](../src/agent/retrieval/chunkRetriever.ts)         | Workspace chunk retrieval (per-query, latency-bounded cap)                               |
+| [`src/agent/retrieval/pdfRetriever.ts`](../src/agent/retrieval/pdfRetriever.ts)             | Indexed PDF content                                                                      |
+| [`src/agent/retrieval/sidecarMdRetriever.ts`](../src/agent/retrieval/sidecarMdRetriever.ts) | SIDECAR.md sections (retrieval mode)                                                     |
+| [`src/agent/retrieval/graphExpansion.ts`](../src/agent/retrieval/graphExpansion.ts)         | Code-graph walk expansion of ranked hits                                                 |
+| [`src/agent/retrieval/queryRewriter.ts`](../src/agent/retrieval/queryRewriter.ts)           | Produces the `retrievalQueries` array fed to multi-query fusion                          |
+| [`src/agent/retrieval/semanticRetriever.ts`](../src/agent/retrieval/semanticRetriever.ts)   | Wraps `WorkspaceIndex`; branches on PKI readiness                                        |
+| [`src/config/symbolEmbeddingIndex.ts`](../src/config/symbolEmbeddingIndex.ts)               | `SymbolEmbeddingIndex` — symbol-level vector store + optional Merkle descent             |
+| [`src/config/merkleTree.ts`](../src/config/merkleTree.ts)                                   | Content-addressed hash tree over symbol leaves                                           |
+| [`src/config/vectorStore.ts`](../src/config/vectorStore.ts)                                 | `VectorStore<M>` interface + `FlatVectorStore<M>`                                        |
+| [`src/config/workspaceIndex.ts`](../src/config/workspaceIndex.ts)                           | File-level index used by the legacy path                                                 |
+| [`src/webview/handlers/systemPrompt.ts`](../src/webview/handlers/systemPrompt.ts)           | `injectSystemContext` — the caller that assembles retrievers and renders into the prompt |

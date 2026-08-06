@@ -211,7 +211,7 @@ export function isDegenerateText(text: string): boolean {
  */
 export interface TextParseOpts {
   /** Also recognize call-expression syntax emitted as prose — `write_file(path="x", content="…")`.
-   *  Part of the code-as-text recovery package (`recovery.codeAsText`), opt-in until proven. */
+   *  Part of the code-as-text recovery package (`recovery.codeAsText`), default-on since v0.120. */
   callExpressions?: boolean;
 }
 

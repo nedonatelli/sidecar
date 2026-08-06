@@ -39,7 +39,7 @@ change" holds.
 src/
   agent/          # Agent loop, tool executor, sub-agents, memory, skills
   config/         # Settings, workspace index, constants, trust, reachability
-  ollama/         # LLM backends (Ollama, Anthropic, OpenAI, Kickstand)
+  ollama/         # LLM backends (Ollama, Anthropic, OpenAI, Kickstand, Bedrock, Copilot, Gemini, Groq, Fireworks, OpenRouter)
   webview/        # Chat UI handlers, state management, webview HTML
   terminal/       # Shell session management
   github/         # GitHub API and auth
@@ -55,14 +55,14 @@ scripts/          # Automation scripts
 
 ## Key internal modules
 
-| Module                           | Purpose                                                                                                                                                                                                                           |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config/constants.ts`            | Centralized magic numbers (token estimation, context budgets, limits)                                                                                                                                                             |
-| `config/workspaceTrust.ts`       | Per-session trust decisions for workspace-level configs                                                                                                                                                                           |
-| `config/providerReachability.ts` | Health check for all LLM provider types                                                                                                                                                                                           |
-| `agent/tools/`                   | Tool registry, definitions, and executors — `tools.ts` is a thin composer over per-subsystem files (`fs`, `search`, `shell`, `git`, `diagnostics`, `knowledge`, `settings`)                                                       |
-| `agent/executor.ts`              | Tool approval flow, permission checks, special tool routing                                                                                                                                                                       |
-| `agent/loop.ts` + `agent/loop/`  | Main agent iteration loop. `loop.ts` is a thin 255-line orchestrator; every responsibility (state, compression, streaming, cycle detection, tool execution, policies, finalization) lives in a focused helper under `agent/loop/` |
+| Module                           | Purpose                                                                                                                                                                                                                                                               |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/constants.ts`            | Centralized magic numbers (token estimation, context budgets, limits)                                                                                                                                                                                                 |
+| `config/workspaceTrust.ts`       | Per-session trust decisions for workspace-level configs                                                                                                                                                                                                               |
+| `config/providerReachability.ts` | Health check for all LLM provider types                                                                                                                                                                                                                               |
+| `agent/tools/`                   | Tool registry, definitions, and executors — `tools.ts` is a thin composer over per-subsystem files (`fs`, `search`, `shell`, `git`, `diagnostics`, `knowledge`, `settings`)                                                                                           |
+| `agent/executor.ts`              | Tool approval flow, permission checks, special tool routing                                                                                                                                                                                                           |
+| `agent/loop.ts` + `agent/loop/`  | Main agent iteration loop. `loop.ts` is the orchestrator (~900 lines, one iteration reads top-to-bottom); every responsibility (state, compression, streaming, cycle detection, tool execution, policies, finalization) lives in a focused helper under `agent/loop/` |
 
 ## Verification — the test pyramid
 
@@ -81,7 +81,7 @@ tiers before a release.
 npm test              # Run all tests
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage (must stay above the CI floor 70/63/67/71)
-npm run check         # Tier 0 gate: compile + compile:bench + lint + format + test
+npm run check         # Tier 0 gate: compile + compile:bench + compile:tests + lint + format + test
 ```
 
 ### Tier 1 — mutation testing ("verify-the-verifier")
@@ -167,7 +167,7 @@ For every feature, config key, command, slash command, or user-visible behavior 
 | `SECURITY.md`                      | Supported-version table is bumped mechanically by the script. **Manually** verify: the `SECRET_PATTERNS_VERSION` "unchanged through vX.Y.Z" line (advance the version only if the catalog truly didn't change; bump the number + add a change-history row if it did), the threat-model sections (any new tool / shell / MCP / write surface), and dependency names. |
 | `docs/model-compatibility.md`      | Any eval sweep that changes a model's rating, adds/removes a recommended model, or changes hardware guidance. Bump the "Last verified: vX.Y" line every release the table was re-checked.                                                                                                                                                                           |
 | `docs/mcp-servers.md`              | Any change to MCP transport handling, lifecycle, or tool surface.                                                                                                                                                                                                                                                                                                   |
-| `CLAUDE.md`                        | Any architectural change: new subsystem under `src/`, new major integration point, new config-layer concern. Future AI collaborators read CLAUDE.md before they read any other doc.                                                                                                                                                                                 |
+| `AGENTS.md`                        | Any architectural change: new subsystem under `src/`, new major integration point, new config-layer concern. Future AI collaborators read AGENTS.md before they read any other doc.                                                                                                                                                                                 |
 | `internal/roadmap.md` (gitignored) | Working plan + Prove-or-Prune Ledger — update verdicts each release; NOT shipped publicly (a stale public roadmap misleads users; forward-looking statements live only here)                                                                                                                                                                                        |
 
 ### Sanity check (quick)
@@ -175,7 +175,7 @@ For every feature, config key, command, slash command, or user-visible behavior 
 Before tagging, run:
 
 ```bash
-grep -l "vX.Y\|<headline feature name>" docs/ README.md CLAUDE.md
+grep -l "vX.Y\|<headline feature name>" docs/ README.md AGENTS.md
 ```
 
 If the headline feature of the release doesn't appear in at least `docs/overview.md`, `README.md`, and the feature's subsystem doc, the release isn't ready to tag.

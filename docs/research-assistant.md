@@ -2,7 +2,7 @@
 title: Research Assistant
 layout: docs
 nav_order: 2
-nav_section: "Extend"
+nav_section: 'Extend'
 ---
 
 # Research Assistant
@@ -114,16 +114,16 @@ Type `/research` in the chat input to:
 
 ## The eight agent tools
 
-| Tool | Approval required | What it does |
-|------|:-----------------:|-------------|
-| `research_create_project` | No | Creates a new project directory and `project.yaml`. Returns the slug. |
-| `research_add_hypothesis` | No | Appends a hypothesis (status `open`) to `project.yaml`. Returns the hypothesis ID. |
-| `research_log_experiment` | **Yes** | Writes a manifest, runs the shell command, captures output, marks `complete` or `abandoned`. |
-| `research_add_observation` | No | Appends a timestamped `.md` note to `observations/`. |
-| `research_update_hypothesis_status` | No | Sets a hypothesis to `open`, `supported`, `refuted`, `needs-more-evidence`, or `abandoned`. |
-| `research_set_project_status` | No | Sets the project to `active`, `paused`, `complete`, or `abandoned`. |
-| `research_list_projects` | No | Returns all projects with slug, title, status, hypothesis count, and age. |
-| `research_export_report` | No | Generates and writes `report.md`; returns the full markdown. |
+| Tool                                | Approval required | What it does                                                                                 |
+| ----------------------------------- | :---------------: | -------------------------------------------------------------------------------------------- |
+| `research_create_project`           |        No         | Creates a new project directory and `project.yaml`. Returns the slug.                        |
+| `research_add_hypothesis`           |        No         | Appends a hypothesis (status `open`) to `project.yaml`. Returns the hypothesis ID.           |
+| `research_log_experiment`           |      **Yes**      | Writes a manifest, runs the shell command, captures output, marks `complete` or `abandoned`. |
+| `research_add_observation`          |        No         | Appends a timestamped `.md` note to `observations/`.                                         |
+| `research_update_hypothesis_status` |        No         | Sets a hypothesis to `open`, `supported`, `refuted`, `needs-more-evidence`, or `abandoned`.  |
+| `research_set_project_status`       |        No         | Sets the project to `active`, `paused`, `complete`, or `abandoned`.                          |
+| `research_list_projects`            |        No         | Returns all projects with slug, title, status, hypothesis count, and age.                    |
+| `research_export_report`            |        No         | Generates and writes `report.md`; returns the full markdown.                                 |
 
 `research_log_experiment` is the only tool that executes shell commands, which is why it requires explicit approval.
 
@@ -179,17 +179,17 @@ Export a research report for my active research project
 
 ## Hypotheses
 
-| ID | Hypothesis | Status |
-|----|-----------|--------|
+| ID             | Hypothesis                                     | Status    |
+| -------------- | ---------------------------------------------- | --------- |
 | `h-1748…-a3f2` | Daubechies-4 at level 3 will achieve F1 > 0.9… | supported |
 
 ---
 
 ## Experiments
 
-| ID | Command | Status | Exit |
-|----|---------|--------|------|
-| `exp-2026-05-wavelet-l3-snr20` | `python scripts/eval.py --method wavelet …` | complete | 0 |
+| ID                             | Command                                     | Status   | Exit |
+| ------------------------------ | ------------------------------------------- | -------- | ---- |
+| `exp-2026-05-wavelet-l3-snr20` | `python scripts/eval.py --method wavelet …` | complete | 0    |
 
 ### exp-2026-05-wavelet-l3-snr20
 
@@ -199,9 +199,10 @@ Export a research report for my active research project
 
 <details>
 <summary>Output (last 30 lines)</summary>
-
 ```
-F1: 0.923  Precision: 0.941  Recall: 0.906
+
+F1: 0.923 Precision: 0.941 Recall: 0.906
+
 ```
 
 </details>
@@ -256,7 +257,7 @@ Search Zotero for "Daubechies wavelet filter bank" and record the top result as 
 
 ### Notebook Mode for source-grounded briefings
 
-Notebook Mode (`sidecar.notebookModeEnabled: true`, enter with `/notebook`) and the Research Assistant serve different purposes but complement each other:
+Notebook Mode (`sidecar.notebookMode.enabled: true`, enter with `/notebook`) and the Research Assistant serve different purposes but complement each other:
 
 - Use **Notebook Mode** to synthesize ingested source material into a structured briefing, FAQ, or study guide before you commit to hypotheses.
 - Use the **Research Assistant** once you have a question and are running experiments.

@@ -2,7 +2,7 @@
 title: Migrating from Copilot or Claude Code
 layout: docs
 nav_order: 8
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Migrating from Copilot or Claude Code
@@ -35,14 +35,14 @@ Tab to accept, Escape to dismiss — same as Copilot.
 
 **SideCar has a full agent loop; Copilot is primarily completions + chat.** When you give SideCar a task — "add input validation to the user-create endpoint" — it reads files, edits code, runs tests, and iterates until the task is done. It is closer to Copilot Workspace or Cursor than to Copilot Chat. The `sidecar.agentMode` setting controls how autonomously it acts:
 
-| Mode | Behavior |
-|------|----------|
-| `cautious` (default) | Asks before destructive operations |
-| `autonomous` | Runs without interruption |
-| `manual` | Requires approval before every tool call |
-| `plan` | Drafts a plan for you to approve, then executes |
-| `review` | Buffers all writes in-memory; you review the full diff at the end |
-| `audit` | Like review but with atomic flush and deletion coverage |
+| Mode                 | Behavior                                                          |
+| -------------------- | ----------------------------------------------------------------- |
+| `cautious` (default) | Asks before destructive operations                                |
+| `autonomous`         | Runs without interruption                                         |
+| `manual`             | Requires approval before every tool call                          |
+| `plan`               | Drafts a plan for you to approve, then executes                   |
+| `review`             | Buffers all writes in-memory; you review the full diff at the end |
+| `audit`              | Like review but with atomic flush and deletion coverage           |
 
 Start with `cautious` — it is the safest onboarding mode and still runs the full agent.
 
@@ -101,6 +101,7 @@ The main addition in `SIDECAR.md` is path-scoped sections. You can scope a secti
 
 ```markdown
 ## API Layer
+
 <!-- @paths: src/api/**, src/routes/** -->
 
 All endpoints must validate input with zod before touching the database.
@@ -119,16 +120,16 @@ Later sources override earlier on name conflict, and a warning is logged when a 
 
 **Slash commands** — The commands you use every day have direct equivalents:
 
-| Claude Code command | SideCar equivalent |
-|---------------------|-------------------|
-| `/review` | `/review` |
-| `/commit-message` | `/commit-message` (copy only) or `/commit` (commit + push) |
-| `/help` | `/help` |
-| `#<file>` mention | Drag file into chat, or click the file pill above the input |
-| `/clear` | `Cmd+L` / `Ctrl+L` |
-| `/compact` | `/compact` |
-| `/model` | `/model <name>` |
-| `/pr` | `/pr` |
+| Claude Code command | SideCar equivalent                                          |
+| ------------------- | ----------------------------------------------------------- |
+| `/review`           | `/review`                                                   |
+| `/commit-message`   | `/commit-message` (copy only) or `/commit` (commit + push)  |
+| `/help`             | `/help`                                                     |
+| `#<file>` mention   | Drag file into chat, or click the file pill above the input |
+| `/clear`            | `Cmd+L` / `Ctrl+L`                                          |
+| `/compact`          | `/compact`                                                  |
+| `/model`            | `/model <name>`                                             |
+| `/pr`               | `/pr`                                                       |
 
 SideCar has additional slash commands with no Claude Code equivalent: `/fork`, `/arena`, `/bg`, `/notebook`, `/guards`, `/deps`, `/scan`, and others. See [Slash Commands](slash-commands) for the full reference.
 
@@ -200,21 +201,21 @@ The `guards:` field activates SideCar's regression guard hooks for the duration 
 
 ### Feature comparison table
 
-| Feature | Claude Code | SideCar equivalent |
-|---------|-------------|-------------------|
-| Agent loop | Yes — multi-turn, tool-using | Yes — same pattern, runs inside VS Code |
-| Project instructions | `CLAUDE.md` | `SIDECAR.md` (falls back to `CLAUDE.md`) |
-| Slash commands | `/review`, `/commit-message`, `/help`, etc. | All of those plus `/fork`, `/arena`, `/bg`, `/notebook`, `/deps`, and more |
-| Custom commands / skills | `.claude/commands/*.md` | `.sidecar/skills/*.md` — same format; `.claude/commands/` read directly |
-| MCP servers | `.mcp.json` or CLI flag | `.mcp.json` (same file) or `sidecar.mcpServers` in `settings.json` |
-| Hooks | `hooks` in settings.json | `sidecar.hooks` for shell hooks; `PolicyHook` interface for in-loop hooks (first-party only) |
-| Shadow workspaces | No | Yes — `sidecar.shadowWorkspace.mode: 'always' \| 'opt-in' \| 'off'` |
-| Fork & parallel solve | No | `/fork <task>` — N parallel attempts, pick-the-winner diff review |
-| Typed sub-agent facets | No | Facets — named specialists with own tool allowlist + preferred model, dispatched in parallel |
-| Review mode | No | Yes — buffers all writes in-memory; per-file diff review before anything lands on disk |
-| Audit mode | No | Yes — atomic flush, deletion coverage, rollback on partial failure |
-| Local / offline | No (requires Anthropic API) | Yes — Ollama, Kickstand, LM Studio, vLLM, llama.cpp, any OpenAI-compat server |
-| Model agnostic | No | Yes — Ollama, Anthropic, OpenAI, Fireworks, OpenRouter, Groq, Gemini, Kickstand |
+| Feature                  | Claude Code                                 | SideCar equivalent                                                                                                                                   |
+| ------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent loop               | Yes — multi-turn, tool-using                | Yes — same pattern, runs inside VS Code                                                                                                              |
+| Project instructions     | `CLAUDE.md`                                 | `SIDECAR.md` (falls back to `CLAUDE.md`)                                                                                                             |
+| Slash commands           | `/review`, `/commit-message`, `/help`, etc. | All of those plus `/fork`, `/arena`, `/bg`, `/notebook`, `/deps`, and more                                                                           |
+| Custom commands / skills | `.claude/commands/*.md`                     | `.sidecar/skills/*.md` — same format; `.claude/commands/` read directly                                                                              |
+| MCP servers              | `.mcp.json` or CLI flag                     | `.mcp.json` (same file) or `sidecar.mcpServers` in `settings.json`                                                                                   |
+| Hooks                    | `hooks` in settings.json                    | `sidecar.hooks` for shell hooks; `PolicyHook` interface for in-loop hooks (first-party only)                                                         |
+| Shadow workspaces        | No                                          | Yes — `sidecar.shadowWorkspace.mode: 'always' \| 'opt-in' \| 'off'`                                                                                  |
+| Fork & parallel solve    | No                                          | `/fork <task>` — N parallel attempts, pick-the-winner diff review                                                                                    |
+| Typed sub-agent facets   | No                                          | Facets — named specialists with own tool allowlist + preferred model, dispatched in parallel                                                         |
+| Review mode              | No                                          | Yes — buffers all writes in-memory; per-file diff review before anything lands on disk                                                               |
+| Audit mode               | No                                          | Yes — atomic flush, deletion coverage, rollback on partial failure                                                                                   |
+| Local / offline          | No (requires Anthropic API)                 | Yes — Ollama, Kickstand, LM Studio, vLLM, llama.cpp, any OpenAI-compat server                                                                        |
+| Model agnostic           | No                                          | Yes — Ollama, Anthropic, OpenAI, Fireworks, OpenRouter, Groq, Gemini, Kickstand, AWS Bedrock, and your existing Copilot subscription via `vscode.lm` |
 
 ---
 

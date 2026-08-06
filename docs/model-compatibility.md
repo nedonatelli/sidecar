@@ -9,19 +9,19 @@ nav_section: 'Get Started'
 
 SideCar works with any model your backend can serve, but agentic coding is demanding: a model must call tools reliably, follow multi-step instructions, and recover from errors. This page lists what we actually measure, so you can pick a model that matches your hardware and expectations.
 
-Ratings come from SideCar's own evaluation suite — an agent-loop smoke suite (file reading, searching, editing, bug-fix cycles) plus long-horizon multi-step tasks — re-run against local models as SideCar evolves. _Last verified: v0.119._
+Ratings come from SideCar's own evaluation suite — an agent-loop smoke suite (file reading, searching, editing, bug-fix cycles) plus long-horizon multi-step tasks — re-run against local models as SideCar evolves. _Last verified: v0.123 (sizes + agent-baseline ratings against the 2026-08 five-model baselines)._
 
 ## Recommended local models (Ollama)
 
-| Model              | Size    | Agent rating | Notes                                                                                                                 |
-| ------------------ | ------- | ------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `gemma4:e4b`       | ~7 GB   | ★★★★★        | The default. Best all-round agent: clean tool calling, top scores on our function-calling sweep, perfect smoke suite. |
-| `ministral-3`      | ~5 GB   | ★★★★★        | Excellent agent. Completes long multi-step tasks cleanly and fast.                                                    |
-| `qwen2.5-coder:7b` | ~4.7 GB | ★★★★         | Reliable coding baseline. Emits text-format tool calls that SideCar's parser recovers to native-grade reliability.    |
-| `granite4.1:3b`    | ~2 GB   | ★★★★         | Remarkably capable for 2 GB — completes multi-step agent tasks. The best choice on low-RAM machines.                  |
-| `qwen3.5`          | ~14 GB  | ★★★★         | Strong but heavy: slower per turn, so long tasks take real time. Good when quality matters more than latency.         |
-| `deepseek-r1:8b`   | ~5 GB   | ★★★          | Reasoning model; supported including thinking-mode handling. Slower due to reasoning tokens.                          |
-| `qwen3:8b`         | ~5 GB   | ★★★          | Reasoning model; same profile as deepseek-r1.                                                                         |
+| Model              | Size    | Agent rating | Notes                                                                                                                      |
+| ------------------ | ------- | ------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `gemma4:e4b`       | ~9 GB   | ★★★★★        | The default. Best all-round agent: 96% on the 70-case agent baseline (2026-08), clean tool calling, most-dogfooded.        |
+| `ministral-3`      | ~6 GB   | ★★★★★        | Excellent agent (89% baseline). Completes long multi-step tasks cleanly, but slowly — it needs generous per-case timeouts. |
+| `qwen2.5-coder:7b` | ~4.7 GB | ★★★★         | Reliable coding baseline. Emits text-format tool calls that SideCar's parser recovers to native-grade reliability.         |
+| `granite4.1:3b`    | ~2 GB   | ★★★★         | Remarkably capable for 2 GB — completes multi-step agent tasks. The best choice on low-RAM machines.                       |
+| `qwen3.5`          | ~6 GB   | ★★★★         | Strong but slower per turn, so long tasks take real time. Good when quality matters more than latency.                     |
+| `deepseek-r1:8b`   | ~5 GB   | ★★★          | Reasoning model; supported including thinking-mode handling. Slower due to reasoning tokens.                               |
+| `qwen3:8b`         | ~5 GB   | ★★★          | Reasoning model; same profile as deepseek-r1.                                                                              |
 
 ## Not recommended for agent mode
 

@@ -44,7 +44,7 @@ Press `⌘⇧P` (`Ctrl+Shift+P` on Windows/Linux) and type **`SideCar:`** — ev
 - `SideCar: Inline Chat` — inline edit prompt in the editor (`⌘I`)
 - `SideCar: Select Model` — keyboard-first model picker
 - `SideCar: Set / Refresh API Key` — paste or rotate your key
-- `SideCar: Switch Backend` — flip between Ollama / Anthropic / OpenAI / Kickstand
+- `SideCar: Switch Backend` — flip between any of the 10 backends (Ollama, Anthropic, OpenAI, Kickstand, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock)
 - `SideCar: Show Session Spend` — `$` breakdown for the current session on paid backends
 - `SideCar: Open Walkthrough` — reopen the getting-started page
 
@@ -63,7 +63,7 @@ The default model is `gemma4:e4b` (~10 GB VRAM). For lighter hardware, try `mini
 
 ## Switching backends
 
-The fastest way to move between Ollama, Anthropic, OpenAI, and Kickstand is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
+The fastest way to move between backends (Ollama, Anthropic, OpenAI, Kickstand, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock) is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
 The sections below describe each backend in detail and also cover the manual settings path if you prefer editing `settings.json`.
 

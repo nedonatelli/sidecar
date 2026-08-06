@@ -37,15 +37,16 @@ const READ_TOOL_NAMES = new Set([
 const MAX_EVIDENCE_PER_RESULT = 4000;
 
 // ---------------------------------------------------------------------------
-// Adversarial critic — post-turn policy hook.
+// Adversarial critic — completion-time policy hook.
 //
-// After each turn with successful edits or failed tests, we fire an
-// independent LLM call whose job is to adversarially review the
-// agent's work. High-severity findings inject a synthetic user
-// message forcing the agent to address them before the turn can
-// finish; low-severity findings surface as chat annotations only.
-// Disabled by default (`sidecar.critic.enabled`) because it doubles
-// the token cost of every editing turn.
+// When the run believes it is finished (onEmptyResponse phase), we fire
+// an independent LLM call whose job is to adversarially review the
+// cumulative diff of every file the run edited. Findings surface as
+// chat annotations; they inject a blocking synthetic user message only
+// when `sidecar.critic.blockOnHighSeverity` is enabled. Disabled by
+// default (`sidecar.critic.enabled`) — the ablation measured per-edit
+// blocking as net-negative, and one extra LLM call per run is still a
+// real cost.
 //
 // This module owns three things that used to live at the bottom of
 // loop.ts where they tangled with unrelated dedup / suggestion

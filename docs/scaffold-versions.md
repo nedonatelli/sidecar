@@ -169,7 +169,7 @@ threshold value itself when comparing patch-bloat-sensitive results.
 
 ### 2.0.0 — verification-vertical + do-no-harm (2026-07)
 
-The current baseline. Adds, over 1.x:
+Adds, over 1.x (superseded — the current baseline is 4.0.0, top of the registry above):
 
 - **Keep-best ratchet** (`keepBestRatchet`) — Pareto-safe scaffolding: snapshot →
   apply → re-verify → revert on regression. Scaffolding can't turn a passing run
@@ -189,8 +189,8 @@ mechanism set — **completion gate · critic · auto-fix · adaptive scaffoldin
 impact gate · numerical-contract gate**. The 2.0 additions are built but not yet
 opted into the arm, so a 2.0.0 `scaffold-on` run isolates the _established_
 scaffold. The version differs from 1.x because the SHARED path (repair internals,
-gate wiring) changed. A future **2.1.0** that adds the new mechanisms to the arm
-is the next planned comparison.
+gate wiring) changed. (2.1.0 shipped that comparison — see its entry above —
+followed by 2.0.1, 3.0.0, 3.1.0, and the current 4.0.0.)
 
 ### 1.x — pre-2026-07 baseline
 

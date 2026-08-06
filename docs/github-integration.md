@@ -2,7 +2,7 @@
 title: GitHub Integration
 layout: docs
 nav_order: 6
-nav_section: "Agent"
+nav_section: 'Agent'
 ---
 
 # GitHub Integration
@@ -15,18 +15,18 @@ SideCar has first-class Git and GitHub support — tools the agent uses autonomo
 
 Ten dedicated Git tools are available to the agent at all times:
 
-| Tool | Approval | Description |
-|------|----------|-------------|
-| `git_status` | Auto | Show working tree status |
-| `git_diff` | Auto | Show diffs (staged, unstaged, or between refs) |
-| `git_log` | Auto | View commit history |
-| `git_search_history` | Auto | Search git history by keyword, author, or date range (pickaxe + grep) |
-| `git_stage` | Confirm | Stage files (`git add`) |
-| `git_commit` | Confirm | Create a commit |
-| `git_push` | Confirm | Push to remote |
-| `git_pull` | Confirm | Pull from remote |
-| `git_branch` | Confirm | Create, switch, or list branches |
-| `git_stash` | Confirm | Stash or pop changes |
+| Tool                 | Approval | Description                                                           |
+| -------------------- | -------- | --------------------------------------------------------------------- |
+| `git_status`         | Auto     | Show working tree status                                              |
+| `git_diff`           | Auto     | Show diffs (staged, unstaged, or between refs)                        |
+| `git_log`            | Auto     | View commit history                                                   |
+| `git_search_history` | Auto     | Search git history by keyword, author, or date range (pickaxe + grep) |
+| `git_stage`          | Confirm  | Stage files (`git add`)                                               |
+| `git_commit`         | Confirm  | Create a commit                                                       |
+| `git_push`           | Confirm  | Push to remote                                                        |
+| `git_pull`           | Confirm  | Pull from remote                                                      |
+| `git_branch`         | Confirm  | Create, switch, or list branches                                      |
+| `git_stash`          | Confirm  | Stash or pop changes                                                  |
 
 **Confirmation** means a native blocking modal appears before the tool executes — you can't miss it even while scrolled away from the chat panel.
 
@@ -48,6 +48,7 @@ Requires a GitHub token with `repo` scope.
 ### `/commit` slash command
 
 Type `/commit` in chat. SideCar:
+
 1. Reads the current diff (staged + unstaged)
 2. Generates a conventional commit message
 3. Stages all changes and creates the commit
@@ -97,6 +98,7 @@ Generate a PR description from the current diff without opening a PR. Useful for
 Uses `check_pr_ci` to fetch the CI status for the current PR — shows the state of each check (passing, failing, pending) and which jobs failed.
 
 **Analyze a CI failure:**
+
 ```
 /ci
 ```
@@ -133,10 +135,10 @@ SideCar: Facets: Dispatch Specialists → security-reviewer
 
 The agent has three GitHub review tools:
 
-| Tool | Description |
-|------|-------------|
-| `create_pr_review` | Create a pending review with inline comments on specific lines |
-| `reply_pr_comment` | Reply to an existing review thread |
+| Tool               | Description                                                          |
+| ------------------ | -------------------------------------------------------------------- |
+| `create_pr_review` | Create a pending review with inline comments on specific lines       |
+| `reply_pr_comment` | Reply to an existing review thread                                   |
 | `submit_pr_review` | Submit the pending review as APPROVED, CHANGES_REQUESTED, or COMMENT |
 
 All three require confirmation before executing. The agent uses them when asked to "leave a review on this PR" or "comment on line 42 of auth.ts".
@@ -159,32 +161,32 @@ Lists all unresolved review comments on the current PR.
 
 ## Slash command reference
 
-| Command | Description |
-|---------|-------------|
-| `/commit` | Stage all changes and commit with a generated message |
-| `/commit-message` | Generate a commit message without committing |
-| `/pr` | Create a pull request from the current branch |
-| `/pr-summary` | Generate a PR description without creating the PR |
-| `/pr-ci` | Check CI status for the current PR |
-| `/pr-ready` | Mark a draft PR as ready for review |
-| `/pr-respond` | Generate responses to open PR review threads |
-| `/review` | Review the current git diff for bugs, security, and style issues |
-| `/review-comments` | List open review comments on the current PR |
-| `/ci` | Analyze the latest failing CI run and propose a fix |
+| Command            | Description                                                      |
+| ------------------ | ---------------------------------------------------------------- |
+| `/commit`          | Stage all changes and commit with a generated message            |
+| `/commit-message`  | Generate a commit message without committing                     |
+| `/pr`              | Create a pull request from the current branch                    |
+| `/pr-summary`      | Generate a PR description without creating the PR                |
+| `/pr-ci`           | Check CI status for the current PR                               |
+| `/pr-ready`        | Mark a draft PR as ready for review                              |
+| `/pr-respond`      | Generate responses to open PR review threads                     |
+| `/review`          | Review the current git diff for bugs, security, and style issues |
+| `/review-comments` | List open review comments on the current PR                      |
+| `/ci`              | Analyze the latest failing CI run and propose a fix              |
 
 ---
 
 ## Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.pr.create.draftByDefault` | `true` | Open new PRs as drafts |
-| `sidecar.pr.create.baseBranch` | `"auto"` | Base branch (`"auto"` resolves the remote default) |
-| `sidecar.pr.create.template` | `"auto"` | PR template handling (`"auto"` / `"ignore"` / path) |
-| `sidecar.pr.branchProtection.enabled` | `true` | Check branch protection before `git_push` |
-| `sidecar.pr.branchProtection.warnEvenIfPassing` | `false` | Include protection summary even when push is allowed |
-| `sidecar.ci.analysis.enabled` | `true` | Enable `analyze_ci_failure` and `SideCar: Analyze CI Failure` |
-| `sidecar.ci.analysis.jobFilter` | `["*"]` | Glob patterns for CI job names to analyze |
+| Setting                                         | Default  | Description                                                   |
+| ----------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `sidecar.pr.create.draftByDefault`              | `true`   | Open new PRs as drafts                                        |
+| `sidecar.pr.create.baseBranch`                  | `"auto"` | Base branch (`"auto"` resolves the remote default)            |
+| `sidecar.pr.create.template`                    | `"auto"` | PR template handling (`"auto"` / `"ignore"` / path)           |
+| `sidecar.pr.branchProtection.enabled`           | `true`   | Check branch protection before `git_push`                     |
+| `sidecar.pr.branchProtection.warnEvenIfPassing` | `false`  | Include protection summary even when push is allowed          |
+| `sidecar.ci.analysis.enabled`                   | `true`   | Enable `analyze_ci_failure` and `SideCar: Analyze CI Failure` |
+| `sidecar.ci.analysis.jobFilter`                 | `["*"]`  | Glob patterns for CI job names to analyze                     |
 
 ---
 
@@ -192,6 +194,6 @@ Lists all unresolved review comments on the current PR.
 
 Some operations (`check_pr_ci`, `create_pr_review`, `mark_pr_ready`, branch protection checks) require a GitHub token with `repo` scope.
 
-Set it via the command palette: `SideCar: Set GitHub Token`. The token is stored in VS Code SecretStorage — never in `settings.json`.
+No manual token entry is needed: SideCar uses VS Code's built-in GitHub authentication provider — the first GitHub operation triggers the standard VS Code GitHub sign-in prompt (`repo` scope), and VS Code manages the token.
 
 For CI analysis, a token with `actions:read` scope is sufficient.

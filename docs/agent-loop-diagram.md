@@ -1,51 +1,64 @@
 # Agent Loop Architecture
 
-The agent loop is the core iteration engine that drives every SideCar agentic interaction. It lives in [`src/agent/loop.ts`](../src/agent/loop.ts) as a thin 255-line orchestrator that reads top-to-bottom as one iteration's pseudo-code. Every meaningful chunk of logic is delegated to a single-purpose helper under [`src/agent/loop/`](../src/agent/loop/).
+The agent loop is the core iteration engine that drives every SideCar agentic interaction. It lives in [`src/agent/loop.ts`](../src/agent/loop.ts) as a ~900-line orchestrator whose `while` body reads top-to-bottom as one iteration's pseudo-code, with every meaningful chunk of logic delegated to a single-purpose helper under [`src/agent/loop/`](../src/agent/loop/) (28 modules). All run state — immutable inputs and mutable accumulators alike — lives on one `LoopState` object (`state.ts`) that the helpers mutate through a single reference.
 
 ## One iteration at a glance
 
 ```mermaid
 flowchart TD
-    Start([runAgentLoop]) --> Init[initLoopState<br/>bundle state, config, tools]
-    Init --> Bus[HookBus setup<br/>defaultPolicyHooks +<br/>regressionGuardHooks +<br/>extraPolicyHooks]
+    Start([runAgentLoop]) --> Init[initLoopState +<br/>scaffolding tier + ratchet IO]
+    Init --> Bus[HookBus setup<br/>8 built-ins + regression guards +<br/>extra hooks + SDK hooks]
     Bus --> Loop{iteration <<br/>maxIterations?}
     Loop -- no --> Finalize[finalize<br/>emit done, suggestions]
     Finalize --> Return([return messages])
 
     Loop -- yes --> Abort{signal.aborted?}
     Abort -- yes --> Finalize
-    Abort -- no --> Compress[applyBudgetCompression<br/>pre-turn]
+    Abort -- no --> Steer[drainSteerQueueAtBoundary<br/>coalesce queued user steers]
+    Steer --> Compress[applyBudgetCompression<br/>pre-turn]
     Compress --> Exhausted{exhausted?}
     Exhausted -- yes --> BudgetBreak[emit budget warning] --> Finalize
-    Exhausted -- no --> Notify[notifyIterationStart<br/>maybeEmitProgressSummary<br/>shouldStopAtCheckpoint]
+    Exhausted -- no --> Notify[notifyIterationStart /<br/>progress summary / checkpoint]
     Notify --> Checkpoint{user stops<br/>at checkpoint?}
     Checkpoint -- yes --> Finalize
-    Checkpoint -- no --> Stream[streamOneTurn<br/>SSE + tool_use parsing]
+    Checkpoint -- no --> Route[applyArchitectEditorSplit +<br/>applyAgentLoopRouting]
+    Route --> Stream[streamOneTurn<br/>per-turn AbortController,<br/>first-token + per-event timeouts]
 
     Stream --> Terminated{terminated?}
     Terminated -- timeout --> TimeoutMsg[emit timeout] --> Finalize
-    Terminated -- aborted --> Finalize
+    Terminated -- "aborted (user Stop)" --> Finalize
+    Terminated -- "aborted (steer interrupt)" --> Loop
     Terminated -- no --> Resolve[resolveTurnContent<br/>strip repeats +<br/>parseTextToolCalls]
+    Resolve --> Repair[repairMalformedToolUses<br/>JSON repair, then<br/>schema-constrained regen]
 
-    Resolve --> HasTools{pendingToolUses<br/>length > 0?}
+    Repair --> HasTools{pendingToolUses<br/>length > 0?}
 
-    HasTools -- no --> EmptyHook[hookBus.runEmptyResponse<br/>completion gate, etc.]
+    HasTools -- no --> Degen{degenerate<br/>output?}
+    Degen -- "1st time" --> DegenRetry[discard turn, inject<br/>continue instruction] --> Loop
+    Degen -- "2nd time" --> Finalize
+    Degen -- no --> PlanCheck{plan mode +<br/>text answer?}
+    PlanCheck -- yes --> PlanEmit[onPlanGenerated<br/>for approval] --> Finalize
+    PlanCheck -- no --> EmptyHook[hookBus.runEmptyResponse<br/>critic → actionReprompt →<br/>gate → analysisCritic]
     EmptyHook --> Mutated{any hook<br/>mutated state?}
-    Mutated -- yes --> Loop
+    Mutated -- yes --> RatchetArm[arm keep-best ratchet at<br/>scaffold boundary] --> Loop
     Mutated -- no --> Finalize
 
     HasTools -- yes --> Burst{exceedsBurstCap?}
     Burst -- yes --> Finalize
-    Burst -- no --> Cycle{detectCycleAndBail?}
+    Burst -- no --> Cycle{detectCycleAndBail?<br/>blocked circular rewrites excluded,<br/>bail deferred for soft-blocked writes}
     Cycle -- yes --> Finalize
-    Cycle -- no --> PushAsst[pushAssistantMessage]
-    PushAsst --> Exec[executeToolUses<br/>spawn_agent / delegate_task /<br/>normal dispatch in parallel]
-    Exec --> Account[accountToolTokens +<br/>pushToolResultsMessage]
+    Cycle -- no --> PlanRefund[update_plan-only turn?<br/>refund the iteration]
+    PlanRefund --> PushAsst[pushAssistantMessage]
+    PushAsst --> Abort2{signal.aborted?}
+    Abort2 -- yes --> Finalize
+    Abort2 -- no --> RatchetCap[captureRatchetOriginals]
+    RatchetCap --> Exec[dispatchPendingToolUses<br/>Edit-Plan DAG for multi-file writes,<br/>else executeToolUses in parallel]
+    Exec --> Trackers[post-dispatch trackers:<br/>verify counters · successful edits ·<br/>blocked-rewrite escalation ·<br/>edit→write steer · enforce-lock release]
+    Trackers --> Cap[capToolResults +<br/>injection guard fences<br/>untrusted output]
+    Cap --> Account[accountToolTokens +<br/>pushToolResultsMessage]
     Account --> PostCompress[maybeCompressPostTool]
-    PostCompress --> AfterHook[hookBus.runAfter<br/>autoFix → isolateRewrite → stub →<br/>critic → actionReprompt → gate → analysisCritic]
-    AfterHook --> PlanMode{approvalMode=plan<br/>&& iter=1?}
-    PlanMode -- yes --> PlanEmit[emit plan for approval] --> Finalize
-    PlanMode -- no --> Loop
+    PostCompress --> AfterHook[hookBus.runAfter<br/>autoFix → isolateRewrite →<br/>unappliedEdit → stubValidator]
+    AfterHook --> Loop
 
     classDef hookStyle fill:#fef3c7,stroke:#d97706
     classDef toolStyle fill:#dbeafe,stroke:#2563eb
@@ -55,135 +68,102 @@ flowchart TD
     class BudgetBreak,TimeoutMsg,Finalize terminalStyle
 ```
 
+Two things the flowchart compresses:
+
+- **Steer interrupts vs. user Stop.** Each iteration owns an inner `AbortController` linked to the outer signal. An `interrupt`-urgency steer aborts only the in-flight stream; the loop continues, and the next iteration drains the queued steer. A real user Stop aborts everything, and any tool calls that were queued but never executed are surfaced (`⚠️ Stopped — cancelled in-flight: …`).
+- **Plan-turn refund.** An `update_plan`-only turn is harness-demanded bookkeeping and does not consume the iteration budget, bounded by `MAX_PLAN_STEPS` free turns per run.
+
 ## Submodule map
 
 The orchestrator in [`loop.ts`](../src/agent/loop.ts) calls into focused helpers under [`src/agent/loop/`](../src/agent/loop/):
 
-| Helper                                                       | Responsibility                                                                                                                                                               |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`state.ts`](../src/agent/loop/state.ts)                     | `initLoopState` bundles immutable inputs + mutable accumulators into one `LoopState` object                                                                                  |
-| [`compression.ts`](../src/agent/loop/compression.ts)         | `applyBudgetCompression` (pre-turn) + `maybeCompressPostTool` (after tool results)                                                                                           |
-| [`streamTurn.ts`](../src/agent/loop/streamTurn.ts)           | `streamOneTurn` owns the streamChat request loop with per-event timeout + abort handling; captures partial text for `/resume` on mid-stream failure                          |
-| [`textParsing.ts`](../src/agent/loop/textParsing.ts)         | `resolveTurnContent` → `parseTextToolCalls` + `stripRepeatedContent` for models that emit tool calls as text (qwen3, Hermes) instead of structured tool_use                  |
-| [`cycleDetection.ts`](../src/agent/loop/cycleDetection.ts)   | `exceedsBurstCap` (max tools per iteration) + `detectCycleAndBail` (ring buffer of recent tool+args tuples)                                                                  |
-| [`messageBuild.ts`](../src/agent/loop/messageBuild.ts)       | `pushAssistantMessage` + `pushToolResultsMessage` + `accountToolTokens` — single source of truth for message-array mutation                                                  |
-| [`executeToolUses.ts`](../src/agent/loop/executeToolUses.ts) | Parallel tool dispatch; special-cases `spawn_agent` + `delegate_task`; threads `cwdOverride` into every `ToolExecutorContext`                                                |
-| [`policyHook.ts`](../src/agent/loop/policyHook.ts)           | `HookBus` + `PolicyHook` interface. Hooks fire via `runAfter` (post-tool) and `runEmptyResponse` (no tool calls this turn)                                                   |
-| [`builtInHooks.ts`](../src/agent/loop/builtInHooks.ts)       | `defaultPolicyHooks()` wraps the seven built-ins as `PolicyHook` adapters (autoFix · isolateRewrite · stubCheck · critic · actionReprompt · completionGate · analysisCritic) |
-| [`criticHook.ts`](../src/agent/loop/criticHook.ts)           | Adversarial critic — spawns a second LLM call to review the agent's edits; can push a synthetic user message demanding more work                                             |
-| [`gate.ts`](../src/agent/loop/gate.ts)                       | Completion gate — refuses to let the agent end the turn without running lint/tests when it claims to be done                                                                 |
-| [`stubCheck.ts`](../src/agent/loop/stubCheck.ts)             | Post-tool validator that rejects placeholder code (`TODO`, `// implement me`, …)                                                                                             |
-| [`notifications.ts`](../src/agent/loop/notifications.ts)     | `notifyIterationStart` + `maybeEmitProgressSummary` + `shouldStopAtCheckpoint` (user interrupt every N iterations)                                                           |
-| [`finalize.ts`](../src/agent/loop/finalize.ts)               | Post-loop teardown + next-step suggestion synthesis                                                                                                                          |
+| Helper                                                                                                                                  | Responsibility                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`state.ts`](../src/agent/loop/state.ts)                                                                                                | `initLoopState` bundles immutable inputs + mutable accumulators into one `LoopState`; owns `DEFAULT_MAX_ITERATIONS` (50)                                                           |
+| [`steerDrain.ts`](../src/agent/loop/steerDrain.ts)                                                                                      | `drainSteerQueueAtBoundary` — coalesces queued user steers into one message at the iteration boundary                                                                              |
+| [`compression.ts`](../src/agent/loop/compression.ts)                                                                                    | `applyBudgetCompression` (pre-turn) + `maybeCompressPostTool` (after tool results)                                                                                                 |
+| [`routing.ts`](../src/agent/loop/routing.ts)                                                                                            | `applyArchitectEditorSplit` (planning vs. tool-execution model) + `applyAgentLoopRouting` (role-based model router)                                                                |
+| [`streamTurn.ts`](../src/agent/loop/streamTurn.ts)                                                                                      | `streamOneTurn` owns the streamChat request with first-token + per-event timeouts and abort handling; captures partial text for `/resume` on mid-stream failure                    |
+| [`textParsing.ts`](../src/agent/loop/textParsing.ts)                                                                                    | `resolveTurnContent` → `parseTextToolCalls` + `stripRepeatedContent` for models that emit tool calls as text (qwen, Hermes, bare/fused JSON, kwarg call expressions)               |
+| [`toolCallRepair.ts`](../src/agent/loop/toolCallRepair.ts)                                                                              | `repairMalformedToolUses` — heuristic JSON repair, then schema-constrained regeneration, before dispatch                                                                           |
+| [`cycleDetection.ts`](../src/agent/loop/cycleDetection.ts)                                                                              | `exceedsBurstCap` (max tools per iteration) + `detectCycleAndBail` (ring buffer of recent tool+args tuples)                                                                        |
+| [`circularRewrite.ts`](../src/agent/loop/circularRewrite.ts)                                                                            | Byte-identical rewrite tracking: soft-block exclusions for cycle detection, blocked-rewrite escalation, edit→write steer, enforce-lock release                                     |
+| [`messageBuild.ts`](../src/agent/loop/messageBuild.ts)                                                                                  | `pushAssistantMessage` + `pushToolResultsMessage` + `accountToolTokens` — single source of truth for message-array mutation                                                        |
+| [`dispatchToolUses.ts`](../src/agent/loop/dispatchToolUses.ts)                                                                          | Turn-level dispatch: routes pure-write multi-file turns through the Edit-Plan DAG (`multiFileEdit.ts`), everything else to `executeToolUses`                                       |
+| [`executeToolUses.ts`](../src/agent/loop/executeToolUses.ts)                                                                            | Parallel tool dispatch; special-cases `spawn_agent` + `delegate_task`; threads `cwdOverride` into every `ToolExecutorContext`                                                      |
+| [`multiFileEdit.ts`](../src/agent/loop/multiFileEdit.ts)                                                                                | Edit-Plan pass + bounded-parallelism DAG walk for large multi-file write turns                                                                                                     |
+| [`toolBudget.ts`](../src/agent/loop/toolBudget.ts)                                                                                      | `capToolResults` — in-loop size cap on tool results before token accounting                                                                                                        |
+| [`policyHook.ts`](../src/agent/loop/policyHook.ts)                                                                                      | `HookBus` + `PolicyHook` interface. Four phases: `beforeIteration`, `afterToolResults`, `onEmptyResponse`, `onTermination`                                                         |
+| [`builtInHooks.ts`](../src/agent/loop/builtInHooks.ts)                                                                                  | `defaultPolicyHooks()` wraps the eight built-ins (autoFix · isolateRewrite · unappliedEdit · stubValidator · adversarialCritic · actionReprompt · completionGate · analysisCritic) |
+| [`autoFix.ts`](../src/agent/loop/autoFix.ts)                                                                                            | Lint/build/test error follow-up nudge after edits                                                                                                                                  |
+| [`isolateRewrite.ts`](../src/agent/loop/isolateRewrite.ts)                                                                              | Nudges a model that full-file-rewrites toward targeted `edit_file` changes before cycle detection bails                                                                            |
+| [`unappliedEdit.ts`](../src/agent/loop/unappliedEdit.ts)                                                                                | The mirror nudge: model described an edit in a fence but applied nothing — redirects to an actual mutation tool. One injection per run                                             |
+| [`stubCheck.ts`](../src/agent/loop/stubCheck.ts)                                                                                        | Post-tool validator that rejects placeholder code (`TODO`, `// implement me`, …)                                                                                                   |
+| [`criticHook.ts`](../src/agent/loop/criticHook.ts)                                                                                      | Adversarial critic — reviews the run's **cumulative diff at completion** (see below). Default off                                                                                  |
+| [`gate.ts`](../src/agent/loop/gate.ts)                                                                                                  | Completion gate — refuses to let the agent end the turn without verifying its edits; also hosts the syntax gate (own bounded retries)                                              |
+| [`forceFinalAnswer.ts`](../src/agent/loop/forceFinalAnswer.ts)                                                                          | Answer-forcing for runs that end tool-heavy with no user-facing answer                                                                                                             |
+| [`keepBestRatchet.ts`](../src/agent/loop/keepBestRatchet.ts) / [`keepBestRatchetWiring.ts`](../src/agent/loop/keepBestRatchetWiring.ts) | Keep-best ratchet: baselines pre-edit content, captures the scaffold boundary, reverts unproven scaffold-tail growth (default on since v0.118)                                     |
+| [`syntaxGate.ts`](../src/agent/loop/syntaxGate.ts)                                                                                      | Deterministic post-edit syntax verification feeding the gate                                                                                                                       |
+| [`notifications.ts`](../src/agent/loop/notifications.ts)                                                                                | `notifyIterationStart` + `maybeEmitProgressSummary` + `shouldStopAtCheckpoint` (user interrupt every N iterations)                                                                 |
+| [`finalize.ts`](../src/agent/loop/finalize.ts)                                                                                          | Post-loop teardown + next-step suggestion synthesis — runs on every exit path, including the throw path                                                                            |
 
 ## Hook bus ordering
 
-The `HookBus` runs hooks in registration order:
+The `HookBus` runs hooks in registration order and supports four phases: `beforeIteration`, `afterToolResults`, `onEmptyResponse`, and `onTermination`. A phase runs **every** registered hook that implements it (it does not stop at the first mutation) and reports whether any hook mutated state. A hook that throws raises `PolicyEnforcementError`, which halts the run cleanly.
 
-1. **Built-ins** (autoFix → isolateRewrite → stubCheck → critic → actionReprompt → completionGate → analysisCritic) — registered first via `defaultPolicyHooks()`. `isolateRewrite`/`actionReprompt` nudge a stuck model to verify its work; `analysisCritic` fact-checks read-only analysis answers.
-2. **Regression guards** — loaded from `sidecar.regressionGuards` config, gated behind `checkWorkspaceConfigTrust`.
-3. **User extras** — `options.extraPolicyHooks` registered last. These see every mutation earlier hooks made to `state.messages`.
+Registration order:
 
-Two hook phases:
+1. **Built-ins** — registered first via `defaultPolicyHooks()`, eight of them.
+2. **Regression guards** — loaded from `sidecar.regressionGuards` config, gated behind the workspace-trust prompt.
+3. **User extras** — `options.extraPolicyHooks`. These see every mutation earlier hooks made to `state.messages`.
+4. **SDK hooks** — hooks registered by third-party extensions through the SideCar SDK, registered last.
 
-- **`afterToolResults`** (`hookBus.runAfter`) — fires after every successful tool-execution turn. Hooks may push synthetic user messages that demand more work.
-- **`emptyResponse`** (`hookBus.runEmptyResponse`) — fires when the model produced no tool calls. Any hook that mutates state keeps the loop alive; if none mutate, the loop naturally terminates.
+The two phases that matter day-to-day:
 
-## Critic × Completion Gate interaction
+- **`afterToolResults`** (`hookBus.runAfter`) — fires after every tool-execution turn. The built-ins here are the four "how you edit" nudges: autoFix → isolateRewrite → unappliedEdit → stubValidator. Each may push a synthetic user message asking the agent to do more work.
+- **`onEmptyResponse`** (`hookBus.runEmptyResponse`) — fires when the model produced no tool calls. The built-ins here are adversarialCritic → actionReprompt → completionGate → analysisCritic. Any mutation keeps the loop alive; if nothing mutates, the run terminates naturally.
 
-Both the adversarial critic and the completion gate can push synthetic user messages into `state.messages`. They look superficially similar — both are post-turn policies that might keep the loop alive — but they fire in **different phases** and at **different moments in the turn**:
+## Critic and completion gate — both fire at completion
 
-| Hook                                | Phase              | Fires when                                                         | Can inject? |
-| ----------------------------------- | ------------------ | ------------------------------------------------------------------ | ----------- |
-| `autoFix`                           | `afterToolResults` | Lint / build / test errors detected post-edit                      | ✅          |
-| `stubValidator`                     | `afterToolResults` | Placeholder code (`TODO`, `// implement me`) detected in the write | ✅          |
-| `adversarialCritic`                 | `afterToolResults` | After `write_file` / `edit_file` / failed `run_tests`              | ✅          |
-| `completionGate` _(tool recording)_ | `afterToolResults` | Every turn — feeds gate state with tool uses                       | ❌ never    |
-| `completionGate` _(gate check)_     | `emptyResponse`    | Model tried to terminate without verifying edits                   | ✅          |
+> **Design change (v0.117-era):** the critic used to fire in `afterToolResults`, once per successful edit. That made it review half-finished work — on a multi-file change it judged file A alone, before file B existed, and with blocking on it sent the agent chasing phantoms. The SWE-bench ablation measured this as actively harmful (~7.5× faster termination, _more_ empty patches), and the critic was moved and demoted: **it now fires once, in `onEmptyResponse`, over the cumulative diff of every file the run edited — and it is off by default** (`sidecar.critic.enabled: false`).
 
-Because the critic fires in `afterToolResults` and the gate's **injecting** method (`onEmptyResponse`) fires in `emptyResponse`, **they cannot both inject on the same turn** — those are mutually exclusive branches in [`loop.ts`](../src/agent/loop.ts). The gate's `afterToolResults` method runs on every turn but is purely for tool-use tracking; it never pushes a message.
+| Hook                                | Phase              | Fires when                                                                                              | Can inject?                          |
+| ----------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `autoFix`                           | `afterToolResults` | Lint / build / test errors detected post-edit                                                           | ✅                                   |
+| `isolateRewrite` / `unappliedEdit`  | `afterToolResults` | Full-file rewrite thrash / described-but-unapplied edit                                                 | ✅                                   |
+| `stubValidator`                     | `afterToolResults` | Placeholder code (`TODO`, `// implement me`) detected in the write                                      | ✅                                   |
+| `completionGate` _(tool recording)_ | `afterToolResults` | Every turn — feeds gate state with tool uses                                                            | ❌ never                             |
+| `adversarialCritic`                 | `emptyResponse`    | Run believed complete; reviews the cumulative diff (default **off**)                                    | ✅ (only with `blockOnHighSeverity`) |
+| `completionGate` _(gate check)_     | `emptyResponse`    | Model tried to terminate without verifying edits                                                        | ✅                                   |
+| `analysisCritic`                    | `emptyResponse`    | Final answer of a read-only analysis turn; fact-checks against gathered read-evidence (default **off**) | ✅                                   |
 
-What does happen across **successive iterations** is more subtle:
-
-```mermaid
-sequenceDiagram
-    participant Agent
-    participant Critic
-    participant Gate
-    participant Runner
-
-    Note over Agent,Runner: Turn 1 - agent edits foo.ts
-    Agent->>Runner: emit edit_file foo.ts
-    Runner->>Critic: afterToolResults - edit trigger
-    Critic-->>Runner: inject "fix null check"
-    Note over Gate: records edit, does NOT inject
-    Runner->>Agent: Turn 2
-
-    Note over Agent,Runner: Turn 2 - agent addresses critic
-    Agent->>Runner: emit edit_file foo.ts
-    Runner->>Critic: afterToolResults - per-file cap 1 of 2
-    Critic-->>Runner: inject "new bug introduced"
-    Runner->>Agent: Turn 3
-
-    Note over Agent,Runner: Turn 3 - agent edits again, hits critic cap
-    Agent->>Runner: emit edit_file foo.ts
-    Runner->>Critic: afterToolResults - per-file cap 2 of 2, SKIP
-    Note over Critic: no injection, per-file cap reached
-    Runner->>Agent: Turn 4
-
-    Note over Agent,Runner: Turn 4 - agent believes it is done
-    Agent->>Runner: emit no tool calls
-    Runner->>Gate: onEmptyResponse
-    Gate-->>Runner: inject "run lint + tests before completion"
-    Runner->>Agent: Turn 5
-
-    Note over Agent,Runner: Turn 5 - agent runs tests, they fail
-    Agent->>Runner: emit run_tests, fails
-    Runner->>Critic: afterToolResults - test_failure trigger, UNBOUNDED
-    Critic-->>Runner: inject "root cause analysis"
-    Note over Runner: continues until maxIterations or another cap trips
-```
+With the critic in default configuration, the verification story at completion is the **deterministic** layer: the completion gate (did the agent verify its edits?), the syntax gate, and the citation/grounding checks. The critic exists as an opt-in second opinion; its findings surface as chat annotations and only block when `sidecar.critic.blockOnHighSeverity` is also enabled. On a VRAM-bound machine the critic is the same model judging its own work, which bounds its usefulness — this is stated in the setting description itself.
 
 ### Bounds that prevent infinite loops
 
-- **Critic — per-file injection cap.** `MAX_CRITIC_INJECTIONS_PER_FILE = 2` in [`src/agent/loop/criticHook.ts`](../src/agent/loop/criticHook.ts) — after two critic blocks on the same file within a run, the critic skips further blocks for that file. **Applies to `edit` triggers only.**
-- **Critic — test-failure triggers are NOT per-file-capped.** The per-file counter is keyed by `filePath`, and `test_failure` triggers don't name a single file. A gate-forced test run that keeps failing can keep firing the critic turn after turn. In practice this is bounded by the outer iteration cap; in the worst case you burn critic calls (Haiku: ~$0.02 each on Anthropic backends) until `maxIterations` trips.
-- **Gate — total injection cap.** `MAX_GATE_INJECTIONS = 2` in [`src/agent/loop/gate.ts`](../src/agent/loop/gate.ts). After two gate reprompts in a run, the gate logs a warning and allows termination with unverified edits rather than looping forever.
-- **Loop — iteration cap.** `sidecar.agentMaxIterations` (default 50). Ultimate backstop.
-- **Cycle detection.** Same tool+args tuple repeated N times triggers `detectCycleAndBail`.
+- **Gate — total injection cap.** `MAX_GATE_INJECTIONS = 2` (in [`src/config/constants.ts`](../src/config/constants.ts)) bounds gate reprompts per run; after that the gate logs a warning and allows termination with unverified edits rather than looping forever. The syntax gate mirrors this with its own `MAX_SYNTAX_GATE_INJECTIONS = 2`.
+- **Critic — per-file injection cap.** `MAX_CRITIC_INJECTIONS_PER_FILE = 2` in [`criticHook.ts`](../src/agent/loop/criticHook.ts), relevant only when the critic is enabled _and_ blocking.
+- **Action reprompt / unapplied-edit nudge** — one injection per run each.
+- **Degenerate-output bail.** Token-salad output is discarded and retried once; a second occurrence ends the run as `stuck` instead of returning garbage.
+- **Loop — iteration cap.** `sidecar.agentMaxIterations` (default **50**, raised from 25 in v0.122 after measuring that no failing run reached the old ceiling). Ultimate backstop.
+- **Cycle detection.** Same tool+args tuple repeated N times triggers `detectCycleAndBail` — with two refinements: soft-blocked circular rewrites are excluded from the count (the executor already blocks them), and the bail is deferred one turn when a pending write is about to be soft-blocked, so the block and escalation reach the model instead of the run dying with zero feedback.
 - **Burst cap.** Too many tools attempted in one iteration triggers `exceedsBurstCap`.
-
-### Known lockup-risk scenario
-
-The realistic worst case is **gate → test failure → critic loop**:
-
-1. Agent edits, gate's per-file critic cap exhausts (2 blocks).
-2. Agent tries to terminate; gate injects "run tests."
-3. Tests fail; critic `test_failure` trigger fires (unbounded per-file).
-4. Agent edits to fix, but edit triggers are now capped for these files.
-5. Repeat steps 2–4 until `MAX_GATE_INJECTIONS` (2) is hit or `maxIterations` (25) trips.
-
-You can burn 20+ iterations and 10+ critic calls before the outer cap fires. For a user on Sonnet with critic defaulting to Haiku, that's **~$1–2 of API spend** on a single stuck turn.
+- **Plan-turn refund bound.** `update_plan`-only turns refund their iteration at most `MAX_PLAN_STEPS` times per run.
 
 ### Escape hatches for a stuck loop
 
-1. **Abort** via the chat UI (cancel button) — `signal.aborted` is checked between iterations and the loop exits immediately.
-2. **Disable the critic** for the session: `sidecar.critic.enabled: false` (or toggle via the settings UI's new "SideCar: Safety & Review" section).
+1. **Abort** via the chat UI (cancel button) — the abort signal is checked at iteration start, after compression, and between streaming and dispatch, and it aborts the in-flight stream directly.
+2. **Steer** — a queued steer with `interrupt` urgency aborts just the current turn and redirects the run without killing it.
 3. **Disable the gate**: `sidecar.completionGate.enabled: false`.
 4. **Lower `sidecar.agentMaxIterations`** to cap spend per run.
-5. **Inspect `SideCar: Show Session Spend`** — the critic session-stats view added in v0.62.1 shows `blockedTurns` + `lastBlockedReason` so you can tell whether the critic is what's looping.
-
-### Why the test-failure trigger is unbounded
-
-It's a deliberate design trade, not an oversight: a test that keeps failing for _different reasons_ across iterations is exactly the situation where the critic's analysis is most valuable. Bounding test-failure triggers per-file would mute the critic precisely when an agent is flailing. The unbounded behavior is bounded-enough-in-practice by `maxIterations` + `MAX_GATE_INJECTIONS`. A future improvement would be a per-test-output hash cap (don't re-fire the critic when the test output hasn't materially changed) — tracked as an open item.
+5. **Inspect `SideCar: Show Session Spend`** — if the critic is enabled, its session stats (`blockedTurns`, `lastBlockedReason`, `totalCalls`) show whether it is what's looping.
 
 ## Prompt pruner safety model
 
-The [`promptPruner`](../src/ollama/promptPruner.ts) runs in the backend layer on every request to a paid backend (Anthropic / OpenAI-compatible). It's a lossy-but-bounded transform that protects against three scenarios:
+Tool-result size is managed at two layers:
 
-1. **Oversize tool_result blocks** (e.g., a `read_file` on a 100KB file) that would crowd out the conversation history.
-2. **Duplicate reads of the same file** across a turn (agent reads foo.ts three times).
-3. **Trailing whitespace runs** from tool outputs that pad the prompt without carrying signal.
+1. **In the loop** — `capToolResults` ([`toolBudget.ts`](../src/agent/loop/toolBudget.ts)) caps oversize results _before_ token accounting, so a single broad grep can't exhaust the budget. The prompt-injection guard then fences untrusted tool output as data — after capping, so the fence boundary survives truncation.
+2. **In the backend layer** — the [`promptPruner`](../src/ollama/promptPruner.ts) runs on every request in the Anthropic, OpenAI-compatible, and Bedrock backends (not the local Ollama native path). It protects against oversize `tool_result` blocks, duplicate reads of the same content, and whitespace padding.
 
 ### Three transforms, one contract
 
@@ -191,7 +171,7 @@ The [`promptPruner`](../src/ollama/promptPruner.ts) runs in the backend layer on
 flowchart LR
     Msgs[messages array] --> W[collapseWhitespace<br/>3+ blank lines → 2]
     W --> T[truncateToolResult<br/>head 60% + tail 40% +<br/>elision marker]
-    T --> D[dedupeToolResults<br/>same content → back-reference<br/>EXCEPT exempt tools]
+    T --> D[dedupeToolResults<br/>same content → back-reference<br/>EXCEPT nondeterministic tools]
     D --> Send[send to backend]
 
     classDef safeStyle fill:#dcfce7,stroke:#16a34a
@@ -204,36 +184,24 @@ The contract is: the pruner **NEVER** touches user message text, assistant reaso
 
 ### Which transforms apply to which tools
 
-- **`collapseWhitespace`** — applied universally. Runs of 3+ blank lines become 2. No user-visible impact; preserves all non-whitespace signal.
-- **`truncateToolResult`** — applied to **every** tool_result block that exceeds `sidecar.promptPruning.maxToolResultTokens` (default ~4K tokens). Head + tail + elision marker preserves the error signal at the top AND the failing line at the bottom — which is where the signal lives in 90% of tool output (compile errors, test failures, file reads where the function of interest is near a function signature).
-- **`dedupeToolResults`** — applied to most tool_result blocks, but **EXEMPT** for a specific set:
+- **`collapseWhitespace`** — applied universally. Runs of 3+ blank lines become 2.
+- **`truncateToolResult`** — applied to **every** tool_result block that exceeds `sidecar.promptPruning.maxToolResultTokens`. Head + tail + elision marker preserves the error signal at the top AND the failing line at the bottom — which is where the signal lives in most tool output.
+- **`dedupeToolResults`** — applied to most tool_result blocks, **except tools whose definitions carry `nondeterministicOutput: true`**.
 
-  ```typescript
-  const DEDUP_EXEMPT_TOOLS = new Set([
-    'read_file', // agent reads foo.ts, edits it, re-reads it — MUST see new content
-    'get_diagnostics', // lint/type errors change after edits
-    'git_diff', // diff vs. HEAD changes after every stage/commit
-    'git_status', // working-tree state changes after every tool call
-  ]);
-  ```
+  The exemption is no longer a hardcoded set in the pruner. Each tool definition declares whether its output is expected to vary across consecutive calls with identical inputs, and `getDedupExemptToolNames()` ([`tools.ts`](../src/agent/tools.ts)) derives the exempt set from that metadata — so the canonical answer lives next to the tool, not in a list that drifts. Roughly 50 tools carry the flag today: `read_file`, `list_directory`, `get_diagnostics`, the `git_*` family, `run_command`/`run_tests`, the GitHub and database tools, search tools, and other state-observing tools.
 
-  These tools' outputs are **expected to vary across consecutive calls with identical inputs**. Dedup'ing them with a back-reference ("identical to previous tool*result") is a trap: the agent gets the \_stale* content by reference even though it wrote a newer version. The audit finding that added this exemption (v0.62.1 p.2b) caught exactly this trap in an eval scenario where the agent couldn't tell its own edit had landed.
+  The trap this prevents: an agent reads foo.ts, edits it, re-reads it — dedup'ing the second read into a back-reference would hand the agent its own _stale_ content and make it unable to see that its edit landed (the v0.62.1 audit caught exactly this in an eval).
 
   **Truncation still applies to exempt tools** — size management is always legitimate; the exemption is only about the back-reference shortcut.
 
-### How to decide whether to exempt a new tool from dedup
+### How to decide whether a new tool is `nondeterministicOutput`
 
-Check both questions. Answer "yes" to either → add to `DEDUP_EXEMPT_TOOLS`:
+Set the flag on the tool definition if either is true:
 
-1. **Does this tool's output vary meaningfully across consecutive calls with identical inputs?**
-   - Yes for `read_file` (file contents change), `list_directory` (may change if the agent creates files), `git_status` (tree state mutates), `get_diagnostics` (errors resolve).
-   - No for `search_files` with a fixed query (should be stable; dedup is safe).
+1. **Does this tool's output vary meaningfully across consecutive calls with identical inputs?** Yes for file reads, directory listings, git state, diagnostics. No for a fixed-query search over unchanged files.
+2. **Would collapsing identical outputs into a back-reference lose state the agent needs to track?** Yes for diff-like tools where the agent is watching changes over time.
 
-2. **Would collapsing identical outputs into a back-reference lose user intent the agent needs?**
-   - Yes for diff-like tools where the agent is tracking changes over time.
-   - No for most read-only knowledge tools (`web_search`, `find_references`) — if the agent re-runs the same search, dedup is fine.
-
-When in doubt, lean toward exempting. The cost of a false exemption is a few extra bytes in the prompt; the cost of a false dedup is an agent that can't see its own work.
+When in doubt, lean toward setting it. The cost of a false exemption is a few extra bytes in the prompt; the cost of a false dedup is an agent that can't see its own work.
 
 ### Truncation safety by tool
 
@@ -264,68 +232,34 @@ flowchart LR
     class H1,H2,H3,H4,H5 dangerStyle
 ```
 
-**Truncation-friendly tools** — head+tail captures the actual signal:
-
-| Tool                          | Why head+tail works                                                                                                                                 |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run_command`, `run_tests`    | Error banner at top; exit code + failing-assertion summary at bottom. Middle = test-runner chatter, build steps, progress bars.                     |
-| `get_diagnostics`             | Errors come back severity-sorted; highest-severity items are in the head. Tail repeats the summary counts.                                          |
-| `git_log`, `git_diff`         | Most recent commit / first hunk at top. Tail varies (final commit / last hunk) but the head carries the "what changed recently" signal.             |
-| `read_file` _with line range_ | When the agent passes `start_line`/`end_line`, the output is small enough that truncation never fires. Risk only on full-file reads of giant files. |
-
-**Truncation-hostile tools** — head+tail can drop the match the agent needed:
-
-| Tool                       | Failure mode                                                                                                                                                                                                                                                     |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `grep`                     | Matches distribute throughout the searched file. A 200-match grep result truncated at `maxToolResultTokens` might elide matches 40–160; the agent sees matches 1–40 and 160–200, which are usually the least interesting (boilerplate imports + trailing tests). |
-| `search_files`             | Returns by relevance + freshness; there's no position-ordering guarantee. The middle of the list can carry the hit the agent actually wants.                                                                                                                     |
-| `web_search`               | Results are ranked by the search provider, but the _most actionable_ result for an error-message lookup is often result 3–5 (Stack Overflow answer, not the marketing page at rank 1). Middle-elision drops those.                                               |
-| `project_knowledge_search` | Hits come back with `vector:` and `graph:` relationship labels interleaved. Graph-walk hits (callers/callees 1–2 hops out) often sit in the middle of the ranked list and are the "oh that's why" evidence for the agent.                                        |
-| `list_directory`           | Alphabetical listing. For a directory with 500 files, the file the agent was looking for is statistically not at the first or last 40%.                                                                                                                          |
-
 **Practical guidance**:
 
-- **Default `maxToolResultTokens` is ~4K tokens**, which is usually enough to avoid truncation entirely on truncation-hostile tools (most grep / search results fit). If you're on a small-context model or hit truncation regularly on these tools, raise the cap via `sidecar.promptPruning.maxToolResultTokens` before assuming the agent is "missing" information.
-- **When reading a truncated tool_result, look for the elision marker**: `[...N bytes elided by SideCar prompt pruner...]`. If the agent is confused after a truncation-hostile tool call, the elided bytes are the first place to look.
-- **For grep / search workloads, prefer narrower queries.** A pre-scoped `grep -r "needle" src/auth/` is better than `grep -r "needle" .` — the narrower result fits under the budget and doesn't get elided.
-- **Disable pruning for debugging**: `sidecar.promptPruning.enabled: false` bypasses truncation entirely. Useful when tracking down "why did the agent ignore result X" — re-run with pruning off and see whether the hit was in the elided region.
+- **When reading a truncated tool_result, look for the elision marker.** If the agent is confused after a truncation-hostile tool call, the elided bytes are the first place to look.
+- **For grep / search workloads, prefer narrower queries.** A pre-scoped `grep -r "needle" src/auth/` fits under the budget; a repo-wide grep gets elided.
+- **Raise `sidecar.promptPruning.maxToolResultTokens`** before assuming the agent is "missing" information on truncation-hostile workloads.
+- **Disable pruning for debugging**: `sidecar.promptPruning.enabled: false` bypasses truncation entirely — re-run and see whether the hit was in the elided region.
 
 ### Known gap: no per-tool truncation strategy
 
-The current pruner applies **one strategy** (head+tail with 60/40 split) to **every** tool. A future improvement would be a per-tool truncation dispatch:
-
-- **`grep` / `search_files`** — slice to the top-N matches by a relevance score instead of by position.
-- **`list_directory`** — sort-and-truncate by path-relevance to the active file.
-- **`project_knowledge_search`** — already has its own top-K in the tool; a per-tool smaller budget would let the pruner drop additional matches past N.
-
-Tracked as an open item. Until then, tuning `maxToolResultTokens` upward is the escape hatch for workloads that exercise truncation-hostile tools heavily.
+The pruner applies **one strategy** (head+tail with 60/40 split) to **every** tool. A per-tool truncation dispatch (top-N by relevance for grep/search, path-relevance sort for `list_directory`) remains an open item. Until then, tuning `maxToolResultTokens` upward is the escape hatch.
 
 ### Observability
 
-The pruner emits a `PruneStats` object on every request:
-
-- `truncatedBytes` — total bytes dropped by head+tail truncation.
-- `dedupedBytes` — total bytes saved by dedup (back-references).
-- `whitespaceBytes` — total bytes saved by whitespace collapse.
-- `truncatedByTool` — per-tool breakdown of truncation (e.g., `{ read_file: 12000, run_command: 4000 }`).
-
-When any of these is non-zero, `formatPruneStats(stats)` emits a one-line summary to the SideCar output channel (`console.info`). Users who see "did the pruner eat my error message?" can look at the log to answer conclusively.
+The pruner emits a `PruneStats` object on every request — `truncatedBytes`, `dedupedBytes`, `whitespaceBytes`, and a per-tool `truncatedByTool` breakdown. When any is non-zero, `formatPruneStats(stats)` emits a one-line summary to the SideCar output channel, so "did the pruner eat my error message?" is answerable from the log.
 
 ## Termination paths
 
-The loop can exit via any of:
+Every exit sets a `state.termination` reason; all paths route through `finalize(state, callbacks)` — including the throw path, so the UI spinner can never be orphaned.
 
-- **Natural end**: model produced no tool calls and no hook wanted to reprompt.
-- **Plan mode**: first iteration completed, `onPlanGenerated` fired for user approval.
-- **Iteration cap**: `state.iteration >= state.maxIterations`.
-- **Abort**: `signal.aborted` between iterations or mid-stream.
-- **Budget exhaustion**: `applyBudgetCompression` couldn't fit under `maxTokens`.
-- **Burst cap**: too many tools attempted in one iteration.
-- **Cycle detected**: same tool+args tuple seen too many times in the recent ring.
-- **Timeout**: a single stream turn exceeded `sidecar.requestTimeout`.
-- **Checkpoint refused**: `onCheckpoint` returned `false`.
+| Reason             | Causes                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `natural`          | Model produced no tool calls and no hook kept the loop alive; or plan mode delivered its plan (`onPlanGenerated`)      |
+| `aborted`          | User Stop (checked at iteration start, post-compression, and between streaming and dispatch), or checkpoint refused    |
+| `out-of-resources` | Pre-turn compression couldn't fit under the token budget, or a stream turn timed out (first-token / per-event timeout) |
+| `stuck`            | Degenerate output twice, burst cap exceeded, or cycle detected                                                         |
+| `max-iterations`   | The iteration counter ran out (`sidecar.agentMaxIterations`, default 50)                                               |
 
-All paths route through `finalize(state, callbacks)` which emits the final `onDone` callback and synthesizes next-step suggestions.
+A `PolicyEnforcementError` thrown by any hook also halts the run — surfaced with the hook name and phase, finalized, then rethrown with partial messages attached for caller persistence.
 
 ## Per-run isolation
 
