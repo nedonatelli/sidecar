@@ -598,3 +598,99 @@ describe('recentResultsShowWorkAlreadyDone', () => {
     expect(maybeInjectActionReprompt(state, 'Next, I will update the second caller.', cb)).toBe(true);
   });
 });
+
+describe('intent-aware reprompt escapes (state over phrasing)', () => {
+  // The trigger (action verb + file path) knows nothing about what already
+  // happened in the run, so it fired on text-only turns that were the
+  // legitimate END of the work: a read request already answered from real
+  // reads, and a mutation that landed and verified clean.
+  const asst = { role: 'assistant' as const, content: [{ type: 'tool_use', id: 't', name: 'x', input: {} }] };
+  const res = (...texts: string[]) => ({
+    role: 'user' as const,
+    content: texts.map((t, i) => ({ type: 'tool_result' as const, tool_use_id: 't' + i, content: t })),
+  });
+  const READ_OK = '<tool_output tool="read_file">\nexport function clamp() {}\n</tool_output>';
+  const EDIT_OK = '<tool_output tool="edit_file">\nFile edited: src/minmax.ts\n</tool_output>';
+  const TSC_CLEAN = '<tool_output tool="run_command">\n(no output)\n</tool_output>';
+  const TSC_RED =
+    '<tool_output tool="run_command">\nsrc/calc.ts(1,10): error TS2305: Module has no exported member.\n(exit code: 1)\n</tool_output>';
+
+  it('does not reprompt a read request that was answered from real reads', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'read_file' }] as never,
+      messages: [
+        { role: 'user', content: 'Read src/utils.ts and tell me what clamp does.' },
+        asst,
+        res(READ_OK),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'clamp bounds a number to [lo, hi].', stubCallbacks())).toBe(false);
+    expect(state.actionRepromptCount).toBe(0);
+  });
+
+  it('still reprompts a read request answered from THIN AIR — no reads happened', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'read_file' }] as never,
+      messages: [{ role: 'user', content: 'Read src/utils.ts and tell me what clamp does.' }] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'clamp bounds a number to [lo, hi].', stubCallbacks())).toBe(true);
+  });
+
+  it('does not reprompt a completion summary after edit + clean verification', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        asst,
+        res(EDIT_OK),
+        asst,
+        res(TSC_CLEAN),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'max is fixed and tsc reports no errors.', stubCallbacks())).toBe(false);
+  });
+
+  it('DOES reprompt when the verification after the edit is RED — no rationalized exits', () => {
+    // v0.122 gemma4 rationalized failing tsc output and quit with a broken
+    // import. A red check must keep the pressure on.
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        asst,
+        res(EDIT_OK),
+        asst,
+        res(TSC_RED),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'Done — the remaining errors are stale.', stubCallbacks())).toBe(true);
+  });
+
+  it('DOES reprompt an unverified mutation — edit landed but nothing checked it', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [{ role: 'user', content: 'fix the max function in src/minmax.ts' }, asst, res(EDIT_OK)] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'The max function has been fixed.', stubCallbacks())).toBe(true);
+  });
+
+  it('deferred-intent text keeps the reprompt even when prior work exists', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        asst,
+        res(EDIT_OK),
+        asst,
+        res(TSC_CLEAN),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'Next, I will update the second caller.', stubCallbacks())).toBe(true);
+  });
+});

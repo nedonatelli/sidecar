@@ -10,6 +10,7 @@ import {
   isMutationRequest,
   looksLikeDeclinedAction,
   recentResultsShowWorkAlreadyDone,
+  verifiedMutationSinceUserMessage,
 } from './actionReprompt.js';
 import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import type { ToolDefinition } from '../../ollama/types.js';
@@ -444,12 +445,15 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       // needed". A final-state fence after that signal is a completion summary,
       // not an unapplied edit — coercing it to write_file re-entered the very
       // loop the already-applied response exists to end (v0.122 gemma4).
+      // ...and not when the work is DONE by the evidence: an already-applied
+      // signal, or a mutation followed by a clean verification. A final-state
+      // fence after either is a completion summary, not an unapplied edit.
       const alreadyDone =
         isMutationRequest(userText) &&
         !looksLikeDeclinedAction(fullText) &&
-        recentResultsShowWorkAlreadyDone(state.messages);
+        (recentResultsShowWorkAlreadyDone(state.messages) || verifiedMutationSinceUserMessage(state.messages));
       if (alreadyDone) {
-        state.logger?.info('Fence-write coercion suppressed: latest tool results reported the change already applied');
+        state.logger?.info('Fence-write coercion suppressed: work already applied or verified done');
       }
       const synth =
         isMutationRequest(userText) && !looksLikeDeclinedAction(fullText) && !alreadyDone

@@ -80,6 +80,19 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **4.0.4** (2026-08) — intent-aware reprompt escapes: run state over
+ *   request phrasing. The action reprompt and fence coercion triggered on the
+ *   REQUEST's shape (action verb + file path) with no awareness of what had
+ *   already happened, so they fired on text-only turns that were the
+ *   legitimate end of the work. Two evidence-keyed escapes: (1) a read-only
+ *   request already answered from real, non-error read results — the text IS
+ *   the deliverable; (2) a mutation followed by a CLEAN verification result —
+ *   the text is a completion summary. A failing check (nonzero exit, error
+ *   TS…, FAILED, Traceback) blocks escape (2) outright: v0.122 gemma4
+ *   rationalized red tsc output and quit with a broken import, and nothing
+ *   may make that exit easier. Deferred-intent text ("Next, I will…") keeps
+ *   the reprompt regardless — announcing more work then stopping is still a
+ *   stall. PATCH: firing-condition tuning within existing mechanisms.
  * - **4.0.3** (2026-08) — cycle detection distinguishes hammering from
  *   recovery. Three linked changes: (1) the consecutive-identical threshold
  *   is decoupled from cycleDetectionMinRepeats and fixed at 4 — defined as
@@ -143,7 +156,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '4.0.3';
+export const SCAFFOLD_VERSION = '4.0.4';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

@@ -38,6 +38,32 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 4.0.4 — intent-aware reprompt escapes: run state over request phrasing (2026-08)
+
+PATCH. Firing-condition tuning within the action-reprompt and fence-coercion
+mechanisms — no change to which mechanisms run.
+
+The "No tool calls detected" trigger classified turns by the REQUEST's shape
+(action verb + file path) with no awareness of run state, so it fired on
+text-only turns that were the legitimate end of the work. Two evidence-keyed
+escapes:
+
+- **Read request already answered**: the request is read-only
+  (`!isMutationRequest`) and non-error read-shaped results exist since the
+  user's real message — the text-only turn is the deliverable.
+- **Mutation verified done**: a successful mutation is followed by a CLEAN
+  verification result (run_command/run_tests/get_diagnostics, no error flag,
+  no failing-output signature). The text-only turn is a completion summary.
+- **A red check blocks the second escape outright** — nonzero exit codes,
+  `error TS…`, `FAILED`, `Traceback` keep the pressure on. (gemma4,
+  2026-08-07: rationalized failing tsc output and quit with a broken import;
+  no escape may make that exit easier.)
+- **Deferred-intent text keeps the reprompt** regardless of prior work —
+  "Next, I will…" then stopping is still a stall.
+- Not included (needs an A/B): a clarifying-question escape. It would fight
+  the measured "Shall I proceed?" stall-detection clause; distinguishing
+  disambiguation-with-candidates from permission-stalling is future work.
+
 ### 4.0.3 — cycle detection distinguishes hammering from recovery (2026-08)
 
 PATCH. Threshold and exemption tuning within the cycle-detection mechanism —

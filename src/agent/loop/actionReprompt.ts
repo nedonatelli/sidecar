@@ -192,6 +192,90 @@ export function isMutationRequest(text: string): boolean {
   return MUTATION_VERB_RE.test(text) && FILE_PATH_RE.test(text);
 }
 
+/** Successful read-shaped tool results, matched inside the `<tool_output>` wrapper. */
+const READ_RESULT_RE =
+  /<tool_output tool="(?:read_file|grep|search_files|list_directory|get_diagnostics|git_diff|git_log|git_status|find_references)"/;
+/** Verification-shaped tool results — the checks the completion gate cares about. */
+const VERIFY_RESULT_RE = /<tool_output tool="(?:run_command|run_tests|get_diagnostics)"/;
+/** A verification result that reports failure. `run_command` appends
+ *  `(exit code: N)` for nonzero exits; test/compiler output carries its own
+ *  signatures. A red check must NOT license a text-only exit — v0.122 gemma4
+ *  rationalized failing tsc output ("the compiler hasn't picked up the change")
+ *  and quit with a broken import. */
+const FAILING_CHECK_RE =
+  /\(exit code: [1-9]\d*\)|error TS\d|\bFAILED\b|Traceback \(most recent call last\)|AssertionError/;
+/** Successful mutation results. */
+const MUTATION_OK_RE = /File (?:edited|written): /;
+
+/**
+ * Intent-aware escapes for the act-now machinery, keyed on what has ACTUALLY
+ * happened since the user's real message — not on how the request was phrased.
+ * The trigger (action verb + file path) knows nothing about run state, so it
+ * fired on text-only turns that were the legitimate END of the work:
+ *
+ *  - a read request whose reads already happened — the text IS the deliverable
+ *    ("read X and tell me Y" → read_file → answer → "No tool calls detected");
+ *  - a mutation that landed and then verified CLEAN — the text is a completion
+ *    summary (edit → tsc no-output → summary → reprompted back into the loop).
+ *
+ * Both walk newest-first, skipping synthetic '['-injections, and stop at the
+ * user's real message. Failing verification results return false — the model
+ * must keep working (or honestly report the failure), never be excused by it.
+ */
+export function answeredFromReadsSinceUserMessage(messages: ChatMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const results = blocks.filter((b): b is ToolResultContentBlock => b.type === 'tool_result');
+    if (results.length === 0) {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join(' ');
+      if (text.startsWith('[')) continue;
+      return false; // reached the user's real request with no reads seen
+    }
+    if (results.some((r) => !r.is_error && READ_RESULT_RE.test(r.content))) return true;
+  }
+  return false;
+}
+
+export function verifiedMutationSinceUserMessage(messages: ChatMessage[]): boolean {
+  let sawCleanVerify = false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const results = blocks.filter((b): b is ToolResultContentBlock => b.type === 'tool_result');
+    if (results.length === 0) {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join(' ');
+      if (text.startsWith('[')) continue;
+      return false;
+    }
+    for (const r of results) {
+      if (VERIFY_RESULT_RE.test(r.content)) {
+        // A failing check newer than the mutation blocks the escape outright.
+        if (r.is_error || FAILING_CHECK_RE.test(r.content)) return false;
+        sawCleanVerify = true;
+      }
+      // Walking newest-first: the mutation must have a clean verify NEWER than
+      // it (already seen) for the work to count as verified-done.
+      if (MUTATION_OK_RE.test(r.content)) return sawCleanVerify;
+    }
+  }
+  return false;
+}
+
 /**
  * Return true when the model's own text announces intent to act but
  * contains no tool call — e.g. "I will now attempt to read the file".
@@ -286,6 +370,26 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   if (recentResultsShowWorkAlreadyDone(state.messages)) {
     state.logger?.info('Action-request reprompt suppressed: latest tool results reported the change already applied');
     return false;
+  }
+
+  // Intent-aware escapes — keyed on run state, not request phrasing. Only for
+  // turns triggered by the REQUEST's shape: text that itself announces
+  // deferred intent ("I will now edit…") is still a stall regardless of what
+  // already happened, so it keeps the reprompt.
+  if (!looksLikeDeferredAction(fullText)) {
+    // A read-only request whose reads already happened: the text-only turn is
+    // the answer, not a failure to act.
+    if (!isMutationRequest(userText) && answeredFromReadsSinceUserMessage(state.messages)) {
+      state.logger?.info('Action-request reprompt suppressed: read request already answered from real reads');
+      return false;
+    }
+    // A mutation that landed and verified clean: the text-only turn is a
+    // completion summary. (A failing check blocks this escape — see
+    // verifiedMutationSinceUserMessage.)
+    if (verifiedMutationSinceUserMessage(state.messages)) {
+      state.logger?.info('Action-request reprompt suppressed: mutation landed and verified clean');
+      return false;
+    }
   }
 
   state.actionRepromptCount++;
