@@ -160,18 +160,21 @@ export const THINKING_CASES: AgentEvalCase[] = [
       // measures, and whole-file rewrite is a supported strategy.
       toolsCalledAny: ['edit_file', 'write_file'],
       files: {
-        // Accept either correct shape: awaiting inside the loop
-        // (`results.push(await fetch(url))`) or collecting via
-        // `Promise.all(urls.map(fetch))` / `Promise.all(urls.map((u) => fetch(u)))`.
-        // Both return resolved strings in url order, which is the tested
-        // behavior. The old literal `await fetch(url)` hardcoded the loop
-        // shape and rejected gemma4's correct Promise.all fix twice
-        // (2026-08-02, 2026-08-05).
-        matchesRegex: [{ path: 'src/downloader.ts', patterns: [/await fetch\(url\)|Promise\.all\(\s*urls\.map\(/] }],
-        notContain: [
-          // The un-awaited push must be gone.
-          { path: 'src/downloader.ts', substrings: ['results.push(fetch(url))'] },
-        ],
+        // Assert the semantic minimum, not a fix shape. Correct fixes observed
+        // from real models: `results.push(await fetch(url))` in the loop;
+        // `return Promise.all(urls.map(fetch))`; and collect-then-await —
+        // `results.push(fetch(url))` into a Promise<string>[] followed by
+        // `return Promise.all(results)` (gemma4, 2026-08-07, tsc-clean, and
+        // the second shape-bound checker in a row to reject it). Every correct
+        // fix must introduce `await` or `Promise.all`; the buggy original has
+        // neither (`async` does not match \bawait\b). No notContain on the
+        // push line — pushing un-awaited promises is legitimate when they are
+        // later awaited via Promise.all.
+        // No notContain: `return results;` is correct in the loop-await shape,
+        // and `results.push(fetch(url))` is correct in the collect-then-await
+        // shape. The positive regex alone discriminates — the buggy file
+        // contains neither `await` nor `Promise.all`.
+        matchesRegex: [{ path: 'src/downloader.ts', patterns: [/\bawait\b|Promise\.all\s*\(/] }],
       },
     },
     softExpect: {

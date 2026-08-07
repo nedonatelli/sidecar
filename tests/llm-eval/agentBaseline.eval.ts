@@ -107,13 +107,18 @@ describe.skipIf(!backend)('agent regression baseline', () => {
     `npm run eval:agent:baseline:record`;
   const bpath = baselinePath(model);
   const rel = (p: string) => path.relative(process.cwd(), p);
-  // Opt-in + slow: a full run plus a retry on every regression. Cap at 4h.
+  // Opt-in + slow: a full run plus a retry on every regression.
   // A full sweep needs the budget the cases can actually consume. The old 4h cap
-  // killed every model overnight mid-run: qwen reached case 32 of 70 at 4h02m.
+  // killed every model overnight mid-run: qwen reached case 32 of 70 at 4h02m —
+  // and the 12h cap that replaced it died the same death at the 600s case
+  // budget: 70 × 600s is 11.7h of legitimate case time, and one host
+  // hibernation (2026-08-07: 8h on battery death) burns wall clock the cases
+  // never saw — ministral was killed at case 55/70 by the CAP, not by work.
   // Per-case durations vary ~25x on the same model between runs, so a cap tuned
   // to a good run guarantees a bad one is truncated. Incremental flushing above
-  // makes a long ceiling safe — an over-running sweep now keeps what it measured.
-  const timeout = Math.min(2 * ALL_CASES.length * (DEFAULT_CASE_TIMEOUT_MS + 10_000) + 120_000, 12 * 60 * 60 * 1000);
+  // makes a long ceiling safe — an over-running sweep now keeps what it
+  // measured, so the ceiling is just the computed worst case, uncapped.
+  const timeout = 2 * ALL_CASES.length * (DEFAULT_CASE_TIMEOUT_MS + 10_000) + 120_000;
 
   if (RECORD_MODE) {
     it(

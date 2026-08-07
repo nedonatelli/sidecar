@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual re-trigger for a tag whose push didn't fire the workflow (observed
+  # with v0.123.0: tag reached the remote, no run started, marketplace stayed
+  # on the prior version until the tag was deleted and re-pushed). Run from the
+  # Actions UI against the tag ref instead of doing tag surgery.
+  workflow_dispatch:
 
 # Grant the auto-provisioned GITHUB_TOKEN the ability to create releases.
 permissions:
