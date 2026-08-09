@@ -392,7 +392,32 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
     }
 
     if (!command) {
-      return 'Could not detect test runner. Specify a command (e.g. "npm test", "pytest").';
+      // Workspace-aware guidance. The old unconditional hint suggested
+      // `npm test` / `pytest` in workspaces that have neither — ministral ran
+      // pytest against a TypeScript-only workspace, and the whole fleet burned
+      // iterations chasing runners that cannot exist
+      // (replace-todo-body-with-implementation, 2026-08-07). Point at a check
+      // that CAN run here, or say plainly that none exists.
+      const tsFiles = await workspace.findFiles('**/*.{ts,tsx}', '**/node_modules/**', 1);
+      if (tsFiles.length > 0) {
+        return (
+          'Could not detect test runner: no test script, config, or test files exist in this workspace. ' +
+          'For these TypeScript sources the available check is the compiler — run_command with `npx tsc --noEmit`. ' +
+          'Do not guess at npm test or pytest here; neither is configured.'
+        );
+      }
+      const pyFiles = await workspace.findFiles('**/*.py', '**/node_modules/**', 1);
+      if (pyFiles.length > 0) {
+        return (
+          'Could not detect test runner: no test files or config exist in this workspace. ' +
+          'For these Python sources the available check is the interpreter — run_command with `python3 -m py_compile <file>` ' +
+          'or run the script directly. Do not guess at npm test here.'
+        );
+      }
+      return (
+        'Could not detect test runner, and this workspace has no test files or config. ' +
+        'If tests exist elsewhere, specify the command explicitly; otherwise state that no automated check is available.'
+      );
     }
   }
 

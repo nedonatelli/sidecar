@@ -75,16 +75,37 @@ export const findReferencesDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
+const SEARCH_EXCLUDES = `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`;
+
 export async function searchFiles(input: Record<string, unknown>): Promise<string> {
   const pattern = input.pattern as string;
-  const uris = await workspace.findFiles(
-    pattern,
-    `**/{node_modules,.git,out,dist,.venv,venv,__pycache__,.next}/**`,
-    200,
-  );
-  if (uris.length === 0) return 'No files found.';
+  let uris = await workspace.findFiles(pattern, SEARCH_EXCLUDES, 200);
+  let note = '';
+  // A bare word ("config", "legacy") is not a glob — it only matches an exact
+  // top-level filename, so it silently finds nothing. Models read "No files
+  // found." as "the thing does not exist" and give up: granite concluded a
+  // whole task was a no-op after name-searching for CONTENT
+  // (search-then-edit-multi-file), and never looked inside a directory it had
+  // already listed (latch-stale-fact). Retry a bare term as a name substring,
+  // in file names and in directory names, before reporting nothing.
+  if (uris.length === 0 && !/[*?{}[\]]/.test(pattern)) {
+    const byName = await workspace.findFiles(`**/*${pattern}*`, SEARCH_EXCLUDES, 200);
+    const inDir = await workspace.findFiles(`**/*${pattern}*/**`, SEARCH_EXCLUDES, 200);
+    const seen = new Set<string>();
+    uris = [...byName, ...inDir].filter((u) => !seen.has(u.fsPath) && seen.add(u.fsPath));
+    if (uris.length > 0) {
+      note = `(matched "${pattern}" as a name substring)\n`;
+    }
+  }
+  if (uris.length === 0) {
+    return (
+      'No files found. Note: search_files matches file NAMES with glob patterns — it does not search file ' +
+      'contents. To search inside files, use grep(pattern="..."). To match a name substring anywhere, use a ' +
+      'glob like pattern="**/*name*".'
+    );
+  }
   const root = getRoot();
-  return uris.map((u) => path.relative(root, u.fsPath)).join('\n');
+  return note + uris.map((u) => path.relative(root, u.fsPath)).join('\n');
 }
 
 export async function grep(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

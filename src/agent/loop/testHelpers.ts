@@ -34,6 +34,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     recentNormalizedCalls: [],
     recentWriteTargets: [],
     recentMutationCalls: [],
+    emptyTurnReprompts: 0,
     autoFixRetriesByFile: new Map(),
     fullRewriteCountByFile: new Map(),
     isolateNudgesByFile: new Map(),

@@ -621,6 +621,18 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   try {
     bytes = await workspace.fs.readFile(fileUri);
   } catch (err: unknown) {
+    // A directory path leaks a raw `EISDIR: illegal operation on a directory`
+    // with an absolute path — seen 7× in one llama3.2 run, never converted.
+    // Name the tool that actually handles directories.
+    const isDir =
+      err instanceof Error &&
+      (err.message.includes('EISDIR') || (err as { code?: string }).code === 'FileIsADirectory');
+    if (isDir) {
+      throw new Error(
+        `Error: "${filePath}" is a directory, not a file. Use list_directory(path="${filePath}") to see its ` +
+          `contents, then read_file on a specific file inside it.`,
+      );
+    }
     const isNotFound =
       err instanceof Error && (err.message.includes('ENOENT') || (err as { code?: string }).code === 'FileNotFound');
     if (!isNotFound) throw err;
@@ -1195,6 +1207,18 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   try {
     bytes = await workspace.fs.readFile(fileUri);
   } catch (err: unknown) {
+    // A directory path leaks a raw `EISDIR: illegal operation on a directory`
+    // with an absolute path — seen 7× in one llama3.2 run, never converted.
+    // Name the tool that actually handles directories.
+    const isDir =
+      err instanceof Error &&
+      (err.message.includes('EISDIR') || (err as { code?: string }).code === 'FileIsADirectory');
+    if (isDir) {
+      throw new Error(
+        `Error: "${filePath}" is a directory, not a file. Use list_directory(path="${filePath}") to see its ` +
+          `contents, then read_file on a specific file inside it.`,
+      );
+    }
     const isNotFound =
       err instanceof Error && (err.message.includes('ENOENT') || (err as { code?: string }).code === 'FileNotFound');
     if (!isNotFound) throw err;

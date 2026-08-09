@@ -38,6 +38,40 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 5.0.0 — checks must PASS, and silence is not an answer (2026-08)
+
+MAJOR twice over: a gate's verification semantics changed (red-check refusal)
+and a new default-on mechanism was added (empty-turn reprompt). Results either
+side of this boundary are **not** directly comparable.
+
+- **Red-check completion gate.** The gate verified that checks RAN, not that
+  they PASSED — v0.122 gemma4 ran `tsc --noEmit`, saw both errors, wrote
+  "this is expected, the compiler hasn't picked up the change," and finished
+  with a broken import (`rename-propagates-to-cross-file-caller`, the one
+  fleet-universal failure). A failing verification result (shared
+  `isFailingCheckOutput` predicate, single-sourced with the 4.0.4 reprompt
+  escapes) now refuses completion at most twice, with wording that explicitly
+  allows an honest could-not-complete report to exit. A new mutation stales
+  the flag — the model is fixing, and the normal re-verification
+  requirements re-arm it. Fix work in response is primary work: the
+  keep-best ratchet does not arm on this injection.
+- **Empty-turn reprompt.** A turn with no text and no tool call ended the
+  run as 'natural' completion. Observed as recorded failures on three models
+  (granite ×2, deterministic across runs; ministral ×1), always right after
+  a successful read. One bounded continue-reprompt; recurring silence still
+  ends the run.
+- **Tool prompt surface** (same batch): ask_user replies framed as
+  `The user answered: "…"` in the standard tool_output wrapper — the only
+  bare-string result on the surface was being discounted (north-mini-code
+  re-asked an already-answered question); search_files retries bare terms as
+  name substrings and teaches names-vs-contents; run_tests' no-runner hint
+  is workspace-aware (no more pytest suggestions at TypeScript); read_file
+  on a directory names list_directory instead of leaking raw EISDIR.
+- **Eval-harness companion** (not scaffold runtime): the cooperative user
+  now also answers a run that ends on a genuine clarifying question in chat
+  text, once, so ask-in-text models are measured on whether they USE the
+  answer — the same bar the ask_user path has always had.
+
 ### 4.0.4 — intent-aware reprompt escapes: run state over request phrasing (2026-08)
 
 PATCH. Firing-condition tuning within the action-reprompt and fence-coercion

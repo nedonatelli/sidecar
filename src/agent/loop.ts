@@ -629,6 +629,32 @@ export async function runAgentLoop(
           break;
         }
 
+        // A turn with NO text and NO tool calls is silence, not an answer.
+        // Three models ended runs this way in the 2026-08 sweep, always right
+        // after a successful read (granite stub-validator-forces-real-impl at
+        // 2 iterations and thinking-aliased-mutation at 4, both runs,
+        // deterministic; ministral fix-missing-await at 2): the run recorded
+        // 'natural' completion with nothing on disk and no reply. One bounded
+        // reprompt; recurring silence still ends the run so a model that
+        // cannot continue is not looped forever.
+        if (!fullText.trim() && state.emptyTurnReprompts < 1) {
+          state.emptyTurnReprompts += 1;
+          state.logger?.info('Empty turn (no text, no tool calls) — injecting continue reprompt');
+          callbacks.onText('\n\n⚙️ Empty model turn — re-prompting to continue...\n');
+          state.messages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'text' as const,
+                text:
+                  '[Empty response] Your last turn contained no answer and no tool call. Continue the task: ' +
+                  'take the next action with a tool call, or state your final answer as plain text.',
+              },
+            ],
+          });
+          continue;
+        }
+
         // ask_user is the only tool available in plan mode. A text-only
         // response — on any iteration — means the model has finished
         // asking questions and is presenting its plan.

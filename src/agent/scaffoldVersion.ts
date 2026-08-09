@@ -80,6 +80,28 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.0.0** (2026-08) — checks must PASS, and silence is not an answer.
+ *   MAJOR twice over: a gate's verification semantics changed and a new
+ *   default-on mechanism was added.
+ *   (1) Red-check completion gate: the gate verified that checks RAN, not
+ *   that they PASSED — gemma4 ran tsc, saw both errors, called them
+ *   "expected", and finished with a broken import. A failing verification
+ *   result (shared isFailingCheckOutput predicate) now refuses completion,
+ *   at most twice, with wording that lets an honest could-not-complete
+ *   report exit; a new mutation stales the flag (the model is fixing) and
+ *   the normal re-verification requirements re-arm it.
+ *   (2) Empty-turn reprompt: a turn with no text and no tool call ended
+ *   the run as 'natural' completion — three models recorded silent deaths
+ *   right after a successful read. One bounded continue-reprompt; recurring
+ *   silence still ends the run.
+ *   Also in this batch (tool prompt surface): ask_user replies framed as
+ *   "The user answered:" in the standard tool_output wrapper (bare-string
+ *   replies were discounted — north-mini-code re-asked an answered
+ *   question); search_files retries bare terms as name substrings and
+ *   teaches names-vs-contents with a grep pointer; run_tests' no-runner
+ *   hint is workspace-aware (tsc for TS, interpreter for Python, honest
+ *   "no check available" otherwise); read_file on a directory names
+ *   list_directory instead of leaking raw EISDIR.
  * - **4.0.4** (2026-08) — intent-aware reprompt escapes: run state over
  *   request phrasing. The action reprompt and fence coercion triggered on the
  *   REQUEST's shape (action verb + file path) with no awareness of what had
@@ -156,7 +178,7 @@
  *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '4.0.4';
+export const SCAFFOLD_VERSION = '5.0.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

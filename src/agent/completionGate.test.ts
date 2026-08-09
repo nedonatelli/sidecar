@@ -2164,3 +2164,43 @@ describe('a checker that never ran does not satisfy the lint gate', () => {
     expect(state.lintObserved).toBe(true);
   });
 });
+
+describe('completionGate — red-check recording (scaffold 5.0.0)', () => {
+  const result = (content: string): ToolResultContentBlock => ({ type: 'tool_result', tool_use_id: 'id', content });
+  const tsc = { type: 'tool_use' as const, id: 'id', name: 'run_command', input: { command: 'npx tsc --noEmit' } };
+
+  it('a checker that RAN but FAILED sets failedCheckOutput (ran ≠ passed)', () => {
+    const state = createGateState();
+    recordToolCall(state, tsc, result('src/calc.ts(1,10): error TS2305: no exported member.\n(exit code: 1)'));
+    expect(state.lintObserved).toBe(true); // it did run — the old fact still holds
+    expect(state.failedCheckOutput).toContain('error TS2305'); // the new fact: it failed
+  });
+
+  it('a clean checker run clears an earlier failure', () => {
+    const state = createGateState();
+    state.failedCheckOutput = 'stale failure';
+    recordToolCall(state, tsc, result('(no output)'));
+    expect(state.failedCheckOutput).toBeUndefined();
+  });
+
+  it('a new mutation stales the failing check — the model is fixing', () => {
+    const state = createGateState();
+    state.failedCheckOutput = 'error TS2305';
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: 'id', name: 'edit_file', input: { path: 'src/calc.ts' } },
+      result('<tool_output tool="edit_file">\nFile edited: src/calc.ts\n</tool_output>'),
+    );
+    expect(state.failedCheckOutput).toBeUndefined();
+    expect(state.lintObserved).toBe(false); // re-verification demanded as before
+  });
+
+  it('a failing run_tests sets the flag; a passing one clears it', () => {
+    const state = createGateState();
+    const rt = { type: 'tool_use' as const, id: 'id', name: 'run_tests', input: {} };
+    recordToolCall(state, rt, result('FAILED tests/calc.test.ts — AssertionError: expected 10'));
+    expect(state.failedCheckOutput).toContain('FAILED');
+    recordToolCall(state, rt, result('3 passed (3)'));
+    expect(state.failedCheckOutput).toBeUndefined();
+  });
+});

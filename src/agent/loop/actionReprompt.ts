@@ -201,9 +201,15 @@ const VERIFY_RESULT_RE = /<tool_output tool="(?:run_command|run_tests|get_diagno
  *  `(exit code: N)` for nonzero exits; test/compiler output carries its own
  *  signatures. A red check must NOT license a text-only exit — v0.122 gemma4
  *  rationalized failing tsc output ("the compiler hasn't picked up the change")
- *  and quit with a broken import. */
+ *  and quit with a broken import. Exported as {@link isFailingCheckOutput} —
+ *  the completion gate's red-check refusal must agree with the reprompt
+ *  escapes on what "failed" means. */
 const FAILING_CHECK_RE =
   /\(exit code: [1-9]\d*\)|error TS\d|\bFAILED\b|Traceback \(most recent call last\)|AssertionError/;
+
+export function isFailingCheckOutput(text: string): boolean {
+  return FAILING_CHECK_RE.test(text);
+}
 /** Successful mutation results. */
 const MUTATION_OK_RE = /File (?:edited|written): /;
 

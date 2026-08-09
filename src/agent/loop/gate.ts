@@ -382,6 +382,43 @@ export async function maybeInjectCompletionGate(
     }
   }
 
+  // Check: the model's own verification FAILED and it is trying to finish
+  // anyway. The gate historically verified that checks RAN, not that they
+  // PASSED — v0.122 gemma4 ran `tsc --noEmit`, saw both errors, wrote "this
+  // is expected, the compiler hasn't picked up the change," and finished with
+  // a broken import (rename-propagates-to-cross-file-caller, the one
+  // fleet-universal failure). Fires at most twice; the wording explicitly
+  // allows an honest could-not-complete report to exit, so a model in an
+  // unfixable workspace is not trapped. Fix work in response is the user's
+  // PRIMARY work (the task is not done while its check is red) — the
+  // keep-best ratchet must not arm on it.
+  if (
+    config.completionGateEnabled !== false &&
+    gateState.failedCheckOutput &&
+    (gateState.redCheckInjections ?? 0) < 2
+  ) {
+    gateState.redCheckInjections = (gateState.redCheckInjections ?? 0) + 1;
+    gateState.lastInjectionWasPrimaryWork = true;
+    const attempt = gateState.redCheckInjections;
+    logger?.info(`Red-check gate fired (attempt ${attempt}/2) — last verification FAILED`);
+    callbacks.onText('\n\n🔴 The last check FAILED — completion refused until it passes or the failure is reported.\n');
+    state.messages.push({
+      role: 'user',
+      content: [
+        {
+          type: 'text' as const,
+          text:
+            `[Completion gate] The last verification you ran FAILED:\n${gateState.failedCheckOutput}\n\n` +
+            `Do not declare the task done while your own check is failing, and do not explain the failure away ` +
+            `as stale or expected — re-run the check if you believe it is outdated. Either fix the cause and ` +
+            `re-run the check until it passes, or state plainly that the task could not be completed and quote ` +
+            `the failing output.`,
+        },
+      ],
+    });
+    return 'injected';
+  }
+
   // Check: file mentioned in user request but no read tool called for it yet.
   // Fires at most once per run to avoid looping on models that can't comply.
   if (!gateState.noReadRepromptFired && config.completionGateEnabled !== false) {

@@ -505,8 +505,12 @@ describe('runAgentLoop', () => {
     vi.restoreAllMocks();
   });
 
-  it('stops when model produces no text or tools', async () => {
-    // Model returns stop immediately with no text — loop should exit
+  it('reprompts ONCE on an empty turn, then stops when silence recurs', async () => {
+    // A turn with no text and no tool calls used to end the run immediately —
+    // three models terminated real eval runs that way right after a
+    // successful read (2026-08 audit: granite ×2 deterministic, ministral ×1),
+    // recording 'natural' completion with no answer. The loop now injects one
+    // bounded continue reprompt; a second silent turn still ends the run.
     async function* emptyResponse(): AsyncGenerator<StreamEvent> {
       yield { type: 'stop', stopReason: 'end_turn' };
     }
@@ -525,8 +529,12 @@ describe('runAgentLoop', () => {
     const messages: ChatMessage[] = [{ role: 'user', content: 'hello' }];
     await runAgentLoop(makeMockClient(emptyResponse), messages, cb, ac.signal);
 
-    // Should exit cleanly with no text
-    expect(cb.texts).toHaveLength(0);
+    // One reprompt notice, one injected user message, then a clean stop.
+    expect(cb.texts.join('')).toContain('Empty model turn');
+    // The second empty turn ended the run — exactly one injection, no loop.
+    // (The injected [Empty response] message lives on the loop's internal
+    // message copy, not the caller's array.)
+    expect(cb.texts.join('').match(/Empty model turn/g)).toHaveLength(1);
 
     vi.restoreAllMocks();
   });

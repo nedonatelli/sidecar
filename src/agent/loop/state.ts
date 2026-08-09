@@ -149,6 +149,11 @@ export interface LoopState {
   // consecutive-streak check misses those. cycleDetection.ts is the only writer.
   recentMutationCalls: string[];
 
+  // Count of empty-turn reprompts injected (a turn with no text and no tool
+  // call). Bounded at 1 in loop.ts — silence twice ends the run. loop.ts is
+  // the only writer.
+  emptyTurnReprompts: number;
+
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
 
@@ -379,6 +384,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentNormalizedCalls: [],
     recentWriteTargets: [],
     recentMutationCalls: [],
+    emptyTurnReprompts: 0,
     autoFixRetriesByFile: new Map<string, number>(),
     fullRewriteCountByFile: new Map<string, number>(),
     isolateNudgesByFile: new Map<string, number>(),

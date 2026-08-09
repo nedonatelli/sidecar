@@ -1518,3 +1518,16 @@ describe('readFile — file-not-found recovery', () => {
     expect(err).toContain('src/lib/utils.ts');
   });
 });
+
+describe('read_file on a directory (2026-08 audit)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('names list_directory instead of leaking a raw EISDIR', async () => {
+    // Seen 7x in one llama3.2 run: raw "EISDIR: illegal operation on a
+    // directory, read" with an absolute path — never converted the model.
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(
+      Object.assign(new Error('EISDIR: illegal operation on a directory, read'), { code: 'FileIsADirectory' }),
+    );
+    await expect(readFile({ path: 'src' })).rejects.toThrow(/is a directory.*list_directory\(path="src"\)/s);
+  });
+});

@@ -570,3 +570,64 @@ describe('maybeInjectCompletionGate — numerical-contract gate', () => {
     expect(out).toBe('skip');
   });
 });
+
+describe('maybeInjectCompletionGate — red-check refusal (scaffold 5.0.0)', () => {
+  // The gate verified that checks RAN, not that they PASSED — v0.122 gemma4
+  // ran tsc, saw both errors, called them "expected", and finished with a
+  // broken import. A set failedCheckOutput now refuses completion, twice at
+  // most, with wording that lets an honest could-not-complete report exit.
+  function makeArgs(gateOverrides: Record<string, unknown>) {
+    const state = stubLoopState({
+      gateState: {
+        ...stubGateState(),
+        failedCheckOutput: 'src/calc.ts(1,10): error TS2305: no exported member',
+        redCheckInjections: 0,
+        ...gateOverrides,
+      } as never,
+    });
+    const cb = stubCallbacks();
+    return { state, cb };
+  }
+
+  it('refuses completion while the last verification failed', async () => {
+    const { state, cb } = makeArgs({});
+    const outcome = await maybeInjectCompletionGate(
+      state,
+      stubConfig(),
+      { approvalMode: 'autonomous' } as never,
+      new AbortController().signal,
+      cb,
+    );
+    expect(outcome).toBe('injected');
+    const injected = JSON.stringify(state.messages.at(-1));
+    expect(injected).toContain('FAILED');
+    expect(injected).toContain('error TS2305');
+    expect(injected).toContain('could not be completed');
+    // Fix work in response is the user's primary work — ratchet must not arm.
+    expect(state.gateState.lastInjectionWasPrimaryWork).toBe(true);
+  });
+
+  it('is bounded at two firings — the third attempt lets the run end', async () => {
+    const { state, cb } = makeArgs({ redCheckInjections: 2 });
+    const outcome = await maybeInjectCompletionGate(
+      state,
+      stubConfig(),
+      { approvalMode: 'autonomous' } as never,
+      new AbortController().signal,
+      cb,
+    );
+    expect(outcome).toBe('skip');
+  });
+
+  it('does not fire when no failing output is recorded', async () => {
+    const { state, cb } = makeArgs({ failedCheckOutput: undefined });
+    const outcome = await maybeInjectCompletionGate(
+      state,
+      stubConfig(),
+      { approvalMode: 'autonomous' } as never,
+      new AbortController().signal,
+      cb,
+    );
+    expect(outcome).toBe('skip');
+  });
+});

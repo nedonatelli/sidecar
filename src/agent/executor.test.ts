@@ -319,6 +319,52 @@ describe('executeTool', () => {
     });
   });
 
+  it("frames the ask_user reply as the USER'S ANSWER inside the standard tool_output wrapper", async () => {
+    // 2026-08 audit: the reply used to return as a bare string — the only
+    // unwrapped result on the tool surface — and north-mini-code asked the
+    // perfect disambiguation question, received the answer, then re-asked the
+    // same question as if nothing had come back (ask-user-ambiguous-rename).
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'ask_user',
+        description: '',
+        input_schema: { type: 'object' as const, properties: { question: { type: 'string' } }, required: ['question'] },
+      },
+      executor: async () => 'unused — ask_user routes through clarifyFn',
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { ask_user: 'allow' } });
+    const clarifyFn = vi.fn().mockResolvedValue('`cleanItems` — the one that trims whitespace.');
+
+    const result = await executeTool(
+      makeToolUse('ask_user', { question: 'Which function should I rename?', options: ['filterItems', 'cleanItems'] }),
+      { executorContext: { clarifyFn } as never },
+    );
+    expect(result.content).toContain('<tool_output tool="ask_user">');
+    expect(result.content).toContain('The user answered: "`cleanItems` — the one that trims whitespace."');
+    expect(result.content).toContain('do not ask again');
+    expect(result.is_error).toBeUndefined();
+  });
+
+  it('frames a dismissed ask_user question as proceed-with-judgment, not an error', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'ask_user',
+        description: '',
+        input_schema: { type: 'object' as const, properties: { question: { type: 'string' } }, required: ['question'] },
+      },
+      executor: async () => 'unused',
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { ask_user: 'allow' } });
+    const clarifyFn = vi.fn().mockResolvedValue('');
+    const result = await executeTool(makeToolUse('ask_user', { question: 'Which one specifically do I rename?' }), {
+      executorContext: { clarifyFn } as never,
+    });
+    expect(result.content).toContain('dismissed the question');
+    expect(result.content).toContain('best judgment');
+  });
+
   it('normalizes a generic ask_user question to the canned clarification card', async () => {
     mockedFindTool.mockReturnValue({
       definition: {
