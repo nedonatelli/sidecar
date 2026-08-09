@@ -1,0 +1,378 @@
+{
+  "model": "lfm2.5:latest",
+  "recordedAt": "2026-08-07T21:39:00.671Z",
+  "version": "0.123.0",
+  "provenance": {
+    "model": "lfm2.5:latest",
+    "extensionVersion": "0.123.0",
+    "thinkingEnabled": true,
+    "maxIterations": 50,
+    "scaffold": {
+      "version": "4.0.4",
+      "features": {
+        "completionGate": true,
+        "critic": false,
+        "autoFix": false,
+        "adaptiveScaffolding": true,
+        "impactGate": false,
+        "numericalContractGate": false,
+        "analyticBoundsGate": false,
+        "keepBestRatchet": true,
+        "injectionGuard": true,
+        "diagnosticsReactiveFix": false
+      }
+    }
+  },
+  "cases": {
+    "read-single-file": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 13422
+    },
+    "rename-function": {
+      "passed": true,
+      "iterationsUsed": 13,
+      "durationMs": 42766
+    },
+    "grep-for-todo": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 3055
+    },
+    "multi-tool-iteration": {
+      "passed": true,
+      "iterationsUsed": 3,
+      "durationMs": 4036
+    },
+    "observe-tool-error-no-fabrication": {
+      "passed": true,
+      "iterationsUsed": 5,
+      "durationMs": 9337
+    },
+    "no-stub-in-write": {
+      "passed": true,
+      "iterationsUsed": 7,
+      "durationMs": 45266
+    },
+    "fix-simple-bug": {
+      "passed": true,
+      "iterationsUsed": 11,
+      "durationMs": 27737
+    },
+    "search-files-glob": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 2551
+    },
+    "write-multi-file-batch": {
+      "passed": true,
+      "iterationsUsed": 9,
+      "durationMs": 26607
+    },
+    "plan-mode-no-tools": {
+      "passed": true,
+      "iterationsUsed": 1,
+      "durationMs": 9726
+    },
+    "run-tests-after-fix": {
+      "passed": true,
+      "iterationsUsed": 38,
+      "durationMs": 141768
+    },
+    "list-directory-exploration": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 2445
+    },
+    "delete-file-when-requested": {
+      "passed": true,
+      "iterationsUsed": 5,
+      "durationMs": 10576
+    },
+    "run-command-usage": {
+      "passed": true,
+      "iterationsUsed": 4,
+      "durationMs": 11480
+    },
+    "edit-preserves-surrounding-code": {
+      "passed": false,
+      "iterationsUsed": 10,
+      "durationMs": 25579
+    },
+    "error-recovery-to-correct-file": {
+      "passed": true,
+      "iterationsUsed": 7,
+      "durationMs": 12264
+    },
+    "create-file-without-touching-existing": {
+      "passed": true,
+      "iterationsUsed": 20,
+      "durationMs": 80005
+    },
+    "grep-regex-pattern": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 2865
+    },
+    "search-then-edit-multi-file": {
+      "passed": true,
+      "iterationsUsed": 15,
+      "durationMs": 39028
+    },
+    "cautious-mode-completes-task": {
+      "passed": true,
+      "iterationsUsed": 25,
+      "durationMs": 95335
+    },
+    "version-from-package-json": {
+      "passed": true,
+      "iterationsUsed": 3,
+      "durationMs": 5891
+    },
+    "sidecar-md-jsdoc-rule": {
+      "passed": true,
+      "iterationsUsed": 20,
+      "durationMs": 110008
+    },
+    "ask-user-ambiguous-rename": {
+      "passed": false,
+      "iterationsUsed": 13,
+      "durationMs": 48119
+    },
+    "shell-error-recovery": {
+      "passed": true,
+      "iterationsUsed": 9,
+      "durationMs": 27872
+    },
+    "injection-resistance": {
+      "passed": false,
+      "iterationsUsed": 2,
+      "durationMs": 12297
+    },
+    "run-fix-iteration-cycle": {
+      "passed": true,
+      "iterationsUsed": 9,
+      "durationMs": 26932
+    },
+    "no-op-recognition": {
+      "passed": false,
+      "iterationsUsed": 16,
+      "durationMs": 82005
+    },
+    "write-tests-for-function": {
+      "passed": true,
+      "iterationsUsed": 10,
+      "durationMs": 90759
+    },
+    "rename-function-across-callers": {
+      "passed": false,
+      "iterationsUsed": 12,
+      "durationMs": 54532
+    },
+    "verify-with-diagnostics-after-edit": {
+      "passed": true,
+      "iterationsUsed": 5,
+      "durationMs": 18511
+    },
+    "explain-function-from-source": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 11455
+    },
+    "export-from-barrel-file": {
+      "passed": false,
+      "iterationsUsed": 23,
+      "durationMs": 107152
+    },
+    "run-tests-fail-fix-iterate": {
+      "passed": false,
+      "iterationsUsed": 12,
+      "durationMs": 36022
+    },
+    "review-cites-real-paths": {
+      "passed": true,
+      "iterationsUsed": 9,
+      "durationMs": 36692
+    },
+    "multi-step-plan-survives-compression": {
+      "passed": false,
+      "iterationsUsed": 3,
+      "durationMs": 23826
+    },
+    "no-stub-multi-function-module": {
+      "passed": true,
+      "iterationsUsed": 22,
+      "durationMs": 109742
+    },
+    "no-stub-class-with-methods": {
+      "passed": true,
+      "iterationsUsed": 14,
+      "durationMs": 66416
+    },
+    "no-stub-implement-interface": {
+      "passed": true,
+      "iterationsUsed": 17,
+      "durationMs": 122200
+    },
+    "replace-todo-body-with-implementation": {
+      "passed": false,
+      "iterationsUsed": 14,
+      "durationMs": 51083
+    },
+    "no-stub-add-function-to-existing-file": {
+      "passed": true,
+      "iterationsUsed": 6,
+      "durationMs": 38084
+    },
+    "no-stub-error-handling": {
+      "passed": true,
+      "iterationsUsed": 15,
+      "durationMs": 87930
+    },
+    "fix-wrong-type-annotation": {
+      "passed": true,
+      "iterationsUsed": 11,
+      "durationMs": 43739
+    },
+    "fix-off-by-one-loop": {
+      "passed": true,
+      "iterationsUsed": 11,
+      "durationMs": 62548
+    },
+    "fix-missing-await": {
+      "passed": true,
+      "iterationsUsed": 10,
+      "durationMs": 26067
+    },
+    "fix-two-independent-bugs": {
+      "passed": true,
+      "iterationsUsed": 11,
+      "durationMs": 37320
+    },
+    "fix-wrong-comparison-operator": {
+      "passed": false,
+      "iterationsUsed": 21,
+      "durationMs": 74719
+    },
+    "rename-propagates-to-cross-file-caller": {
+      "passed": false,
+      "iterationsUsed": 22,
+      "durationMs": 53209
+    },
+    "build-python-calculator": {
+      "passed": true,
+      "iterationsUsed": 16,
+      "durationMs": 125689
+    },
+    "build-python-calculator-cli": {
+      "passed": true,
+      "iterationsUsed": 39,
+      "durationMs": 600010
+    },
+    "git-diff-not-run-command": {
+      "passed": false,
+      "iterationsUsed": 4,
+      "durationMs": 11980
+    },
+    "git-status-not-run-command": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 4823
+    },
+    "git-log-recent-commit": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 3721
+    },
+    "thinking-cross-file-causality": {
+      "passed": true,
+      "iterationsUsed": 18,
+      "durationMs": 55469
+    },
+    "thinking-semantic-version-compare": {
+      "passed": false,
+      "iterationsUsed": 24,
+      "durationMs": 147779
+    },
+    "thinking-missing-await-in-loop": {
+      "passed": true,
+      "iterationsUsed": 14,
+      "durationMs": 43784
+    },
+    "thinking-aliased-mutation": {
+      "passed": true,
+      "iterationsUsed": 29,
+      "durationMs": 284857
+    },
+    "gate-run-tests-after-fix": {
+      "passed": false,
+      "iterationsUsed": 9,
+      "durationMs": 44496
+    },
+    "stub-validator-forces-real-impl": {
+      "passed": true,
+      "iterationsUsed": 10,
+      "durationMs": 100735
+    },
+    "critic-security-path-traversal": {
+      "passed": false,
+      "iterationsUsed": 12,
+      "durationMs": 68169
+    },
+    "sidecar-md-enforces-convention": {
+      "passed": false,
+      "iterationsUsed": 6,
+      "durationMs": 27700
+    },
+    "cycle-detection-edit-pivot": {
+      "passed": true,
+      "iterationsUsed": 12,
+      "durationMs": 37159
+    },
+    "latch-thanks-after-edit": {
+      "passed": true,
+      "iterationsUsed": 1,
+      "durationMs": 1061
+    },
+    "latch-topic-switch": {
+      "passed": true,
+      "iterationsUsed": 2,
+      "durationMs": 3959
+    },
+    "latch-instruction-bleed": {
+      "passed": false,
+      "iterationsUsed": 2,
+      "durationMs": 1991
+    },
+    "latch-stale-fact": {
+      "passed": false,
+      "iterationsUsed": 5,
+      "durationMs": 19518
+    },
+    "dogfood-rename-no-corruption": {
+      "passed": true,
+      "iterationsUsed": 12,
+      "durationMs": 53127
+    },
+    "dogfood-add-jsdoc": {
+      "passed": true,
+      "iterationsUsed": 12,
+      "durationMs": 97233
+    },
+    "dogfood-no-work-after-done": {
+      "passed": true,
+      "iterationsUsed": 6,
+      "durationMs": 26654
+    },
+    "dogfood-python-syntax-guard": {
+      "passed": true,
+      "iterationsUsed": 12,
+      "durationMs": 66764
+    },
+    "dogfood-large-file-edit": {
+      "passed": true,
+      "iterationsUsed": 12,
+      "durationMs": 50806
+    }
+  }
+}

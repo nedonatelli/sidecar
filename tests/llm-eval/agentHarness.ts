@@ -421,6 +421,7 @@ export async function runAgentCase(
   client.updateSystemPrompt(systemPrompt);
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
+  let clarifyFnCalled = false;
 
   const callbacks: AgentCallbacks = {
     onText: (text) => {
@@ -471,6 +472,7 @@ export async function runAgentCase(
     // supply a specific `clarifyResponse`; the default nudges it to proceed.
     // (The reply surfaces in the trajectory as the ask_user tool_result.)
     clarifyFn: async (question: string, clarifyOptions: string[] = []) => {
+      clarifyFnCalled = true;
       const cr = evalCase.clarifyResponse;
       return typeof cr === 'function'
         ? cr(question, clarifyOptions)
@@ -502,6 +504,36 @@ export async function runAgentCase(
   let runError: Error | null = null;
   try {
     await runAgentLoop(client, initialMessages, callbacks, abort.signal, options);
+
+    // Cooperative user, text channel: a run that ENDS on a genuine clarifying
+    // question (rather than routing it through ask_user) used to dead-end —
+    // ministral and ornith both identified the ambiguity, named the real
+    // candidates, asked correctly in chat text, and were scored as if they had
+    // done nothing (ask-user-ambiguous-rename, 2026-08-07). A real user would
+    // simply reply. The harness now does the same, once: answer the question
+    // and let the loop continue, so the case measures whether the model USES
+    // the answer — the same bar the ask_user path has always had. Guarded to
+    // question-shaped endings with a clarify signal, so a "shall I proceed?"
+    // permission stall does not earn a free continuation hint.
+    if (!abort.signal.aborted && evalCase.clarifyResponse !== undefined && !clarifyFnCalled) {
+      const finalTail = textBuffer.join('').slice(-400);
+      // Interrogative ("Which one…?") or imperative ("please clarify which…")
+      // — ministral asks correctly with no question mark at all.
+      const isClarifyingQuestion =
+        (/\?/.test(finalTail) || /\bplease (clarify|specify|confirm)\b/i.test(finalTail)) &&
+        /\b(which|clarif\w*|specify|did you mean|choose|prefer)\b/i.test(finalTail);
+      if (isClarifyingQuestion) {
+        const cr = evalCase.clarifyResponse;
+        const answer = typeof cr === 'function' ? cr(finalTail, []) : cr;
+        trajectory.push({ type: 'text', text: `\n[cooperative user reply] ${answer}\n` });
+        const continuation: ChatMessage[] = [
+          ...initialMessages,
+          { role: 'assistant', content: textBuffer.join('') },
+          { role: 'user', content: answer },
+        ];
+        await runAgentLoop(client, continuation, callbacks, abort.signal, options);
+      }
+    }
   } catch (err) {
     runError = err instanceof Error ? err : new Error(String(err));
   } finally {
