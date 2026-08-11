@@ -152,7 +152,7 @@ This lets you steer the agent mid-run without waiting for it to finish. The back
 
 ## Built-in tools
 
-SideCar ships with 87 built-in tools the agent can use. The table below covers the core agentic tools; additional specialized tools are available for databases, vision verification, PDF/Zotero research, notebook mode, dependency scanning, doc-to-test synthesis, CI failure analysis, research assistant, and monorepo analysis (some gated by feature flags). `delegate_task` is only exposed when the active backend is paid.
+SideCar ships with 80+ built-in tools the agent can use. The table below covers the core agentic tools; additional specialized tools are available for databases, vision verification, PDF/Zotero research, notebook mode, dependency scanning, doc-to-test synthesis, CI failure analysis, research assistant, and monorepo analysis (some gated by feature flags). `delegate_task` is only exposed when the active backend is paid.
 
 | Tool                                          | Description                                                                                           |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |

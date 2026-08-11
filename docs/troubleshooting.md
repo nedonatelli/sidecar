@@ -189,7 +189,7 @@ Click the action button on the error card to resolve common issues quickly.
 If the model responds with nothing (empty content, `done` immediately):
 
 - **Context too large** — local models have a limited context window. SideCar clamps the requested window to the model's per-model cap (up to 128K, `LOCAL_CONTEXT_CAP`), and a large KV cache slows first-token latency badly on consumer hardware. Reduce `sidecar.maxFiles`, unpin large files, or set `sidecar.ollama.numCtx` lower (e.g. 32768)
-- **Tool definitions overwhelm the model** — ~87 tool definitions add ~20K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
+- **Tool definitions overwhelm the model** — 80+ tool definitions add ~20K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
 - **Wrong model format** — some models don't support the chat template or tool format. Try a different model
 
 ## Getting help

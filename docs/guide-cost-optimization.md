@@ -18,7 +18,7 @@ Every API request bills you for two token pools: **input** and **output**.
 | Source                                           | Typical token count | Relative cost                          |
 | ------------------------------------------------ | ------------------- | -------------------------------------- |
 | System prompt (base rules + SIDECAR.md sections) | 2,000–6,000         | Input — expensive if repeated uncached |
-| Tool schemas (87 built-in tools)                 | ~4,000–6,000        | Input — constant, ideal for caching    |
+| Tool schemas (80+ built-in tools)                | ~4,000–6,000        | Input — constant, ideal for caching    |
 | Workspace context (RAG hits, pinned files)       | 1,000–20,000        | Input — varies by query                |
 | Prior conversation history                       | grows per turn      | Input — compressible                   |
 | Tool results (file reads, shell output, etc.)    | 500–8,000 each      | Input — prunable                       |
@@ -55,7 +55,7 @@ SideCar applies three `cache_control: { type: "ephemeral" }` breakpoints automat
 
 1. **System prompt stable prefix** — everything before the `## Workspace Structure` section (the base rules, SIDECAR.md injections, and user config). This block is marked cached on every request. The dynamic workspace context section is left uncached because it changes per query.
 
-2. **Tool schemas** — all 87 tool definitions are sent with `cache_control` on the last entry. The API caches the entire tool block as a unit. Tool schemas are identical across every turn of an agent loop, so after the first turn you pay only the 10% cache-read rate (~$0.30/1M tokens instead of $3/1M for Sonnet inputs).
+2. **Tool schemas** — all 80+ tool definitions are sent with `cache_control` on the last entry. The API caches the entire tool block as a unit. Tool schemas are identical across every turn of an agent loop, so after the first turn you pay only the 10% cache-read rate (~$0.30/1M tokens instead of $3/1M for Sonnet inputs).
 
 3. **Conversation history** — the last content block of the last assistant message is marked cached. This means the growing conversation history (assistant reasoning + tool_use blocks from prior turns) enters the cached prefix immediately, and only the current user turn (tool results) is sent uncached.
 
