@@ -108,6 +108,7 @@ export function ollamaBackend(opts: BackendOptions): BfclBackend {
             model: opts.model,
             stream: false,
             options: { temperature, num_ctx: opts.contextTokens ?? 32_768 },
+            think: false,
             format: buildToolCallSchema(functions),
             messages: [
               { role: 'system', content: CONSTRAINED_SYSTEM_PROMPT },
@@ -118,6 +119,7 @@ export function ollamaBackend(opts: BackendOptions): BfclBackend {
             model: opts.model,
             stream: false,
             options: { temperature, num_ctx: opts.contextTokens ?? 32_768 },
+            think: false,
             tools: functions.map(toOpenAiTool),
             messages: [
               { role: 'system', content: SYSTEM_PROMPT },
