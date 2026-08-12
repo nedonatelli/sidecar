@@ -1,6 +1,5 @@
 // Minimal vscode module mock for unit tests
 import { vi } from 'vitest';
-import * as nodeFs from 'fs';
 
 export const Uri = {
   file: (path: string) => ({ fsPath: path, scheme: 'file', path }),
@@ -57,34 +56,9 @@ export const workspace = {
     update: async () => {},
   }),
   fs: {
-    // Serve real files when the path exists (so eval harnesses can read on-disk
-    // resources like SideCar's skills/ and the user's ~/.claude), falling back to
-    // the stub for paths that don't — preserving the old permissive default.
-    readFile: async (uri: unknown) => {
-      const p = (uri as { fsPath?: string })?.fsPath;
-      if (p) {
-        try {
-          return nodeFs.readFileSync(p);
-        } catch {
-          /* fall through to stub */
-        }
-      }
-      return Buffer.from('mock file content');
-    },
+    readFile: async (_uri: unknown) => Buffer.from('mock file content'),
     writeFile: async (_uri: unknown, _content: Uint8Array) => {},
-    readDirectory: async (uri: unknown) => {
-      const p = (uri as { fsPath?: string })?.fsPath;
-      if (p) {
-        try {
-          return nodeFs
-            .readdirSync(p, { withFileTypes: true })
-            .map((e) => [e.name, e.isDirectory() ? 2 : 1] as [string, number]);
-        } catch {
-          /* fall through to stub */
-        }
-      }
-      return [];
-    },
+    readDirectory: async (_uri: unknown) => [],
     stat: async (_uri: unknown) => ({ type: 1, size: 100 }),
     rename: async (_source: unknown, _target: unknown, _options?: unknown) => {},
     createDirectory: async (_uri: unknown) => {},

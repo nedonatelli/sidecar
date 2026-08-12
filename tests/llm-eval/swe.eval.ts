@@ -26,7 +26,6 @@ import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
-import { evalSkillLoader, skillSectionFor } from './skills.js';
 import { getConfig } from '../../src/config/settings.js';
 import { mountWorkspaceRoot } from './workspaceSandbox.js';
 import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
@@ -194,17 +193,16 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
       'ollama',
     );
-    const basePrompt = buildBaseSystemPrompt({
-      isLocal: true,
-      extensionVersion: '0.0.0-bench',
-      repoUrl: '',
-      docsUrl: '',
-      root: dir,
-      approvalMode: 'autonomous',
-    });
-    // Inject a matched skill (if any) into the system prompt, same as production.
-    const skillSection = skillSectionFor(await evalSkillLoader(), task.problem_statement, basePrompt.length);
-    client.updateSystemPrompt(basePrompt + skillSection);
+    client.updateSystemPrompt(
+      buildBaseSystemPrompt({
+        isLocal: true,
+        extensionVersion: '0.0.0-bench',
+        repoUrl: '',
+        docsUrl: '',
+        root: dir,
+        approvalMode: 'autonomous',
+      }),
+    );
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), PER_TASK_MS);
     // Trajectory: append every event to disk LIVE (not buffered-then-dumped), so
