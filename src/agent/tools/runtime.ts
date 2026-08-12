@@ -28,8 +28,15 @@ export class ToolRuntime {
    *   Production omits this and uses the VS Code workspace root. The eval
    *   harness passes the sandbox root so run_command stays scoped to the
    *   temp workspace instead of scanning the whole project tree.
+   * @param envOverride  Optional environment for the shell session, merged
+   *   over process.env. The SWE-bench harness passes a per-task venv's
+   *   VIRTUAL_ENV/PATH so run_tests/run_command execute against the repo's
+   *   installed dependencies instead of the bare host interpreter.
    */
-  constructor(private readonly cwdOverride?: string) {}
+  constructor(
+    private readonly cwdOverride?: string,
+    private readonly envOverride?: Record<string, string>,
+  ) {}
 
   /**
    * Lazily-constructed persistent shell session. State (cwd, env vars,
@@ -40,7 +47,7 @@ export class ToolRuntime {
     if (this.shell && this.shell.isAlive) return this.shell;
     const config = injectedConfig ?? getConfig();
     const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
-    this.shell = new ShellSession(this.cwdOverride ?? getRoot(), undefined, maxOutput, config.sandboxEnabled);
+    this.shell = new ShellSession(this.cwdOverride ?? getRoot(), this.envOverride, maxOutput, config.sandboxEnabled);
     return this.shell;
   }
 

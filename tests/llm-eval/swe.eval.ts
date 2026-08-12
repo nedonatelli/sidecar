@@ -34,6 +34,7 @@ import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVers
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { selectRelevantFiles, type RepoFile } from '../../bench/swe/retrieve.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
+import { setupTaskEnv, loadEnvSpecs, type SpecMap } from '../../bench/swe/taskEnv.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -55,6 +56,20 @@ const SHARD_COUNT = parseInt(process.env.SIDECAR_SWE_SHARD_COUNT ?? '1', 10);
 // of 8 is far too few; default to 30 here. (Smoke run at 8 → empty patches.)
 const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '30', 10);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
+// Per-(repo,version) solve environments (uv venvs) so run_tests/run_command work
+// against installed deps. Specs from the committed env-specs.json (generated from
+// swebench's MAP_REPO_VERSION_TO_SPECS). Venvs cached under the env cache base.
+const ENV_SPECS: SpecMap = (() => {
+  try {
+    return loadEnvSpecs(path.resolve('bench/swe/data/env-specs.json'));
+  } catch {
+    return {};
+  }
+})();
+const ENV_CACHE_BASE =
+  process.env.SIDECAR_SWE_ENV_CACHE ||
+  process.env.SIDECAR_SWE_REPO_CACHE ||
+  path.join(os.tmpdir(), 'sidecar-swe-venvs');
 // Arms to run this pass. Default is the core on/off ablation; SIDECAR_SWE_ARMS
 // (comma-separated) selects a decomposed set, e.g. "scaffold-off,gate-only,critic-only,scaffold-on".
 const ARMS: ArmName[] = (process.env.SIDECAR_SWE_ARMS || 'scaffold-off,scaffold-on')
@@ -182,7 +197,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // this the agent's read_file hits the stub mock ("mock file content", 63b) and
     // loops until cycle detection bails. This is the same hook installSandbox uses.
     restoreMock = mountWorkspaceRoot(dir);
-    const toolRuntime = new ToolRuntime(dir);
+    // Build (or reuse) the per-(repo,version) uv venv so run_tests/run_command
+    // execute against installed deps. null = no local env (native-dep repo) →
+    // the agent runs without one (blind) until the container fallback lands.
+    const taskEnv = task.version ? setupTaskEnv(task.repo, task.version, dir, ENV_CACHE_BASE, ENV_SPECS) : null;
+    const toolRuntime = new ToolRuntime(dir, taskEnv?.env);
     const client = new SideCarClient(
       MODEL,
       normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
@@ -200,25 +219,39 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     );
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), PER_TASK_MS);
-    // Trajectory: record every tool call + a tail of text so a run is never a
-    // black box (and we can see whether the agent located + edited the file).
-    const trajectory: string[] = [];
+    // Trajectory: append every event to disk LIVE (not buffered-then-dumped), so
+    // a run is watchable mid-flight with `tail -f` — same observability the
+    // real product/logger gives, instead of a black box until the solve ends.
+    // Tool RESULTS carry a content snippet so run_tests/run_command output (the
+    // real test feedback) is visible, not just a byte count.
+    const trajPath = path.join(OUT, `trajectory.${task.instance_id}.${arm}.log`);
+    fs.mkdirSync(OUT, { recursive: true });
+    fs.writeFileSync(trajPath, '');
+    const traj = (line: string): void => {
+      try {
+        fs.appendFileSync(trajPath, line + '\n');
+      } catch {
+        /* best-effort logging — never fail a solve on a log write */
+      }
+    };
+    const snippet = (s: string): string => s.replace(/\s+/g, ' ').trim().slice(0, 300);
     const callbacks: AgentCallbacks = {
       onText: (t) => {
         if (t.includes('Keep-best ratchet reverted')) ratchetReverted = true;
-        if (t.trim()) trajectory.push(`  text: ${t.trim().slice(0, 200)}`);
+        if (t.trim()) traj(`  text: ${t.trim().slice(0, 200)}`);
       },
       onToolCall: (name, input) => {
         toolCalls += 1;
         const arg = (input.path || input.pattern || input.query || input.command || '') as string;
-        trajectory.push(`TOOL ${name}${arg ? ` ${String(arg).slice(0, 120)}` : ''}`);
+        traj(`TOOL ${name}${arg ? ` ${String(arg).slice(0, 120)}` : ''}`);
       },
       onToolResult: (name, result, isError) => {
-        trajectory.push(`  → ${name} ${isError ? 'ERROR' : 'ok'} (${result.length}b)`);
+        const snip = snippet(result);
+        traj(`  → ${name} ${isError ? 'ERROR' : 'ok'} (${result.length}b)${snip ? `: ${snip}` : ''}`);
       },
       onOutcome: (bucket) => {
         terminationBucket = bucket;
-        trajectory.push(`TERMINATION: ${bucket ?? 'natural'}`);
+        traj(`TERMINATION: ${bucket ?? 'natural'}`);
       },
       onDone: () => {},
     };
@@ -236,7 +269,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       config: { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) },
     };
     const messages: ChatMessage[] = [
-      { role: 'user', content: buildTaskPrompt(task, buildRetrievalContext(dir, task)) },
+      { role: 'user', content: buildTaskPrompt(task, buildRetrievalContext(dir, task), taskEnv !== null) },
     ];
     try {
       await runAgentLoop(client, messages, callbacks, abort.signal, options);
@@ -244,7 +277,6 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       clearTimeout(timer);
     }
     patch = captureDiff(dir);
-    fs.writeFileSync(path.join(OUT, `trajectory.${task.instance_id}.${arm}.log`), trajectory.join('\n') + '\n');
   } catch (err) {
     // Surface the cause — a silently swallowed failure here turned a broken
     // OLLAMA_HOST into 150 instant 'EMPTY' rows that looked like model
@@ -266,10 +298,16 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   };
 }
 
-function buildTaskPrompt(task: SweTask, retrievalContext: string): string {
-  const head =
-    `Resolve this GitHub issue in the repository. Make the minimal code change that fixes it, ` +
-    `then stop — do not write new tests.\n\nIssue:\n${task.problem_statement}`;
+function buildTaskPrompt(task: SweTask, retrievalContext: string, hasEnv: boolean): string {
+  // With a working environment, ask for the real coding loop (reproduce → fix →
+  // verify). Without one, the old blind "minimal change then stop" is all the
+  // agent can do — running tests would only error.
+  const workflow = hasEnv
+    ? `The repository's dependencies are installed in the active environment: use run_command / run_tests ` +
+      `to reproduce the issue, then to verify your fix against the existing test suite before you finish. ` +
+      `Make the code change that resolves the issue.`
+    : `Make the minimal code change that fixes it, then stop — do not write new tests.`;
+  const head = `Resolve this GitHub issue in the repository. ${workflow}\n\nIssue:\n${task.problem_statement}`;
   return retrievalContext ? `${head}\n\n---\n${retrievalContext}` : head;
 }
 
