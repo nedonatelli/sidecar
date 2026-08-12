@@ -214,7 +214,7 @@
           "sidecar.firstTokenTimeout": {
             "type": "number",
             "default": 300,
-            "description": "Timeout in seconds to wait for the first token from the model. Local models (Ollama) can take longer to start when loading from disk or warming up a large context. Set to 0 to disable."
+            "description": "Minimum seconds to wait for the first token from the model, before prompt-size headroom is added. Large contexts (big repos) automatically get proportionally more time so prefill isn't aborted mid-stream; this value is the floor for small prompts. Local models (Ollama) can take longer to start when loading from disk or warming up. Set to 0 to disable."
           },
           "sidecar.dailyBudget": {
             "type": "number",

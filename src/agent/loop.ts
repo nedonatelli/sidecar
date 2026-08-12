@@ -6,6 +6,7 @@ import type { ClarifyFn } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
 // getConfig removed — config is now captured once at initLoopState via options.config ?? getConfig()
 import { estimateTokensFromState } from '../config/tokenEstimation.js';
+import { firstTokenTimeoutMsFor } from './loop/firstTokenTimeout.js';
 import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
@@ -516,7 +517,11 @@ export async function runAgentLoop(
       // resolveTurnContent runs post-stream cleanup (strip repeated
       // paragraphs, parse text tool calls).
       const requestTimeoutMs = state.config.requestTimeout * 1000;
-      const firstTokenTimeoutMs = state.config.firstTokenTimeout * 1000;
+      // Context-adaptive first-token timeout: configured value is a floor; large
+      // contexts add prefill headroom so a real-repo prefill isn't aborted and
+      // mislabeled a capability failure. See firstTokenTimeout.ts.
+      const inputTokens = state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
+      const firstTokenTimeoutMs = firstTokenTimeoutMsFor(state.config.firstTokenTimeout * 1000, inputTokens);
       let rawTurn;
       try {
         rawTurn = await streamOneTurn(

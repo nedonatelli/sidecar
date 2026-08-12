@@ -120,6 +120,21 @@ export const MAX_BACKGROUND_COMMANDS = 10;
 export const MODEL_PROBE_BATCH_SIZE = 15;
 
 // ---------------------------------------------------------------------------
+// Context-adaptive first-token timeout
+// ---------------------------------------------------------------------------
+// Prefill time scales with prompt size, so a large-repo context legitimately
+// takes far longer to first token than a short chat. `sidecar.firstTokenTimeout`
+// is a FLOOR (tight hang-detection for small prompts); on top of it we allow
+// prefill headroom proportional to the input token estimate, so a coding agent
+// working in a real (django-scale) repo on a slow local model isn't aborted
+// mid-prefill and mislabeled as a capability failure. A flat cap can't do both:
+// small enough to catch a hang, large enough to survive a 30k-token prefill.
+/** Fixed warmup allowance (ms) added before the per-token prefill term. */
+export const FIRST_TOKEN_WARMUP_MS = 60_000;
+/** Prefill headroom per estimated input token (~33 tok/s worst-case local prefill). */
+export const FIRST_TOKEN_PREFILL_MS_PER_TOKEN = 30;
+
+// ---------------------------------------------------------------------------
 // Speculative decoding — curated draft-model pairs
 // ---------------------------------------------------------------------------
 // Each pair shares the same tokenizer vocabulary so acceptance rates stay
