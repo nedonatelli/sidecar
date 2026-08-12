@@ -10,6 +10,7 @@ import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
+import { evalSkillLoader, skillSectionFor } from './skills.js';
 import { getConfig } from '../../src/config/settings.js';
 import { needsColdStart, hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
 
@@ -429,6 +430,9 @@ export async function runAgentCase(
   if (evalCase.workspace['SIDECAR.md']) {
     systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${evalCase.workspace['SIDECAR.md']}`;
   }
+  // Inject a matched skill (if any) into the system prompt, same as production's
+  // injectSystemContext — the skills input the eval harness previously skipped.
+  systemPrompt += skillSectionFor(await evalSkillLoader(), evalCase.userMessage, systemPrompt.length);
   client.updateSystemPrompt(systemPrompt);
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
