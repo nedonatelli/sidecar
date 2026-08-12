@@ -5,6 +5,7 @@ import { parsePlanFromText } from '../../src/agent/plans/externalPlan.js';
 import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
+import { buildRepoIndex } from '../../bench/swe/rag.js';
 import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
@@ -398,6 +399,16 @@ export async function runAgentCase(
   let iterationsUsed = 0;
 
   const toolRuntime = new ToolRuntime(sandbox.root);
+  // Real RAG: build SideCar's symbol-embedding index over the case workspace and
+  // attach it, so the agent's project_knowledge_search tool works exactly as in
+  // production (and identically to the SWE-bench harness) — one retrieval path,
+  // no divergence. Best-effort: a tiny/unparseable fixture just leaves retrieval
+  // unavailable, which is the same "not available" the tool returned before.
+  try {
+    toolRuntime.symbolEmbeddings = await buildRepoIndex(sandbox.root, { skipTestDirs: false });
+  } catch {
+    /* non-fatal — retrieval simply stays unavailable for this case */
+  }
   const model = modelOverride ?? backend.defaultModel();
   const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
   const promptConfig = { ...getConfig(), ...evalCase.configOverrides, ...ENV_CONFIG_OVERRIDES } as Record<

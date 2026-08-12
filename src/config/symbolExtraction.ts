@@ -18,11 +18,50 @@ const EMBEDDABLE_KINDS: ReadonlySet<CodeElement['type']> = new Set([
 ]);
 const MAX_BODY_LINES = 400;
 
+/** A parsed symbol reduced to what embedding needs: identity + line range. */
+export interface RawSymbol {
+  name: string;
+  qualifiedName: string;
+  kind: string;
+  startLine: number;
+  endLine: number;
+}
+
 /**
- * Parse a file's content into embeddable symbol inputs. The host-independent core
- * shared by the workspace `SymbolIndexer` and the SWE-bench headless RAG so both
- * index symbols identically — the body is the (capped) source line range, matching
- * the product indexer. No `vscode` dependency: pure parse + slice.
+ * The shared core: turn a file's parsed symbols into embeddable inputs. Extracts
+ * each symbol's body from the (capped) source line range and assigns ordinals.
+ * Used by BOTH the workspace `SymbolIndexer` (which already parsed for its graph)
+ * and the SWE-bench headless RAG — one body/ordinal convention, no divergence.
+ */
+export function symbolInputsFrom(relativePath: string, content: string, symbols: RawSymbol[]): SymbolEmbedInput[] {
+  const lines = content.split('\n');
+  const ordinals = assignOrdinals(symbols.map((s) => s.qualifiedName));
+  const out: SymbolEmbedInput[] = [];
+  symbols.forEach((s, i) => {
+    const startIdx = Math.max(0, s.startLine - 1);
+    const endIdx = Math.min(lines.length, s.endLine);
+    if (endIdx <= startIdx) return;
+    const body = lines.slice(startIdx, Math.min(endIdx, startIdx + MAX_BODY_LINES)).join('\n');
+    if (!body.trim()) return;
+    out.push({
+      filePath: relativePath,
+      qualifiedName: s.qualifiedName,
+      name: s.name,
+      kind: s.kind,
+      startLine: s.startLine,
+      endLine: s.endLine,
+      body,
+      ordinal: ordinals[i],
+    });
+  });
+  return out;
+}
+
+/**
+ * Parse a file's content into embeddable symbol inputs. Host-independent (no
+ * `vscode`): parse → filter to symbol kinds → `symbolInputsFrom`. The headless
+ * entry point (SWE-bench RAG); the product indexer parses for its graph already
+ * and calls `symbolInputsFrom` directly with those symbols.
  */
 export async function extractSymbolInputs(
   relativePath: string,
@@ -32,26 +71,15 @@ export async function extractSymbolInputs(
   const ext = path.extname(relativePath).slice(1).toLowerCase();
   const analyzer = await getAnalyzer(ext);
   const parsed = analyzer.parseFileContent(relativePath, content);
-  const lines = content.split('\n');
-  const syms = parsed.elements.filter((el) => EMBEDDABLE_KINDS.has(el.type)).slice(0, maxSymbolsPerFile);
-  const ordinals = assignOrdinals(syms.map((s) => s.name));
-  const out: SymbolEmbedInput[] = [];
-  syms.forEach((el, i) => {
-    const startIdx = Math.max(0, el.startLine - 1);
-    const endIdx = Math.min(lines.length, el.endLine);
-    if (endIdx <= startIdx) return;
-    const body = lines.slice(startIdx, Math.min(endIdx, startIdx + MAX_BODY_LINES)).join('\n');
-    if (!body.trim()) return;
-    out.push({
-      filePath: relativePath,
-      qualifiedName: el.name,
+  const syms: RawSymbol[] = parsed.elements
+    .filter((el) => EMBEDDABLE_KINDS.has(el.type))
+    .slice(0, maxSymbolsPerFile)
+    .map((el) => ({
       name: el.name,
+      qualifiedName: el.name,
       kind: el.type,
       startLine: el.startLine,
       endLine: el.endLine,
-      body,
-      ordinal: ordinals[i],
-    });
-  });
-  return out;
+    }));
+  return symbolInputsFrom(relativePath, content, syms);
 }

@@ -17,25 +17,19 @@ import { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import { extractSymbolInputs } from '../../src/config/symbolExtraction.js';
 import { setGrammarsPath } from '../../src/parsing/registry.js';
 
-const SKIP_DIRS = new Set([
-  '.git',
-  'node_modules',
-  'build',
-  'dist',
-  '.tox',
-  '.eggs',
-  '__pycache__',
-  'docs',
-  'venvs',
-  // Don't index the repo's tests: the agent shouldn't be pointed at test files
-  // (the hidden acceptance tests live there), and test functions named after a
-  // feature otherwise drown the actual source in retrieval.
-  'tests',
-  'test',
-]);
-// SWE-bench_Lite is Python; index .py sources.
-const CODE_EXT = /\.pyi?$/;
+const BASE_SKIP_DIRS = ['.git', 'node_modules', 'build', 'dist', '.tox', '.eggs', '__pycache__', 'docs', 'venvs'];
+// Every language getAnalyzer can parse — so this indexer serves both the Python
+// SWE-bench repos and the llm-eval TS/JS fixtures (one builder, no divergence).
+const CODE_EXT = /\.(py|pyi|ts|tsx|js|jsx|mjs|cjs|java|go|rs|rb|c|h|cc|cpp|hpp|cs|php|swift|kt|scala|dart|vue)$/;
 const MAX_FILE_BYTES = 400_000;
+
+export interface BuildIndexOptions {
+  maxFiles?: number;
+  /** Skip test directories. True for SWE-bench (don't point the agent at the
+   *  hidden acceptance tests; test functions otherwise drown the source). False
+   *  for small llm-eval fixtures, where excluding a `test/` dir loses signal. */
+  skipTestDirs?: boolean;
+}
 
 export interface RetrievalHit {
   filePath: string;
@@ -47,7 +41,9 @@ export interface RetrievalHit {
 
 /** Build the product's symbol-embedding index over `dir`, in-memory (no cache
  *  dir). Walk → parse → embed every symbol, then drain the embed queue. */
-export async function buildRepoIndex(dir: string, maxFiles = 4000): Promise<SymbolEmbeddingIndex> {
+export async function buildRepoIndex(dir: string, opts: BuildIndexOptions = {}): Promise<SymbolEmbeddingIndex> {
+  const maxFiles = opts.maxFiles ?? 4000;
+  const skipDirs = new Set(opts.skipTestDirs === false ? BASE_SKIP_DIRS : [...BASE_SKIP_DIRS, 'tests', 'test']);
   // Load the real tree-sitter grammars (the product does this at activation; the
   // eval must too, or getAnalyzer silently falls back to the regex analyzer,
   // which can't see Python module-level constants like a settings default).
@@ -58,7 +54,7 @@ export async function buildRepoIndex(dir: string, maxFiles = 4000): Promise<Symb
     for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
       if (files.length >= maxFiles) return;
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name)) walk(path.join(rel, e.name));
+        if (!skipDirs.has(e.name)) walk(path.join(rel, e.name));
       } else if (CODE_EXT.test(e.name)) {
         files.push(path.join(rel, e.name).split(path.sep).join('/'));
       }
