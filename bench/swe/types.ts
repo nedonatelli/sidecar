@@ -69,6 +69,12 @@ export interface SwePrediction {
    */
   toolCalls?: number;
   /**
+   * Did the RAG retrieve a file the gold patch touches within the top-k
+   * (localization recall)? SWE-bench as a retrieval benchmark. Undefined when
+   * the gold patch wasn't available (or on older meta files).
+   */
+  retrievalRecall?: boolean;
+  /**
    * True when the keep-best ratchet reverted scaffold-tail changes in this
    * run (detected from the ♻️ revert marker in the loop's output). Only
    * meaningful on the `scaffold-on-ratchet` arm; undefined on meta files

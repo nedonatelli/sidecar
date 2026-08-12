@@ -32,9 +32,10 @@ import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
 import { armConfigOverrides } from '../../bench/swe/arms.js';
 import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVersion.js';
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
-import { selectRelevantFiles, type RepoFile } from '../../bench/swe/retrieve.js';
+import { buildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
+import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
-import { setupTaskEnv, loadEnvSpecs, type SpecMap } from '../../bench/swe/taskEnv.js';
+import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -130,47 +131,21 @@ function captureDiff(dir: string): string {
 }
 
 const RETRIEVAL_TOPK = parseInt(process.env.SIDECAR_SWE_RETRIEVAL_TOPK ?? '6', 10);
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'build', 'dist', '.tox', '.eggs', '__pycache__', 'docs']);
 
-/** Read repo source files (bounded) for the keyword retriever. */
-function gatherRepoFiles(dir: string, maxFiles = 4000, maxBytes = 80_000): RepoFile[] {
-  const out: RepoFile[] = [];
-  const walk = (rel: string): void => {
-    if (out.length >= maxFiles) return;
-    for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
-      if (out.length >= maxFiles) return;
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) walk(path.join(rel, entry.name));
-      } else if (/\.(py|pyx)$/.test(entry.name)) {
-        const p = path.join(rel, entry.name);
-        try {
-          const content = fs.readFileSync(path.join(dir, p), 'utf-8').slice(0, maxBytes);
-          out.push({ path: p.split(path.sep).join('/'), content });
-        } catch {
-          /* unreadable — skip */
-        }
-      }
-    }
-  };
-  walk('');
-  return out;
-}
-
-/** An orientation block listing the files most relevant to the issue + head snippets. */
-function buildRetrievalContext(dir: string, task: SweTask): string {
-  const hits = selectRelevantFiles(gatherRepoFiles(dir), task.problem_statement, RETRIEVAL_TOPK);
-  if (hits.length === 0) return '';
-  const lines = ['Files in this repository most likely relevant to the issue (start here):'];
-  for (const h of hits) {
-    lines.push(`\n### ${h.path}`);
-    try {
-      const head = fs.readFileSync(path.join(dir, h.path), 'utf-8').split('\n').slice(0, 40).join('\n');
-      lines.push('```python\n' + head + '\n```');
-    } catch {
-      /* skip snippet */
-    }
+// Real RAG: SideCar's symbol-embedding index (local MiniLM, tree-sitter symbols)
+// per repo, memoized (the build is the expensive part). Set on each task's
+// ToolRuntime so the agent's real `project_knowledge_search` tool queries it —
+// the same retrieval the product uses, not a bespoke keyword injection. Keyed by
+// repo, not commit: symbols are stable enough across a repo's task commits, and
+// rebuilding per task would dominate wall-clock.
+const repoIndexCache = new Map<string, Promise<SymbolEmbeddingIndex>>();
+function getRepoIndex(repo: string, dir: string): Promise<SymbolEmbeddingIndex> {
+  let p = repoIndexCache.get(repo);
+  if (!p) {
+    p = buildRepoIndex(dir);
+    repoIndexCache.set(repo, p);
   }
-  return lines.join('\n');
+  return p;
 }
 
 async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
@@ -191,6 +166,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // (firstTokenTimeout, 300s) — so its empty patch is an infrastructure
   // failure, not the model failing the task. The ablation excludes these.
   let toolCalls = 0;
+  // Did the RAG retrieve a gold-patch file in the top-k (localization recall)?
+  // SWE-bench as a RAG benchmark — undefined when the gold patch isn't known.
+  let retrievalRecall: boolean | undefined;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -202,6 +180,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // the agent runs without one (blind) until the container fallback lands.
     const taskEnv = task.version ? setupTaskEnv(task.repo, task.version, dir, ENV_CACHE_BASE, ENV_SPECS) : null;
     const toolRuntime = new ToolRuntime(dir, taskEnv?.env);
+    // Real RAG: attach the repo's symbol-embedding index so the agent's
+    // project_knowledge_search tool queries it (same retrieval as the product),
+    // and seed the orientation block from the SAME index — real symbol bodies,
+    // not the old keyword-ranked file heads.
+    const repoIndex = await getRepoIndex(task.repo, dir);
+    toolRuntime.symbolEmbeddings = repoIndex;
+    const retrieval = await retrieveContext(repoIndex, task.problem_statement, dir, RETRIEVAL_TOPK);
+    retrievalRecall = task.patch ? goldFilesInTopK(retrieval.hits, task.patch).recalled : undefined;
     const client = new SideCarClient(
       MODEL,
       normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
@@ -235,12 +221,21 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       }
     };
     const snippet = (s: string): string => s.replace(/\s+/g, ' ').trim().slice(0, 300);
+    // onText streams token-by-token; buffer it and flush a whole message as one
+    // line (before the next tool call / at termination) so the log is readable.
+    let textBuf = '';
+    const flushText = (): void => {
+      const t = textBuf.replace(/\s+/g, ' ').trim();
+      if (t) traj(`  text: ${t.slice(0, 300)}`);
+      textBuf = '';
+    };
     const callbacks: AgentCallbacks = {
       onText: (t) => {
         if (t.includes('Keep-best ratchet reverted')) ratchetReverted = true;
-        if (t.trim()) traj(`  text: ${t.trim().slice(0, 200)}`);
+        textBuf += t;
       },
       onToolCall: (name, input) => {
+        flushText();
         toolCalls += 1;
         const arg = (input.path || input.pattern || input.query || input.command || '') as string;
         traj(`TOOL ${name}${arg ? ` ${String(arg).slice(0, 120)}` : ''}`);
@@ -250,10 +245,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         traj(`  → ${name} ${isError ? 'ERROR' : 'ok'} (${result.length}b)${snip ? `: ${snip}` : ''}`);
       },
       onOutcome: (bucket) => {
+        flushText();
         terminationBucket = bucket;
         traj(`TERMINATION: ${bucket ?? 'natural'}`);
       },
-      onDone: () => {},
+      onDone: () => flushText(),
     };
     const options: AgentOptions = {
       approvalMode: 'autonomous',
@@ -268,9 +264,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       confirmFn: async () => 'Allow',
       config: { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) },
     };
-    const messages: ChatMessage[] = [
-      { role: 'user', content: buildTaskPrompt(task, buildRetrievalContext(dir, task), taskEnv !== null) },
-    ];
+    const messages: ChatMessage[] = [{ role: 'user', content: buildTaskPrompt(task, retrieval.context, taskEnv) }];
     try {
       await runAgentLoop(client, messages, callbacks, abort.signal, options);
     } finally {
@@ -294,18 +288,22 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     durationMs: Date.now() - start,
     terminationBucket,
     toolCalls,
+    retrievalRecall,
     ratchetReverted,
   };
 }
 
-function buildTaskPrompt(task: SweTask, retrievalContext: string, hasEnv: boolean): string {
+function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskEnv | null): string {
   // With a working environment, ask for the real coding loop (reproduce → fix →
-  // verify). Without one, the old blind "minimal change then stop" is all the
-  // agent can do — running tests would only error.
-  const workflow = hasEnv
-    ? `The repository's dependencies are installed in the active environment: use run_command / run_tests ` +
-      `to reproduce the issue, then to verify your fix against the existing test suite before you finish. ` +
-      `Make the code change that resolves the issue.`
+  // verify). Give the exact Python test command from the spec and steer AWAY
+  // from run_tests: its auto-detection picks the wrong runner in repos that also
+  // ship a package.json (e.g. django's `pretest: eslint`). Without an env, the
+  // old blind "minimal change then stop" is all the agent can do.
+  const runner = taskEnv?.testCmd ?? './run tests';
+  const workflow = taskEnv
+    ? `The repository's dependencies are installed in the active environment. Run its Python test suite with ` +
+      `run_command using \`${runner} <test module or path>\` (NOT run_tests — it may detect the wrong runner). ` +
+      `Reproduce the issue with a failing test, make the code change that fixes it, then re-run to verify before you finish.`
     : `Make the minimal code change that fixes it, then stop — do not write new tests.`;
   const head = `Resolve this GitHub issue in the repository. ${workflow}\n\nIssue:\n${task.problem_statement}`;
   return retrievalContext ? `${head}\n\n---\n${retrievalContext}` : head;
