@@ -43,6 +43,46 @@ describe('computeAblation', () => {
   it('computes the latency cost of the harness', () => {
     expect(report.latencyDeltaMs).toBeCloseTo(1000, 5); // 2000 mean on − 1000 mean off
   });
+
+  it('does not exclude legacy empties (undefined toolCalls) as infra', () => {
+    // t2 off is empty but toolCalls is undefined (pre-field run): a genuine
+    // empty, not a stall — must stay counted, all 3 tasks scored.
+    expect(report.infraExcludedIds).toEqual([]);
+    expect(report.on.total).toBe(3);
+  });
+});
+
+describe('computeAblation — infra-failure exclusion', () => {
+  // t2's scaffold-on run stalled: zero tool calls + empty patch (a model-request
+  // timeout / hang, not a capability failure). It must be dropped from BOTH arms
+  // so a harness hang is never scored as the model or the scaffold failing.
+  const withStall: SwePrediction[] = [
+    { instance_id: 't1', arm: 'scaffold-on', model_patch: 'd', durationMs: 2000, toolCalls: 9 },
+    { instance_id: 't1', arm: 'scaffold-off', model_patch: 'd', durationMs: 1000, toolCalls: 7 },
+    { instance_id: 't2', arm: 'scaffold-on', model_patch: '', durationMs: 300000, toolCalls: 0 },
+    { instance_id: 't2', arm: 'scaffold-off', model_patch: 'd', durationMs: 1000, toolCalls: 5 },
+    { instance_id: 't3', arm: 'scaffold-on', model_patch: 'd', durationMs: 2000, toolCalls: 6 },
+    { instance_id: 't3', arm: 'scaffold-off', model_patch: 'd', durationMs: 1000, toolCalls: 4 },
+  ];
+  // Only the scored tasks (t1, t3) appear in the resolved sets.
+  const report = computeAblation(tasks, withStall, new Set(['t1', 't3']), new Set(['t1']));
+
+  it('excludes the stalled task from the paired comparison', () => {
+    expect(report.infraExcludedIds).toEqual(['t2']);
+    expect(report.on.total).toBe(2); // t1, t3 only
+    expect(report.off.total).toBe(2);
+  });
+
+  it('reports the per-arm stall count', () => {
+    expect(report.on.infraFailures).toBe(1); // t2 on stalled
+    expect(report.off.infraFailures).toBe(0);
+  });
+
+  it('rates and empty counts ignore the excluded task', () => {
+    expect(report.on.resolveRate).toBeCloseTo(1, 5); // t1, t3 both resolved on
+    expect(report.off.resolveRate).toBeCloseTo(0.5, 5); // only t1 resolved off
+    expect(report.on.emptyPatches).toBe(0); // the stall is not counted as an empty
+  });
 });
 
 describe('computeRatchetComparison (third arm — keep-best do-no-harm)', () => {

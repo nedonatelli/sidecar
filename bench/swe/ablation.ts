@@ -10,11 +10,25 @@
 import type { AblationReport, ArmName, ArmReport, SwePrediction, SweTask } from './types.js';
 import { wilsonInterval, mcnemarExactP, pairedDiffCI } from './stats.js';
 
+/**
+ * A prediction is an INFRASTRUCTURE failure when the agent issued zero tool
+ * calls and produced no patch: the run never engaged the repo — a model-request
+ * timeout (firstTokenTimeout) or stall — so its empty result reflects the
+ * harness hanging, not the model (or scaffold) failing the task. Ported from
+ * agentHarness's hasModelContent guard. `toolCalls` is undefined on predictions
+ * written before the field existed; those default to non-infra so old runs are
+ * unaffected.
+ */
+function isInfraFailure(p: SwePrediction): boolean {
+  return (p.toolCalls ?? 1) === 0 && p.model_patch.trim() === '';
+}
+
 function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[], resolved: Set<string>): ArmReport {
-  const armPreds = predictions.filter((p) => p.arm === arm);
+  const taskIds = new Set(tasks.map((t) => t.instance_id));
+  const scored = predictions.filter((p) => p.arm === arm && taskIds.has(p.instance_id));
   const ids = tasks.map((t) => t.instance_id);
   const resolvedIds = ids.filter((id) => resolved.has(id));
-  const durations = armPreds.map((p) => p.durationMs);
+  const durations = scored.map((p) => p.durationMs);
   const meanDurationMs = durations.length ? durations.reduce((s, d) => s + d, 0) / durations.length : 0;
   return {
     arm,
@@ -23,7 +37,11 @@ function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[],
     resolveRate: tasks.length ? resolvedIds.length / tasks.length : 0,
     meanDurationMs,
     resolvedIds,
-    emptyPatches: armPreds.filter((p) => p.model_patch.trim() === '').length,
+    // Empty patches among SCORED tasks only — genuine "agent worked but produced
+    // no diff", with infra stalls already excluded (they're not in `tasks`).
+    emptyPatches: scored.filter((p) => p.model_patch.trim() === '').length,
+    // Stall count over the full arm, for reporting how much was excluded.
+    infraFailures: predictions.filter((p) => p.arm === arm && isInfraFailure(p)).length,
   };
 }
 
@@ -33,22 +51,38 @@ export function computeAblation(
   resolvedOn: Set<string>,
   resolvedOff: Set<string>,
 ): AblationReport {
-  const on = armReport('scaffold-on', tasks, predictions, resolvedOn);
-  const off = armReport('scaffold-off', tasks, predictions, resolvedOff);
+  // Exclude tasks where EITHER arm was an infra failure (stall / request
+  // timeout): a paired comparison can only compare tasks both arms actually
+  // attempted. Scoring a stalled run as a loss would attribute a harness hang
+  // to the model or the scaffold — the exact bug this guards against.
+  const onById = new Map(predictions.filter((p) => p.arm === 'scaffold-on').map((p) => [p.instance_id, p]));
+  const offById = new Map(predictions.filter((p) => p.arm === 'scaffold-off').map((p) => [p.instance_id, p]));
+  const infraExcludedIds = tasks
+    .map((t) => t.instance_id)
+    .filter((id) => {
+      const a = onById.get(id);
+      const b = offById.get(id);
+      return (a !== undefined && isInfraFailure(a)) || (b !== undefined && isInfraFailure(b));
+    });
+  const excluded = new Set(infraExcludedIds);
+  const keptTasks = tasks.filter((t) => !excluded.has(t.instance_id));
+
+  const on = armReport('scaffold-on', keptTasks, predictions, resolvedOn);
+  const off = armReport('scaffold-off', keptTasks, predictions, resolvedOff);
   const onSet = new Set(on.resolvedIds);
   const offSet = new Set(off.resolvedIds);
   const rescuedIds = on.resolvedIds.filter((id) => !offSet.has(id));
   const regressedIds = off.resolvedIds.filter((id) => !onSet.has(id));
 
-  // Paired significance: the only pairs that carry effect information are the
-  // discordant ones (rescued vs regressed). McNemar exact + Wilson/paired CIs
-  // so the lift is reported WITH its uncertainty, not as a bare point estimate.
+  // Paired significance over the SURVIVING tasks: the only pairs that carry
+  // effect information are the discordant ones (rescued vs regressed). McNemar
+  // exact + Wilson/paired CIs so the lift is reported WITH its uncertainty.
   const rescued = rescuedIds.length;
   const regressed = regressedIds.length;
   const pValue = mcnemarExactP(rescued, regressed);
   const onCI = wilsonInterval(on.resolved, on.total);
   const offCI = wilsonInterval(off.resolved, off.total);
-  const liftCI = pairedDiffCI(rescued, regressed, tasks.length);
+  const liftCI = pairedDiffCI(rescued, regressed, keptTasks.length);
 
   return {
     on,
@@ -57,6 +91,7 @@ export function computeAblation(
     rescuedIds,
     regressedIds,
     latencyDeltaMs: on.meanDurationMs - off.meanDurationMs,
+    infraExcludedIds,
     significance: {
       rescued,
       regressed,

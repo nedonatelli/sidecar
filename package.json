@@ -3495,6 +3495,7 @@
     "bench:bfcl": "vitest run --config vitest.eval.config.ts bench/bfcl/run.eval.ts",
     "bench:swe:predict": "vitest run --config vitest.eval.config.ts tests/llm-eval/swe.eval.ts",
     "bench:swe:ablate": "vitest run --config vitest.eval.config.ts bench/swe/ablate.eval.ts",
+    "bench:swe:local": "bash bench/swe/local/run_local.sh",
     "compile:bench": "tsc -p tsconfig.bench.json",
     "lint": "eslint src/ media/",
     "format": "prettier --write 'src/**/*.ts'",

@@ -76,12 +76,18 @@ const repoClones = new Map<string, string>();
 function prepareRepo(task: SweTask): string {
   let dir = repoClones.get(task.repo);
   if (!dir) {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), `swe-repo-${task.repo.replace(/[/\\]/g, '_')}-`));
-    // Blobless partial clone: pull commits + trees but fetch file blobs lazily
-    // on checkout. A fraction of a full clone's size (django ~50MB vs ~400MB) so
-    // it's viable over a slow link; `reset --hard <base_commit>` below still
-    // works — git fetches just that commit's blobs on demand.
-    git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${task.repo}.git`, dir]);
+    // Egress-flaky-host support: when SIDECAR_SWE_REPO_CACHE is set, reuse a
+    // pre-populated FULL clone (all blobs present, so `reset --hard <base>`
+    // needs no network). Falls back to a blobless clone otherwise.
+    const cacheBase = process.env.SIDECAR_SWE_REPO_CACHE;
+    if (cacheBase) {
+      const cached = path.join(cacheBase, task.repo.replace(/[/\\]/g, '_'));
+      if (!fs.existsSync(path.join(cached, '.git'))) throw new Error(`repo cache miss for ${task.repo} at ${cached}`);
+      dir = cached;
+    } else {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), `swe-repo-${task.repo.replace(/[/\\]/g, '_')}-`));
+      git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${task.repo}.git`, dir]);
+    }
     repoClones.set(task.repo, dir);
   }
   // Pristine checkout at this task's base: discard any prior arm/task edits.
@@ -94,7 +100,11 @@ function prepareRepo(task: SweTask): string {
 }
 
 function cleanupRepoClones(): void {
-  for (const dir of repoClones.values()) fs.rmSync(dir, { recursive: true, force: true });
+  // Never delete a pre-populated cache — it is reused across runs and (with a
+  // per-model copy) across concurrent campaigns.
+  if (!process.env.SIDECAR_SWE_REPO_CACHE) {
+    for (const dir of repoClones.values()) fs.rmSync(dir, { recursive: true, force: true });
+  }
   repoClones.clear();
 }
 
@@ -160,6 +170,12 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // Did the keep-best ratchet revert scaffold-tail changes this run? Detected
   // from the loop's ♻️ marker — the third-arm ablation's revert-rate signal.
   let ratchetReverted = false;
+  // Tool-call count is the infra-vs-capability discriminator (ported from
+  // agentHarness's hasModelContent guard): a run that issued ZERO tool calls
+  // never engaged the repo — it stalled or the model request timed out
+  // (firstTokenTimeout, 300s) — so its empty patch is an infrastructure
+  // failure, not the model failing the task. The ablation excludes these.
+  let toolCalls = 0;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -193,6 +209,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         if (t.trim()) trajectory.push(`  text: ${t.trim().slice(0, 200)}`);
       },
       onToolCall: (name, input) => {
+        toolCalls += 1;
         const arg = (input.path || input.pattern || input.query || input.command || '') as string;
         trajectory.push(`TOOL ${name}${arg ? ` ${String(arg).slice(0, 120)}` : ''}`);
       },
@@ -244,6 +261,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     model_patch: patch,
     durationMs: Date.now() - start,
     terminationBucket,
+    toolCalls,
     ratchetReverted,
   };
 }

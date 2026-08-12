@@ -61,6 +61,14 @@ export interface SwePrediction {
    */
   terminationBucket?: import('../../src/agent/failureTaxonomy.js').FailureBucket | null;
   /**
+   * Number of tool calls the agent issued. Zero + empty patch = the run never
+   * engaged the repo (model-request timeout / stall) — an infrastructure
+   * failure the ablation excludes rather than counting as a capability failure.
+   * Undefined on meta files written before this field existed (treated as
+   * non-infra so old runs are unaffected).
+   */
+  toolCalls?: number;
+  /**
    * True when the keep-best ratchet reverted scaffold-tail changes in this
    * run (detected from the ♻️ revert marker in the loop's output). Only
    * meaningful on the `scaffold-on-ratchet` arm; undefined on meta files
@@ -88,6 +96,12 @@ export interface ArmReport {
   resolvedIds: string[];
   /** Tasks where the agent produced no patch at all. */
   emptyPatches: number;
+  /**
+   * Tasks excluded from this arm as infrastructure failures (zero tool calls +
+   * empty patch — a stall or model-request timeout, not the model failing).
+   * Counted over the full task set, before exclusion, for reporting.
+   */
+  infraFailures: number;
 }
 
 /**
@@ -125,6 +139,14 @@ export interface AblationReport {
   regressedIds: string[];
   /** meanDuration(on) − meanDuration(off): the latency the harness costs. */
   latencyDeltaMs: number;
+  /**
+   * Tasks dropped from the paired comparison because at least one arm was an
+   * infrastructure failure (zero tool calls + empty patch). Excluding them
+   * keeps a stalled/timed-out run from being scored as the model — or the
+   * scaffold — failing the task. The on/off rates and lift are computed over
+   * the surviving tasks only.
+   */
+  infraExcludedIds: string[];
   /** Uncertainty + significance on the paired lift. */
   significance: AblationSignificance;
 }

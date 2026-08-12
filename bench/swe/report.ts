@@ -80,6 +80,17 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
     );
   }
   lines.push('');
+  if (report.infraExcludedIds.length || report.on.infraFailures || report.off.infraFailures) {
+    lines.push(
+      `> ℹ️ **${report.infraExcludedIds.length} task(s) excluded as infrastructure failures** ` +
+        `(agent issued zero tool calls + empty patch — a model-request timeout or stall, not a ` +
+        `capability signal): scaffold-on stalled on ${report.on.infraFailures}, scaffold-off on ` +
+        `${report.off.infraFailures}. Rates above are over the ${report.on.total} surviving tasks; ` +
+        `a task counts only if BOTH arms actually engaged the repo. Excluded: ` +
+        `${report.infraExcludedIds.join(', ') || 'none'}.`,
+    );
+    lines.push('');
+  }
   lines.push(
     `Latency cost of the harness: ${report.latencyDeltaMs >= 0 ? '+' : ''}${sec(report.latencyDeltaMs)} per task.`,
   );
