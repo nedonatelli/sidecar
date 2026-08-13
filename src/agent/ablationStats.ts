@@ -289,8 +289,8 @@ export function planAblationCampaign(
 //                          and the baselines are all elaborate no-ops. If dynamic
 //                          BEATS always-on, that is the moat, stated as a number.
 //
-// Note that always-on can lose to bare, and it is not a stretch: the critic ran
-// as a blocking guard for months and made runs bail EARLY. "More scaffolding" is
+// Note that always-on can lose to bare, and it is not a stretch: a blocking
+// scaffold guard can make runs bail EARLY. "More scaffolding" is
 // a hypothesis, not a direction.
 // ---------------------------------------------------------------------------
 

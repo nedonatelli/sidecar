@@ -27,7 +27,7 @@ the lift.
 
 `bench/swe/arms.ts` defines them with real `SideCarConfig` keys:
 
-- **scaffold-on** — critic + completion gate + auto-fix + impact/numerical gates + adaptive intensity.
+- **scaffold-on** — completion gate + auto-fix + impact/numerical gates + adaptive intensity.
 - **scaffold-off** — bare loop: every verification scaffold disabled.
 
 > The zero-token **deterministic control** (cycle detection, burst cap,
@@ -134,7 +134,7 @@ discriminates: the gold patch resolves 60/60, base fails the FAIL_TO_PASS):
 | scaffold-on (full harness) | **1 / 5** |
 
 **On this task the harness is net-negative.** The bare loop reliably makes the
-clean 3-line fix; the scaffolded arm — critic pushing more edits, gate demanding
+clean 3-line fix; the scaffolded arm — gate demanding
 tests — over-engineers, writes a large patch, and breaks itself (IndentationError,
 test churn). Individual runs flip wildly (in one earlier sample off _deleted_
 `super().__init__()` and on landed the correct fix — the exact opposite), which is

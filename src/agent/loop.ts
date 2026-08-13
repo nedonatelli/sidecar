@@ -264,8 +264,8 @@ export interface AgentOptions {
    */
   commandFilter?: (command: string) => boolean;
   /**
-   * Extra policy hooks registered after the eight built-in ones
-   * (auto-fix, stub validator, critic, completion gate). Runs in
+   * Extra policy hooks registered after the built-in ones
+   * (auto-fix, stub validator, action reprompt, completion gate). Runs in
    * registration order inside the same HookBus as the built-ins;
    * later hooks see the mutations earlier hooks made to state.messages.
    *
@@ -407,10 +407,9 @@ export async function runAgentLoop(
       state.logger?.info('Steer queue: interrupt-urgency steer aborted in-flight stream');
     }) ?? (() => {});
 
-  // Build the policy hook bus. Eight built-in hooks ship by default
+  // Build the policy hook bus. The built-in hooks ship by default
   // (see defaultPolicyHooks: autoFix → isolateRewrite → unappliedEdit →
-  // stubValidator → adversarialCritic → actionReprompt → completionGate →
-  // analysisCritic); regression guards defined in `sidecar.regressionGuards`
+  // stubValidator → actionReprompt → completionGate); regression guards defined in `sidecar.regressionGuards`
   // register next if the workspace-trust prompt is accepted; then
   // options.extraPolicyHooks; SDK-registered hooks register last and see
   // every earlier hook's mutations.
@@ -868,10 +867,10 @@ export async function runAgentLoop(
       // iteration doesn't open over budget.
       maybeCompressPostTool(state);
 
-      // afterToolResults phase: the five built-ins implementing it fire in
+      // afterToolResults phase: the built-ins implementing it fire in
       // registration order (autoFix → isolateRewrite → unappliedEdit →
-      // stubValidator → completionGate tool tracking; the critics fire in
-      // onEmptyResponse instead). Any user-supplied extraPolicyHooks and
+      // stubValidator → completionGate tool tracking; the reprompt/gate checks
+      // fire in onEmptyResponse instead). Any user-supplied extraPolicyHooks and
       // SDK hooks run after the built-ins. Each hook may push a synthetic user message asking
       // the agent to do more work before ending the turn — the return
       // value is currently informational only, because the loop

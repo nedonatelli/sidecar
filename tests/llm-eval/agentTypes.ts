@@ -112,8 +112,8 @@ export interface AgentEvalCase {
   seedPlanText?: string;
   /**
    * Partial config overrides merged over the defaults for this run.
-   * Use to opt-in to features that are off by default (critic,
-   * autoFix). Example: `{ criticEnabled: true }`.
+   * Use to opt-in to features that are off by default (impact gate,
+   * autoFix). Example: `{ impactGateEnabled: true }`.
    */
   configOverrides?: Partial<import('../../src/config/settings.js').SideCarConfig>;
   /**

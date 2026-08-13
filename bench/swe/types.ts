@@ -35,13 +35,12 @@ export interface SweTask {
 
 /**
  * Ablation arms. The core two are `scaffold-on` (full harness) vs `scaffold-off`
- * (bare loop). `gate-only` / `critic-only` decompose the harness to localize
- * *which* scaffold helps or harms (the do-no-harm investigation).
- * `scaffold-on-ratchet` is `scaffold-on` + the keep-best ratchet — isolates
- * what the ratchet's do-no-harm revert changes relative to the established
- * (pre-ratchet) scaffold-on arm.
+ * (bare loop). `gate-only` decomposes the harness to localize *which* scaffold
+ * helps or harms (the do-no-harm investigation). `scaffold-on-ratchet` is
+ * `scaffold-on` + the keep-best ratchet — isolates what the ratchet's do-no-harm
+ * revert changes relative to the established (pre-ratchet) scaffold-on arm.
  */
-export type ArmName = 'scaffold-on' | 'scaffold-off' | 'gate-only' | 'critic-only' | 'scaffold-on-ratchet';
+export type ArmName = 'scaffold-on' | 'scaffold-off' | 'gate-only' | 'scaffold-on-ratchet';
 
 /** A generated prediction for one task on one arm. */
 export interface SwePrediction {

@@ -32,9 +32,6 @@ interface AblationDimension {
 
 const ALL_DIMENSIONS: AblationDimension[] = [
   { scaffold: 'completionGate', present: { completionGateEnabled: true }, absent: { completionGateEnabled: false } },
-  // The edit + analysis critics share the criticEnabled flag; default is off,
-  // so "present" measures whether turning it ON lifts pass-rate.
-  { scaffold: 'critic', present: { criticEnabled: true }, absent: { criticEnabled: false } },
   { scaffold: 'autoFix', present: { autoFixOnFailure: true }, absent: { autoFixOnFailure: false } },
   // S1: externalized plan + per-turn <plan_state> re-injection. Measure on
   // long-horizon cases (tag: plans) where compression fires mid-run.

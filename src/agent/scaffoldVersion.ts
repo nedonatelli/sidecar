@@ -174,17 +174,16 @@
  *   `scaffold-on` set — a `scaffold-on` run at 2.0.0 measures the SAME mechanisms
  *   as 1.x unless the arm config opts them in. The version differs because the
  *   SHARED path (repair, gate internals) changed.
- * - **1.x** — pre-2026-07 baseline (completion gate, adversarial critic,
- *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
+ * - **1.x** — pre-2026-07 baseline (completion gate, auto-fix, adaptive
+ *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.0.0';
+export const SCAFFOLD_VERSION = '5.1.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
 export interface ScaffoldConfigLike {
   completionGateEnabled?: boolean;
-  criticEnabled?: boolean;
   autoFixOnFailure?: boolean;
   adaptiveScaffoldingEnabled?: boolean;
   impactGateEnabled?: boolean;
@@ -215,7 +214,6 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
     version: SCAFFOLD_VERSION,
     features: {
       completionGate: cfg.completionGateEnabled !== false,
-      critic: cfg.criticEnabled === true,
       autoFix: cfg.autoFixOnFailure === true,
       adaptiveScaffolding: cfg.adaptiveScaffoldingEnabled !== false,
       impactGate: cfg.impactGateEnabled === true,
@@ -228,7 +226,7 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
   };
 }
 
-/** Compact one-line label, e.g. `scaffold 2.0.0 [completionGate,critic,autoFix]`. */
+/** Compact one-line label, e.g. `scaffold 2.0.0 [completionGate,autoFix]`. */
 export function scaffoldLabel(desc: ScaffoldDescriptor): string {
   const on = Object.entries(desc.features)
     .filter(([, v]) => v)

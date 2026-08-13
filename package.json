@@ -456,11 +456,6 @@
       {
         "title": "SideCar: Safety & Review",
         "properties": {
-          "sidecar.critic.enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Run an adversarial critic LLM call over the run's completed work — once, when the agent believes it is finished, across the cumulative diff of every file it edited. Findings surface as chat annotations; they do not block unless sidecar.critic.blockOnHighSeverity is also enabled. Costs one extra LLM call per run and has not shown a measured benefit — off by default. On a VRAM-bound machine the critic is the SAME model judging its own work, so its lift is bounded; deterministic verification (completion gate, lint, tests, syntax) is the load-bearing layer."
-          },
           "sidecar.adaptiveScaffolding.enabled": {
             "type": "boolean",
             "default": true,
@@ -525,16 +520,6 @@
             "default": 3,
             "minimum": 2,
             "description": "Consecutive edit_file failures on one file before the steer-to-write reprompt fires (when sidecar.editFile.steerToWrite is on)."
-          },
-          "sidecar.critic.model": {
-            "type": "string",
-            "default": "",
-            "description": "Model to use for the adversarial critic call. Empty string (default) means reuse sidecar.model. Set to a cheaper / faster model (e.g. claude-haiku-4-5 when the main model is claude-opus-4-6) to cut cost while keeping the critic enabled."
-          },
-          "sidecar.critic.blockOnHighSeverity": {
-            "type": "boolean",
-            "default": false,
-            "description": "Let the critic BLOCK the agent: a high-severity finding injects a synthetic user message forcing the agent to address it before the turn can finish. Default false — the critic surfaces findings as annotations but cannot redirect the run. A blocking critic acts on a model's opinion, and a false high-severity finding sends the agent chasing a problem that isn't there: the SWE-bench ablation saw the critic-bearing arm terminate ~7.5x faster while producing MORE empty patches. Deterministic checks (lint, tests, syntax) are what block; a model-judges-model verdict advises."
           },
           "sidecar.autoFixOnFailure": {
             "type": "boolean",

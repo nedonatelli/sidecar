@@ -149,7 +149,7 @@ Typical setup: primary = Anthropic, fallback = local Ollama, so API outages don'
 | `sidecar.modelRouting.dryRun`       | boolean | `false` | Log routing decisions without applying them — calibrate rules before enabling.                                                                                                       |
 | `sidecar.modelRouting.visibleSwaps` | boolean | `true`  | Show a toast whenever a routing rule swaps the active model mid-session.                                                                                                             |
 
-Rule `when` expressions support role names (`agent-loop`, `chat`, `critic`, `summarize`, `completion`, `planner`), attribute comparisons (`agent-loop.complexity=high`), prompt regex (`chat.prompt~=/proof/i`), and file glob (`agent-loop.files~=src/physics/**`). Budget caps trigger an automatic downgrade to `fallbackModel`.
+Rule `when` expressions support role names (`agent-loop`, `chat`, `summarize`, `completion`, `planner`), attribute comparisons (`agent-loop.complexity=high`), prompt regex (`chat.prompt~=/proof/i`), and file glob (`agent-loop.files~=src/physics/**`). Budget caps trigger an automatic downgrade to `fallbackModel`.
 
 ### Thinking mode
 
@@ -266,16 +266,6 @@ Patterns from `.sidecarignore` are merged with default excludes (`.git`, `.sidec
 | `sidecar.autoFixMaxRetries` | number  | `3`     | Max auto-fix retry attempts                                          |
 
 When enabled, SideCar automatically runs VS Code's language diagnostics after the agent writes or edits a file. If errors are found, they're fed back to the model to self-correct — up to the configured retry limit.
-
-## Adversarial Critic (v0.48+)
-
-| Setting                              | Type    | Default | Description                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------ | ------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.critic.enabled`             | boolean | `false` | Run an adversarial critic LLM call once, at completion, over the cumulative diff of every file the run edited. Findings surface as annotations; blocking requires `critic.blockOnHighSeverity`. Disabled by default — the per-edit design measured net-negative and one extra LLM call per run is still a real cost. |
-| `sidecar.critic.model`               | string  | `""`    | Model for the critic call. Empty = reuse `sidecar.model`. Set to a cheaper model (e.g. `claude-haiku-4-5`) to reduce cost.                                                                                                                                                                                           |
-| `sidecar.critic.blockOnHighSeverity` | boolean | `false` | Let a high-severity critic finding BLOCK the agent until addressed. Default false — the critic annotates but cannot redirect the run; a false finding sends the agent chasing a problem that isn't there. Deterministic checks (lint/tests/syntax) block; a model-judges-model verdict advises.                      |
-
-The critic is capped at 2 injections per file per run to prevent unbounded spend on stuck loops.
 
 ## Reactive Diagnostics Fix (v0.71+)
 

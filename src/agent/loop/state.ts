@@ -271,23 +271,6 @@ export interface LoopState {
    */
   filesReadThisRun: Set<string>;
 
-  // Per-file critic injection counter. criticHook.ts is the only writer.
-  criticInjectionsByFile: Map<string, number>;
-
-  // Per-test-output-hash critic injection counter. Bounds
-  // the `test_failure` trigger path which was otherwise unbounded —
-  // if tests keep failing with the SAME normalized output, the
-  // critic used to re-fire every turn and could burn $1-2 of spend
-  // before the outer maxIterations cap tripped. Now capped at
-  // MAX_CRITIC_INJECTIONS_PER_TEST_HASH. criticHook.ts is the only
-  // writer. Keyed by a normalized hash (timestamps + memory addresses
-  // stripped) so cosmetic re-runs of the same failure collapse.
-  criticInjectionsByTestHash: Map<string, number>;
-
-  // True once the analysis fact-check critic (V2) has fired this run.
-  // Fires at most once. analysisCriticHook is the only writer.
-  analysisCriticFired: boolean;
-
   // True once the unapplied-edit nudge has fired this run. Bounds the nudge to
   // one injection so a false positive (an explanatory code block) costs at most
   // one extra message. unappliedEditHook is the only writer.
@@ -404,9 +387,6 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     actionRepromptCount: 0,
     fenceWriteCoercions: 0,
     filesReadThisRun: new Set<string>(),
-    criticInjectionsByFile: new Map<string, number>(),
-    criticInjectionsByTestHash: new Map<string, number>(),
-    analysisCriticFired: false,
     unappliedEditNudged: false,
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(lastUserText(copiedMessages)),

@@ -507,7 +507,6 @@ describe('applyBudgetCompression', () => {
         burstCap: 12,
         maxActionReprompts: 3,
         maxGateInjections: 3,
-        runLlmCritic: false,
         compressionThreshold: 0.6,
         compactionKeepRecentTurns: 3,
         compactionMaxSummaryChars: 500,

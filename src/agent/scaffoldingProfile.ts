@@ -40,12 +40,6 @@ export interface ScaffoldingProfile {
   /** Max completion-gate injections before allowing termination. */
   maxGateInjections: number;
   /**
-   * D2 — whether to run the second-LLM adversarial critic. A small primary
-   * makes an equally-small critic ≈ noise (and doubles cost), so weak tier
-   * relies on the deterministic gate/lint/test instead.
-   */
-  runLlmCritic: boolean;
-  /**
    * Whether plan mode offers the ask_user tool. In plan mode it is the ONLY
    * tool in the catalog, and weak models treat a lone tool as an attractor:
    * llama3.2 asked a redundant clarifying question on 3/3 plan-mode dogfood
@@ -92,7 +86,6 @@ export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
   burstCap: MAX_TOOL_CALLS_PER_ITERATION,
   maxActionReprompts: MAX_ACTION_REPROMPTS,
   maxGateInjections: MAX_GATE_INJECTIONS,
-  runLlmCritic: true,
   planModeAskUser: true,
   compressionThreshold: CONTEXT_COMPRESSION_THRESHOLD,
   compactionKeepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
@@ -131,7 +124,6 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     maxActionReprompts: MAX_ACTION_REPROMPTS,
     maxGateInjections: MAX_GATE_INJECTIONS,
 
-    runLlmCritic: true,
     planModeAskUser: true,
   },
   medium: { ...DEFAULT_SCAFFOLDING_PROFILE },
@@ -140,7 +132,6 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     burstCap: 12,
     maxActionReprompts: 3,
     maxGateInjections: 3,
-    runLlmCritic: false,
     planModeAskUser: false,
     compressionThreshold: 0.6,
     compactionKeepRecentTurns: 3,
@@ -151,8 +142,8 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
 /**
  * Per-knob user overrides (`sidecar.scaffolding.overrides`).
  *
- * The tier is a bundle — moving it changes six things at once. Sometimes a user
- * wants exactly one: keep the critic but raise the burst cap, or force the
+ * The tier is a bundle — moving it changes several things at once. Sometimes a
+ * user wants exactly one: raise the burst cap, or force the
  * completion gate on for a model we classified as strong. Tier overrides are too
  * blunt for that, so every trigger is individually pinnable.
  *

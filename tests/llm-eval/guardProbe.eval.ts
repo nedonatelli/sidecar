@@ -18,12 +18,12 @@ import { writeHeader } from './evalReporter.js';
 // Run:  npm run eval:guardprobe
 //
 // Comprehensive sweep — two axes, models × config arms. Guard-relevant
-// behavior shifts with the scaffolds active (a critic reprompt or plan
+// behavior shifts with the scaffolds active (a gate reprompt or plan
 // re-injection changes what the model emits next), so sweep the arms
 // that alter the tool-calling surface, not just the models:
 //
 //   for m in qwen2.5-coder:7b llama3.2 gemma4:e4b ministral-3 qwen3.5; do
-//     for cfg in '{}' '{"criticEnabled":true}' '{"completionGateEnabled":true}' \
+//     for cfg in '{}' '{"completionGateEnabled":true}' \
 //                '{"planExternalizedEnabled":true}'; do
 //       SIDECAR_EVAL_MODEL=$m SIDECAR_EVAL_CONFIG_OVERRIDES=$cfg npm run eval:guardprobe
 //     done

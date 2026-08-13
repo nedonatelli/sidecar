@@ -122,10 +122,8 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
     }),
     commands.registerCommand('sidecar.showSpend', async () => {
       const snap = spendTracker.snapshot();
-      const { getCriticStats, resetCriticStats } = await import('../agent/loop/criticHook.js');
-      const critic = getCriticStats();
-      if (snap.byModel.length === 0 && critic.totalCalls === 0) {
-        window.showInformationMessage('SideCar: no remote API spend or critic activity tracked this session.');
+      if (snap.byModel.length === 0) {
+        window.showInformationMessage('SideCar: no remote API spend tracked this session.');
         return;
       }
       const items = snap.byModel.map((m) => ({
@@ -139,13 +137,6 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
         description: `${snap.totalRequests} request(s) over ${sessionMinutes} min`,
         detail: 'Estimated — list prices; actual billing may differ. Click "Reset" below to clear.',
       });
-      if (critic.totalCalls > 0) {
-        items.push({
-          label: `$(search-view-icon) Critic: ${critic.blockedTurns} blocked turn(s) / ${critic.totalCalls} call(s)`,
-          description: critic.lastBlockedReason ? `Last block: ${critic.lastBlockedReason}` : '',
-          detail: 'Critic-invoked LLM calls fire independently of main-loop requests.',
-        });
-      }
       items.push({
         label: '$(trash) Reset session spend',
         description: '',
@@ -157,8 +148,7 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
       });
       if (picked?.label.startsWith('$(trash)')) {
         spendTracker.reset();
-        resetCriticStats();
-        window.showInformationMessage('SideCar session spend + critic stats reset.');
+        window.showInformationMessage('SideCar session spend reset.');
       }
     }),
     commands.registerCommand('sidecar.resetSpend', () => {

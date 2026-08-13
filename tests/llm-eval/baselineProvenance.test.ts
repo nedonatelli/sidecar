@@ -27,7 +27,7 @@ const base = (): BaselineProvenance => ({
   maxIterations: 25,
   scaffold: {
     version: '4.0.0',
-    features: { completionGate: true, critic: false, adaptiveScaffolding: true },
+    features: { completionGate: true, adaptiveScaffolding: true },
   },
 });
 
@@ -58,14 +58,14 @@ describe('currentProvenance', () => {
     // The harness layers resolved settings beneath the env overrides. Snapshotting
     // only the top layer reported every underlying flag at a default the run never
     // used — the drift the field comment had claimed was impossible.
-    const runConfig = { criticEnabled: true, impactGateEnabled: true, completionGateEnabled: false };
+    const runConfig = { autoFixOnFailure: true, impactGateEnabled: true, completionGateEnabled: false };
     const p = currentProvenance('qwen2.5-coder:7b', runConfig);
-    expect(p.scaffold.features).toMatchObject({ critic: true, impactGate: true, completionGate: false });
+    expect(p.scaffold.features).toMatchObject({ autoFix: true, impactGate: true, completionGate: false });
   });
 
   it('reports the scaffold the run was configured with, not the defaults', () => {
-    const p = currentProvenance('qwen2.5-coder:7b', { criticEnabled: true, completionGateEnabled: false });
-    expect(p.scaffold.features.critic).toBe(true);
+    const p = currentProvenance('qwen2.5-coder:7b', { impactGateEnabled: true, completionGateEnabled: false });
+    expect(p.scaffold.features.impactGate).toBe(true);
     expect(p.scaffold.features.completionGate).toBe(false);
   });
 });
@@ -87,7 +87,7 @@ describe('compareProvenance', () => {
     it('when the active scaffold feature set differs', () => {
       // Comparing a gates-on run against a gates-off baseline measures the
       // gates, not the model.
-      const recorded = withScaffold('4.0.0', { completionGate: false, critic: false, adaptiveScaffolding: true });
+      const recorded = withScaffold('4.0.0', { completionGate: false, adaptiveScaffolding: true });
       expect(compareProvenance(recorded, base())).toEqual({
         comparable: false,
         divergences: [expect.stringMatching(/completionGate/)],
@@ -135,7 +135,7 @@ describe('compareProvenance', () => {
         extensionVersion: '0.116.0',
         thinkingEnabled: false,
         maxIterations: 8,
-        scaffold: { version: '3.0.0', features: { completionGate: false, critic: false, adaptiveScaffolding: true } },
+        scaffold: { version: '3.0.0', features: { completionGate: false, adaptiveScaffolding: true } },
       };
       expect(compareProvenance(recorded, base())).toEqual({
         comparable: false,
@@ -178,7 +178,7 @@ describe('compareProvenance', () => {
         ...base(),
         scaffold: {
           version: '4.0.0',
-          features: { adaptiveScaffolding: true, completionGate: true, critic: false },
+          features: { adaptiveScaffolding: true, completionGate: true },
         },
       };
       expect(compareProvenance(reordered, base())).toEqual({ comparable: true });

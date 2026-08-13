@@ -74,7 +74,7 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '**Fork & Parallel Solve:** Run the same task N times in parallel and pick the best result.',
     '**MCP:** Connect external tools via Model Context Protocol (stdio, SSE, or HTTP transports).',
     '**Inline completions:** Fill-in-the-middle completions in the editor (FIM).',
-    '**Code review:** Automated PR review, CI failure analysis, diff-aware critic.',
+    '**Code review:** Automated PR review, CI failure analysis, diff-aware review.',
     '**Other:** Auto Mode (backlog-driven), Notebook Mode (research with citations), Doc-to-Test synthesis, database query tools, visual verification via VLM, adaptive paste, next-edit suggestions.',
     '',
     '**Not yet in SideCar (known gaps vs commercial tools):** No voice input. No real-time collaborative editing. No enterprise SSO/policy layer. No built-in model fine-tuning UI. No browser extension. Per-hunk audit review and LanceDB vector backend are implemented but deferred to a future release.',

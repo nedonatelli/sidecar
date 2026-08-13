@@ -2,7 +2,6 @@ import { applyAutoFix } from './autoFix.js';
 import { applyIsolateRewriteNudge } from './isolateRewrite.js';
 import { applyUnappliedEditNudge } from './unappliedEdit.js';
 import { applyStubCheck } from './stubCheck.js';
-import { applyCritic, applyAnalysisCritic } from './criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
 import { maybeInjectActionReprompt } from './actionReprompt.js';
 import type { PolicyHook, HookContext, HookResult } from './policyHook.js';
@@ -12,25 +11,23 @@ import type { LoopState } from './state.js';
  * Built-in policy hook adapters.
  *
  * Each hook is a mechanical wrap around an existing helper function —
- * the underlying logic in autoFix.ts / stubCheck.ts / criticHook.ts /
- * gate.ts is untouched. The wrappers only translate from the helpers'
+ * the underlying logic in autoFix.ts / stubCheck.ts / gate.ts is
+ * untouched. The wrappers only translate from the helpers'
  * ad-hoc arguments + return shapes into the `PolicyHook` interface.
  *
  * Why this layer exists instead of just editing the helpers to
  * implement PolicyHook directly:
- *   - Keeps `applyAutoFix`, `applyCritic`, etc. callable from tests
+ *   - Keeps `applyAutoFix`, `applyStubCheck`, etc. callable from tests
  *     and other call sites without forcing everything through the bus.
  *   - Makes the v0.54 refactor a pure addition — the old call paths
  *     still work during the transition and in the eval harness.
  *   - The wrappers are short enough that the indirection cost is
  *     negligible (<15 lines each).
  *
- * Order inside `defaultPolicyHooks()` is the same order v0.53 ran them
- * in: auto-fix first (cheapest, catches the most common regression),
- * then the edit-shape nudges (isolateRewrite, unappliedEdit), then the
- * stub validator (deterministic text match); the critics are the most
- * expensive and fire in onEmptyResponse (adversarialCritic before the
- * gate check, analysisCritic after it). Completion gate is both a
+ * Order inside `defaultPolicyHooks()`: auto-fix first (cheapest, catches
+ * the most common regression), then the edit-shape nudges (isolateRewrite,
+ * unappliedEdit), then the stub validator (deterministic text match), then
+ * the action reprompt, then the completion gate. Completion gate is both a
  * tool-recording hook AND an empty-response hook — the single adapter
  * implements both phases on one object so there's one thing to
  * enable/disable.
@@ -91,32 +88,6 @@ const stubCheckHook: PolicyHook = {
 };
 
 /**
- * Adversarial critic — fires at COMPLETION, not after every edit.
- *
- * It used to run in `afterToolResults`, once per successful write_file /
- * edit_file. That made it review half-finished work: on a multi-file change it
- * judged file A alone, before file B existed, and reported the real-but-
- * irrelevant problems of an incomplete job. With blocking on, it then sent the
- * agent off to fix a phantom — the early-bail signature in the SWE-bench
- * ablation (~7.5x faster termination, MORE empty patches).
- *
- * A critic reviews work. So it runs where the work is finished: onEmptyResponse,
- * over the cumulative diff of every file the run edited.
- */
-const criticHook: PolicyHook = {
-  name: 'adversarialCritic',
-  async onEmptyResponse(state: LoopState, ctx: HookContext): Promise<HookResult> {
-    if (ctx.fullText === undefined) return { mutated: false };
-    const messagesBefore = state.messages.length;
-    await applyCritic(state, ctx.client, ctx.config, ctx.fullText, ctx.callbacks, ctx.signal);
-    // applyCritic returns void — detect whether it injected by
-    // checking the history length. Slightly unclean but the
-    // underlying helper's return shape is already committed to tests.
-    return { mutated: state.messages.length > messagesBefore };
-  },
-};
-
-/**
  * Action-request reprompt — fires in onEmptyResponse when the model
  * produced text only on a turn that looks like an action request
  * (action verb + file path in user message). Injects one re-prompt
@@ -153,24 +124,6 @@ const completionGateHook: PolicyHook = {
 };
 
 /**
- * Adversarial analysis critic (scaffolding roadmap V2). Fires on the final
- * answer of a read-only analysis/review turn, fact-checking its claims against
- * the read-evidence the agent gathered. Registered AFTER completionGate so the
- * cheap deterministic gates (V1 citation check, no-grounding) run first and the
- * expensive LLM critic only weighs in on otherwise-clean final answers.
- * Gated behind `criticEnabled` inside applyAnalysisCritic — default off.
- */
-const analysisCriticHook: PolicyHook = {
-  name: 'analysisCritic',
-  async onEmptyResponse(state: LoopState, ctx: HookContext): Promise<HookResult> {
-    if (ctx.fullText === undefined) return { mutated: false };
-    const before = state.messages.length;
-    await applyAnalysisCritic(state, ctx.client, ctx.config, ctx.fullText, ctx.callbacks, ctx.signal);
-    return { mutated: state.messages.length > before };
-  },
-};
-
-/**
  * Default policy hook list registered by `runAgentLoop`. Exported so
  * the orchestrator can register them into a fresh `HookBus` at the
  * top of each run and so tests can assert the default set is what
@@ -184,14 +137,5 @@ export function defaultPolicyHooks(): PolicyHook[] {
   // actionRepromptHook runs before completionGate so the model gets
   // nudged to call tools before the gate demands verification of edits
   // it hasn't made yet.
-  return [
-    autoFixHook,
-    isolateRewriteHook,
-    unappliedEditHook,
-    stubCheckHook,
-    criticHook,
-    actionRepromptHook,
-    completionGateHook,
-    analysisCriticHook,
-  ];
+  return [autoFixHook, isolateRewriteHook, unappliedEditHook, stubCheckHook, actionRepromptHook, completionGateHook];
 }

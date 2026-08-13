@@ -73,7 +73,7 @@ export class SideCarClient {
    * Optional Role-Based Model Router. Owning the router at the
    * client layer means every dispatch site can consult it via
    * `routeForDispatch()` without plumbing a separate service through
-   * chat handlers / completion provider / critic / summarizer. When
+   * chat handlers / completion provider / summarizer. When
    * `null`, the client falls back to its static `model` field for every
    * call (legacy behavior).
    */
@@ -337,7 +337,7 @@ export class SideCarClient {
     // writes usage into spendTracker as part of its response-parse).
     // We can't see the usage event from here, but we CAN observe the
     // total-spend delta across the call boundary and forward it to the
-    // router so per-rule budget caps still trip on critic / summarize /
+    // router so per-rule budget caps still trip on summarize /
     // other non-streaming dispatches.
     const preSpend = spendTracker.snapshot().totalUsd;
     try {
@@ -396,9 +396,10 @@ export class SideCarClient {
 
   /**
    * One-shot completion with per-call overrides for model and system prompt.
-   * Used by the adversarial critic so it can run under its own prompt /
-   * model without disturbing the main agent's client state. Does not
-   * participate in the fallback-switching machinery — critic is opportunistic.
+   * Used by opportunistic side dispatches (FIM, doc-test synthesis, tool-call
+   * repair, query rewrite, adaptive paste) so they can run under their own
+   * prompt / model without disturbing the main agent's client state. Does not
+   * participate in the fallback-switching machinery — these are opportunistic.
    */
   async completeWithOverrides(
     systemPrompt: string,
@@ -410,7 +411,7 @@ export class SideCarClient {
   ): Promise<string> {
     const model = overrideModel && overrideModel.trim().length > 0 ? overrideModel : this.model;
     // Mirror the spend-delta hook from `complete()` so router budget
-    // tracking works for critic dispatches too.
+    // tracking works for override dispatches too.
     const preSpend = spendTracker.snapshot().totalUsd;
     try {
       const result = await this.backend.complete(model, systemPrompt, messages, maxTokens, signal, responseFormat);

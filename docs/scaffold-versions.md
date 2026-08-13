@@ -38,6 +38,24 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 5.1.0 — the adversarial critic is removed (2026-08)
+
+MINOR: a scaffold mechanism was **removed**, so the scaffold descriptor no
+longer carries a `critic` feature key. Behavior is unchanged for default
+installs (the critic shipped default-off), but manifests either side of this
+boundary differ in shape.
+
+- **Critic removed entirely.** The adversarial critic (`critic.ts`,
+  `criticHook.ts`, the `analysisCritic` hook, `sidecar.critic.*` settings, the
+  `critic` router role, the `critic-only` ablation arm, and the
+  `runLlmCritic` scaffolding-profile trigger) is deleted. It had shipped
+  default-off since the SWE-bench ablation measured it as actively harmful
+  (~7.5× faster termination, MORE empty patches — a blocking model-judges-model
+  verdict sent weak models chasing phantom findings and over-editing). With no
+  measured benefit and a real maintenance cost, it is gone rather than dormant.
+  Deterministic verification (completion gate, lint, tests, syntax) remains the
+  load-bearing layer.
+
 ### 5.0.0 — checks must PASS, and silence is not an answer (2026-08)
 
 MAJOR twice over: a gate's verification semantics changed (red-check refusal)

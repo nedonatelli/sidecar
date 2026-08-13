@@ -16,7 +16,7 @@ import { inferAblation, type AblationInference, type Pair } from './ablationStat
 
 /** One eval run, tagged with which scaffold was toggled and whether it was active. */
 export interface AblationRun {
-  /** Scaffold under test, e.g. 'completionGate' | 'analysisCritic' | 'autoFix'. */
+  /** Scaffold under test, e.g. 'completionGate' | 'autoFix'. */
   scaffold: string;
   /** Was the scaffold active for this run? */
   present: boolean;

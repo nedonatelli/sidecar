@@ -241,7 +241,7 @@ async function analyzeScreenshot(input: Record<string, unknown>, context?: ToolE
   const userPrompt = `Criteria to verify:\n${criteria}`;
 
   // Use the client from context if available, otherwise fall back to the
-  // process-wide client. We make a direct vision call like criticHook does.
+  // process-wide client. We make a direct vision call on its own client.
   const client = context?.client;
   if (!client) {
     return 'Error: no SideCarClient available in tool context. This tool requires an active agent session.';

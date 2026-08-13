@@ -44,8 +44,6 @@ describe('initLoopState', () => {
       expect(state.recentToolCalls).toEqual([]);
       expect(state.autoFixRetriesByFile.size).toBe(0);
       expect(state.stubFixRetries).toBe(0);
-      expect(state.criticInjectionsByFile.size).toBe(0);
-      expect(state.criticInjectionsByTestHash.size).toBe(0);
       expect(state.toolCallCounts.size).toBe(0);
     });
 
@@ -178,8 +176,6 @@ describe('initLoopState', () => {
         'recentNormalizedCalls',
         'autoFixRetriesByFile',
         'stubFixRetries',
-        'criticInjectionsByFile',
-        'criticInjectionsByTestHash',
         'toolCallCounts',
         'gateState',
         'checkpointFired',

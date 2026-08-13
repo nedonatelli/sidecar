@@ -240,7 +240,7 @@ export const DEFAULT_CASE_TIMEOUT_MS = (() => {
  * case's own `configOverrides` (env wins). Lets any eval file sweep feature
  * flags without editing cases:
  *
- *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"criticEnabled":true}' npm run eval:guardprobe
+ *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"impactGateEnabled":true}' npm run eval:guardprobe
  *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"planExternalizedEnabled":true}' npm run eval:smoke
  *
  * Malformed JSON throws at module load — a silent fallback would run the

@@ -159,15 +159,12 @@ export interface SideCarConfig {
   kickstandYarnExtFactor: number;
   kickstandYarnOrigCtx: number;
   kickstandFlashAttn: boolean;
-  criticEnabled: boolean;
-  criticModel: string;
-  criticBlockOnHighSeverity: boolean;
   adaptiveScaffoldingEnabled: boolean;
   /** Learn each model's capability tier from how it actually performs (see modelPerformance.ts). */
   modelLearningEnabled: boolean;
   /** Explicit per-model tier, e.g. `{"llama3.2": "weak"}`. Absolute — overrides detection. */
   modelTierOverrides: Record<string, CapabilityTier>;
-  /** Pin individual scaffolding triggers regardless of tier, e.g. `{"runLlmCritic": true}`. */
+  /** Pin individual scaffolding triggers regardless of tier, e.g. `{"maxGateInjections": 5}`. */
   scaffoldingOverrides: ScaffoldingOverrides;
   keepBestRatchetEnabled: boolean;
   planExternalizedEnabled: boolean;
@@ -555,7 +552,6 @@ function readConfig(): SideCarConfig {
     kickstandYarnExtFactor: cfg.get<number>('kickstand.yarnExtFactor', -1),
     kickstandYarnOrigCtx: Math.max(cfg.get<number>('kickstand.yarnOrigCtx', 0), 0),
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
-    criticEnabled: cfg.get<boolean>('critic.enabled', false),
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', true),
     modelLearningEnabled: cfg.get<boolean>('modelLearning.enabled', true),
     modelTierOverrides: cfg.get<Record<string, CapabilityTier>>('modelTier', {}),
@@ -573,18 +569,6 @@ function readConfig(): SideCarConfig {
     wholeFileRewriteStrategyEnabled: cfg.get<boolean>('editStrategy.wholeFileRewrite', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
-    // Provider-aware default: an empty `critic.model` historically meant
-    // "use the main model," which doubled per-iteration cost on paid Anthropic
-    // backends. If the main model is Sonnet/Opus and the user hasn't explicitly
-    // set a critic model, substitute Haiku (~12× cheaper per token). Ollama /
-    // OpenAI / etc. keep the legacy "empty → main model" behavior since we
-    // don't have a provider-specific cheap model to substitute.
-    criticModel:
-      cfg.get<string>('critic.model', '') ||
-      (detectProvider(rawBaseUrl, rawProvider) === 'anthropic' && model !== ANTHROPIC_DEFAULT_MODEL
-        ? ANTHROPIC_DEFAULT_MODEL
-        : ''),
-    criticBlockOnHighSeverity: cfg.get<boolean>('critic.blockOnHighSeverity', false),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
     fallbackApiKey: getCachedFallbackApiKey() ?? cfg.get<string>('fallbackApiKey', ''),

@@ -40,7 +40,6 @@ const backend = pickAgentBackend();
 /** Every verification scaffold off. */
 const BARE = {
   completionGateEnabled: false,
-  criticEnabled: false,
   autoFixOnFailure: false,
   adaptiveScaffoldingEnabled: false,
   keepBestRatchetEnabled: false,
@@ -54,7 +53,6 @@ const BARE = {
 /** Everything on, fixed — the same maximum for every model, no adaptation. */
 const ALWAYS_ON = {
   completionGateEnabled: true,
-  criticEnabled: false, // measured harmful as a blocker; not part of "maximum" any more
   autoFixOnFailure: true,
   adaptiveScaffoldingEnabled: false, // fixed medium profile — the point of the contrast
   keepBestRatchetEnabled: true,
