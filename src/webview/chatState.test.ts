@@ -33,6 +33,16 @@ function createState(): ChatState {
 }
 
 describe('ChatState', () => {
+  // Chat logs land in os.tmpdir()/sidecar-chatlogs. Wipe it after every test so an
+  // assertion that throws before its inline unlink can't leave a file behind for a
+  // later run to trip over (this file is the only writer of that dir).
+  afterEach(() => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    fs.rmSync(path.join(os.tmpdir(), 'sidecar-chatlogs'), { recursive: true, force: true });
+  });
+
   it('initializes with empty messages', () => {
     const state = createState();
     expect(state.messages).toEqual([]);
