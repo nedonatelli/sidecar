@@ -55,6 +55,37 @@ describe('OllamaBackend', () => {
       expect(events).toContainEqual({ type: 'stop', stopReason: 'end_turn' });
     });
 
+    it('emits a usage event with Ollama token counts on the done chunk', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { model: 'test', message: { role: 'assistant', content: 'ok' }, done: false },
+          {
+            model: 'test',
+            message: { role: 'assistant', content: '' },
+            done: true,
+            done_reason: 'stop',
+            prompt_eval_count: 1234,
+            eval_count: 56,
+          },
+        ]),
+      });
+
+      const events = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      const usage = events.find((e) => e.type === 'usage');
+      expect(usage, 'ollama done chunk should surface prompt_eval_count/eval_count').toBeDefined();
+      if (usage?.type === 'usage') {
+        expect(usage.usage.inputTokens).toBe(1234);
+        expect(usage.usage.outputTokens).toBe(56);
+      }
+      // Usage must precede stop so the loop records real input tokens for this turn.
+      expect(events.findIndex((e) => e.type === 'usage')).toBeLessThan(events.findIndex((e) => e.type === 'stop'));
+    });
+
     it('yields tool_use events from native tool calls', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

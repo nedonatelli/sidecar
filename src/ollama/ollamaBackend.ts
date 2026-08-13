@@ -216,6 +216,9 @@ interface OllamaChatChunk {
   };
   done: boolean;
   done_reason?: string;
+  /** Token accounting, present on the final (done:true) chunk. */
+  prompt_eval_count?: number;
+  eval_count?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +517,21 @@ export class OllamaBackend implements ApiBackend {
           // regardless of the underlying done_reason.
           if (chunk.done) {
             sawDoneChunk = true;
+            // Surface Ollama's actual token counts so the loop uses real numbers
+            // (adaptive first-token timeout, compression) instead of char estimates,
+            // and observability can see the true prompt size per turn.
+            if (chunk.prompt_eval_count !== undefined || chunk.eval_count !== undefined) {
+              yield {
+                type: 'usage',
+                model: chunk.model,
+                usage: {
+                  inputTokens: chunk.prompt_eval_count ?? 0,
+                  outputTokens: chunk.eval_count ?? 0,
+                  cacheCreationInputTokens: 0,
+                  cacheReadInputTokens: 0,
+                },
+              };
+            }
             let stopReason: string;
             if (sawToolCall || emittedToolCallThisChunk) {
               stopReason = 'tool_use';
@@ -536,6 +554,18 @@ export class OllamaBackend implements ApiBackend {
           const chunk = JSON.parse(trailing) as OllamaChatChunk;
           if (chunk.done) {
             sawDoneChunk = true;
+            if (chunk.prompt_eval_count !== undefined || chunk.eval_count !== undefined) {
+              yield {
+                type: 'usage',
+                model: chunk.model,
+                usage: {
+                  inputTokens: chunk.prompt_eval_count ?? 0,
+                  outputTokens: chunk.eval_count ?? 0,
+                  cacheCreationInputTokens: 0,
+                  cacheReadInputTokens: 0,
+                },
+              };
+            }
             yield {
               type: 'stop',
               stopReason: sawToolCall
