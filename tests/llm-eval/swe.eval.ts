@@ -124,10 +124,18 @@ function cleanupRepoClones(): void {
   repoClones.clear();
 }
 
-/** Everything the agent changed, as a unified diff against base_commit. */
-function captureDiff(dir: string): string {
+/**
+ * Everything the agent changed since base_commit, as a unified diff — whether it
+ * left the changes in the working tree OR committed them. Diffing against HEAD
+ * missed committed work: an agent that ran `git_commit` moved HEAD onto its own
+ * change, so `diff --cached HEAD` came back empty and the task scored as an empty
+ * patch (observed live: gemma4 on django-11848 fixed the bug, committed it, and
+ * the harness threw the patch away). base_commit is the fixed reference the
+ * official predictions apply against, so it captures both cases.
+ */
+function captureDiff(dir: string, baseCommit: string): string {
   git(['add', '-A'], dir);
-  return git(['diff', '--cached', 'HEAD'], dir);
+  return git(['diff', '--cached', baseCommit], dir);
 }
 
 const RETRIEVAL_TOPK = parseInt(process.env.SIDECAR_SWE_RETRIEVAL_TOPK ?? '6', 10);
@@ -295,7 +303,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     } finally {
       clearTimeout(timer);
     }
-    patch = captureDiff(dir);
+    patch = captureDiff(dir, task.base_commit);
   } catch (err) {
     // Surface the cause — a silently swallowed failure here turned a broken
     // OLLAMA_HOST into 150 instant 'EMPTY' rows that looked like model
