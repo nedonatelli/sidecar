@@ -1139,6 +1139,62 @@ describe('editFile replace_all', () => {
   });
 });
 
+describe('editFile shadow-definition guard', () => {
+  afterEach(() => vi.restoreAllMocks());
+  // The django-10914 failure shape: a setting already exists as `= None`, and the
+  // model, told to change it, ADDS a second definition (anchored on the comment)
+  // instead of editing the first — leaving a shadowed, no-op "fix" that parses.
+  const settingsPy =
+    'FILE_UPLOAD_TEMP_DIR = None\n' +
+    '\n' +
+    '# The numeric mode to set newly-uploaded files to. The value should be a mode\n' +
+    "# you'd pass directly to os.chmod.\n" +
+    'FILE_UPLOAD_PERMISSIONS = None\n';
+
+  beforeEach(async () => {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(settingsPy) as never);
+  });
+
+  it('refuses an edit that adds a SECOND top-level definition of an existing name', async () => {
+    const { workspace } = await import('vscode');
+    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    writeSpy.mockClear();
+    await expect(
+      editFile(
+        {
+          path: 'global_settings.py',
+          search: "# you'd pass directly to os.chmod.",
+          replace: "FILE_UPLOAD_PERMISSIONS = 0o644 # you'd pass directly to os.chmod.",
+        },
+        { filesReadThisTurn: new Set(['global_settings.py']) } as never,
+      ),
+    ).rejects.toThrow(/define `FILE_UPLOAD_PERMISSIONS` at the top level 2 times/);
+    expect(writeSpy).not.toHaveBeenCalled(); // the shadowed file must NOT be written
+  });
+
+  it('allows the correct fix: CHANGING the existing definition in place', async () => {
+    const { workspace } = await import('vscode');
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written = Buffer.from(content as Uint8Array).toString('utf-8');
+    });
+    const result = await editFile(
+      {
+        path: 'global_settings.py',
+        search: 'FILE_UPLOAD_PERMISSIONS = None',
+        replace: 'FILE_UPLOAD_PERMISSIONS = 0o644',
+      },
+      { filesReadThisTurn: new Set(['global_settings.py']) } as never,
+    );
+    expect(result).toContain('File edited');
+    expect((written.match(/^FILE_UPLOAD_PERMISSIONS =/gm) || []).length).toBe(1); // still exactly one
+    expect(written).toContain('FILE_UPLOAD_PERMISSIONS = 0o644');
+    expect(written).not.toContain('FILE_UPLOAD_PERMISSIONS = None');
+  });
+});
+
 describe('already-applied detection (completion recognition)', () => {
   afterEach(() => vi.restoreAllMocks());
 

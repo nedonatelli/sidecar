@@ -1583,11 +1583,72 @@ export async function resolveEditedText(params: {
       `not \\n escapes.]`;
   }
 
+  // Shadow-definition guard. A weak model told to CHANGE an existing top-level
+  // value often ADDS a second definition instead of editing the first — anchoring
+  // on a nearby comment — leaving the original below it. The later definition
+  // wins, so the "fix" is a silent no-op that still PARSES (the syntax guard can't
+  // see it). Live: gemma4 on django-10914 added `FILE_UPLOAD_PERMISSIONS = 0o644`
+  // above the existing `= None`, read the diff, declared success, and committed a
+  // patch that changed nothing. Refuse the edit and point at the real target.
+  const dup = introducedTopLevelDuplicate(text, newText);
+  if (dup) {
+    recordEditFailure(context, filePath, search, replace);
+    throw new Error(
+      `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — it would define \`${dup.name}\` at the ` +
+        `top level ${dup.lines.length} times (lines ${dup.lines.join(', ')}), which it isn't in the current file. ` +
+        `The LAST top-level definition wins, so adding a second \`${dup.name}\` is usually a no-op — the existing ` +
+        `line overrides the one you added. To CHANGE an existing top-level \`${dup.name}\`, put its CURRENT line ` +
+        `in \`search\` and the new version in \`replace\` (do not add a second definition). The file was NOT modified.`,
+    );
+  }
+
   return {
     newText,
     prefixNote: matchToleranceNote(match, filePath, text) + duplicateTrimNote,
     suffixNote: escapeRecoveryNote,
   };
+}
+
+/**
+ * Top-level (column-0) definitions in `text`: assignments (`X =`, `X: T =`),
+ * Python `def`/`class`, and JS/TS `function`/`class`/`const`/`let`/`var`. Maps
+ * name → the 1-based lines it's defined on. Column-0-only keeps it to module
+ * scope (indented = inside a function/class/block, a different namespace) and
+ * dodges the tree-sitter-scope ambiguity of the flat symbol list.
+ */
+function topLevelDefs(text: string): Map<string, number[]> {
+  const defs = new Map<string, number[]>();
+  const add = (name: string, line: number): void => {
+    const arr = defs.get(name);
+    if (arr) arr.push(line);
+    else defs.set(name, [line]);
+  };
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    if (ln.length === 0 || /^\s/.test(ln)) continue; // module scope only
+    let m: RegExpMatchArray | null;
+    // NAME = ... or NAME: Type = ...  (excludes ==, +=, <=, etc. via the =(?![=]) tail)
+    if ((m = ln.match(/^([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=(?!=)/))) add(m[1], i + 1);
+    else if ((m = ln.match(/^(?:async\s+)?def\s+([A-Za-z_]\w*)/))) add(m[1], i + 1);
+    else if ((m = ln.match(/^class\s+([A-Za-z_]\w*)/))) add(m[1], i + 1);
+    else if (
+      (m = ln.match(/^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/))
+    )
+      add(m[1], i + 1);
+  }
+  return defs;
+}
+
+/** A top-level name the edit newly duplicated: present ≥2× in `newText` and more
+ *  times than in `oldText`. Null when the edit introduced no such shadow. */
+function introducedTopLevelDuplicate(oldText: string, newText: string): { name: string; lines: number[] } | null {
+  const before = topLevelDefs(oldText);
+  const after = topLevelDefs(newText);
+  for (const [name, lines] of after) {
+    if (lines.length >= 2 && lines.length > (before.get(name)?.length ?? 0)) return { name, lines };
+  }
+  return null;
 }
 
 /** How a tier's tolerance reads in an ambiguity error. */
