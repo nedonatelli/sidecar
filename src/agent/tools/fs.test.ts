@@ -1102,6 +1102,43 @@ describe('exact-match token-boundary guard (no mid-token splicing)', () => {
   });
 });
 
+describe('editFile replace_all', () => {
+  afterEach(() => vi.restoreAllMocks());
+  // The django-11099 shape: the same token repeated, which thrashed both arms
+  // (12 edit_file bounces on "appears 2 times") because there was no way to
+  // change all occurrences at once.
+  const twoOccur = 'export const A = LIMIT;\nexport const B = LIMIT;\n';
+
+  beforeEach(async () => {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(twoOccur) as never);
+  });
+
+  it('an ambiguous search without replace_all errors AND the error offers replace_all', async () => {
+    await expect(
+      editFile({ path: 'src/x.ts', search: 'LIMIT', replace: 'MAX' }, {
+        filesReadThisTurn: new Set(['src/x.ts']),
+      } as never),
+    ).rejects.toThrow(/appears 2 times[\s\S]*replace_all: true/i);
+  });
+
+  it('replace_all: true changes every occurrence in one call', async () => {
+    const { workspace } = await import('vscode');
+    let written = '';
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written = Buffer.from(content as Uint8Array).toString('utf-8');
+    });
+    const result = await editFile({ path: 'src/x.ts', search: 'LIMIT', replace: 'MAX', replace_all: true }, {
+      filesReadThisTurn: new Set(['src/x.ts']),
+    } as never);
+    expect(result).toMatch(/replace_all/);
+    expect(written).toBe('export const A = MAX;\nexport const B = MAX;\n');
+    expect((written.match(/MAX/g) || []).length).toBe(2);
+    expect(written).not.toContain('LIMIT');
+  });
+});
+
 describe('already-applied detection (completion recognition)', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -1379,7 +1416,13 @@ describe('insertion via the single substitution primitive (insert_* removed)', (
     // splitFusedAnchor recovery used to do (eight false "File edited" results
     // while duplicating text five times over, measured on gemma4).
     const declared = Object.keys(editFileDef.input_schema.properties ?? {});
-    expect(declared).toEqual(['path', 'search', 'replace']);
+    // replace_all is the ONE sanctioned addition beyond the substitution triple —
+    // a whole-file multi-occurrence switch, not a new insertion surface. insert_*
+    // and new_text must never reappear.
+    expect(declared).toEqual(['path', 'search', 'replace', 'replace_all']);
+    expect(declared).not.toContain('insert_after');
+    expect(declared).not.toContain('insert_before');
+    expect(declared).not.toContain('new_text');
   });
 
   it('no model-facing string still teaches a removed field', () => {

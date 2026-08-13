@@ -1215,6 +1215,15 @@
             ],
             "markdownDescription": "For **local models** (Ollama/Kickstand), send only the core coding tools (read/edit/search/run/diagnostics) at full schema and compact the rest to one-line stubs the model can expand with `describe_tool`. Cuts ~2.5K tokens of tool schema off every turn and gives small models a clearer 12-tool choice instead of 50+. No effect on cloud backends."
           },
+          "sidecar.editFile.resultDiffChars": {
+            "type": "number",
+            "default": 800,
+            "order": 43,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "After a successful `edit_file`, append a bounded diff of what actually changed to the tool result (capped at this many characters), so the model can see — and self-verify — the outcome instead of only `File edited: <path>`. Helps weak local models catch wrong-but-applied edits. Set to `0` to disable."
+          },
           "sidecar.zenMode.enabled": {
             "type": "boolean",
             "default": false,

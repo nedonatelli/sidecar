@@ -565,7 +565,7 @@ function readConfig(): SideCarConfig {
     summarizerVerbatimUserChars: cfg.get<number>('compaction.verbatimUserChars', 0),
     durableInstructionsEnabled: cfg.get<boolean>('compaction.durableInstructions', true),
     persistInstructionsEnabled: cfg.get<boolean>('memory.persistInstructions', true),
-    editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
+    editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 800),
     diagnosticsAnalysisBudgetMs: cfg.get<number>('diagnostics.analysisBudgetMs', 5000),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),

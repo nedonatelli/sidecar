@@ -276,7 +276,8 @@ describe('tools.ts', () => {
       // position (the plain-English reading) could not express the intent.
       const cfg = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
       const def = getToolDefinitions(undefined, cfg as never).find((d) => d.name === 'edit_file')!;
-      expect(Object.keys(def.input_schema.properties ?? {})).toEqual(['path', 'search', 'replace']);
+      // replace_all (whole-file multi-occurrence switch) is allowed; insert_* / new_text are not.
+      expect(Object.keys(def.input_schema.properties ?? {})).toEqual(['path', 'search', 'replace', 'replace_all']);
     });
   });
 
