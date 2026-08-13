@@ -9,16 +9,18 @@ const { shellCounter, ShellSessionStub } = vi.hoisted(() => {
   class Stub {
     readonly id: number;
     readonly cwd: string;
+    readonly maxOutputSize: number;
     isAlive = true;
     disposed = false;
     dispose = vi.fn(() => {
       this.disposed = true;
       this.isAlive = false;
     });
-    constructor(cwd: string) {
+    constructor(cwd: string, _env?: Record<string, string>, maxOutputSize = 10 * 1024 * 1024) {
       counter.n += 1;
       this.id = counter.n;
       this.cwd = cwd;
+      this.maxOutputSize = maxOutputSize;
     }
   }
   return { shellCounter: counter, ShellSessionStub: Stub };
@@ -31,7 +33,7 @@ vi.mock('vscode', () => ({
 }));
 
 vi.mock('../../config/settings.js', () => ({
-  getConfig: () => ({ shellMaxOutputMB: 10 }),
+  getConfig: () => ({ shellMaxOutputMB: 0, promptPruningMaxToolResultTokens: 4000 }),
 }));
 
 vi.mock('../../terminal/shellSession.js', () => ({
@@ -137,6 +139,31 @@ describe('ToolRuntime', () => {
       const fake = { lookupSymbol: vi.fn() } as unknown as Parameters<typeof setSymbolGraph>[0];
       a.symbolGraph = fake;
       expect(b.symbolGraph).toBeNull();
+    });
+  });
+
+  describe('shell output capture bound', () => {
+    type StubShell = { maxOutputSize: number };
+    const cfg = (over: Record<string, unknown>) =>
+      ({ shellMaxOutputMB: 0, promptPruningMaxToolResultTokens: 4000, ...over }) as never;
+
+    it('auto (shellMaxOutputMB=0) bounds capture at 16× the pruner keep, ≥512KB', () => {
+      // pruner keep = tokensToChars(4000) = 16000 chars; 16× = 256000 < 512KB floor.
+      const shell = new ToolRuntime().getShellSession(cfg({})) as unknown as StubShell;
+      expect(shell.maxOutputSize).toBe(512 * 1024);
+    });
+
+    it('auto scales above the floor when the pruner budget is large', () => {
+      // tokensToChars(50000) = 200000 chars; 16× = 3.2MB > 512KB floor → tracks the budget.
+      const shell = new ToolRuntime().getShellSession(
+        cfg({ promptPruningMaxToolResultTokens: 50000 }),
+      ) as unknown as StubShell;
+      expect(shell.maxOutputSize).toBe(200000 * 16);
+    });
+
+    it('an explicit shellMaxOutputMB (>0) forces a hard MB ceiling', () => {
+      const shell = new ToolRuntime().getShellSession(cfg({ shellMaxOutputMB: 4 })) as unknown as StubShell;
+      expect(shell.maxOutputSize).toBe(4 * 1024 * 1024);
     });
   });
 });

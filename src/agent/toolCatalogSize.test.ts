@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { TOOL_REGISTRY, getToolDefinitionsForTier } from './tools.js';
 import { toFunctionTools } from '../ollama/streamUtils.js';
 import { charsToTokens } from '../config/tokenEstimation.js';
+import { getConfig } from '../config/settings.js';
 
 // Fixed-cost ratchets for the tool catalog.
 //
@@ -58,5 +59,39 @@ describe('tool-catalog fixed-cost ratchet', () => {
       chars: wireChars([t.definition]),
     })).filter((t) => t.chars > 2_500);
     expect(oversized, `oversized tool schemas: ${JSON.stringify(oversized)}`).toEqual([]);
+  });
+});
+
+describe('local-model tool trim', () => {
+  const isStub = (d: { description: string }) => /\[stub —/.test(d.description);
+  const fullSchemaCount = (defs: { description: string }[]) => defs.filter((d) => !isStub(d)).length;
+  const cfg = (over: Record<string, unknown>) => ({ ...getConfig(), ...over }) as never;
+  const cloud = cfg({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', localToolTrimEnabled: true });
+  const local = cfg({ provider: 'ollama', baseUrl: 'http://localhost:11434', localToolTrimEnabled: true });
+  const localOff = cfg({ provider: 'ollama', baseUrl: 'http://localhost:11434', localToolTrimEnabled: false });
+
+  it('local models ship fewer full schemas and a smaller catalog than cloud', () => {
+    const localFull = getToolDefinitionsForTier('full', undefined, local);
+    const cloudFull = getToolDefinitionsForTier('full', undefined, cloud);
+    expect(fullSchemaCount(localFull)).toBeLessThan(fullSchemaCount(cloudFull));
+    expect(wireChars(localFull)).toBeLessThan(wireChars(cloudFull));
+  });
+
+  it('local trim keeps the core coding loop at full schema', () => {
+    const byName = new Map(getToolDefinitionsForTier('full', undefined, local).map((d) => [d.name, d]));
+    for (const name of ['read_file', 'edit_file', 'run_command', 'grep', 'project_knowledge_search']) {
+      const def = byName.get(name);
+      expect(def, `${name} missing from catalog`).toBeDefined();
+      expect(isStub(def!), `${name} should stay full-schema for local`).toBe(false);
+    }
+  });
+
+  it('disabling the trim widens a local model back to the full catalog', () => {
+    // Same provider (ollama), trim off vs on — isolates the trim from the
+    // provider-specific delegate_task difference vs cloud.
+    const off = getToolDefinitionsForTier('full', undefined, localOff);
+    const on = getToolDefinitionsForTier('full', undefined, local);
+    expect(fullSchemaCount(off)).toBeGreaterThan(fullSchemaCount(on));
+    expect(wireChars(off)).toBeGreaterThan(wireChars(on));
   });
 });

@@ -448,8 +448,8 @@
           },
           "sidecar.shellMaxOutputMB": {
             "type": "number",
-            "default": 10,
-            "description": "Maximum shell output size in MB before truncation"
+            "default": 0,
+            "description": "Hard ceiling on captured shell output, in MB. 0 (default) auto-bounds capture near the model's context budget — the prompt pruner keeps only ~16KB of any tool result, so capturing megabytes just wastes memory. Set a positive value to force a fixed MB ceiling (e.g. to see more of a long stream in the webview)."
           }
         }
       },
@@ -1204,6 +1204,16 @@
               "cost"
             ],
             "markdownDescription": "Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this if you need the agent to see full file contents; lower it to reduce cost on heavy exploration tasks."
+          },
+          "sidecar.localToolTrim.enabled": {
+            "type": "boolean",
+            "default": true,
+            "order": 42,
+            "tags": [
+              "sidecar",
+              "cost"
+            ],
+            "markdownDescription": "For **local models** (Ollama/Kickstand), send only the core coding tools (read/edit/search/run/diagnostics) at full schema and compact the rest to one-line stubs the model can expand with `describe_tool`. Cuts ~2.5K tokens of tool schema off every turn and gives small models a clearer 12-tool choice instead of 50+. No effect on cloud backends."
           },
           "sidecar.zenMode.enabled": {
             "type": "boolean",

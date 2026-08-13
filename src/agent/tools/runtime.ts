@@ -1,4 +1,5 @@
 import { getConfig, type SideCarConfig } from '../../config/settings.js';
+import { tokensToChars } from '../../config/tokenEstimation.js';
 import { ShellSession } from '../../terminal/shellSession.js';
 import type { SymbolGraph } from '../../config/symbolGraph.js';
 import type { SymbolEmbeddingIndex } from '../../config/symbolEmbeddingIndex.js';
@@ -46,7 +47,16 @@ export class ToolRuntime {
   getShellSession(injectedConfig?: SideCarConfig): ShellSession {
     if (this.shell && this.shell.isAlive) return this.shell;
     const config = injectedConfig ?? getConfig();
-    const maxOutput = (config.shellMaxOutputMB || 10) * 1024 * 1024;
+    // Bound shell capture near what the model will actually see. The prompt-pruner
+    // truncates each tool result to ~promptPruningMaxToolResultTokens before it
+    // reaches the model, so capturing far more stdout than that just wastes memory —
+    // a `run_command` that dumps a whole test suite held megabytes we then discarded
+    // 99% of. Default (shellMaxOutputMB = 0 / auto): cap at 16× the pruner keep with a
+    // 512KB floor — enough head+tail material for the pruner, but no unbounded buffer.
+    // An explicit shellMaxOutputMB (>0) forces a hard MB ceiling for users who want the
+    // full stream in the webview.
+    const autoCap = Math.max(512 * 1024, tokensToChars(config.promptPruningMaxToolResultTokens) * 16);
+    const maxOutput = config.shellMaxOutputMB > 0 ? config.shellMaxOutputMB * 1024 * 1024 : autoCap;
     this.shell = new ShellSession(this.cwdOverride ?? getRoot(), this.envOverride, maxOutput, config.sandboxEnabled);
     return this.shell;
   }

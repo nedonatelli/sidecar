@@ -238,6 +238,8 @@ export interface SideCarConfig {
   /* Prompt pruning (paid backends) */
   promptPruningEnabled: boolean;
   promptPruningMaxToolResultTokens: number;
+  /* Local models: trim the full-schema tool set to the core coding loop (rest stubbed). */
+  localToolTrimEnabled: boolean;
   /* Hybrid delegation to local Ollama worker (paid backends only) */
   delegateTaskEnabled: boolean;
   delegateTaskWorkerModel: string;
@@ -508,7 +510,7 @@ function readConfig(): SideCarConfig {
     requestTimeout: clampMin(cfg.get<number>('requestTimeout'), 0, 120),
     firstTokenTimeout: clampMin(cfg.get<number>('firstTokenTimeout'), 0, 300),
     shellTimeout: clampMin(cfg.get<number>('shellTimeout'), 1, 120),
-    shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 1, 10),
+    shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 0, 0),
     pinnedContext: cfg.get<string[]>('pinnedContext', []),
     autoFixOnFailure: cfg.get<boolean>('autoFixOnFailure', false),
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
@@ -617,6 +619,7 @@ function readConfig(): SideCarConfig {
     bgMaxConcurrent: clampMin(cfg.get<number>('bgMaxConcurrent'), 1, 3),
     /* Prompt pruning (paid backends) */
     promptPruningEnabled: cfg.get<boolean>('promptPruning.enabled', true),
+    localToolTrimEnabled: cfg.get<boolean>('localToolTrim.enabled', true),
     promptPruningMaxToolResultTokens: clampMin(cfg.get<number>('promptPruning.maxToolResultTokens'), 200, 4000),
     /* Hybrid delegation to local Ollama worker */
     delegateTaskEnabled: cfg.get<boolean>('delegateTask.enabled', true),

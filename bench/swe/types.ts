@@ -81,6 +81,14 @@ export interface SwePrediction {
    * written before this field existed.
    */
   ratchetReverted?: boolean;
+  /**
+   * Peak prompt-token count the backend actually prefilled across the solve's
+   * turns (Ollama's prompt_eval_count via usage.inputTokens) — the ground-truth
+   * context size, for spotting ballooning (a single huge tool output, RAG
+   * over-injection, unbounded history). Undefined on meta files written before
+   * this field existed.
+   */
+  peakInputTokens?: number;
 }
 
 /** One line of the official `swebench` predictions JSONL. */

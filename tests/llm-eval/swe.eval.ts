@@ -142,7 +142,13 @@ const repoIndexCache = new Map<string, Promise<SymbolEmbeddingIndex>>();
 function getRepoIndex(repo: string, dir: string): Promise<SymbolEmbeddingIndex> {
   let p = repoIndexCache.get(repo);
   if (!p) {
-    p = buildRepoIndex(dir);
+    // SIDECAR_SWE_RAG_MAX_FILES caps how many files the in-memory index embeds.
+    // Full-repo embedding (django ≈ 4000 files) is minutes of MiniLM CPU inference;
+    // a smaller cap makes a run start fast when the exact retrieval set doesn't
+    // matter (e.g. measuring end-to-end context growth). Unset = full index.
+    const maxFilesEnv = process.env.SIDECAR_SWE_RAG_MAX_FILES;
+    const opts = maxFilesEnv ? { maxFiles: Number(maxFilesEnv) } : {};
+    p = buildRepoIndex(dir, opts);
     repoIndexCache.set(repo, p);
   }
   return p;
@@ -169,6 +175,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // Did the RAG retrieve a gold-patch file in the top-k (localization recall)?
   // SWE-bench as a RAG benchmark — undefined when the gold patch isn't known.
   let retrievalRecall: boolean | undefined;
+  // Context-size instrumentation: the backend's ACTUAL prompt-token count per
+  // turn (Ollama's prompt_eval_count via usage.inputTokens), so ballooning is
+  // measured, not guessed. peak = the largest prompt the model was asked to
+  // prefill in this solve.
+  let peakInputTokens = 0;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -193,16 +204,15 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
       'ollama',
     );
-    client.updateSystemPrompt(
-      buildBaseSystemPrompt({
-        isLocal: true,
-        extensionVersion: '0.0.0-bench',
-        repoUrl: '',
-        docsUrl: '',
-        root: dir,
-        approvalMode: 'autonomous',
-      }),
-    );
+    const systemPrompt = buildBaseSystemPrompt({
+      isLocal: true,
+      extensionVersion: '0.0.0-bench',
+      repoUrl: '',
+      docsUrl: '',
+      root: dir,
+      approvalMode: 'autonomous',
+    });
+    client.updateSystemPrompt(systemPrompt);
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), PER_TASK_MS);
     // Trajectory: append every event to disk LIVE (not buffered-then-dumped), so
@@ -244,6 +254,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         const snip = snippet(result);
         traj(`  → ${name} ${isError ? 'ERROR' : 'ok'} (${result.length}b)${snip ? `: ${snip}` : ''}`);
       },
+      onUsage: (usage) => {
+        // Ground-truth context size: what the model actually prefilled this turn.
+        if (usage.inputTokens > peakInputTokens) peakInputTokens = usage.inputTokens;
+        traj(`  CONTEXT in=${usage.inputTokens}tok out=${usage.outputTokens}tok (peak_in=${peakInputTokens})`);
+      },
       onOutcome: (bucket) => {
         flushText();
         terminationBucket = bucket;
@@ -264,7 +279,17 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       confirmFn: async () => 'Allow',
       config: { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) },
     };
-    const messages: ChatMessage[] = [{ role: 'user', content: buildTaskPrompt(task, retrieval.context, taskEnv) }];
+    const userMsg = buildTaskPrompt(task, retrieval.context, taskEnv);
+    const messages: ChatMessage[] = [{ role: 'user', content: userMsg }];
+    // Initial-prompt size BEFORE the first model call — logged unconditionally so
+    // a first-token timeout (which produces no usage event) still tells us how big
+    // the turn-0 context was, and which piece (system prompt vs RAG orientation vs
+    // problem statement) dominates it.
+    traj(
+      `INIT system=${systemPrompt.length}c user=${userMsg.length}c ` +
+        `(rag_orientation=${retrieval.context.length}c problem=${task.problem_statement.length}c) ` +
+        `total≈${systemPrompt.length + userMsg.length}c`,
+    );
     try {
       await runAgentLoop(client, messages, callbacks, abort.signal, options);
     } finally {
@@ -290,6 +315,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     toolCalls,
     retrievalRecall,
     ratchetReverted,
+    peakInputTokens,
   };
 }
 
