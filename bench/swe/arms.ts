@@ -25,7 +25,14 @@ import type { ArmName } from './types.js';
 export type ArmOverrides = Record<string, unknown>;
 
 const SCAFFOLD_ON: ArmOverrides = {
-  criticEnabled: true,
+  // Critic is OFF here on purpose. It ships default-off (critic.enabled=false)
+  // because the SWE-bench ablation measured it as actively harmful (~7.5× faster
+  // termination, MORE empty patches — see docs/agent-loop-diagram.md). Leaving it
+  // on in this arm tested a config no user runs and polluted scaffold-on with a
+  // known-bad feature (over-editing, spurious test files at completion). The
+  // scaffold-on arm must represent the SHIPPED scaffold; the critic-only arm is
+  // what isolates the critic's effect.
+  criticEnabled: false,
   completionGateEnabled: true,
   autoFixOnFailure: true,
   adaptiveScaffoldingEnabled: true,

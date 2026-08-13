@@ -2,11 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { armConfigOverrides, armDescription } from './arms.js';
 
 describe('armConfigOverrides', () => {
-  it('scaffold-on enables the verification scaffolds', () => {
+  it('scaffold-on enables the shipped verification scaffolds but NOT the critic', () => {
     const on = armConfigOverrides('scaffold-on');
-    expect(on.criticEnabled).toBe(true);
+    // Critic ships default-off (measured actively harmful); scaffold-on must
+    // represent the real product, so the critic stays off here. critic-only
+    // isolates it.
+    expect(on.criticEnabled).toBe(false);
     expect(on.completionGateEnabled).toBe(true);
     expect(on.autoFixOnFailure).toBe(true);
+    expect(on.impactGateEnabled).toBe(true);
+    expect(on.numericalContractGateEnabled).toBe(true);
   });
 
   it('scaffold-off disables every verification scaffold', () => {
@@ -36,15 +41,15 @@ describe('armConfigOverrides', () => {
   it('scaffold-on-ratchet is scaffold-on plus the keep-best ratchet', () => {
     const r = armConfigOverrides('scaffold-on-ratchet');
     expect(r.keepBestRatchetEnabled).toBe(true);
-    expect(r.criticEnabled).toBe(true);
+    expect(r.criticEnabled).toBe(false); // inherits scaffold-on's (deliberately off) critic
     expect(r.completionGateEnabled).toBe(true);
     expect(r.autoFixOnFailure).toBe(true);
   });
 
   it('returns a fresh object each call (no shared mutable state)', () => {
     const a = armConfigOverrides('scaffold-on');
-    a.criticEnabled = false;
-    expect(armConfigOverrides('scaffold-on').criticEnabled).toBe(true);
+    a.completionGateEnabled = false;
+    expect(armConfigOverrides('scaffold-on').completionGateEnabled).toBe(true);
   });
 
   it('describes each arm', () => {
