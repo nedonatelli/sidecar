@@ -1044,7 +1044,7 @@ Known-and-accepted (not fixed): the deferral window omits ≤2 iterations from t
 
 - **Comprehensive multi-facet review (O2)** — a "comprehensive / thorough / full" review (or one naming both architecture and security) dispatches the architecture + security reviewers in parallel and merges them into one report via deterministic per-specialist-section concatenation (no LLM merge → no new hallucination surface). (`src/webview/handlers/messageUtils.ts`, `src/agent/facets/facetSynthesis.ts`)
 
-All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now shipped. See `docs/scaffolding-roadmap.md`.
+All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now shipped.
 
 ## [0.114.1] - 2026-06-17
 
@@ -1057,7 +1057,7 @@ All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now sh
 
 **v0.114.0 — Scaffolding subsystem: grounded reviews, capability-adaptive harness, and ablation measurement.**
 
-A coordinated set of "scaffolding" features (see `docs/scaffolding-roadmap.md`) — the harness machinery that makes weaker local models usable. Most ship gated-off or behavior-neutral; the goal is to verify and tune them via the ablation harness before defaulting on.
+A coordinated set of "scaffolding" features — the harness machinery that makes weaker local models usable. Most ship gated-off or behavior-neutral; the goal is to verify and tune them via the ablation harness before defaulting on.
 
 ### Verify
 

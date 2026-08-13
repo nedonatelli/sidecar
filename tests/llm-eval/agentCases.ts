@@ -1251,8 +1251,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
     // the wrong instrument for a verify scaffold: a real review always mentions
     // at least one conventional non-source path (dist/, an inferred module), so
     // it fails 100% in both arms and measures no lift. The right instrument is a
-    // COUNT/RATE of unresolved citations (V1 reduces it) — see the M1/M2
-    // follow-up in docs/scaffolding-roadmap.md. Kept as a soft signal so the
+    // COUNT/RATE of unresolved citations (V1 reduces it). Kept as a soft signal so the
     // case still exercises the review flow without being a permanent red.
     softExpect: {
       citationsResolve: true,
