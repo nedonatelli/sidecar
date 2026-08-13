@@ -125,17 +125,27 @@ function cleanupRepoClones(): void {
 }
 
 /**
- * Everything the agent changed since base_commit, as a unified diff — whether it
- * left the changes in the working tree OR committed them. Diffing against HEAD
- * missed committed work: an agent that ran `git_commit` moved HEAD onto its own
- * change, so `diff --cached HEAD` came back empty and the task scored as an empty
- * patch (observed live: gemma4 on django-11848 fixed the bug, committed it, and
- * the harness threw the patch away). base_commit is the fixed reference the
- * official predictions apply against, so it captures both cases.
+ * The agent's patch, scoped to the files it ACTUALLY edited, diffed against
+ * base_commit — not a whole-repo `git diff`.
+ *
+ * A whole-repo diff trusts the repo tree to be pristine-base + the agent's
+ * edits. That trust is fragile: any repo-state drift (a stray `git` in the
+ * agent's shell, an env-setup step, or — observed live — two eval processes
+ * sharing one cached clone and issuing conflicting `git reset`s) makes the diff
+ * explode to hundreds of unrelated files (django-10914: a clean one-line fix
+ * came back as a 475KB / 256-file "patch" because the tree had drifted to main).
+ *
+ * Scoping to `touchedPaths` (every edit_file/write_file/delete_file target) makes
+ * the capture immune to that: unrelated files can drift all they want and never
+ * reach the patch. base_commit stays the reference so a committed fix is still
+ * captured (django-11848). Empty edits (edited then reverted) diff to nothing and
+ * drop out. Returns '' when the agent touched no files.
  */
-function captureDiff(dir: string, baseCommit: string): string {
-  git(['add', '-A'], dir);
-  return git(['diff', '--cached', baseCommit], dir);
+function captureDiff(dir: string, baseCommit: string, touchedPaths: Set<string>): string {
+  const paths = [...touchedPaths];
+  if (paths.length === 0) return '';
+  git(['add', '-A', '--', ...paths], dir);
+  return git(['diff', '--cached', baseCommit, '--', ...paths], dir);
 }
 
 const RETRIEVAL_TOPK = parseInt(process.env.SIDECAR_SWE_RETRIEVAL_TOPK ?? '6', 10);
@@ -180,6 +190,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // (firstTokenTimeout, 300s) — so its empty patch is an infrastructure
   // failure, not the model failing the task. The ablation excludes these.
   let toolCalls = 0;
+  // Files the agent mutated (edit_file/write_file/delete_file targets). captureDiff
+  // scopes the patch to exactly these, so unrelated repo-state drift can't pollute it.
+  const touchedPaths = new Set<string>();
   // Did the RAG retrieve a gold-patch file in the top-k (localization recall)?
   // SWE-bench as a RAG benchmark — undefined when the gold patch isn't known.
   let retrievalRecall: boolean | undefined;
@@ -256,6 +269,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         flushText();
         toolCalls += 1;
         const arg = (input.path || input.pattern || input.query || input.command || '') as string;
+        // Record which files the agent mutates, so captureDiff can scope the
+        // patch to exactly those (immune to unrelated repo-state drift).
+        if (
+          (name === 'edit_file' || name === 'write_file' || name === 'delete_file') &&
+          typeof input.path === 'string'
+        ) {
+          touchedPaths.add(input.path);
+        }
         traj(`TOOL ${name}${arg ? ` ${String(arg).slice(0, 120)}` : ''}`);
       },
       onToolResult: (name, result, isError) => {
@@ -303,7 +324,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     } finally {
       clearTimeout(timer);
     }
-    patch = captureDiff(dir, task.base_commit);
+    patch = captureDiff(dir, task.base_commit, touchedPaths);
   } catch (err) {
     // Surface the cause — a silently swallowed failure here turned a broken
     // OLLAMA_HOST into 150 instant 'EMPTY' rows that looked like model
