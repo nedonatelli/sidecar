@@ -13,9 +13,27 @@
 // ---------------------------------------------------------------------------
 import * as fs from 'fs';
 import * as path from 'path';
-import { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
+import { SymbolEmbeddingIndex, type SymbolMetadata } from '../../src/config/symbolEmbeddingIndex.js';
+import { FlatVectorStore } from '../../src/config/vectorStore.js';
 import { extractSymbolInputs } from '../../src/config/symbolExtraction.js';
 import { setGrammarsPath } from '../../src/parsing/registry.js';
+
+/** MiniLM all-MiniLM-L6-v2 embedding dimension — the model the index uses. */
+const RAG_DIM = 384;
+/** Bump when the build (walk/extract/embed) changes in a way that invalidates cached vectors. */
+const RAG_CACHE_VERSION = 1;
+
+/** A fresh in-memory vector store (null SidecarDir → its own persist/restore is a
+ *  no-op; this module does its own plain-file caching so the eval doesn't depend
+ *  on the vscode-coupled SidecarDir path machinery). */
+function makeStore(): FlatVectorStore<SymbolMetadata> {
+  return new FlatVectorStore<SymbolMetadata>(null, {
+    dimension: RAG_DIM,
+    version: RAG_CACHE_VERSION,
+    binFile: 'unused',
+    metaFile: 'unused',
+  });
+}
 
 const BASE_SKIP_DIRS = ['.git', 'node_modules', 'build', 'dist', '.tox', '.eggs', '__pycache__', 'docs', 'venvs'];
 // Every language getAnalyzer can parse — so this indexer serves both the Python
@@ -39,16 +57,14 @@ export interface RetrievalHit {
   similarity: number;
 }
 
-/** Build the product's symbol-embedding index over `dir`, in-memory (no cache
- *  dir). Walk → parse → embed every symbol, then drain the embed queue. */
-export async function buildRepoIndex(dir: string, opts: BuildIndexOptions = {}): Promise<SymbolEmbeddingIndex> {
+/** Walk → parse → embed every symbol into `index`, then drain the embed queue. */
+async function indexRepoInto(index: SymbolEmbeddingIndex, dir: string, opts: BuildIndexOptions): Promise<void> {
   const maxFiles = opts.maxFiles ?? 4000;
   const skipDirs = new Set(opts.skipTestDirs === false ? BASE_SKIP_DIRS : [...BASE_SKIP_DIRS, 'tests', 'test']);
   // Load the real tree-sitter grammars (the product does this at activation; the
   // eval must too, or getAnalyzer silently falls back to the regex analyzer,
   // which can't see Python module-level constants like a settings default).
   setGrammarsPath(process.env.SIDECAR_GRAMMARS_PATH || path.resolve('grammars'));
-  const index = new SymbolEmbeddingIndex(null);
   const files: string[] = [];
   const walk = (rel: string): void => {
     for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
@@ -72,6 +88,100 @@ export async function buildRepoIndex(dir: string, opts: BuildIndexOptions = {}):
     for (const sym of await extractSymbolInputs(rel, content)) index.queueSymbol(sym);
   }
   await index.flushQueueForTests();
+}
+
+/** Build the product's symbol-embedding index over `dir`, in-memory. */
+export async function buildRepoIndex(dir: string, opts: BuildIndexOptions = {}): Promise<SymbolEmbeddingIndex> {
+  const index = new SymbolEmbeddingIndex(null, makeStore());
+  await indexRepoInto(index, dir, opts);
+  return index;
+}
+
+interface RagCacheEntry {
+  id: string;
+  metadata: SymbolMetadata;
+  offset: number;
+}
+interface RagCacheMeta {
+  version: number;
+  dim: number;
+  entries: RagCacheEntry[];
+}
+
+/** Reload a persisted index (vectors + metadata) into `store` without re-embedding.
+ *  Returns the entry count, or -1 when no valid cache exists. */
+async function loadCache(store: FlatVectorStore<SymbolMetadata>, prefix: string): Promise<number> {
+  const metaPath = `${prefix}.meta.json`;
+  const binPath = `${prefix}.vec.bin`;
+  if (!fs.existsSync(metaPath) || !fs.existsSync(binPath)) return -1;
+  let meta: RagCacheMeta;
+  try {
+    meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as RagCacheMeta;
+  } catch {
+    return -1;
+  }
+  if (meta.version !== RAG_CACHE_VERSION || meta.dim !== RAG_DIM) return -1;
+  const buf = fs.readFileSync(binPath);
+  if (buf.byteLength < meta.entries.length * RAG_DIM * 4) return -1;
+  // Copy into a fresh, 4-byte-aligned ArrayBuffer — a Node Buffer's byteOffset
+  // isn't guaranteed aligned, and Float32Array views require it.
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  const vecs = new Float32Array(ab);
+  for (const e of meta.entries) {
+    const start = e.offset * RAG_DIM;
+    // upsert copies the vector, so the subarray view is safe to reuse.
+    await store.upsert({ id: e.id, vector: vecs.subarray(start, start + RAG_DIM), metadata: e.metadata });
+  }
+  return meta.entries.length;
+}
+
+/** Persist the built store's vectors + metadata as a plain .meta.json + .vec.bin pair. */
+function saveCache(store: FlatVectorStore<SymbolMetadata>, prefix: string): void {
+  const ids = [...store.entries()];
+  const vecArr = new Float32Array(ids.length * RAG_DIM);
+  const entries: RagCacheEntry[] = [];
+  ids.forEach((e, i) => {
+    const v = store.getVector(e.id);
+    if (v) vecArr.set(v, i * RAG_DIM);
+    entries.push({ id: e.id, metadata: e.metadata, offset: i });
+  });
+  fs.mkdirSync(path.dirname(prefix), { recursive: true });
+  fs.writeFileSync(`${prefix}.vec.bin`, Buffer.from(vecArr.buffer, vecArr.byteOffset, vecArr.byteLength));
+  const meta: RagCacheMeta = { version: RAG_CACHE_VERSION, dim: RAG_DIM, entries };
+  fs.writeFileSync(`${prefix}.meta.json`, JSON.stringify(meta));
+}
+
+/**
+ * Build the repo index, OR reload it from a disk cache keyed by `cacheFilePrefix`.
+ * The in-memory build (walk → tree-sitter parse → MiniLM embed of every symbol)
+ * is ~5–8 min for django; a reload is a few seconds (just the query-embedder
+ * model load + upsert of precomputed vectors). Caller owns the key — include repo
+ * + commit + maxFiles so a stale checkout or a narrower build never reuses a
+ * mismatched cache. On any cache miss/corruption it rebuilds and rewrites.
+ */
+export async function loadOrBuildRepoIndex(
+  dir: string,
+  cacheFilePrefix: string,
+  opts: BuildIndexOptions = {},
+): Promise<SymbolEmbeddingIndex> {
+  const store = makeStore();
+  const loaded = await loadCache(store, cacheFilePrefix);
+  if (loaded > 0) {
+    const index = new SymbolEmbeddingIndex(null, store);
+    // The build path warms the query embedder via flushQueueForTests; a pure
+    // cache-load skips it, so search() would short-circuit on !isReady(). A warmup
+    // embed loads the MiniLM model (via LazyEmbedder.ensureReady) so isReady() is
+    // true and the upserted vectors are searchable.
+    await index.embed('warmup');
+    return index;
+  }
+  const index = new SymbolEmbeddingIndex(null, store);
+  await indexRepoInto(index, dir, opts);
+  try {
+    saveCache(store, cacheFilePrefix);
+  } catch {
+    /* best-effort — a cache write failure must not fail the run */
+  }
   return index;
 }
 

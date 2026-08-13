@@ -32,7 +32,7 @@ import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
 import { armConfigOverrides } from '../../bench/swe/arms.js';
 import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVersion.js';
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
-import { buildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
+import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
@@ -166,7 +166,19 @@ function getRepoIndex(repo: string, dir: string): Promise<SymbolEmbeddingIndex> 
     // matter (e.g. measuring end-to-end context growth). Unset = full index.
     const maxFilesEnv = process.env.SIDECAR_SWE_RAG_MAX_FILES;
     const opts = maxFilesEnv ? { maxFiles: Number(maxFilesEnv) } : {};
-    p = buildRepoIndex(dir, opts);
+    // Disk cache: build once per (repo, checked-out commit, maxFiles), then reuse
+    // across processes — the ~5-8min MiniLM build becomes a ~few-second reload.
+    // `dir` is at base_commit (prepareRepo just reset it), so the commit pins the
+    // exact tree the vectors describe. SIDECAR_SWE_RAG_NO_CACHE forces a rebuild.
+    const commit = git(['rev-parse', 'HEAD'], dir).trim().slice(0, 12);
+    const cacheBase = process.env.SIDECAR_SWE_REPO_CACHE || os.tmpdir();
+    const key = `${repo.replace(/[/\\]/g, '_')}_${commit}_${maxFilesEnv || 'full'}`;
+    const prefix = path.join(cacheBase, 'rag-cache', key);
+    if (process.env.SIDECAR_SWE_RAG_NO_CACHE) {
+      p = loadOrBuildRepoIndex(dir, path.join(os.tmpdir(), `rag-nocache-${Date.now() % 1e9}`), opts);
+    } else {
+      p = loadOrBuildRepoIndex(dir, prefix, opts);
+    }
     repoIndexCache.set(repo, p);
   }
   return p;
