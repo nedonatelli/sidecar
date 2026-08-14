@@ -28,7 +28,7 @@ vi.mock('../completionGate.js', () => ({
   buildMcpMutationVerifyReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
 }));
 
-import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
+import { recordGateToolUses, maybeInjectCompletionGate, maybeInjectSyntaxGate } from './gate.js';
 import { recordToolCall, checkCompletionGate, buildMcpMutationVerifyReprompt } from '../completionGate.js';
 import { setSymbolGraph } from '../tools/runtime.js';
 import { SymbolGraph } from '../../config/symbolGraph.js';
@@ -65,6 +65,63 @@ beforeEach(async () => {
   // paths. Give it parseable source; the syntax gate has its own tests.
   const { workspace } = await import('vscode');
   vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('export const x = 1;\n') as never);
+});
+
+describe('maybeInjectSyntaxGate', () => {
+  const signal = new AbortController().signal;
+
+  it("injects and returns 'injected' when an edited file fails to parse", async () => {
+    const { workspace } = await import('vscode');
+    // A block opener whose body dedents to an OUTER level — the django-10914
+    // corruption class: tree-sitter parses it clean, the Python indent check
+    // (fixed) catches it. Exercises the whole chain into the syntax gate.
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('def f():\n    if x:\ny = 2\n') as never);
+    const gateState = { editedFiles: new Set(['bad.py']), gateInjections: 0 } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(state, stubConfig(), signal, stubCallbacks());
+    expect(out).toBe('injected');
+    expect(gateState.syntaxGateInjections).toBe(1);
+    expect([...(gateState.syntaxGateFixTargets ?? [])].some((f) => f.includes('bad.py'))).toBe(true);
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes('does not parse'))).toBe(true);
+  });
+
+  it("returns 'clean' and injects nothing when the edited file parses", async () => {
+    // A .ts file is parse-checked in-process (no shell checker), so a clean file
+    // resolves without spawning py_compile. The beforeEach mock already returns
+    // valid TS. (A clean .py would fall through to the real py_compile shell,
+    // which hangs in tests — see the syntaxGateInjections:2 note elsewhere.)
+    const gateState = { editedFiles: new Set(['ok.ts']), gateInjections: 0 } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(state, stubConfig(), signal, stubCallbacks());
+    expect(out).toBe('clean');
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it("returns 'skip' when the completion gate is disabled", async () => {
+    const gateState = { editedFiles: new Set(['bad.py']), gateInjections: 0 } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(
+      state,
+      stubConfig({ completionGateEnabled: false }),
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it("returns 'skip' and clears fix targets once the injection budget is spent", async () => {
+    const gateState = {
+      editedFiles: new Set(['bad.py']),
+      gateInjections: 0,
+      syntaxGateInjections: 2,
+      syntaxGateFixTargets: new Set(['bad.py']),
+    } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(state, stubConfig(), signal, stubCallbacks());
+    expect(out).toBe('skip');
+    expect(gateState.syntaxGateFixTargets?.size).toBe(0);
+  });
 });
 
 describe('recordGateToolUses', () => {

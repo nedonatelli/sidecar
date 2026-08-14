@@ -18,6 +18,7 @@ import { isDegenerateText } from './loop/textParsing.js';
 import { MAX_PLAN_STEPS, isPlanOnlyTurn } from './plans/externalPlan.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
+import { maybeInjectSyntaxGate } from './loop/gate.js';
 import {
   excludeBlockedCircularRewrites,
   resetVerifyCountersForVerifications,
@@ -745,6 +746,17 @@ export async function runAgentLoop(
         forCycleDetection.length > 0 &&
         detectCycleAndBail(forCycleDetection, state, callbacks)
       ) {
+        // Last-chance syntax rescue before the bail is final. A stuck loop with
+        // a broken EDITED file on disk (e.g. a shell `sed` or a write the
+        // edit-time guard couldn't cover) gets the concrete parse error as a
+        // directed, cycle-breaking task instead of silently shipping the broken
+        // file — the exact gap the completion gate leaves on the non-clean-finish
+        // path. Bounded by MAX_SYNTAX_GATE_INJECTIONS, so a model that cannot fix
+        // it still terminates. Dropping this turn's (thrashing) tool calls is the
+        // same as a normal bail — no assistant message is pushed here, so there
+        // is no unmatched tool_use; the injected reprompt replaces them.
+        const rescue = await maybeInjectSyntaxGate(state, state.config, signal, callbacks);
+        if (rescue === 'injected') continue;
         state.termination = 'stuck';
         break;
       }
