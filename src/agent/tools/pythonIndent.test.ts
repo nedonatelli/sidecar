@@ -86,6 +86,27 @@ describe('findPythonIndentErrors — must fire on real IndentationErrors', () =>
     expect(errs(sameIndent).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('an opener whose body dedents to a VALID OUTER level (the django-10914 shape)', () => {
+    // gemma removed the `break` under an `else:`, leaving the `else:` (indent 12)
+    // immediately followed by a line at indent 8 — a real IndentationError
+    // ("expected an indented block after 'else'"). The dedent lands on a VALID
+    // enclosing level, so the old dedent branch found a stack match and shipped a
+    // file py_compile rejects. A block opener MUST be followed by a deeper line.
+    const bad =
+      'def _save(self):\n' +
+      '    while True:\n' +
+      '        try:\n' +
+      '            pass\n' +
+      '        except FileExistsError:\n' +
+      '            full_path = self.path(name)\n' +
+      '        else:\n' +
+      '    if self.file_permissions_mode is not None:\n' +
+      '        os.chmod(full_path, self.file_permissions_mode)\n';
+    const found = errs(bad);
+    expect(found.length).toBeGreaterThanOrEqual(1);
+    expect(found[0].message).toMatch(/expected an indented block/i);
+  });
+
   it('indent after a non-opening line', () => {
     const bad = 'x = 1\n    y = 2\n';
     const found = errs(bad);
