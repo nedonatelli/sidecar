@@ -213,6 +213,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // measured, not guessed. peak = the largest prompt the model was asked to
   // prefill in this solve.
   let peakInputTokens = 0;
+  // Turn count = the highest loop iteration reached (each iteration is a full
+  // model generation pass). The on-vs-off latency axis: scaffold-on can drive
+  // MORE turns when a gate re-prompts or an autofix bounces an edit.
+  let turns = 0;
+  // How often the scaffold fired (gate re-prompts, autofixes, nudges), from the
+  // loop's onOutcome meta. Zero on scaffold-off; a high count paired with worse
+  // resolution is the harmful-scaffold signal.
+  let scaffoldInterventions = 0;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -300,10 +308,16 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         if (usage.inputTokens > peakInputTokens) peakInputTokens = usage.inputTokens;
         traj(`  CONTEXT in=${usage.inputTokens}tok out=${usage.outputTokens}tok (peak_in=${peakInputTokens})`);
       },
-      onOutcome: (bucket) => {
+      onIterationStart: (info) => {
+        // The loop increments iteration at the top of each pass, so the last
+        // value seen is the turn count the run terminated on.
+        turns = info.iteration;
+      },
+      onOutcome: (bucket, meta) => {
         flushText();
         terminationBucket = bucket;
-        traj(`TERMINATION: ${bucket ?? 'natural'}`);
+        if (meta) scaffoldInterventions = meta.scaffoldInterventions;
+        traj(`TERMINATION: ${bucket ?? 'natural'} turns=${turns} scaffoldInterventions=${scaffoldInterventions}`);
       },
       onDone: () => flushText(),
     };
@@ -357,6 +371,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     retrievalRecall,
     ratchetReverted,
     peakInputTokens,
+    turns,
+    scaffoldInterventions,
   };
 }
 
@@ -430,7 +446,8 @@ describe('SWE-bench Verified — prediction generation', () => {
             predictions.push(p);
             fs.appendFileSync(metaPath, JSON.stringify(p) + '\n');
             console.info(
-              `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} (${Math.round(p.durationMs / 1000)}s)`,
+              `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} ` +
+                `(${Math.round(p.durationMs / 1000)}s, ${p.turns} turns, ${p.scaffoldInterventions} scaffold-fires)`,
             );
           }
         }

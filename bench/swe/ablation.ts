@@ -28,14 +28,18 @@ function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[],
   const scored = predictions.filter((p) => p.arm === arm && taskIds.has(p.instance_id));
   const ids = tasks.map((t) => t.instance_id);
   const resolvedIds = ids.filter((id) => resolved.has(id));
-  const durations = scored.map((p) => p.durationMs);
-  const meanDurationMs = durations.length ? durations.reduce((s, d) => s + d, 0) / durations.length : 0;
+  const mean = (xs: number[]): number => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
+  const meanDurationMs = mean(scored.map((p) => p.durationMs));
+  const meanTurns = mean(scored.map((p) => p.turns ?? 0));
+  const meanScaffoldInterventions = mean(scored.map((p) => p.scaffoldInterventions ?? 0));
   return {
     arm,
     resolved: resolvedIds.length,
     total: tasks.length,
     resolveRate: tasks.length ? resolvedIds.length / tasks.length : 0,
     meanDurationMs,
+    meanTurns,
+    meanScaffoldInterventions,
     resolvedIds,
     // Empty patches among SCORED tasks only — genuine "agent worked but produced
     // no diff", with infra stalls already excluded (they're not in `tasks`).

@@ -70,13 +70,14 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
   lines.push('');
   lines.push('## Resolve rates');
   lines.push('');
-  lines.push('| Arm | Resolved | Rate (95% CI) | Empty patches | Mean latency |');
-  lines.push('| --- | --- | --- | --- | --- |');
+  lines.push('| Arm | Resolved | Rate (95% CI) | Empty patches | Mean latency | Mean turns | Scaffold fires |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- |');
   const armCI: Record<string, [number, number]> = { [report.on.arm]: sg.onCI, [report.off.arm]: sg.offCI };
   for (const a of [report.on, report.off]) {
     const [lo, hi] = armCI[a.arm];
     lines.push(
-      `| ${a.arm} | ${a.resolved} / ${a.total} | ${pct(a.resolveRate)} [${pct(lo)}, ${pct(hi)}] | ${a.emptyPatches} | ${sec(a.meanDurationMs)} |`,
+      `| ${a.arm} | ${a.resolved} / ${a.total} | ${pct(a.resolveRate)} [${pct(lo)}, ${pct(hi)}] | ${a.emptyPatches} | ` +
+        `${sec(a.meanDurationMs)} | ${a.meanTurns.toFixed(1)} | ${a.meanScaffoldInterventions.toFixed(1)} |`,
     );
   }
   lines.push('');

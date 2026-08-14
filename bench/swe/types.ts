@@ -88,6 +88,24 @@ export interface SwePrediction {
    * this field existed.
    */
   peakInputTokens?: number;
+  /**
+   * Loop iterations the agent ran (model generation passes) — the highest
+   * iteration number the loop reached before terminating. This is the on-vs-off
+   * cost axis: scaffold-on can drive MORE turns (each an extra full model pass)
+   * when a gate re-prompts or an autofix bounces an edit, so a slower on arm is
+   * explained by turns, not just wall-clock. Undefined on meta files written
+   * before this field existed.
+   */
+  turns?: number;
+  /**
+   * How many times the scaffold actually fired this run (gate re-prompts,
+   * autofixes, nudges) — from the loop's onOutcome meta. Zero on scaffold-off.
+   * A high count on scaffold-on with WORSE resolution is the smoking gun for a
+   * harmful scaffold (the mechanism behind the old critic regression); a high
+   * count with BETTER resolution is the scaffold earning its latency. Undefined
+   * on meta files written before this field existed.
+   */
+  scaffoldInterventions?: number;
 }
 
 /** One line of the official `swebench` predictions JSONL. */
@@ -105,6 +123,14 @@ export interface ArmReport {
   resolveRate: number;
   /** Mean agent wall-clock across the arm's tasks. */
   meanDurationMs: number;
+  /** Mean loop iterations (model generation passes) across the arm's tasks —
+   *  the turn-count axis of the on-vs-off cost comparison. 0 on older meta files
+   *  that predate the `turns` field. */
+  meanTurns: number;
+  /** Mean scaffold interventions (gate re-prompts, autofixes, nudges) across the
+   *  arm's tasks. ~0 on scaffold-off; the on-arm value paired with the resolve
+   *  delta says whether the scaffold's firing helped or hurt. */
+  meanScaffoldInterventions: number;
   /** instance_ids the official harness marked resolved. */
   resolvedIds: string[];
   /** Tasks where the agent produced no patch at all. */
