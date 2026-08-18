@@ -89,6 +89,94 @@ describe('wholeSuiteGuard', () => {
     expect(await hook.afterToolResults!(state as never, {} as never)).toBeUndefined();
   });
 
+  // Scoping the run is only half of it: an invalid label is just as broken a
+  // verification channel as no label. Observed 2026-08-18 — the agent scoped to
+  // `tests/file_uploads/` (a path), django derived `file_uploads.tests`, and it
+  // failed to import. It then retried the identical command four times.
+  describe('invalid test label', () => {
+    const IMPORT_FAIL =
+      'file_uploads.tests (unittest.loader._FailedTest) ... ERROR\n' +
+      'ERROR: file_uploads.tests (unittest.loader._FailedTest)\n' +
+      "ImportError: Failed to import test module: file_uploads.tests\nModuleNotFoundError: No module named 'file_uploads.tests'";
+
+    it('reprompts when a scoped run fails to import the label', async () => {
+      const hook = wholeSuiteGuard();
+      const state = makeState();
+      const r = await hook.afterToolResults!(
+        state as never,
+        {
+          pendingToolUses: [runCommandUse(`${DJANGO_CMD} tests/file_uploads/`)],
+          toolResults: [{ type: 'tool_result', tool_use_id: 't1', content: IMPORT_FAIL }],
+        } as never,
+      );
+      expect(r).toMatchObject({ mutated: true });
+      expect(state.messages[0].content).toContain('test label');
+    });
+
+    it('does not fire when the scoped run actually executed tests', async () => {
+      const hook = wholeSuiteGuard();
+      const state = makeState();
+      const r = await hook.afterToolResults!(
+        state as never,
+        {
+          pendingToolUses: [runCommandUse(`${DJANGO_CMD} file_uploads`)],
+          toolResults: [
+            { type: 'tool_result', tool_use_id: 't1', content: 'Ran 42 tests in 3.2s\n\nFAILED (failures=1)' },
+          ],
+        } as never,
+      );
+      expect(r).toBeUndefined();
+      expect(state.messages).toHaveLength(0);
+    });
+
+    it('does not treat an ordinary test failure as a bad label', async () => {
+      const hook = wholeSuiteGuard();
+      const state = makeState();
+      const r = await hook.afterToolResults!(
+        state as never,
+        {
+          pendingToolUses: [runCommandUse(`${DJANGO_CMD} file_uploads`)],
+          toolResults: [
+            { type: 'tool_result', tool_use_id: 't1', content: 'AssertionError: 493 != 420\nFAILED (failures=1)' },
+          ],
+        } as never,
+      );
+      expect(r).toBeUndefined();
+    });
+
+    it('fires at most once, independently of the bare-suite reprompt', async () => {
+      const hook = wholeSuiteGuard();
+      const state = makeState();
+      const ctx = {
+        pendingToolUses: [runCommandUse(`${DJANGO_CMD} tests/file_uploads/`)],
+        toolResults: [{ type: 'tool_result', tool_use_id: 't1', content: IMPORT_FAIL }],
+      } as never;
+      await hook.afterToolResults!(state as never, ctx);
+      expect(await hook.afterToolResults!(state as never, ctx)).toBeUndefined();
+      expect(state.messages).toHaveLength(1);
+    });
+
+    it('can fire for a bad label after already firing for a bare suite', async () => {
+      const hook = wholeSuiteGuard();
+      const state = makeState();
+      await hook.afterToolResults!(
+        state as never,
+        {
+          pendingToolUses: [runCommandUse(DJANGO_CMD)],
+        } as never,
+      );
+      const r = await hook.afterToolResults!(
+        state as never,
+        {
+          pendingToolUses: [runCommandUse(`${DJANGO_CMD} tests/file_uploads/`)],
+          toolResults: [{ type: 'tool_result', tool_use_id: 't1', content: IMPORT_FAIL }],
+        } as never,
+      );
+      expect(r).toMatchObject({ mutated: true });
+      expect(state.messages).toHaveLength(2);
+    });
+  });
+
   it('ignores non-shell tools', async () => {
     const hook = wholeSuiteGuard();
     const state = makeState();

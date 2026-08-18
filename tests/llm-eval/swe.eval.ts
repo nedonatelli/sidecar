@@ -429,8 +429,12 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
       `run_command (NOT run_tests — it may detect the wrong runner).\n\n` +
       `You MUST scope every test run to the module for this issue by appending a test label:\n` +
       `  ${runner} <test_label>\n` +
-      `For example \`${runner} some_tests.test_module\` or \`${runner} tests/some_tests/test_module.py\`. ` +
-      `Infer the label from the issue and the file you edit.\n` +
+      `The label is the runner's own MODULE notation, not a filesystem path:\n` +
+      `  correct:   \`${runner} some_module\`   or   \`${runner} some_module.test_file\`\n` +
+      `  incorrect: \`${runner} tests/some_module/\`   \`${runner} tests/some_module/tests.py\`\n` +
+      `Drop any \`tests/\` prefix, trailing slash and \`.py\` suffix; use dots, not slashes. ` +
+      `A path-shaped label is rejected by the runner with an import error and runs no tests at all. ` +
+      `Infer the module from the issue and the file you edit.\n` +
       `Do NOT run \`${runner}\` with no label — that executes the project's entire suite (thousands of tests). ` +
       `It takes many minutes and its output is truncated before the part you need, so it cannot tell you ` +
       `whether your fix worked.\n\n` +

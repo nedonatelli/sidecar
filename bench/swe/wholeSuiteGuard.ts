@@ -1,23 +1,28 @@
 // ---------------------------------------------------------------------------
-// Whole-suite guard for SWE-bench arms.
+// Test-invocation guard for SWE-bench arms.
 //
-// The task prompt already tells the agent to run `<test_cmd> <test module or
-// path>`, but gemma4:e4b dropped the placeholder and ran the bare command —
-// which for django means the ENTIRE suite. Observed 2026-08-18: three identical
-// bare invocations in one arm, each killed at the old 120s wall-clock ceiling,
-// ~6 minutes spent returning truncated output the model could not use.
+// Two ways the agent's verification channel breaks, both observed 2026-08-18 on
+// gemma4:e4b, both leaving it with no usable signal about its own fix:
 //
-// Now that the shell timeout is idle-based, a bare invocation no longer gets cut
-// off at 120s — it runs to completion (or the 30-minute absolute cap), so the
-// same mistake costs far more. Hence a deterministic guard rather than trusting
-// the prompt: the harness catches it and says so, once.
+//   1. NO LABEL. The prompt asked for `<test_cmd> <test module or path>`; the
+//      model dropped the placeholder and ran the bare command, which for django
+//      is the ENTIRE suite. Three identical invocations in one arm, each killed
+//      at the old 120s ceiling — 67% of that arm's wall clock, all of it
+//      returning truncated output.
+//   2. BAD LABEL. After the prompt was tightened it scoped correctly in spirit
+//      but used a path (`tests/file_uploads/`); django derived
+//      `file_uploads.tests`, which failed to import. Four identical retries,
+//      zero tests run. Cheap in wall clock (3s) and just as useless.
 //
-// Fires on `afterToolResults`, which is the earliest phase that can see the
-// command (there is no pre-execution hook), so the FIRST bare run is still paid
-// for. What the guard prevents is the repeats, which was most of the waste.
+// Case 2 is why this checks tool RESULTS and not only commands: a scoped-looking
+// command that ran nothing is indistinguishable from a good one at the call site.
+//
+// Both fire on `afterToolResults` — the earliest phase that can see either the
+// command or its output, since there is no pre-execution hook — so the FIRST
+// offence is still paid for. What the guard prevents is the repeats.
 //
 // Deliberately does NOT name the gold tests: `FAIL_TO_PASS` is not shown to
-// agents, so the reprompt teaches the *shape* of a scoped command and leaves the
+// agents, so the reprompts teach the *shape* of a scoped command and leave the
 // choice of module to the agent.
 // ---------------------------------------------------------------------------
 
@@ -55,15 +60,46 @@ export function isWholeSuiteInvocation(command: string): boolean {
   return labels.length === 0;
 }
 
-const REPROMPT =
+/**
+ * Output signatures meaning the runner rejected the LABEL, not that tests failed.
+ * An ordinary assertion failure must not match — that is a real result the agent
+ * needs to act on, and nagging about it would be worse than silence.
+ */
+const BAD_LABEL_SIGNATURES = [
+  /unittest\.loader\._FailedTest/,
+  /Failed to import test module/i,
+  /ModuleNotFoundError/,
+  /\bERROR: not found:/,
+  /no tests ran/i,
+  /file or directory not found/i,
+];
+
+/**
+ * True when a test run failed because the label could not be resolved. Checked
+ * against the tool RESULT, so it catches the case a bare-invocation check cannot:
+ * the agent scoped correctly in spirit but used a form the runner rejects.
+ */
+export function isBadTestLabelOutput(output: string): boolean {
+  return BAD_LABEL_SIGNATURES.some((re) => re.test(output));
+}
+
+const BARE_SUITE_REPROMPT =
   'STOP — that command ran the **entire test suite**, not the tests for this issue.\n\n' +
   'A bare runner invocation executes thousands of tests. It takes many minutes and its output is ' +
   'truncated before you can read the part you need, so it cannot tell you whether your fix worked.\n\n' +
-  'Re-run it scoped to the specific test module for this issue by appending a test label, e.g.:\n' +
-  '  `<the test command> some_tests.test_module`\n' +
-  '  `<the test command> tests/some_tests/test_module.py`\n\n' +
+  'Re-run it scoped to the specific test module for this issue by appending a test label, e.g. ' +
+  '`<the test command> some_module` or `<the test command> some_module.test_file`.\n\n' +
   'Pick the module that covers the code you changed — infer it from the issue text and the file you edited. ' +
   'Never run the bare command again in this task.';
+
+const BAD_LABEL_REPROMPT =
+  'STOP — that test run did not execute any tests. The **test label** was rejected by the runner ' +
+  '(import error / module not found), so you have learned nothing about your fix.\n\n' +
+  "Use the runner's own module notation, NOT a filesystem path:\n" +
+  '  correct:   `file_uploads`   or   `utils_tests.test_autoreload`\n' +
+  '  incorrect: `tests/file_uploads/`   `tests/file_uploads/tests.py`   `./tests/file_uploads`\n\n' +
+  'Drop any `tests/` prefix, any trailing slash and any `.py` suffix, and use dots rather than slashes. ' +
+  'Do not re-run the same label — it will fail identically.';
 
 /**
  * Deterministic guard: reprompt once when the agent runs a whole project suite.
@@ -72,25 +108,44 @@ const REPROMPT =
  * own cycle, and the loop already has enough ways to spend turns.
  */
 export function wholeSuiteGuard(): PolicyHook {
-  let fired = false;
+  // Independent one-shot latches. Each failure mode gets exactly one nudge: a
+  // guard that can re-fire becomes its own cycle, and the loop already has
+  // enough ways to spend turns. Independent because they are different mistakes
+  // and hitting one should not silence the other.
+  let firedBareSuite = false;
+  let firedBadLabel = false;
+
+  const isTestRun = (u: { name: string; input: unknown }): string | null => {
+    if (u.name !== 'run_command' && u.name !== 'run_tests') return null;
+    const input = u.input as { command?: unknown };
+    return typeof input.command === 'string' ? input.command : null;
+  };
 
   return {
     name: 'wholeSuiteGuard',
     async afterToolResults(state, ctx) {
-      if (fired) return;
       const uses = ctx.pendingToolUses;
       if (!uses || uses.length === 0) return;
+      const commands = uses.map(isTestRun).filter((c): c is string => c !== null);
+      if (commands.length === 0) return;
 
-      const offending = uses.some((u) => {
-        if (u.name !== 'run_command' && u.name !== 'run_tests') return false;
-        const input = u.input as { command?: unknown };
-        return typeof input.command === 'string' && isWholeSuiteInvocation(input.command);
-      });
-      if (!offending) return;
+      if (!firedBareSuite && commands.some(isWholeSuiteInvocation)) {
+        firedBareSuite = true;
+        state.messages.push({ role: 'user', content: BARE_SUITE_REPROMPT });
+        return { mutated: true, reason: 'whole-suite test invocation' };
+      }
 
-      fired = true;
-      state.messages.push({ role: 'user', content: REPROMPT });
-      return { mutated: true, reason: 'whole-suite test invocation' };
+      // A scoped run whose label the runner rejected. Only meaningful when a
+      // test command actually ran this turn, so an unrelated tool's error text
+      // can never trip it.
+      if (!firedBadLabel) {
+        const output = (ctx.toolResults ?? []).map((r) => r.content).join('\n');
+        if (output && isBadTestLabelOutput(output)) {
+          firedBadLabel = true;
+          state.messages.push({ role: 'user', content: BAD_LABEL_REPROMPT });
+          return { mutated: true, reason: 'invalid test label' };
+        }
+      }
     },
   };
 }
