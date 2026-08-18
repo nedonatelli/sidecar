@@ -1,7 +1,7 @@
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { getConfig } from '../../config/settings.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
-import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from '../completionGate.js';
+import { recordToolCall as recordGateToolCall } from '../completionGate.js';
 import { runGateRegistry } from './completionGates/registry.js';
 import type { LoopState } from './state.js';
 
@@ -32,8 +32,6 @@ import type { LoopState } from './state.js';
 // can't or won't verify doesn't loop forever — after the cap, the
 // gate logs a warning and allows termination with unverified edits.
 // ---------------------------------------------------------------------------
-
-import { MAX_GATE_INJECTIONS } from '../../config/constants.js';
 
 /**
  * Feed every tool use + result pair into the gate state so it can
@@ -80,51 +78,18 @@ export async function maybeInjectCompletionGate(
   signal: AbortSignal,
   callbacks: AgentCallbacks,
 ): Promise<GateOutcome> {
-  const { gateState, logger } = state;
+  const { gateState } = state;
 
   if (signal.aborted || options.approvalMode === 'plan') return 'skip';
 
-  // Any injection below is scaffold-tail by default; the plan-incomplete
-  // branch overrides this to true (primary-work continuation — the keep-best
-  // ratchet must not arm on it; see completionGate.ts field doc).
+  // Any injection is scaffold-tail by default; individual gates (plan-incomplete,
+  // red-check) override this to true for primary-work continuations so the
+  // keep-best ratchet doesn't arm on them. Reset here, before the registry runs.
   gateState.lastInjectionWasPrimaryWork = false;
 
-  // Modular completion gates (registry) — the strangler target the gates are
-  // migrating into, each an isolated, individually-toggleable module. Order in
-  // the registry preserves the historic firing sequence: plan-incomplete,
-  // red-check (own flag), the grounding/verification reprompt cluster,
-  // behavioral-verification (default OFF), then syntax. The
-  // lastInjectionWasPrimaryWork reset above runs before it so plan/red-check can
-  // re-latch it when they fire.
-  if ((await runGateRegistry(state, { config, options, signal, callbacks })) === 'injected') return 'injected';
-
-  // Skip on config disable / nothing to verify / cap.
-  const maxGateInjections = state.scaffoldingProfile?.maxGateInjections ?? MAX_GATE_INJECTIONS;
-  const disabled = config.completionGateEnabled === false || gateState.editedFiles.size === 0;
-
-  if (disabled) return 'skip';
-
-  if (gateState.gateInjections >= maxGateInjections) {
-    if (gateState.editedFiles.size > 0) {
-      logger?.warn(
-        `Completion gate exhausted (${maxGateInjections} injections) — allowing termination with unverified edits`,
-      );
-    }
-    return 'skip';
-  }
-
-  const findings = await checkCompletionGate(gateState);
-  if (findings.length === 0) return 'skip';
-
-  gateState.gateInjections++;
-  const injection = buildGateInjection(findings, gateState.gateInjections, maxGateInjections);
-  logger?.info(
-    `Completion gate fired (#${gateState.gateInjections}/${maxGateInjections}): ${findings.length} unverified edit(s)`,
-  );
-  callbacks.onText('\n\n🔒 Verifying changes before completion...\n');
-  state.messages.push({
-    role: 'user',
-    content: [{ type: 'text' as const, text: injection }],
-  });
-  return 'injected';
+  // Every completion gate now lives in the registry, in historic firing order:
+  // plan-incomplete, red-check, the grounding/verification reprompt cluster,
+  // behavioral-verification (default off), syntax, the code-graph gates, and the
+  // base "edited-but-unverified" completion gate last.
+  return runGateRegistry(state, { config, options, signal, callbacks });
 }

@@ -3,6 +3,7 @@ import { redCheckGate } from './redCheckGate.js';
 import { behavioralVerificationGate } from './behavioralVerificationGate.js';
 import { syntaxGate } from './syntaxGate.js';
 import { impactGate, numericalContractGate, analyticBoundGate } from './codeGraphGates.js';
+import { baseCompletionGate } from './baseCompletionGate.js';
 import {
   noReadGate,
   noShellGate,
@@ -41,6 +42,8 @@ export const GATES: readonly CompletionGate[] = [
   impactGate,
   numericalContractGate,
   analyticBoundGate,
+  // Runs LAST: the original "edited but unverified" completion check.
+  baseCompletionGate,
 ];
 
 /**
