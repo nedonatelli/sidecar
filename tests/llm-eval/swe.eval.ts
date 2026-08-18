@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { normalizeOllamaHost } from '../../src/ollama/hostUrl.js';
 import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
 import { SideCarClient } from '../../src/ollama/client.js';
+import { circuitBreaker } from '../../src/ollama/circuitBreaker.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
@@ -186,6 +187,11 @@ function getRepoIndex(repo: string, dir: string): Promise<SymbolEmbeddingIndex> 
 
 async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   const start = Date.now();
+  // Each benchmark task is independent — clear the backend circuit breaker so a
+  // flaky earlier task (transient network blips against a remote endpoint) can't
+  // leave the breaker OPEN and fast-fail every subsequent task. The breaker is a
+  // cross-task process singleton; without this reset one bad task poisons the run.
+  circuitBreaker.reset();
   let patch = '';
   let dir: string | null = null;
   let restoreMock: (() => void) | null = null;
