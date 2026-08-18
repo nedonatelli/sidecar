@@ -34,6 +34,7 @@ import { armConfigOverrides } from '../../bench/swe/arms.js';
 import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVersion.js';
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { classifyFailure } from '../../bench/swe/failureClassification.js';
+import { wholeSuiteGuard } from '../../bench/swe/wholeSuiteGuard.js';
 import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
@@ -351,6 +352,12 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       cwdOverride: dir,
       confirmFn: async () => 'Allow',
       config: { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) },
+      // Runs in BOTH arms: this is a zero-token deterministic control, like cycle
+      // detection and the thrash defenses, not part of the verification
+      // scaffolding under test. A whole-suite invocation is a harness-cost bug
+      // (thousands of tests, truncated output) that would otherwise distort both
+      // arms' wall clock and leave the agent with no usable test signal.
+      extraPolicyHooks: [wholeSuiteGuard()],
     };
     const userMsg = buildTaskPrompt(task, retrieval.context, taskEnv);
     const messages: ChatMessage[] = [{ role: 'user', content: userMsg }];
@@ -418,9 +425,17 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
   // old blind "minimal change then stop" is all the agent can do.
   const runner = taskEnv?.testCmd ?? './run tests';
   const workflow = taskEnv
-    ? `The repository's dependencies are installed in the active environment. Run its Python test suite with ` +
-      `run_command using \`${runner} <test module or path>\` (NOT run_tests — it may detect the wrong runner). ` +
-      `Reproduce the issue with a failing test, make the code change that fixes it, then re-run to verify before you finish.`
+    ? `The repository's dependencies are installed in the active environment. Run its Python tests with ` +
+      `run_command (NOT run_tests — it may detect the wrong runner).\n\n` +
+      `You MUST scope every test run to the module for this issue by appending a test label:\n` +
+      `  ${runner} <test_label>\n` +
+      `For example \`${runner} some_tests.test_module\` or \`${runner} tests/some_tests/test_module.py\`. ` +
+      `Infer the label from the issue and the file you edit.\n` +
+      `Do NOT run \`${runner}\` with no label — that executes the project's entire suite (thousands of tests). ` +
+      `It takes many minutes and its output is truncated before the part you need, so it cannot tell you ` +
+      `whether your fix worked.\n\n` +
+      `Reproduce the issue with a failing test, make the code change that fixes it, then re-run the scoped ` +
+      `tests to verify before you finish.`
     : `Make the minimal code change that fixes it, then stop — do not write new tests.`;
   const head = `Resolve this GitHub issue in the repository. ${workflow}\n\nIssue:\n${task.problem_statement}`;
   return retrievalContext ? `${head}\n\n---\n${retrievalContext}` : head;
