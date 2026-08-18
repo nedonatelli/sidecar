@@ -129,6 +129,21 @@ describe('wholeSuiteGuard', () => {
       expect(state.messages).toHaveLength(0);
     });
 
+    // django answers a source-module label with `Ran 0 tests ... OK` — not an
+    // error, and it reads like success. Seven of these went unnoticed in one run.
+    it('catches a label that resolved but ran nothing', async () => {
+      const hook = wholeSuiteGuard();
+      const state = makeState();
+      const r = await hook.afterToolResults!(
+        state as never,
+        {
+          pendingToolUses: [runCommandUse(`${DJANGO_CMD} django.core.files.uploadedfile`)],
+          toolResults: [{ type: 'tool_result', tool_use_id: 't1', content: 'Ran 0 tests in 0.000s\n\nOK' }],
+        } as never,
+      );
+      expect(r).toMatchObject({ mutated: true });
+    });
+
     it('does not treat an ordinary test failure as a bad label', async () => {
       const hook = wholeSuiteGuard();
       const state = makeState();

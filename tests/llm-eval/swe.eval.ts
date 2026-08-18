@@ -36,6 +36,7 @@ import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVers
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { classifyFailure } from '../../bench/swe/failureClassification.js';
 import { wholeSuiteGuard } from '../../bench/swe/wholeSuiteGuard.js';
+import { renderTestModuleHint } from '../../bench/swe/testModules.js';
 import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
@@ -369,7 +370,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // arms' wall clock and leave the agent with no usable test signal.
       extraPolicyHooks: [wholeSuiteGuard()],
     };
-    const userMsg = buildTaskPrompt(task, retrieval.context, taskEnv);
+    const userMsg = buildTaskPrompt(task, retrieval.context, taskEnv, dir);
     const messages: ChatMessage[] = [{ role: 'user', content: userMsg }];
     // Initial-prompt size BEFORE the first model call — logged unconditionally so
     // a first-token timeout (which produces no usage event) still tells us how big
@@ -427,7 +428,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   };
 }
 
-function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskEnv | null): string {
+function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskEnv | null, repoDir: string): string {
   // With a working environment, ask for the real coding loop (reproduce → fix →
   // verify). Give the exact Python test command from the spec and steer AWAY
   // from run_tests: its auto-detection picks the wrong runner in repos that also
@@ -443,8 +444,10 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
       `  correct:   \`${runner} some_module\`   or   \`${runner} some_module.test_file\`\n` +
       `  incorrect: \`${runner} tests/some_module/\`   \`${runner} tests/some_module/tests.py\`\n` +
       `Drop any \`tests/\` prefix, trailing slash and \`.py\` suffix; use dots, not slashes. ` +
-      `A path-shaped label is rejected by the runner with an import error and runs no tests at all. ` +
-      `Infer the module from the issue and the file you edit.\n` +
+      `A path-shaped label is rejected by the runner with an import error and runs no tests at all.\n` +
+      `A label names a TEST module, NOT the source module you edited — a source path runs zero tests ` +
+      `and reports \`Ran 0 tests ... OK\`, which is a failure, not a pass.\n` +
+      `${renderTestModuleHint(repoDir)}\n` +
       `Do NOT run \`${runner}\` with no label — that executes the project's entire suite (thousands of tests). ` +
       `It takes many minutes and its output is truncated before the part you need, so it cannot tell you ` +
       `whether your fix worked.\n\n` +

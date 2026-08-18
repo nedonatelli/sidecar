@@ -71,6 +71,10 @@ const BAD_LABEL_SIGNATURES = [
   /ModuleNotFoundError/,
   /\bERROR: not found:/,
   /no tests ran/i,
+  // django prints `Ran 0 tests ... OK` for a label that resolves to a module
+  // with no tests — not an error, and it READS like success. Seven of these in
+  // one run went unnoticed because the guard only looked for error text.
+  /\bRan 0 tests?\b/,
   /file or directory not found/i,
 ];
 
@@ -93,13 +97,15 @@ const BARE_SUITE_REPROMPT =
   'Never run the bare command again in this task.';
 
 const BAD_LABEL_REPROMPT =
-  'STOP — that test run did not execute any tests. The **test label** was rejected by the runner ' +
-  '(import error / module not found), so you have learned nothing about your fix.\n\n' +
-  "Use the runner's own module notation, NOT a filesystem path:\n" +
-  '  correct:   `file_uploads`   or   `utils_tests.test_autoreload`\n' +
-  '  incorrect: `tests/file_uploads/`   `tests/file_uploads/tests.py`   `./tests/file_uploads`\n\n' +
-  'Drop any `tests/` prefix, any trailing slash and any `.py` suffix, and use dots rather than slashes. ' +
-  'Do not re-run the same label — it will fail identically.';
+  'STOP — that test run executed NO tests, so you have learned nothing about your fix. ' +
+  'The **test label** was either rejected by the runner or resolved to something containing no tests. ' +
+  'Note that `Ran 0 tests ... OK` is a failure here, not a pass.\n\n' +
+  'A test label names a TEST module, not the source module you edited:\n' +
+  '  correct:   `file_uploads`   `auth_tests`   `utils_tests.test_autoreload`\n' +
+  '  incorrect: `django.core.files.uploadedfile`  (a source path — runs zero tests)\n' +
+  '  incorrect: `tests/file_uploads/`  `tests/file_uploads/tests.py`  (filesystem paths)\n\n' +
+  'Pick from the test modules listed in your task instructions. Do not re-run the same label — ' +
+  'it will behave identically.';
 
 /**
  * Deterministic guard: reprompt once when the agent runs a whole project suite.
