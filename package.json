@@ -546,6 +546,11 @@
             "default": true,
             "description": "Refuse to let the agent finish (and break a cycle-detection bail) while a file it edited fails to parse — runs the language's cheap parse check on edited files. On by default; requires the completion gate. Disable to run the agent loop without deterministic syntax verification."
           },
+          "sidecar.redCheckGate.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Refuse to let the agent declare the task done while its own last verification (a test/lint/compile it ran) is still failing. On by default; requires the completion gate. This is the verification-forcing lever most likely to rescue a wrong fix — and most likely to cause over-editing — so it is independently toggleable for study."
+          },
           "sidecar.steerQueue.coalesceWindowMs": {
             "type": "number",
             "default": 2000,

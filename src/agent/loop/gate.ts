@@ -3,7 +3,6 @@ import type { getConfig } from '../../config/settings.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from '../completionGate.js';
 import { runGateRegistry } from './completionGates/registry.js';
-import { planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import { getRoot } from '../tools/shared.js';
 import { getDefaultToolRuntime } from '../tools/runtime.js';
 import type { SymbolGraph, ImpactedItem } from '../../config/symbolGraph.js';
@@ -318,99 +317,13 @@ export async function maybeInjectCompletionGate(
   // ratchet must not arm on it; see completionGate.ts field doc).
   gateState.lastInjectionWasPrimaryWork = false;
 
-  // Check: the externalized plan says the run isn't done. This is the one
-  // completion check with STRUCTURED evidence — no prose matching: if
-  // planRef.plan exists and current < steps.length, "all steps completed"
-  // is a deterministic contradiction (observed live: llama3.2 declared
-  // completion at step 4/10 with 2 of 10 files written). Fires at most
-  // twice — a long plan legitimately needs more than one nudge, but an
-  // unbounded gate would loop a model that cannot comply. Stands down
-  // when there is no plan.
-  if (config.completionGateEnabled !== false) {
-    const plan = state.planRef?.plan;
-    const fired = gateState.planIncompleteInjections ?? 0;
-    if (plan && fired < 2) {
-      const incomplete = plan.current < plan.steps.length;
-      // Even at current == steps.length, a step that NAMES its deliverable
-      // ("Create out/DONE.md …") which was never written is a provable
-      // false-completion claim — checked against editedFiles, no fs access.
-      const unwritten = incomplete ? [] : planStepWriteTargetsNotWritten(plan, gateState.editedFiles);
-      if (incomplete || unwritten.length > 0) {
-        gateState.planIncompleteInjections = fired + 1;
-        gateState.lastInjectionWasPrimaryWork = true;
-        const detail = incomplete
-          ? `it shows step ${plan.current} of ${plan.steps.length}. Do not finish yet. Work the remaining steps in order:\n` +
-            plan.steps
-              .slice(plan.current - 1)
-              .map((s, i) => `${plan.current + i}. ${s}`)
-              .join('\n') +
-            `\nWhen a step is done, include an update_plan call with the next current index alongside your next tool call — do not spend a message on update_plan alone. ` +
-            `If the remaining steps are actually already finished, call update_plan with current=${plan.steps.length} before answering.`
-          : `your plan says every step is done, but these files named in the plan were never written:\n` +
-            unwritten.map((p) => `  - ${p}`).join('\n') +
-            `\nCreate each with write_file(path, content) exactly as its plan step specifies, then answer.`;
-        logger?.info(
-          incomplete
-            ? `Plan-incomplete gate fired — plan shows step ${plan.current}/${plan.steps.length}`
-            : `Plan-incomplete gate fired — plan claims done but ${unwritten.length} named deliverable(s) unwritten`,
-        );
-        callbacks.onText(
-          incomplete
-            ? `\n\n📋 Plan shows step ${plan.current}/${plan.steps.length} — continuing remaining steps...\n`
-            : `\n\n📋 Plan claims done but ${unwritten.length} planned file(s) missing — finishing them...\n`,
-        );
-        state.messages.push({
-          role: 'user',
-          content: [{ type: 'text' as const, text: `Your plan is not complete: ${detail}` }],
-        });
-        return 'injected';
-      }
-    }
-  }
-
-  // Check: the model's own verification FAILED and it is trying to finish
-  // anyway. The gate historically verified that checks RAN, not that they
-  // PASSED — v0.122 gemma4 ran `tsc --noEmit`, saw both errors, wrote "this
-  // is expected, the compiler hasn't picked up the change," and finished with
-  // a broken import (rename-propagates-to-cross-file-caller, the one
-  // fleet-universal failure). Fires at most twice; the wording explicitly
-  // allows an honest could-not-complete report to exit, so a model in an
-  // unfixable workspace is not trapped. Fix work in response is the user's
-  // PRIMARY work (the task is not done while its check is red) — the
-  // keep-best ratchet must not arm on it.
-  if (
-    config.completionGateEnabled !== false &&
-    gateState.failedCheckOutput &&
-    (gateState.redCheckInjections ?? 0) < 2
-  ) {
-    gateState.redCheckInjections = (gateState.redCheckInjections ?? 0) + 1;
-    gateState.lastInjectionWasPrimaryWork = true;
-    const attempt = gateState.redCheckInjections;
-    logger?.info(`Red-check gate fired (attempt ${attempt}/2) — last verification FAILED`);
-    callbacks.onText('\n\n🔴 The last check FAILED — completion refused until it passes or the failure is reported.\n');
-    state.messages.push({
-      role: 'user',
-      content: [
-        {
-          type: 'text' as const,
-          text:
-            `[Completion gate] The last verification you ran FAILED:\n${gateState.failedCheckOutput}\n\n` +
-            `Do not declare the task done while your own check is failing, and do not explain the failure away ` +
-            `as stale or expected — re-run the check if you believe it is outdated. Either fix the cause and ` +
-            `re-run the check until it passes, or state plainly that the task could not be completed and quote ` +
-            `the failing output.`,
-        },
-      ],
-    });
-    return 'injected';
-  }
-
   // Modular completion gates (registry) — the strangler target the gates are
   // migrating into, each an isolated, individually-toggleable module. Order in
-  // the registry preserves the historic firing sequence. Currently holds the
-  // grounding/verification reprompt cluster (no-read, no-shell, no-grounding,
-  // unverified-claim, mcp-mutation, no-file-write), then behavioral-verification
-  // (default OFF) and syntax (default on with the completion gate).
+  // the registry preserves the historic firing sequence: plan-incomplete,
+  // red-check (own flag), the grounding/verification reprompt cluster,
+  // behavioral-verification (default OFF), then syntax. The
+  // lastInjectionWasPrimaryWork reset above runs before it so plan/red-check can
+  // re-latch it when they fire.
   if ((await runGateRegistry(state, { config, options, signal, callbacks })) === 'injected') return 'injected';
 
   // Opt-in change-impact gate (hard block, bounded to once per run). Promotes

@@ -1,3 +1,5 @@
+import { planIncompleteGate } from './planIncompleteGate.js';
+import { redCheckGate } from './redCheckGate.js';
 import { behavioralVerificationGate } from './behavioralVerificationGate.js';
 import { syntaxGate } from './syntaxGate.js';
 import {
@@ -22,6 +24,8 @@ import type { LoopState } from '../state.js';
  */
 export const GATES: readonly CompletionGate[] = [
   // Order preserved from the historic maybeInjectCompletionGate sequence.
+  planIncompleteGate,
+  redCheckGate,
   noReadGate,
   noShellGate,
   noGroundingGate,
