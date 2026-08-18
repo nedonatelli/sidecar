@@ -28,6 +28,7 @@ import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 import { getConfig } from '../../src/config/settings.js';
+import { getToolDefinitionsForTier } from '../../src/agent/tools.js';
 import { mountWorkspaceRoot } from './workspaceSandbox.js';
 import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
 import { armConfigOverrides } from '../../bench/swe/arms.js';
@@ -340,6 +341,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       },
       onDone: () => flushText(),
     };
+    const armConfig = { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) };
     const options: AgentOptions = {
       approvalMode: 'autonomous',
       maxIterations: MAX_ITERS,
@@ -351,7 +353,15 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // every fs tool to the cloned repo (the Shadow Workspace mechanism).
       cwdOverride: dir,
       confirmFn: async () => 'Allow',
-      config: { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) },
+      config: armConfig,
+      // Remove `run_tests` outright rather than telling the model not to use it.
+      // Its runner auto-detection picks npm in any repo that also ships a
+      // package.json, so on django it ran `pretest > eslint django/ js_tests/...`
+      // — linting JavaScript instead of running Python tests, and reporting `ok`.
+      // The prompt DID say "NOT run_tests"; the model used it anyway on the first
+      // task of the first run. Negative instructions do not hold at a 27K
+      // context, so the harness removes the option instead of asking.
+      toolOverride: getToolDefinitionsForTier('full', undefined, armConfig).filter((t) => t.name !== 'run_tests'),
       // Runs in BOTH arms: this is a zero-token deterministic control, like cycle
       // detection and the thrash defenses, not part of the verification
       // scaffolding under test. A whole-suite invocation is a harness-cost bug
@@ -426,7 +436,7 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
   const runner = taskEnv?.testCmd ?? './run tests';
   const workflow = taskEnv
     ? `The repository's dependencies are installed in the active environment. Run its Python tests with ` +
-      `run_command (NOT run_tests — it may detect the wrong runner).\n\n` +
+      `run_command.\n\n` +
       `You MUST scope every test run to the module for this issue by appending a test label:\n` +
       `  ${runner} <test_label>\n` +
       `The label is the runner's own MODULE notation, not a filesystem path:\n` +
