@@ -55,6 +55,53 @@ describeUnix('ShellSession', () => {
     expect(result.stdout).toContain('timed out');
   });
 
+  // The timeout guards against a HUNG process, not a slow one. A wall-clock
+  // kill cannot tell the two apart: it killed django's test suite at exactly
+  // 120s in a SWE-bench run while the suite was actively emitting 680 KB of
+  // output, ten times across five arms — ~20 minutes of a 39-minute run spent
+  // producing no test signal at all.
+  it('does not kill a long command that keeps producing output', async () => {
+    session = new ShellSession(os.tmpdir());
+    // Runs ~1.6s total, emitting every ~200ms — never silent for the 700ms
+    // idle window. Under a wall-clock timeout this is killed at 700ms.
+    const result = await session.execute('for i in 1 2 3 4 5 6 7 8; do echo tick; sleep 0.2; done', {
+      timeout: 700,
+    });
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('tick');
+  });
+
+  it('still kills a hung command that produces no output', async () => {
+    session = new ShellSession(os.tmpdir());
+    const result = await session.execute('sleep 30', { timeout: 500 });
+    expect(result.timedOut).toBe(true);
+  });
+
+  // The truncation reassembly rebuilds stdout from the failure-tail ring, which
+  // dropped the timeout notice appended to `output`. Observed live: django's
+  // suite flooded output, got truncated, timed out at exit -1 — and the model,
+  // seeing no timeout marker, re-ran the identical command three times.
+  it('surfaces the timeout notice even when output was truncated', async () => {
+    session = new ShellSession(os.tmpdir(), undefined, 2000);
+    const result = await session.execute(
+      'for i in $(seq 1 300); do echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; done; sleep 30',
+      { timeout: 700 },
+    );
+    expect(result.timedOut).toBe(true);
+    expect(result.stdout).toContain('timed out');
+  });
+
+  it('enforces an absolute ceiling even while output keeps flowing', async () => {
+    session = new ShellSession(os.tmpdir());
+    // Never idle, so only the absolute cap can stop it — the `tail -f` case.
+    const result = await session.execute('while true; do echo spin; sleep 0.1; done', {
+      timeout: 5000,
+      maxTimeout: 800,
+    });
+    expect(result.timedOut).toBe(true);
+  });
+
   it('streams output via onOutput callback', async () => {
     session = new ShellSession(os.tmpdir());
     const chunks: string[] = [];

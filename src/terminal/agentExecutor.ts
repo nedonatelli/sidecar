@@ -114,7 +114,7 @@ export class AgentTerminalExecutor implements Disposable {
     // Bring the terminal into view without stealing focus from the editor.
     terminal.show(true);
 
-    const { timeout = 120_000, onOutput: rawOnOutput, signal } = options;
+    const { timeout = 120_000, maxTimeout = 30 * 60_000, onOutput: rawOnOutput, signal } = options;
     // ShellSession strips escape sequences at both ends; this executor stripped
     // at neither, so everything routed through the VS Code terminal reached the
     // model raw. Observed in a dogfood run: a `cat` returned
@@ -138,6 +138,7 @@ export class AgentTerminalExecutor implements Disposable {
         if (resolved) return;
         resolved = true;
         clearTimeout(timer);
+        clearTimeout(hardTimer);
         signal?.removeEventListener('abort', onAbort);
         endListener.dispose();
         closeListener.dispose();
@@ -164,16 +165,28 @@ export class AgentTerminalExecutor implements Disposable {
         }
         finish();
       };
-      const timer = setTimeout(() => {
+      // Idle-based, not wall-clock: the guard is for a HUNG process, not a slow
+      // one. Any output resets the clock, so a long-but-progressing command (a
+      // test suite, a build) runs to completion while a silent hang still dies.
+      // `maxTimeout` backstops output that never stops (`tail -f`, dev server).
+      const killTimedOut = (reason: string) => {
         timedOut = true;
-        output += `\n\n⚠️ Command timed out after ${timeout / 1000}s`;
+        output += `\n\n⚠️ Command timed out after ${reason}`;
         try {
           terminal.sendText('\x03', false);
         } catch {
           // Terminal may be disposed mid-timeout
         }
         finish();
-      }, timeout);
+      };
+      const idleReason = `${timeout / 1000}s with no output`;
+      let timer = setTimeout(() => killTimedOut(idleReason), timeout);
+      const hardTimer = setTimeout(() => killTimedOut(`${maxTimeout / 1000}s (absolute limit)`), maxTimeout);
+      const armIdle = () => {
+        if (resolved) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => killTimedOut(idleReason), timeout);
+      };
       signal?.addEventListener('abort', onAbort, { once: true });
 
       // If the user closes the terminal mid-command, exit cleanly with
@@ -206,6 +219,7 @@ export class AgentTerminalExecutor implements Disposable {
         try {
           for await (const chunk of execution.read()) {
             if (resolved) break;
+            armIdle();
             output += chunk;
             onOutput?.(chunk);
           }

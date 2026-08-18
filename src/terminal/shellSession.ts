@@ -8,7 +8,17 @@ import { ManagedChildProcess, getProcessRegistry } from '../agent/processLifecyc
 import { isSeatbeltSupported, wrapWithSeatbelt } from './seatbelt.js';
 
 export interface ShellExecuteOptions {
-  timeout?: number; // ms, default 120_000
+  /**
+   * Idle timeout, ms (default 120_000). Time the command may go WITHOUT
+   * producing output before it is treated as hung and killed. Any output
+   * resets the clock, so a slow-but-progressing command runs to completion.
+   */
+  timeout?: number;
+  /**
+   * Absolute ceiling, ms (default 30 min). Backstop for a command that never
+   * stops producing output and never exits (`tail -f`, a dev server).
+   */
+  maxTimeout?: number;
   onOutput?: (chunk: string) => void; // streaming callback
   signal?: AbortSignal; // cancellation
 }
@@ -182,7 +192,7 @@ export class ShellSession {
 
   private async executeInternal(command: string, options: ShellExecuteOptions): Promise<ShellResult> {
     const proc = this.ensureProcess();
-    const { timeout = 120_000, onOutput: rawOnOutput, signal } = options;
+    const { timeout = 120_000, maxTimeout = 30 * 60_000, onOutput: rawOnOutput, signal } = options;
     // Every consumer of streamed shell output in SideCar lands in the
     // webview via `postMessage({command: 'toolOutput', ...})`, where it
     // is inserted as DOM `textContent`. The webview has no ANSI renderer,
@@ -198,6 +208,13 @@ export class ShellSession {
       let output = '';
       let timedOut = false;
       let resolved = false;
+      // Kept OUT of `output` deliberately. The truncation path in finish()
+      // rebuilds stdout from `failureTailRing`, which silently discarded a
+      // notice appended to `output` — so a flooding command that timed out
+      // reached the model with no timeout marker at all, and it re-ran the
+      // identical command. Appended after reassembly instead, so it always
+      // survives.
+      let notice = '';
 
       // A ring buffer that always holds the last ~30% of max output,
       // regardless of how long the stream runs. When the main `output`
@@ -247,13 +264,19 @@ export class ShellSession {
         // but `output` is the accumulated pre-wrap buffer (built from
         // raw `data` events), so the final blob still contains the
         // original escape sequences until we strip here.
-        resolve({ stdout: stripAnsi(stdout), exitCode, timedOut });
+        resolve({ stdout: stripAnsi(stdout + notice), exitCode, timedOut });
       };
 
-      // Timeout handler
-      const timer = setTimeout(() => {
+      // Timeout handling is IDLE-based: the guard exists to catch a hung
+      // process, not a slow one, and a wall-clock kill cannot tell those apart.
+      // Measured cost of getting this wrong — a SWE-bench run killed django's
+      // test suite at exactly 120s ten times across five arms while it was
+      // actively emitting output, burning ~20 minutes of a 39-minute run and
+      // returning no test signal at all. Any output resets the clock;
+      // `maxTimeout` is the backstop for output that never stops (`tail -f`).
+      const killTimedOut = (reason: string) => {
         timedOut = true;
-        output += '\n\n⚠️ Command timed out after ' + timeout / 1000 + 's';
+        notice = `\n\n⚠️ Command timed out after ${reason}`;
         finish(-1);
         // Kill the shell so its subprocess doesn't keep running.
         // Null this.proc immediately (before the SIGTERM 'exit' event fires)
@@ -265,12 +288,20 @@ export class ShellSession {
         } catch {
           /* process already gone */
         }
-      }, timeout);
+      };
+      const idleReason = `${timeout / 1000}s with no output`;
+      let timer = setTimeout(() => killTimedOut(idleReason), timeout);
+      const hardTimer = setTimeout(() => killTimedOut(`${maxTimeout / 1000}s (absolute limit)`), maxTimeout);
+      const armIdle = () => {
+        if (resolved) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => killTimedOut(idleReason), timeout);
+      };
 
       // Abort signal handler
       const onAbort = () => {
         timedOut = true;
-        output += '\n\n⚠️ Command aborted';
+        notice = '\n\n⚠️ Command aborted';
         finish(-1);
         if (this.proc === proc) this.proc = null;
         try {
@@ -283,6 +314,7 @@ export class ShellSession {
 
       const cleanup = () => {
         clearTimeout(timer);
+        clearTimeout(hardTimer);
         signal?.removeEventListener('abort', onAbort);
         if (proc.stdout) proc.stdout.removeListener('data', onData);
         if (proc.stderr) proc.stderr.removeListener('data', onStderrData);
@@ -343,6 +375,7 @@ export class ShellSession {
 
       const onData = (data: Buffer) => {
         const text = data.toString();
+        armIdle();
         buffer += text;
 
         if (checkSentinel()) return;
@@ -384,6 +417,7 @@ export class ShellSession {
         // Stderr goes through the 2>&1 redirect, but just in case
         // some output leaks to stderr directly, capture it
         const text = data.toString();
+        armIdle();
         buffer += text;
         if (!checkSentinel()) {
           onOutput?.(text);

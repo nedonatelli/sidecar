@@ -444,7 +444,8 @@
           "sidecar.shellTimeout": {
             "type": "number",
             "default": 120,
-            "description": "Default timeout for shell commands in seconds"
+            "description": "Seconds a shell command may run WITHOUT producing output before it is treated as hung and killed. Any output resets the clock, so long-running commands that keep printing (test suites, builds) are not interrupted.",
+            "minimum": 1
           },
           "sidecar.shellMaxOutputMB": {
             "type": "number",
