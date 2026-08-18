@@ -9,18 +9,35 @@
 
 import type { AblationReport, ArmName, ArmReport, SwePrediction, SweTask } from './types.js';
 import { wilsonInterval, mcnemarExactP, pairedDiffCI } from './stats.js';
+import { isInfraFailure as sharedIsInfraFailure } from './failureClassification.js';
 
 /**
- * A prediction is an INFRASTRUCTURE failure when the agent issued zero tool
- * calls and produced no patch: the run never engaged the repo — a model-request
- * timeout (firstTokenTimeout) or stall — so its empty result reflects the
- * harness hanging, not the model (or scaffold) failing the task. Ported from
- * agentHarness's hasModelContent guard. `toolCalls` is undefined on predictions
- * written before the field existed; those default to non-infra so old runs are
- * unaffected.
+ * A prediction is an INFRASTRUCTURE failure when its empty result reflects the
+ * harness or backend breaking, not the model failing the task. Two ways in:
+ *
+ *   - the agent issued zero tool calls, so the run never engaged the repo
+ *     (model-request timeout / stall — ported from agentHarness's
+ *     hasModelContent guard), or
+ *   - it engaged and THEN the backend dropped, recorded in `failureReason`.
+ *
+ * The second case is why this delegates rather than keeping the old inline
+ * one-liner: the zero-toolCalls test only caught runs that never started, and
+ * arms observed 2026-08-18 did 6 and 8 turns of real work before a `fetch
+ * failed`, scoring as capability failures. That bias is not random — longer runs
+ * have more exposure to aborts, so it fell on whichever arm did the most work.
+ *
+ * A salvaged patch always counts, even after an infra failure: the model
+ * produced real work, and keeping it is what makes a failed run debuggable.
+ *
+ * `toolCalls` is undefined on predictions written before the field existed;
+ * those default to non-infra so old runs are unaffected.
  */
 function isInfraFailure(p: SwePrediction): boolean {
-  return (p.toolCalls ?? 1) === 0 && p.model_patch.trim() === '';
+  return sharedIsInfraFailure({
+    failureReason: p.failureReason ?? null,
+    toolCalls: p.toolCalls ?? 1,
+    model_patch: p.model_patch.trim(),
+  });
 }
 
 function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[], resolved: Set<string>): ArmReport {

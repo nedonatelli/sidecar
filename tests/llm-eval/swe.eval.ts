@@ -33,6 +33,7 @@ import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
 import { armConfigOverrides } from '../../bench/swe/arms.js';
 import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVersion.js';
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
+import { classifyFailure } from '../../bench/swe/failureClassification.js';
 import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
@@ -193,6 +194,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // cross-task process singleton; without this reset one bad task poisons the run.
   circuitBreaker.reset();
   let patch = '';
+  let failureReason: string | null = null;
   let dir: string | null = null;
   let restoreMock: (() => void) | null = null;
   // F1 failure-taxonomy bucket the loop terminated with (null = natural
@@ -274,9 +276,15 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     const trajPath = path.join(OUT, `trajectory.${task.instance_id}.${arm}.log`);
     fs.mkdirSync(OUT, { recursive: true });
     fs.writeFileSync(trajPath, '');
+    // Elapsed-ms stamps (not wall clock) so trajectories stay diffable across
+    // runs. Without these, model time and tool time are indistinguishable: a
+    // `run_command` that runs django's suite for four minutes looks identical
+    // to a slow model turn, which made every latency question about this
+    // harness undecidable.
+    const solveStartedAt = Date.now();
     const traj = (line: string): void => {
       try {
-        fs.appendFileSync(trajPath, line + '\n');
+        fs.appendFileSync(trajPath, `[+${Date.now() - solveStartedAt}ms] ${line}\n`);
       } catch {
         /* best-effort logging — never fail a solve on a log write */
       }
@@ -360,14 +368,29 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     } finally {
       clearTimeout(timer);
     }
-    patch = captureDiff(dir, task.base_commit, touchedPaths);
   } catch (err) {
     // Surface the cause — a silently swallowed failure here turned a broken
     // OLLAMA_HOST into 150 instant 'EMPTY' rows that looked like model
-    // behavior (observed live). The run still counts as unresolved.
-    console.error(`[swe] solve failed for ${task.instance_id} (${arm}):`, err instanceof Error ? err.message : err);
-    patch = ''; // clone/agent failure = unresolved, not a lost run
+    // behavior (observed live). The `[kind]` tag makes that class of mistake
+    // visible at a glance instead of after 150 rows.
+    const classified = classifyFailure(err);
+    failureReason = classified.reason;
+    console.error(`[swe] solve failed for ${task.instance_id} (${arm}) [${classified.kind}]:`, classified.reason);
   } finally {
+    // ALWAYS attempt the diff, including after a throw. `captureDiff` used to
+    // sit inside the try AFTER runAgentLoop, so any abort — per-task timeout,
+    // fetch failure, stream error — skipped it and forced an empty patch,
+    // discarding edits the agent had already written to disk. `touchedPaths` is
+    // populated during the run, so the diff is recoverable. The loss was not
+    // random: it fell on whichever arm ran longest, systematically understating
+    // scaffolded arms.
+    // `dir` is null only when prepareRepo itself threw — no checkout, so there
+    // is genuinely nothing on disk to salvage.
+    try {
+      patch = dir ? captureDiff(dir, task.base_commit, touchedPaths) : '';
+    } catch {
+      patch = '';
+    }
     if (restoreMock) restoreMock();
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
@@ -378,6 +401,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     durationMs: Date.now() - start,
     terminationBucket,
     toolCalls,
+    failureReason,
     retrievalRecall,
     ratchetReverted,
     peakInputTokens,
@@ -455,8 +479,16 @@ describe('SWE-bench Verified — prediction generation', () => {
             const p = await solve(task, arm);
             predictions.push(p);
             fs.appendFileSync(metaPath, JSON.stringify(p) + '\n');
+            // Tag the failure kind inline. Now that an aborted run keeps its
+            // edits, "1364b patch [infra]" is a distinct and useful state —
+            // the model produced real work and the RUN died, which reads
+            // nothing like a capability failure. Without the tag here you have
+            // to cross-reference the `solve failed` line above to tell them
+            // apart while scanning a log.
+            const kind = p.failureReason ? classifyFailure(new Error(p.failureReason)).kind : null;
             console.info(
-              `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'} ` +
+              `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'}` +
+                `${kind ? ` [${kind}]` : ''} ` +
                 `(${Math.round(p.durationMs / 1000)}s, ${p.turns} turns, ${p.scaffoldInterventions} scaffold-fires)`,
             );
           }

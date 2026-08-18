@@ -17,6 +17,7 @@
 # Usage (from repo root):
 #   npm run bench:swe:local                       # gemma4:e4b, 20 tasks
 #   MODEL=qwen2.5-coder:7b N=50 npm run bench:swe:local   # full slice
+#   MAX_ITERS=60 TASK_TIMEOUT=2400000 npm run bench:swe:local  # no truncation
 #
 # Result: $WORK/ablation.md  (the harness lift, per-arm resolve rates, CI).
 # ---------------------------------------------------------------------------
@@ -28,6 +29,12 @@ N="${N:-20}"
 SLICE="${SLICE:-bench/swe/data/canary.jsonl}"
 ARMS="${ARMS:-scaffold-off,scaffold-on}"
 MAX_ITERS="${MAX_ITERS:-30}"
+# Per-task ceiling, ms. Was hardcoded at 300_000 (5 min), which silently
+# truncated most scaffolded arms: measured gate-only arms legitimately run
+# 673–1202s on django tasks, so a 5-minute cap made this script's results
+# non-comparable to the documented runs. Now configurable, defaulting to 20 min.
+# This is a HANG guard, not a work budget — raise it freely when debugging.
+TASK_TIMEOUT="${TASK_TIMEOUT:-1200000}"
 CACHE="${SIDECAR_SWE_REPO_CACHE:-.sidecar/cache/swe-repos}"
 VENV="${SWE_VENV:-.sidecar/cache/swe-venv}"
 WORK="${WORK:-.sidecar/cache/swe-local/run_$(date +%Y%m%d_%H%M%S)}"
@@ -67,7 +74,7 @@ echo "== [3/5] predictions (model=$MODEL, N=$N, arms=$ARMS) =="
 SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_MODEL="$MODEL" \
   SIDECAR_SWE_OUT="$PRED" SIDECAR_SWE_MAX_ITERS="$MAX_ITERS" SIDECAR_SWE_ARMS="$ARMS" \
   SIDECAR_SWE_REPO_CACHE="$CACHE" \
-  SIDECAR_SWE_TASK_TIMEOUT=300000 SIDECAR_SWE_TIMEOUT=360000000 \
+  SIDECAR_SWE_TASK_TIMEOUT="$TASK_TIMEOUT" SIDECAR_SWE_TIMEOUT=360000000 \
   npm run bench:swe:predict 2>&1 | tee "$WORK/predict.log"
 
 echo "== [4/5] scoring (Modal) =="

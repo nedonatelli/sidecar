@@ -65,8 +65,22 @@ export interface SwePrediction {
    * failure the ablation excludes rather than counting as a capability failure.
    * Undefined on meta files written before this field existed (treated as
    * non-infra so old runs are unaffected).
+   *
+   * Too narrow on its own: it only catches runs that never engaged. Failures
+   * observed 2026-08-18 ran 6 and 8 turns before the backend dropped, so they
+   * scored as capability failures. `failureReason` closes that gap.
    */
   toolCalls?: number;
+  /**
+   * Thrown error message when the solve did not complete cleanly (null = clean
+   * completion). Distinguishes an infra abort — timeout, fetch failure, stream
+   * close — from a genuine capability failure; both previously serialised to an
+   * indistinguishable empty patch. Classify with `isInfraFailure` from
+   * `failureClassification.ts`. Diagnostic only: never reaches the official
+   * predictions JSONL, which projects instance_id/model_patch only. Undefined
+   * on meta files written before this field existed.
+   */
+  failureReason?: string | null;
   /**
    * Did the RAG retrieve a file the gold patch touches within the top-k
    * (localization recall)? SWE-bench as a retrieval benchmark. Undefined when
