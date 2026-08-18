@@ -778,7 +778,13 @@ export async function runAgentLoop(
       // Per-iteration burst cap + cycle detection. Each returns
       // `true` when the loop should terminate and is responsible for
       // its own user-visible onText notification.
-      if (exceedsBurstCap(pendingToolUses, state, callbacks)) {
+      //
+      // Diagnostic escape hatch (SIDECAR_DISABLE_CYCLE_DETECTION): for
+      // cataloging runs we want to observe the model's RAW behavior — the full
+      // thrash trajectory — instead of bailing early. The max-iteration cap
+      // still bounds the run, so this never loops forever.
+      const cycleDetectionOff = process.env.SIDECAR_DISABLE_CYCLE_DETECTION === 'true';
+      if (!cycleDetectionOff && exceedsBurstCap(pendingToolUses, state, callbacks)) {
         state.termination = 'stuck';
         break;
       }
@@ -795,6 +801,7 @@ export async function runAgentLoop(
       // zero feedback. Bounded per file.
       const deferForBlockedWrite = shouldDeferBailForBlockedWrite(pendingToolUses, state, callbacks);
       if (
+        !cycleDetectionOff &&
         !deferForBlockedWrite &&
         forCycleDetection.length > 0 &&
         detectCycleAndBail(forCycleDetection, state, callbacks)

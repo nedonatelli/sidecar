@@ -33,6 +33,26 @@ describe('CircuitBreaker', () => {
     });
   });
 
+  describe('SIDECAR_DISABLE_CIRCUIT_BREAKER escape hatch', () => {
+    afterEach(() => {
+      delete process.env.SIDECAR_DISABLE_CIRCUIT_BREAKER;
+    });
+
+    it('guard() does not throw even when open (benchmark/cataloging mode)', () => {
+      // Trip it open.
+      breaker.recordFailure('openai');
+      breaker.recordFailure('openai');
+      breaker.recordFailure('openai');
+      expect(breaker.describe('openai').state).toBe('open');
+      // Normally guard throws while open...
+      expect(() => breaker.guard('openai')).toThrow(BackendCircuitOpenError);
+      // ...but the escape hatch makes it a no-op so a flaky-but-alive endpoint
+      // keeps getting requests instead of fast-failing the whole run.
+      process.env.SIDECAR_DISABLE_CIRCUIT_BREAKER = 'true';
+      expect(() => breaker.guard('openai')).not.toThrow();
+    });
+  });
+
   describe('opening', () => {
     it('trips open after N consecutive failures', () => {
       breaker.recordFailure('openai');

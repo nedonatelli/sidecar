@@ -136,6 +136,10 @@ export class CircuitBreaker {
    * rather than branch on a boolean.
    */
   guard(provider: ProviderType): void {
+    // Diagnostic escape hatch: benchmarking against a flaky-but-ALIVE remote
+    // endpoint wants to keep trying through transient blips, not fast-fail the
+    // whole run after a few. Off by default; set only for eval/cataloging runs.
+    if (process.env.SIDECAR_DISABLE_CIRCUIT_BREAKER === 'true') return;
     if (this.allow(provider)) return;
     const entry = this.get(provider);
     const elapsed = Date.now() - entry.openedAt;
