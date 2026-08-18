@@ -10,10 +10,10 @@ import {
   buildNoFileWriteReprompt,
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
-  buildBehavioralVerificationReprompt,
   buildMcpMutationVerifyReprompt,
 } from '../completionGate.js';
 import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
+import { runGateRegistry } from './completionGates/registry.js';
 import { planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import { getRoot } from '../tools/shared.js';
 import { runVerificationCommand } from '../tools/shell.js';
@@ -276,7 +276,6 @@ import { MAX_GATE_INJECTIONS } from '../../config/constants.js';
  * prompt a real test, one more if the first was hollow (mock that never imports
  * the module). After that the loop proceeds so a model that can't comply isn't
  * stuck. */
-const MAX_BEHAVIORAL_VERIFICATION_INJECTIONS = 2;
 
 /**
  * Feed every tool use + result pair into the gate state so it can
@@ -601,34 +600,11 @@ export async function maybeInjectCompletionGate(
     }
   }
 
-  // Check: the agent edited behavioral code but ran no test that actually
-  // exercises it — including a HOLLOW test that never imports the module under
-  // test (it asserts against an inline mock). Launching/compiling can't catch a
-  // functional bug. Bounded re-fire so a model that games it with a hollow test
-  // gets told once more; gentle framing so a static-check-sufficient fix skips it.
-  if (
-    (gateState.behavioralVerificationInjections ?? 0) < MAX_BEHAVIORAL_VERIFICATION_INJECTIONS &&
-    config.completionGateEnabled !== false
-  ) {
-    const reprompt = await buildBehavioralVerificationReprompt(
-      gateState.currentUserRequest ?? '',
-      gateState.editedFiles,
-      {
-        testsRunForFiles: gateState.testsRunForFiles,
-        passingTestFiles: gateState.passingTestFiles,
-        projectTestsPassed: gateState.projectTestsPassed,
-      },
-      undefined,
-      state.lastFailureOutput,
-    );
-    if (reprompt) {
-      gateState.behavioralVerificationInjections = (gateState.behavioralVerificationInjections ?? 0) + 1;
-      logger?.info('Behavioral-verification gate fired — no test that actually exercises the edited behavior');
-      callbacks.onText('\n\n🧪 Writing a test to confirm the fix actually works...\n');
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
-      return 'injected';
-    }
-  }
+  // Modular completion gates (registry) — the strangler target that gates are
+  // migrating into one at a time, each with its own enable flag + state so it
+  // can be measured in isolation. Currently: behavioral-verification (default
+  // OFF). Runs at the historic position of that gate to preserve firing order.
+  if ((await runGateRegistry(state, { config, options, signal, callbacks })) === 'injected') return 'injected';
 
   // Syntax gate: edited code must PARSE before the agent can finish. Extracted
   // so the cycle-detection bail can also run it (loop.ts) — a stuck loop with a

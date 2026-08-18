@@ -536,6 +536,11 @@
             "default": true,
             "description": "Require the agent to run lint and tests for files it edited before declaring completion. Catches cases where the agent reports a change as done without verifying."
           },
+          "sidecar.behavioralVerificationGate.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "When the agent edits behavioral code without running a test that actually exercises it, reprompt it to write one. Off by default: on local models this tends to push a correct fix into writing extra, often broken, test files (the same over-edit pattern as the removed critic). Enable to study its effect."
+          },
           "sidecar.steerQueue.coalesceWindowMs": {
             "type": "number",
             "default": 2000,

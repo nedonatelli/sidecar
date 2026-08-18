@@ -289,9 +289,10 @@ Note that an empty result is never reported as proof a file is clean, whatever t
 
 ## Completion gate
 
-| Setting                          | Type    | Default | Description                                                                                                       |
-| -------------------------------- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
-| `sidecar.completionGate.enabled` | boolean | `true`  | Refuse to let the agent declare a turn done until lint and the colocated tests for edited files have actually run |
+| Setting                                      | Type    | Default | Description                                                                                                                                                                                                                            |
+| -------------------------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.completionGate.enabled`             | boolean | `true`  | Refuse to let the agent declare a turn done until lint and the colocated tests for edited files have actually run                                                                                                                      |
+| `sidecar.behavioralVerificationGate.enabled` | boolean | `false` | Reprompt for a real test when the agent edits behavioral code without one. Off by default — on local models it tends to push a correct fix into writing extra, often broken, test files (same over-edit pattern as the removed critic) |
 
 When enabled, SideCar tracks every `write_file` / `edit_file` call against every `run_tests` / `eslint` / `tsc` / `vitest` / `jest` / `pytest` / `npm test` invocation during the turn. At the natural termination point, if any edited source file has a colocated `.test.ts` / `.spec.ts` that wasn't exercised, or if lint never ran, the gate injects a synthetic user message into the loop demanding the checks before the turn can end. Capped at 2 injections per turn to prevent loops — after exhaustion the loop terminates with a warning rather than hanging.
 
