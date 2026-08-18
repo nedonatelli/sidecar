@@ -12,11 +12,9 @@ import {
   buildUnverifiedClaimReprompt,
   buildMcpMutationVerifyReprompt,
 } from '../completionGate.js';
-import { runSyntaxGate, buildSyntaxReprompt, hasCheckableFiles } from './syntaxGate.js';
 import { runGateRegistry } from './completionGates/registry.js';
 import { planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import { getRoot } from '../tools/shared.js';
-import { runVerificationCommand } from '../tools/shell.js';
 import { getDefaultToolRuntime } from '../tools/runtime.js';
 import type { SymbolGraph, ImpactedItem } from '../../config/symbolGraph.js';
 import { findNumericalKernels, uncontractedKernels, type NumericalKernel } from '../numericalContracts.js';
@@ -240,7 +238,6 @@ function buildBoundGateReprompt(findings: readonly FileBoundFinding[]): string {
 }
 
 /** Bounded retries for the syntax gate, mirroring MAX_GATE_INJECTIONS. */
-const MAX_SYNTAX_GATE_INJECTIONS = 2;
 
 // ---------------------------------------------------------------------------
 // Completion gate — post-turn policy, two entry points.
@@ -315,102 +312,6 @@ export type GateOutcome = 'injected' | 'skip';
  * exhausted we also log a warning on the way out so users can tell
  * the gate gave up.
  */
-/**
- * Deterministic syntax gate: every edited file must PARSE. Runs the in-process
- * tree-sitter check + the shell py_compile / node --check on each edited file
- * (only spawns a shell when a shell-checkable file was actually edited). On a
- * genuine parse failure it injects a reprompt naming the file + error and
- * returns `'injected'`; otherwise `'clean'` (nothing broken) or `'skip'`
- * (disabled, budget spent, or no checkable files).
- *
- * Shared by two callers so a broken file is caught on BOTH termination paths:
- *   - the completion gate (clean-finish / empty-response path), and
- *   - the cycle-detection bail (loop.ts) — a stuck model that thrashed into a
- *     bail with a broken file on disk gets the concrete parse error as a
- *     directed, cycle-breaking task instead of shipping the broken file.
- * Bounded by MAX_SYNTAX_GATE_INJECTIONS across both callers.
- */
-export async function maybeInjectSyntaxGate(
-  state: LoopState,
-  config: ReturnType<typeof getConfig>,
-  signal: AbortSignal,
-  callbacks: AgentCallbacks,
-): Promise<'injected' | 'clean' | 'skip'> {
-  const { gateState, logger } = state;
-  // Once the syntax gate has spent its injection budget it's no longer driving
-  // fixes, so stop exempting its fix-target files from cycle detection —
-  // further repetition on them is genuine thrash again.
-  if ((gateState.syntaxGateInjections ?? 0) >= MAX_SYNTAX_GATE_INJECTIONS) {
-    gateState.syntaxGateFixTargets?.clear();
-    return 'skip';
-  }
-  if (config.completionGateEnabled === false) return 'skip';
-
-  const editedList = [...gateState.editedFiles];
-  if (!hasCheckableFiles(editedList)) {
-    // Observability: a non-empty edit set with no parse-checkable file (e.g.
-    // only .ts/.md edits) is expected — but log it so a missing-.py case is
-    // visible in the SideCar output channel rather than silent.
-    if (editedList.length > 0) {
-      logger?.info(`Syntax gate: no parse-checkable files among edited [${editedList.join(', ')}]`);
-    }
-    return 'skip';
-  }
-
-  const root = getRoot();
-  try {
-    // Run the parse-check through the agent's terminal-first executor (the
-    // same path run_tests uses), NOT a raw ShellSession. A raw ShellSession
-    // spawns a no-profile shell whose minimal PATH made bare `python3` hang
-    // (macOS CLT prompt) → the check timed out at 15s and the gate silently
-    // passed a broken file. The integrated terminal uses the login-shell PATH.
-    // Resolve to absolute paths so the check is cwd-independent.
-    const toCheck = editedList.map((f) => (root && !path.isAbsolute(f) ? path.join(root, f) : f));
-    logger?.info(`Syntax gate: checking ${toCheck.length} file(s) — ${toCheck.join(', ')}`);
-    const failures = await runSyntaxGate(
-      toCheck,
-      async (cmd) => {
-        const r = await runVerificationCommand(cmd, 15_000, signal);
-        if (r.timedOut) logger?.warn(`Syntax gate: parse-check timed out (15s) — ${cmd}`);
-        return { exitCode: r.exitCode, output: r.output };
-      },
-      // Reader for the in-process (tree-sitter) parse check — no shell.
-      async (file) => {
-        try {
-          const { workspace, Uri } = await import('vscode');
-          const bytes = await workspace.fs.readFile(Uri.file(file));
-          return Buffer.from(bytes).toString('utf-8');
-        } catch {
-          return null;
-        }
-      },
-    );
-    if (failures.length > 0) {
-      gateState.syntaxGateInjections = (gateState.syntaxGateInjections ?? 0) + 1;
-      // Mark these files as gate-supervised fix targets so the write-target
-      // cycle detector doesn't bail the model mid-fix — iterating on a file
-      // the gate flagged as unparseable is progress, not thrash.
-      gateState.syntaxGateFixTargets = new Set(failures.map((f) => f.file));
-      logger?.info(`Syntax gate fired — ${failures.length} edited file(s) fail to parse`);
-      callbacks.onText('\n\n🧩 Edited code fails to parse — fixing syntax errors...\n');
-      state.messages.push({
-        role: 'user',
-        content: [{ type: 'text' as const, text: buildSyntaxReprompt(failures) }],
-      });
-      return 'injected';
-    }
-    logger?.info('Syntax gate: all checked files parse cleanly');
-    // Files now parse — drop the cycle-detector exemption so later, unrelated
-    // thrash on the same file is no longer immune.
-    gateState.syntaxGateFixTargets?.clear();
-    return 'clean';
-  } catch (err) {
-    // The gate is best-effort: a shell/runtime hiccup must not block the loop.
-    logger?.warn(`Syntax gate skipped: ${err instanceof Error ? err.message : String(err)}`);
-    return 'skip';
-  }
-}
-
 export async function maybeInjectCompletionGate(
   state: LoopState,
   config: ReturnType<typeof getConfig>,
@@ -603,13 +504,9 @@ export async function maybeInjectCompletionGate(
   // Modular completion gates (registry) — the strangler target that gates are
   // migrating into one at a time, each with its own enable flag + state so it
   // can be measured in isolation. Currently: behavioral-verification (default
-  // OFF). Runs at the historic position of that gate to preserve firing order.
+  // OFF), then syntax (default on with the completion gate). Runs at the
+  // historic position of those gates to preserve firing order.
   if ((await runGateRegistry(state, { config, options, signal, callbacks })) === 'injected') return 'injected';
-
-  // Syntax gate: edited code must PARSE before the agent can finish. Extracted
-  // so the cycle-detection bail can also run it (loop.ts) — a stuck loop with a
-  // broken edited file gets a directed syntax-fix task instead of a silent bail.
-  if ((await maybeInjectSyntaxGate(state, config, signal, callbacks)) === 'injected') return 'injected';
 
   // Opt-in change-impact gate (hard block, bounded to once per run). Promotes
   // the advisory to a block when the edited exported symbols have import-resolved

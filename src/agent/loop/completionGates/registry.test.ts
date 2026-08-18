@@ -6,7 +6,12 @@ import type { getConfig } from '../../../config/settings.js';
 
 function ctx(overrides: Partial<ReturnType<typeof getConfig>> = {}): GateContext {
   return {
-    config: { behavioralVerificationGateEnabled: false, ...overrides } as ReturnType<typeof getConfig>,
+    // Bare-loop baseline: master gate off (also disables syntax) + behavioral off.
+    config: {
+      completionGateEnabled: false,
+      behavioralVerificationGateEnabled: false,
+      ...overrides,
+    } as ReturnType<typeof getConfig>,
     options: {} as GateContext['options'],
     signal: new AbortController().signal,
     callbacks: { onText: () => {} } as unknown as GateContext['callbacks'],

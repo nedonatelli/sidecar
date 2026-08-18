@@ -127,6 +127,7 @@ export interface SideCarConfig {
   autoFixMaxRetries: number;
   completionGateEnabled: boolean;
   behavioralVerificationGateEnabled: boolean;
+  syntaxGateEnabled: boolean;
   steerQueueCoalesceWindowMs: number;
   steerQueueMaxPending: number;
   multiFileEditsEnabled: boolean;
@@ -514,6 +515,7 @@ function readConfig(): SideCarConfig {
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
     completionGateEnabled: cfg.get<boolean>('completionGate.enabled', true),
     behavioralVerificationGateEnabled: cfg.get<boolean>('behavioralVerificationGate.enabled', false),
+    syntaxGateEnabled: cfg.get<boolean>('syntaxGate.enabled', true),
     steerQueueCoalesceWindowMs: clampMin(cfg.get<number>('steerQueue.coalesceWindowMs', 2000), 0, 10_000),
     steerQueueMaxPending: clampMin(cfg.get<number>('steerQueue.maxPending', 5), 1, 20),
     multiFileEditsEnabled: cfg.get<boolean>('multiFileEdits.enabled', true),

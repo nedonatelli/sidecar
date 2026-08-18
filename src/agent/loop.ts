@@ -18,7 +18,7 @@ import { isDegenerateText } from './loop/textParsing.js';
 import { MAX_PLAN_STEPS, isPlanOnlyTurn } from './plans/externalPlan.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
-import { maybeInjectSyntaxGate } from './loop/gate.js';
+import { maybeInjectSyntaxGate } from './loop/completionGates/syntaxGate.js';
 import {
   excludeBlockedCircularRewrites,
   resetVerifyCountersForVerifications,

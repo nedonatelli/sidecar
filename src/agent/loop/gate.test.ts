@@ -28,7 +28,8 @@ vi.mock('../completionGate.js', () => ({
   buildMcpMutationVerifyReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
 }));
 
-import { recordGateToolUses, maybeInjectCompletionGate, maybeInjectSyntaxGate } from './gate.js';
+import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
+import { maybeInjectSyntaxGate } from './completionGates/syntaxGate.js';
 import { recordToolCall, checkCompletionGate, buildMcpMutationVerifyReprompt } from '../completionGate.js';
 import { setSymbolGraph } from '../tools/runtime.js';
 import { SymbolGraph } from '../../config/symbolGraph.js';

@@ -541,6 +541,11 @@
             "default": false,
             "description": "When the agent edits behavioral code without running a test that actually exercises it, reprompt it to write one. Off by default: on local models this tends to push a correct fix into writing extra, often broken, test files (the same over-edit pattern as the removed critic). Enable to study its effect."
           },
+          "sidecar.syntaxGate.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Refuse to let the agent finish (and break a cycle-detection bail) while a file it edited fails to parse — runs the language's cheap parse check on edited files. On by default; requires the completion gate. Disable to run the agent loop without deterministic syntax verification."
+          },
           "sidecar.steerQueue.coalesceWindowMs": {
             "type": "number",
             "default": 2000,
