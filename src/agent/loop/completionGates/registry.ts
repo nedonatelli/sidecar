@@ -1,5 +1,13 @@
 import { behavioralVerificationGate } from './behavioralVerificationGate.js';
 import { syntaxGate } from './syntaxGate.js';
+import {
+  noReadGate,
+  noShellGate,
+  noGroundingGate,
+  unverifiedClaimGate,
+  mcpMutationGate,
+  noFileWriteGate,
+} from './repromptGates.js';
 import type { CompletionGate, GateContext, GateInjectOutcome } from './types.js';
 import type { LoopState } from '../state.js';
 
@@ -12,7 +20,17 @@ import type { LoopState } from '../state.js';
  * flag off yields the bare loop — exactly the minimal-harness behavior we want
  * to be able to observe and then add back to, one measured component at a time.
  */
-export const GATES: readonly CompletionGate[] = [behavioralVerificationGate, syntaxGate];
+export const GATES: readonly CompletionGate[] = [
+  // Order preserved from the historic maybeInjectCompletionGate sequence.
+  noReadGate,
+  noShellGate,
+  noGroundingGate,
+  unverifiedClaimGate,
+  mcpMutationGate,
+  noFileWriteGate,
+  behavioralVerificationGate,
+  syntaxGate,
+];
 
 /**
  * Run each ENABLED gate in order. The first gate to inject a reprompt

@@ -1,17 +1,7 @@
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { getConfig } from '../../config/settings.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
-import {
-  recordToolCall as recordGateToolCall,
-  checkCompletionGate,
-  buildGateInjection,
-  buildNoReadReprompt,
-  buildNoShellReprompt,
-  buildNoFileWriteReprompt,
-  buildNoGroundingReprompt,
-  buildUnverifiedClaimReprompt,
-  buildMcpMutationVerifyReprompt,
-} from '../completionGate.js';
+import { recordToolCall as recordGateToolCall, checkCompletionGate, buildGateInjection } from '../completionGate.js';
 import { runGateRegistry } from './completionGates/registry.js';
 import { planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import { getRoot } from '../tools/shared.js';
@@ -415,97 +405,12 @@ export async function maybeInjectCompletionGate(
     return 'injected';
   }
 
-  // Check: file mentioned in user request but no read tool called for it yet.
-  // Fires at most once per run to avoid looping on models that can't comply.
-  if (!gateState.noReadRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoReadReprompt(state.messages, gateState.editedFiles, gateState.currentUserRequest);
-    if (reprompt) {
-      gateState.noReadRepromptFired = true;
-      logger?.info('No-read gate fired — file mentioned but no read tool called for it');
-      callbacks.onText('\n\n📂 Reading file before answering...\n');
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
-      return 'injected';
-    }
-  }
-
-  // Check: workspace metric query (file count, line count, version, etc.) but
-  // no shell command was run. Fires at most once per run.
-  if (!gateState.noShellRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoShellReprompt(state.messages, gateState.currentUserRequest);
-    if (reprompt) {
-      gateState.noShellRepromptFired = true;
-      logger?.info('No-shell gate fired — workspace metric query answered without a shell command');
-      callbacks.onText('\n\n🔍 Running shell command to get live data...\n');
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
-      return 'injected';
-    }
-  }
-
-  // Check: open-ended review/evaluation of the codebase or design, but no
-  // grounding tool was ever called. Fires at most once per run.
-  if (!gateState.noGroundingRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildNoGroundingReprompt(state.messages, gateState.currentUserRequest);
-    if (reprompt) {
-      gateState.noGroundingRepromptFired = true;
-      logger?.info('No-grounding gate fired — codebase review answered without reading any code');
-      callbacks.onText('\n\n🔎 Reading the code before reviewing it...\n');
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
-      return 'injected';
-    }
-  }
-
-  // Check: analysis/review answer cites paths that don't resolve, or hedges an
-  // unverified claim. Fires at most once per run. (Scaffolding roadmap V1.)
-  if (!gateState.unverifiedClaimRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = await buildUnverifiedClaimReprompt(state.messages, undefined, gateState.currentUserRequest);
-    if (reprompt) {
-      gateState.unverifiedClaimRepromptFired = true;
-      logger?.info('Unverified-claim gate fired — review cited a nonexistent path or an unverified claim');
-      callbacks.onText('\n\n🧾 Verifying citations before finishing...\n');
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
-      return 'injected';
-    }
-  }
-
-  // Check: an MCP mutation (tool without readOnlyHint: true) succeeded but was
-  // never followed by a read-only call to the same server — the write is
-  // fire-and-trust. Demands round-trip evidence for each field the model set;
-  // on mismatch the model is told to report it and leave the resource in
-  // draft rather than claim success. Fires at most once per run.
-  if (!gateState.mcpMutationRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = buildMcpMutationVerifyReprompt(gateState);
-    if (reprompt) {
-      gateState.mcpMutationRepromptFired = true;
-      logger?.info('MCP mutation-verify gate fired — external write(s) never read back');
-      callbacks.onText('\n\n🔁 Verifying external writes landed...\n');
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
-      return 'injected';
-    }
-  }
-
-  // Check: file explicitly named in user request with write intent, but never written to.
-  // Fires at most once per run; uses a gentle "if required, make them now" framing so
-  // the model can skip it when the file genuinely wasn't part of the task.
-  if (!gateState.noFileWriteRepromptFired && config.completionGateEnabled !== false) {
-    const reprompt = await buildNoFileWriteReprompt(
-      state.messages,
-      gateState.editedFiles,
-      gateState.currentUserRequest,
-    );
-    if (reprompt) {
-      gateState.noFileWriteRepromptFired = true;
-      logger?.info('No-file-write gate fired — named file(s) not written');
-      callbacks.onText('\n\n📝 Checking named files were written...\n');
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
-      return 'injected';
-    }
-  }
-
-  // Modular completion gates (registry) — the strangler target that gates are
-  // migrating into one at a time, each with its own enable flag + state so it
-  // can be measured in isolation. Currently: behavioral-verification (default
-  // OFF), then syntax (default on with the completion gate). Runs at the
-  // historic position of those gates to preserve firing order.
+  // Modular completion gates (registry) — the strangler target the gates are
+  // migrating into, each an isolated, individually-toggleable module. Order in
+  // the registry preserves the historic firing sequence. Currently holds the
+  // grounding/verification reprompt cluster (no-read, no-shell, no-grounding,
+  // unverified-claim, mcp-mutation, no-file-write), then behavioral-verification
+  // (default OFF) and syntax (default on with the completion gate).
   if ((await runGateRegistry(state, { config, options, signal, callbacks })) === 'injected') return 'injected';
 
   // Opt-in change-impact gate (hard block, bounded to once per run). Promotes
