@@ -64,6 +64,30 @@ function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
   return AbortSignal.any([a, b]);
 }
 
+/** Max times a turn's model request is re-issued after a TRANSIENT network
+ *  failure (mid-stream drop, connection reset) before giving up. Guards against
+ *  a flaky remote endpoint zeroing a whole run over one dropped connection. */
+const MAX_TURN_STREAM_RETRIES = 3;
+
+/**
+ * True for a transient network failure worth retrying the turn on — a dropped or
+ * reset connection to the backend (including Node fetch's opaque "fetch failed",
+ * whose real cause hides in `err.cause`). NOT an abort (user stop) and NOT an
+ * HTTP/application error (those surface as StreamEvents, not throws).
+ */
+function isTransientNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error) || err.name === 'AbortError') return false;
+  const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+  const hay = `${err.message} ${cause?.code ?? ''} ${cause?.message ?? ''}`.toLowerCase();
+  // Specific transient-connection signatures only — NOT loose words like
+  // "network"/"terminated", which also appear in ordinary backend error text
+  // that must propagate. undici's mid-stream drop surfaces as "fetch failed"
+  // and/or a cause of "other side closed".
+  return /fetch failed|econnreset|econnrefused|etimedout|enotfound|eai_again|socket hang up|und_err|other side closed/.test(
+    hay,
+  );
+}
+
 export interface AgentCallbacks {
   onText: (text: string) => void;
   onThinking?: (thinking: string) => void;
@@ -524,14 +548,43 @@ export async function runAgentLoop(
       const firstTokenTimeoutMs = firstTokenTimeoutMsFor(state.config.firstTokenTimeout * 1000, inputTokens);
       let rawTurn;
       try {
-        rawTurn = await streamOneTurn(
-          client,
-          state,
-          turnController.signal,
-          callbacks,
-          requestTimeoutMs,
-          firstTokenTimeoutMs,
-        );
+        // Retry the whole turn on a TRANSIENT network failure (mid-stream drop /
+        // connection reset). streamOneTurn returns the fully-assembled turn and
+        // nothing is committed to loop state until after it succeeds, so
+        // re-issuing is safe — a flaky remote endpoint no longer zeroes the run
+        // over one dropped connection. Aborts and HTTP errors are not retried.
+        let streamAttempt = 0;
+        for (;;) {
+          try {
+            rawTurn = await streamOneTurn(
+              client,
+              state,
+              turnController.signal,
+              callbacks,
+              requestTimeoutMs,
+              firstTokenTimeoutMs,
+            );
+            break;
+          } catch (streamErr) {
+            if (
+              signal.aborted ||
+              turnController.signal.aborted ||
+              streamAttempt >= MAX_TURN_STREAM_RETRIES ||
+              !isTransientNetworkError(streamErr)
+            ) {
+              throw streamErr;
+            }
+            streamAttempt++;
+            const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
+            state.logger?.warn(
+              `Turn request failed transiently (${detail}) — retry ${streamAttempt}/${MAX_TURN_STREAM_RETRIES}`,
+            );
+            callbacks.onText(
+              `\n\n⚠️ Network hiccup — retrying request (${streamAttempt}/${MAX_TURN_STREAM_RETRIES})...\n`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1500 * streamAttempt));
+          }
+        }
       } finally {
         signal.removeEventListener('abort', mirrorAbort);
         // Keep currentTurnController alive through dispatch so a steer

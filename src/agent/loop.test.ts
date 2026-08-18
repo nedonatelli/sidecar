@@ -505,6 +505,38 @@ describe('runAgentLoop', () => {
     vi.restoreAllMocks();
   });
 
+  it('retries the turn on a transient network drop and recovers (does not zero the run)', async () => {
+    // A flaky remote endpoint (e.g. a cloud box over an unstable link): the
+    // first request throws Node fetch's opaque "fetch failed" mid-stream; the
+    // retry succeeds. The run must recover instead of dying with an empty result.
+    let calls = 0;
+    async function* flaky(): AsyncGenerator<StreamEvent> {
+      calls++;
+      if (calls === 1) {
+        throw Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } });
+      }
+      yield { type: 'text', text: 'Recovered!' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+
+    const cb = makeCallbacks();
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    await runAgentLoop(makeMockClient(flaky), [{ role: 'user', content: 'hi' }], cb, new AbortController().signal);
+
+    expect(calls).toBeGreaterThanOrEqual(2); // the turn was re-issued
+    expect(cb.texts.join('')).toContain('Recovered!'); // and produced its answer
+    expect(cb.texts.join('')).toContain('Network hiccup'); // with a user-visible retry notice
+
+    vi.restoreAllMocks();
+  }, 15_000);
+
   it('reprompts ONCE on an empty turn, then stops when silence recurs', async () => {
     // A turn with no text and no tool calls used to end the run immediately —
     // three models terminated real eval runs that way right after a

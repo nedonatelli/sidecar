@@ -240,10 +240,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     toolRuntime.symbolEmbeddings = repoIndex;
     const retrieval = await retrieveContext(repoIndex, task.problem_statement, dir, RETRIEVAL_TOPK);
     retrievalRecall = task.patch ? goldFilesInTopK(retrieval.hits, task.patch).recalled : undefined;
+    // API key defaults to 'ollama' (local, authless). Set SIDECAR_SWE_API_KEY to
+    // a bearer token to drive a remote OpenAI-compatible endpoint instead — e.g.
+    // a Vast box's token-authed /v1 edge (OLLAMA_HOST=http://<host>:<port>), which
+    // uses independent HTTP requests rather than a fragile persistent SSH tunnel.
     const client = new SideCarClient(
       MODEL,
       normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
-      'ollama',
+      process.env.SIDECAR_SWE_API_KEY || 'ollama',
     );
     const systemPrompt = buildBaseSystemPrompt({
       isLocal: true,
