@@ -2,6 +2,7 @@ import { planIncompleteGate } from './planIncompleteGate.js';
 import { redCheckGate } from './redCheckGate.js';
 import { behavioralVerificationGate } from './behavioralVerificationGate.js';
 import { syntaxGate } from './syntaxGate.js';
+import { impactGate, numericalContractGate, analyticBoundGate } from './codeGraphGates.js';
 import {
   noReadGate,
   noShellGate,
@@ -34,6 +35,12 @@ export const GATES: readonly CompletionGate[] = [
   noFileWriteGate,
   behavioralVerificationGate,
   syntaxGate,
+  // Code-graph gates run last (after syntax), before the base completion gate
+  // that still lives inline in gate.ts. Each is block+advisory; the advisory
+  // fires regardless of its flag, so they're always "enabled".
+  impactGate,
+  numericalContractGate,
+  analyticBoundGate,
 ];
 
 /**

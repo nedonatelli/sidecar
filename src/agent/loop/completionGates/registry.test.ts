@@ -18,7 +18,13 @@ function ctx(overrides: Partial<ReturnType<typeof getConfig>> = {}): GateContext
   };
 }
 
-const state = {} as LoopState;
+// Empty edit set → the always-enabled code-graph gates (impact/numerical/
+// analytic) skip cleanly without touching the symbol-graph runtime.
+const state = {
+  gateState: { editedFiles: new Set<string>() },
+  messages: [],
+  logger: undefined,
+} as unknown as LoopState;
 
 /** A gate that records when it runs, into `calls`. */
 function probe(calls: string[], name: string, enabled: boolean, outcome: 'injected' | 'skip'): CompletionGate {
