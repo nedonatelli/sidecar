@@ -255,7 +255,12 @@ describe('editFile audit mode', () => {
     const result = await editMsg({ path: 'src/partial.ts', search: fullSig, replace: 'string' }, context).catch(
       (e: Error) => e.message,
     );
-    expect(result).toContain('syntax error');
+    // This edit drops the signature `search` carried, so the dropped-definition
+    // guard now refuses it before the syntax guard sees it — the more specific
+    // diagnosis of the same corruption, and the one that also covers languages
+    // where the wreckage still parses. What this test pins is unchanged: the
+    // audit path refuses it and leaves the buffer alone.
+    expect(result).toMatch(/syntax error|drops the line/);
     expect(result).toContain('NOT modified');
     expect(buf.read('src/partial.ts').content).toBe(original);
   });
@@ -1475,7 +1480,10 @@ describe('insertion via the single substitution primitive (insert_* removed)', (
     // replace_all is the ONE sanctioned addition beyond the substitution triple —
     // a whole-file multi-occurrence switch, not a new insertion surface. insert_*
     // and new_text must never reappear.
-    expect(declared).toEqual(['path', 'search', 'replace', 'replace_all']);
+    // `within` is a locator, not a second write surface: it never carries
+    // payload and is never written to the file. The pin that matters — no
+    // insert_* / new_text resurrection — is directly below.
+    expect(declared).toEqual(['path', 'search', 'replace', 'within', 'replace_all']);
     expect(declared).not.toContain('insert_after');
     expect(declared).not.toContain('insert_before');
     expect(declared).not.toContain('new_text');
@@ -1628,5 +1636,250 @@ describe('read_file on a directory (2026-08 audit)', () => {
       Object.assign(new Error('EISDIR: illegal operation on a directory, read'), { code: 'FileIsADirectory' }),
     );
     await expect(readFile({ path: 'src' })).rejects.toThrow(/is a directory.*list_directory\(path="src"\)/s);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `search` conflates WHERE to edit with WHAT to replace.
+//
+// The tool tells the model both "add surrounding lines to disambiguate" (grow
+// `search`) and "REPEAT that anchor inside `replace`" (mirror everything you
+// added). Every line added for uniqueness must be retyped verbatim in
+// `replace` or it is silently deleted.
+//
+// Live repro, gemma4:e4b on a 530-line module with 20 identical bounds checks:
+// the first edit failed "appears 20 times", so the model grew `search` to span
+// the method header, docstring and None check — then wrote `replace` for only
+// the line it wanted changed. The def, its docstring and the None check were
+// deleted. Every existing guard passed it: delimiter balance is near-blind on
+// Python, the tokens aligned, and the orphaned body re-indents into the
+// preceding method, so the file still parses. It was reported as `File edited`
+// and the model declared the fix "complete and verified".
+//
+// This is the failure the <=20-line eval fixtures cannot produce: with a unique
+// anchor `search` never has to grow, so the two roles never diverge.
+// ---------------------------------------------------------------------------
+describe('edit_file — search must not double as the locator', () => {
+  const module =
+    'class FieldValidator12:\n' +
+    '    def is_within_bounds(self, value):\n' +
+    '        """Bounds check for field12."""\n' +
+    '        if value is None:\n' +
+    '            return False\n' +
+    '        if value > self.maximum:\n' +
+    '            return False\n' +
+    '        return True\n' +
+    '\n' +
+    '\n' +
+    'class FieldValidator13:\n' +
+    '    def is_within_bounds(self, value):\n' +
+    '        """Bounds check for field13."""\n' +
+    '        if value is None:\n' +
+    '            return False\n' +
+    '        if value > self.maximum:\n' +
+    '            return False\n' +
+    '        return True\n';
+
+  let written: string;
+  let writeSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    written = '';
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(module) as never);
+    writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written = Buffer.from(content as Uint8Array).toString('utf-8');
+    });
+    writeSpy.mockClear();
+  });
+
+  describe('dropped-definition guard', () => {
+    it('refuses an edit whose replace drops a def that search contained', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        search:
+          '    def is_within_bounds(self, value):\n' +
+          '        """Bounds check for field13."""\n' +
+          '        if value is None:\n' +
+          '            return False\n' +
+          '        if value > self.maximum:',
+        replace: '        if value >= self.maximum:',
+      });
+
+      expect(msg).toMatch(/def is_within_bounds/);
+      expect(msg).toMatch(/drop|delete|repeat/i);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
+    it('still allows a rename, which replaces a definition rather than dropping it', async () => {
+      // The guard keys on the COUNT of definitions, not their text — a rename
+      // changes the def line and must stay legal.
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        search: '    def is_within_bounds(self, value):\n        """Bounds check for field12."""',
+        replace: '    def in_range(self, value):\n        """Bounds check for field12."""',
+      });
+
+      expect(msg).toContain('File edited');
+      expect(written).toContain('def in_range(self, value):');
+    });
+
+    it('leaves edits that contain no definitions untouched by the guard', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        search: '        """Bounds check for field13."""\n        if value is None:',
+        replace: '        """Bounds check for field13."""\n        if value is not None and False:',
+      });
+
+      expect(msg).toContain('File edited');
+    });
+  });
+
+  describe('`within` locator', () => {
+    it('resolves an otherwise-ambiguous search without growing it', async () => {
+      // The whole point: search stays one line, so there is nothing to mirror.
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field13."""',
+        search: '        if value > self.maximum:',
+        replace: '        if value >= self.maximum:',
+      });
+
+      expect(msg).toContain('File edited');
+      // Only field13's check changed; field12's is untouched.
+      expect(written).toBe(module.replace(/(field13[\s\S]*?if value )>( self\.maximum)/, '$1>=$2'));
+      expect(written).toContain(
+        '"""Bounds check for field12."""\n        if value is None:\n            return False\n        if value > self.maximum:',
+      );
+    });
+
+    it('errors when the locator is not in the file', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field99."""',
+        search: '        if value > self.maximum:',
+        replace: '        if value >= self.maximum:',
+      });
+
+      expect(msg).toMatch(/within/i);
+      expect(msg).toMatch(/not found|does not appear/i);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
+    it('errors when the locator is itself ambiguous', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '    def is_within_bounds(self, value):',
+        search: '        if value > self.maximum:',
+        replace: '        if value >= self.maximum:',
+      });
+
+      expect(msg).toMatch(/within/i);
+      expect(msg).toMatch(/2 times|appears/i);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects `within` together with replace_all as contradictory', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field13."""',
+        search: '        if value > self.maximum:',
+        replace: '        if value >= self.maximum:',
+        replace_all: true,
+      });
+
+      expect(msg).toMatch(/within/i);
+      expect(msg).toMatch(/replace_all/);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses to splice a match that is nowhere near the locator', async () => {
+      // A wrong locator must fail loudly rather than quietly editing a distant
+      // region — the silent-wrong-region write is the outcome worth preventing.
+      const far = `${'# padding\n'.repeat(80)}${module}`;
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(far) as never);
+
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '# padding',
+        search: '        if value > self.maximum:',
+        replace: '        if value >= self.maximum:',
+      });
+
+      expect(msg).toMatch(/within/i);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The ambiguity error is prompt surface, and it was steering models into
+  // silent mass-corruption.
+  //
+  // Live, granite4.1:3b on the 20-identical-anchors fixture:
+  //   #1 search='if value > self.maximum:'        -> "appears 20 times"
+  //   #2 same + replace_all, search==replace      -> "identical"
+  //   #3 same + replace_all, correct replace      -> OK, "20 occurrences replaced"
+  // Call #3 SUCCEEDED and rewrote all twenty validators when the task named
+  // one. The error offered `replace_all` as a coequal escape from ambiguity —
+  // and it is the cheaper of the two, since "add more surrounding context" is
+  // exactly what a small model cannot do.
+  //
+  // `within` was absent from this message entirely: the schema description
+  // advertised it, the failure path never did. granite used `within` once in
+  // nine trials; gemma4 (which had read the schema) used it four times. The
+  // error a model reads at the moment of failure outweighs the description it
+  // read at the start.
+  // -------------------------------------------------------------------------
+  describe('ambiguous-match error', () => {
+    const twice =
+      'class A:\n    def check(self, v):\n        if v > self.max:\n            return False\n' +
+      'class B:\n    def check(self, v):\n        if v > self.max:\n            return False\n';
+
+    beforeEach(async () => {
+      vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+      const { workspace } = await import('vscode');
+      vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(twice) as never);
+    });
+
+    it('offers `within` as the way to disambiguate', async () => {
+      const msg = await editMsg({
+        path: 'src/m.py',
+        search: '        if v > self.max:',
+        replace: '        if v >= self.max:',
+      });
+      expect(msg).toContain('appears 2 times');
+      expect(msg, 'the fix must reach the failure path, not just the schema').toMatch(/within/);
+    });
+
+    it('presents replace_all as destructive, not as a coequal shortcut', async () => {
+      const msg = await editMsg({
+        path: 'src/m.py',
+        search: '        if v > self.max:',
+        replace: '        if v >= self.max:',
+      });
+      // It must still be reachable — replace_all is correct when the caller
+      // really does mean every occurrence — but it must not read as the easy
+      // way out of an ambiguous match.
+      expect(msg).toMatch(/replace_all/);
+      expect(msg).toMatch(/EVERY|all 2\b|every occurrence/i);
+      const withinAt = msg.search(/within/);
+      const replaceAllAt = msg.search(/replace_all/);
+      // Guard the ordering assertion: String.search returns -1 when absent, so
+      // without this the test passes precisely when `within` is missing.
+      expect(withinAt).toBeGreaterThanOrEqual(0);
+      expect(replaceAllAt).toBeGreaterThanOrEqual(0);
+      expect(withinAt, 'within must be offered before replace_all').toBeLessThan(replaceAllAt);
+    });
+  });
+
+  it('advertises `within` in the tool schema', () => {
+    const props = editFileDef.input_schema.properties as Record<string, { description?: string }>;
+    expect(props.within).toBeDefined();
+    expect(props.within.description).toMatch(/uniqu/i);
+    // The schema must stop telling models to grow `search` as the only way out
+    // of an ambiguous match — that instruction is what opens the trap.
+    expect(editFileDef.description).toMatch(/within/);
   });
 });

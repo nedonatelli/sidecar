@@ -277,7 +277,15 @@ describe('tools.ts', () => {
       const cfg = { baseUrl: 'http://localhost:11434', provider: 'auto', customTools: [], delegateTaskEnabled: false };
       const def = getToolDefinitions(undefined, cfg as never).find((d) => d.name === 'edit_file')!;
       // replace_all (whole-file multi-occurrence switch) is allowed; insert_* / new_text are not.
-      expect(Object.keys(def.input_schema.properties ?? {})).toEqual(['path', 'search', 'replace', 'replace_all']);
+      // `within` is a locator, not a second write surface — it carries no payload
+      // and is never written. The pin that matters (no insert_* resurrection) is below.
+      expect(Object.keys(def.input_schema.properties ?? {})).toEqual([
+        'path',
+        'search',
+        'replace',
+        'within',
+        'replace_all',
+      ]);
     });
   });
 

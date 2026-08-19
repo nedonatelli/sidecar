@@ -517,9 +517,8 @@ export const editFileDef: ToolDefinition = {
     'Edit an existing file by replacing an exact search string with a replacement. ' +
     'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
     'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
-    'For multi-location changes, call once per location, OR pass `replace_all: true` to change EVERY occurrence of `search` at once. ' +
-    'By default `search` must match exactly one location; if it appears multiple times the call errors (add surrounding lines to disambiguate, or set `replace_all: true`). ' +
-    'Match is byte-exact: whitespace, indentation, and trailing spaces must match the file verbatim. When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
+    '`search` must resolve to ONE location. If it appears several times, pass `within` (a unique line just above the edit, e.g. the enclosing `class`/`def`) rather than growing `search` — every line you add to `search` must be repeated verbatim in `replace` or it is DELETED. To change every occurrence instead, pass `replace_all: true`. ' +
+    'When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
     'There is ONE operation: substitution. To ADD text, put an anchor in `search` and REPEAT that anchor inside `replace` alongside the new code — dropping the anchor from `replace` DELETES it. ' +
     'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
     'Insert example — add a comment above a function by restating the function line: `edit_file(path="src/utils.ts", search="export function greet(", replace="/** Greets someone. */\\nexport function greet(")`.',
@@ -530,18 +529,22 @@ export const editFileDef: ToolDefinition = {
       search: {
         type: 'string',
         description:
-          'Exact text to find in the file — whitespace and indentation must match the file byte-for-byte. Must appear exactly once UNLESS `replace_all` is true; if it appears multiple times and replace_all is not set, the call returns an error. Include enough surrounding lines to guarantee uniqueness.',
+          'Exact text to find — whitespace and indentation must match the file byte-for-byte. Keep it to the text you are CHANGING; disambiguate with `within`, not with extra lines, since anything extra here must be repeated in `replace` or it is deleted.',
       },
       replace: {
         type: 'string',
         description:
-          'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error. ' +
-          'If the replacement is very short and appears verbatim inside the search string, the call succeeds but appends a warning; call read_file to verify the result.',
+          'New text to substitute for the search match. Must differ from search — identical fields are an error. If it is very short and appears verbatim inside search, the call warns; read_file to verify.',
+      },
+      within: {
+        type: 'string',
+        description:
+          'Optional locator: unique text just ABOVE the edit (enclosing `class`/`def`, a docstring, a comment) saying which occurrence you mean. `search` is matched only at or after it. Must appear exactly once. Never written to the file, never repeated in `replace`. Not usable with `replace_all`.',
       },
       replace_all: {
         type: 'boolean',
         description:
-          'Replace EVERY occurrence of `search` instead of requiring a unique match. Use when the same text repeats (e.g. a constant or regex in several places). Default false.',
+          'Replace EVERY occurrence of `search` instead of requiring a unique match. Use when the same text repeats. Default false.',
       },
     },
     // Only `path` is structurally required. search/replace presence is
@@ -979,6 +982,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // the identical regex lived in two validators, and it looped on the "appears 2
   // times" rejection until cycle detection bailed, despite knowing the fix).
   const replaceAll = input.replace_all === true;
+  const within = typeof input.within === 'string' ? input.within : undefined;
 
   // Creation-intent coercion. Small models constantly call edit_file with
   // one of search/replace missing on a file that doesn't exist yet — the
@@ -1276,7 +1280,16 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         })()
       : '';
 
-  const resolved = await resolveEditedText({ filePath, text, search, replace, replaceAll, unreadPrefix, context });
+  const resolved = await resolveEditedText({
+    filePath,
+    text,
+    search,
+    replace,
+    replaceAll,
+    within,
+    unreadPrefix,
+    context,
+  });
   if (resolved.newText === null) return resolved.message;
   const newText = resolved.newText;
 
@@ -1332,16 +1345,97 @@ export type ResolvedEdit =
  * Throws the teaching errors. Returns `newText: null` when the file already
  * matches the requested outcome.
  */
+/**
+ * Lines that introduce a named definition, across the languages the edit tools
+ * see most. Deliberately shallow: this feeds a COUNT comparison, not a parse,
+ * and a pattern that misses a definition only makes the guard quieter.
+ */
+const DEFINITION_LINE =
+  /^\s*(?:@\w[\w.]*\s*(?:\([^)]*\))?\s*$|(?:async\s+)?def\s+\w|class\s+\w|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*\w|(?:export\s+)?(?:const|let|var)\s+\w[\w$]*\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>|(?:public|private|protected|static)\s+\w)/;
+
+function countDefinitions(text: string): number {
+  return text.split('\n').filter((l) => DEFINITION_LINE.test(l)).length;
+}
+
+/**
+ * A `replace` holding fewer definitions than its `search` deletes one.
+ *
+ * The count, not the text, is the signal: a rename legitimately rewrites a
+ * `def` line (1 -> 1) and must stay legal, while the live corruption dropped
+ * the header entirely (1 -> 0). Returns the first definition line that
+ * disappeared, for the error message; null when nothing was lost.
+ *
+ * This is the only guard that can see this edit. Delimiter balance is nearly
+ * blind on Python, the tokens align, and the orphaned body re-indents into the
+ * preceding method — so the result still parses and the syntax guard passes it.
+ */
+function droppedDefinition(search: string, replace: string): string | null {
+  if (countDefinitions(replace) >= countDefinitions(search)) return null;
+  const kept = new Set(replace.split('\n').map((l) => l.trim()));
+  return search.split('\n').find((l) => DEFINITION_LINE.test(l) && !kept.has(l.trim())) ?? null;
+}
+
+/**
+ * Suggest a concrete `within` value: the nearest preceding line that is unique
+ * in the file. A named field beats an abstract instruction — the model can copy
+ * this straight back, the same reason the search-not-found path hands over the
+ * actual file text instead of describing it.
+ */
+function buildWithinHint(text: string, search: string, matchStart: number): string {
+  const before = text.slice(0, matchStart).split('\n').slice(-12).reverse();
+  for (const line of before) {
+    const t = line.trim();
+    if (t.length < 4 || t === search.trim()) continue;
+    if (text.split(t).length - 1 === 1) {
+      return `\n\nFor example, to target the occurrence nearest your search: within="${t.replace(/"/g, '\\"')}"`;
+    }
+  }
+  return '';
+}
+
+/** How far from its locator a `within`-scoped match may sit before we refuse. */
+const WITHIN_MAX_LINES = 40;
+
+/**
+ * Resolve `within` to the offset the search should be measured from.
+ *
+ * `within` exists to break the conflation that causes the corruption above:
+ * it carries the "where", so `search` can stay short enough to mirror into
+ * `replace` without error. It must be unique — an ambiguous locator would just
+ * move the ambiguity one field over.
+ *
+ * Throws the teaching error; returns the offset to search from.
+ */
+function resolveWithin(text: string, within: string, filePath: string): number {
+  const count = text.split(within).length - 1;
+  if (count === 0) {
+    throw new Error(
+      `Error: edit_file 'within' not found in ${filePath} — the locator text does not appear in the file. ` +
+        `The file was NOT modified. 'within' must be text currently in the file, copied byte-for-byte, that is ` +
+        `near the edit and appears exactly once (a class line, a docstring, a comment). Call read_file to check it.`,
+    );
+  }
+  if (count > 1) {
+    throw new Error(
+      `Error: edit_file 'within' appears ${count} times in ${filePath}, so it cannot identify one location. ` +
+        `The file was NOT modified. Pick a locator that is unique — the enclosing class or function line is ` +
+        `usually the shortest one that is.`,
+    );
+  }
+  return text.indexOf(within);
+}
+
 export async function resolveEditedText(params: {
   filePath: string;
   text: string;
   search: string;
   replace: string;
   replaceAll?: boolean;
+  within?: string;
   unreadPrefix?: string;
   context?: ToolExecutorContext;
 }): Promise<ResolvedEdit> {
-  const { filePath, text, search, replace, context } = params;
+  const { filePath, text, search, replace, within, context } = params;
   const replaceAll = params.replaceAll ?? false;
   const unreadPrefix = params.unreadPrefix ?? '';
   // Before matching: an empty search matches nothing, and the tolerance tiers
@@ -1355,7 +1449,58 @@ export async function resolveEditedText(params: {
   // below still runs against real file bytes — and they run BEFORE the
   // intent-based fuzzy recovery, which guesses at the region from word overlap
   // and is far less certain than "the same text with different line endings".
-  const match = findEditMatch(text, search, replace);
+  // A `replace` that drops a definition its `search` carried deletes it. Runs
+  // BEFORE matching so the refusal is about the two fields, not about where
+  // they landed, and so no tolerance tier can turn it into a silent write.
+  const dropped = droppedDefinition(search, replace);
+  if (dropped) {
+    recordEditFailure(context, filePath, search, replace);
+    throw new Error(
+      `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — your 'replace' drops the line ` +
+        `\`${dropped.trim()}\`, which your 'search' contained. The file was NOT modified. ` +
+        `edit_file substitutes: everything in 'search' and missing from 'replace' is DELETED, and deleting a ` +
+        `definition leaves its body attached to whatever precedes it — which still parses, so nothing downstream ` +
+        `would catch it. Either repeat that line inside 'replace' alongside your change, or shorten 'search' to ` +
+        `just the line you are changing and pass the enclosing definition in 'within' to disambiguate.`,
+    );
+  }
+
+  // `within` carries the "where" so `search` can carry only the "what". Both
+  // roles in one field is what makes a model grow `search` for uniqueness and
+  // then fail to mirror the growth into `replace`, silently deleting the
+  // difference. A locator is never echoed into `replace`, so it cannot be lost.
+  let anchorAt = 0;
+  if (within !== undefined && within !== '') {
+    if (replaceAll) {
+      throw new Error(
+        `${unreadPrefix}Error: edit_file cannot combine 'within' with 'replace_all' — one narrows to a single ` +
+          `location, the other changes every occurrence. The file was NOT modified. Drop 'within' to change all ` +
+          `occurrences, or drop 'replace_all' to change only the one near your locator.`,
+      );
+    }
+    anchorAt = resolveWithin(text, within, filePath);
+  }
+
+  const match = within ? findEditMatch(text.slice(anchorAt), search, replace) : findEditMatch(text, search, replace);
+  if (within && match) {
+    const anchorLine = text.slice(0, anchorAt).split('\n').length;
+    const matchLine = text.slice(0, anchorAt + match.start).split('\n').length;
+    if (matchLine - anchorLine > WITHIN_MAX_LINES) {
+      // A wrong locator that quietly edits a distant region is the worst
+      // outcome available here — worse than any error. Refuse instead.
+      throw new Error(
+        `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — the nearest match for 'search' is ` +
+          `${matchLine - anchorLine} lines past your 'within' locator, too far to be the location you meant. ` +
+          `The file was NOT modified. Choose a locator immediately above the edit.`,
+      );
+    }
+    // Re-base onto the whole file and collapse to the one occurrence the
+    // locator selected, so every downstream guard sees real file offsets and
+    // the ambiguity branch cannot re-fire on siblings before the anchor.
+    match.start += anchorAt;
+    match.end += anchorAt;
+    match.count = 1;
+  }
   if (!match) {
     // Already applied? The rename the model is retrying may have LANDED on an
     // earlier iteration — the old tokens are gone, the new ones are present.
@@ -1477,10 +1622,25 @@ export async function resolveEditedText(params: {
     // byte-for-byte it is unique, full stop, even when a laxer tier would have
     // found siblings. Only a search that NEEDED the tolerance is judged by it.
     const where = match.tier === 'exact' ? '' : ` (ignoring ${TIER_LABEL[match.tier]})`;
+    // Order matters: this message is read at the moment the model decides what
+    // to do next, and it used to present `replace_all` as a coequal escape from
+    // ambiguity. It is the cheaper of the two options — "add surrounding
+    // context" is exactly what a small model cannot do — so models took it.
+    // Live: granite4.1:3b answered "appears 20 times" with replace_all and
+    // rewrote all twenty validators when the task named one. It reported
+    // success; nothing downstream could see the damage.
+    //
+    // `within` leads because it resolves the ambiguity WITHOUT enlarging
+    // `search`, so there is nothing extra to mirror into `replace`.
+    const locatorHint = buildWithinHint(text, search, match.start);
     throw new Error(
       `${unreadPrefix}Error: edit_file failed — search string appears ${match.count} times in ${filePath}${where}. ` +
-        `The file was NOT modified. Either add more surrounding context to your search string to target ONE location, ` +
-        `or pass \`replace_all: true\` to change ALL ${match.count} occurrences in one call.`,
+        `The file was NOT modified.\n\n` +
+        `FIX: add \`within\` — unique text just ABOVE the one you mean (the enclosing class/def line, a docstring, ` +
+        `a comment). \`search\` then matches only after it, and stays exactly as you already wrote it.` +
+        `${locatorHint}\n\n` +
+        `Only if you truly intend to change all ${match.count} places: \`replace_all: true\` rewrites EVERY ` +
+        `occurrence in ${filePath}. That is ${match.count} separate edits — do not use it to escape this error.`,
     );
   }
 
