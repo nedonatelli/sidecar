@@ -81,6 +81,24 @@ export const LOCAL_MAX_SYSTEM_CHARS = 52_000;
 export const LOCAL_CONTEXT_CAP = 131_072;
 
 /**
+ * Per-turn output ceiling for local backends, sent as Ollama's `num_predict`.
+ *
+ * Generation was previously unbounded here. That was invisible for as long as
+ * the default model was terse — gemma4:e4b emits ~436 tokens per turn — but
+ * gemma4:12b produced 3,400+ token single turns at 14 t/s, so one turn ran for
+ * minutes with nothing to stop it, and a whole eval case never finished.
+ *
+ * NOT `sidecar.agentMaxTokens`: that is a conversation budget ("message history
+ * only", default 200000). As a per-response cap it is no cap at all.
+ *
+ * 8192 is deliberately generous. The cost of cutting a turn short is a
+ * truncated tool call — malformed JSON, a failed edit — which is worse than a
+ * slow turn, and a legitimate `write_file` payload can run past 2000 tokens.
+ * This is a backstop against runaway, not a tuning knob for normal work.
+ */
+export const AGENT_MAX_OUTPUT_TOKENS = 8_192;
+
+/**
  * Per-model context caps that override LOCAL_CONTEXT_CAP downward. KV-cache
  * cost at a given window varies enormously by architecture: gemma4:e4b uses
  * interleaved local attention and holds 131 K affordably (~12 GB total), but

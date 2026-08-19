@@ -687,6 +687,9 @@ describe('SideCarClient', () => {
     it('records each streamChat() call in the usage log', async () => {
       const client = new SideCarClient('test-model');
       // streamChat uses the backend's async generator; mock an empty SSE stream.
+      // Cold model: the backend probes /api/show once for its context window
+      // before the chat request (headless callers used to silently get 32K).
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
       mockFetch.mockResolvedValueOnce({
         ok: true,
         body: {
@@ -821,6 +824,8 @@ describe('SideCarClient', () => {
 
     it('updateModel after the stream starts does NOT retarget the in-flight request', async () => {
       const client = new SideCarClient('model-a');
+      // Cold model: one /api/show context probe precedes the chat request.
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
       mockFetch.mockResolvedValueOnce(makeOllamaStream('model-a', 'hi'));
 
       const gen = client.streamChat([{ role: 'user', content: 'hello' }]);
@@ -834,15 +839,19 @@ describe('SideCarClient', () => {
       client.updateModel('model-b');
       for await (const _ of gen) void _;
 
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      const body = JSON.parse((mockFetch.mock.calls[0][1] as { body: string }).body);
+      const chatCalls = mockFetch.mock.calls.filter((c) => String(c[0]).includes('/api/chat'));
+      expect(chatCalls).toHaveLength(1);
+      const body = JSON.parse((chatCalls[0][1] as { body: string }).body);
       expect(body.model).toBe('model-a');
 
-      // The NEXT call picks up the rotated model.
+      // The NEXT call picks up the rotated model — a different model, so it
+      // gets its own cold-model context probe before the chat.
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
       mockFetch.mockResolvedValueOnce(makeOllamaStream('model-b', 'ok'));
       const gen2 = client.streamChat([{ role: 'user', content: 'follow' }]);
       for await (const _ of gen2) void _;
-      const body2 = JSON.parse((mockFetch.mock.calls[1][1] as { body: string }).body);
+      const chatCalls2 = mockFetch.mock.calls.filter((c) => String(c[0]).includes('/api/chat'));
+      const body2 = JSON.parse((chatCalls2[1][1] as { body: string }).body);
       expect(body2.model).toBe('model-b');
     });
 
@@ -963,7 +972,9 @@ describe('SideCarClient', () => {
         ok: true,
         json: async () => ({ models: [{ name: 'qwen3-coder:30b' }] }),
       });
-      // Request 3: /api/chat → one Ollama NDJSON line, done
+      // Request 3: /api/show → the Ollama backend's cold-model context probe.
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+      // Request 4: /api/chat → one Ollama NDJSON line, done
       const ndjson = new ReadableStream<Uint8Array>({
         start(controller) {
           const encoder = new TextEncoder();
@@ -997,11 +1008,13 @@ describe('SideCarClient', () => {
       const text = events.find((e) => e.type === 'text');
       expect(text?.text).toBe('from-native');
 
-      // Three fetches total: OAI-compat (failed) + probe + native.
-      expect(mockFetch).toHaveBeenCalledTimes(3);
+      // Four fetches: OAI-compat (failed) + /api/tags probe + the Ollama
+      // backend's cold-model context probe + native /api/chat.
+      expect(mockFetch).toHaveBeenCalledTimes(4);
       expect(mockFetch.mock.calls[0][0]).toContain('/v1/chat/completions');
       expect(mockFetch.mock.calls[1][0]).toContain('/api/tags');
-      expect(mockFetch.mock.calls[2][0]).toContain('/api/chat');
+      expect(mockFetch.mock.calls[2][0]).toContain('/api/show');
+      expect(mockFetch.mock.calls[3][0]).toContain('/api/chat');
     });
 
     it('does NOT retry when the /api/tags probe shows the host is not Ollama', async () => {

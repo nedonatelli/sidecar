@@ -5,6 +5,7 @@ import {
   modelSupportsTools,
   recordToolFailure,
   recordToolSuccess,
+  __resetNumCtxProbesForTests,
 } from './ollamaBackend.js';
 import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 
@@ -36,6 +37,9 @@ describe('OllamaBackend', () => {
 
   describe('streamChat', () => {
     it('yields text events from NDJSON stream', async () => {
+      // A model this suite has not seen yet is probed once for its context
+      // window before the chat request (see the num_ctx cold-path tests below).
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
       mockFetch.mockResolvedValueOnce({
         ok: true,
         body: ndjsonBody([
@@ -184,6 +188,112 @@ describe('OllamaBackend', () => {
       expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_ctx).toBe(131_072);
     });
 
+    // -----------------------------------------------------------------------
+    // The context window a headless run gets must match the one the extension
+    // gets. It did not: `numCtx` reads `numCtxCache`, which is only ever filled
+    // by `probeModelToolSupport`, and every caller of that lives in
+    // `src/webview/`. Benchmarks, evals and the SWE harness never call it, so
+    // `probedNumCtx` was null and `Math.max(0, 32_768)` turned the FLOOR into
+    // the ceiling. Confirmed live: `ollama ps` reported CONTEXT 32768 for
+    // gemma4:e4b driven by the eval harness, against a 131 072 native window.
+    //
+    // Every SWE number was therefore measured at a quarter of the window real
+    // users get, and the edit-failure-vs-context curve was measured against a
+    // wall that should not have been there. The test above this one encodes the
+    // old assumption — it probes by hand first, which is exactly what no
+    // headless caller does.
+    // -----------------------------------------------------------------------
+    it('probes the real window on first use instead of falling back to the 32K floor', async () => {
+      __resetNumCtxProbesForTests();
+      // No manual probeModelToolSupport call: this is the headless path.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ capabilities: ['tools'], model_info: { 'gemma4.context_length': 131_072 } }),
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+
+      for await (const _ of backend.streamChat('gemma4:e4b', '', [{ role: 'user', content: 'hi' }])) void _;
+
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_ctx).toBe(131_072);
+    });
+
+    it('probes once per model, not on every request', async () => {
+      __resetNumCtxProbesForTests();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ capabilities: ['tools'], model_info: { 'gemma4.context_length': 131_072 } }),
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+      for await (const _ of backend.streamChat('gemma4:e4b', '', [{ role: 'user', content: 'hi' }])) void _;
+      const afterFirst = mockFetch.mock.calls.length;
+
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+      for await (const _ of backend.streamChat('gemma4:e4b', '', [{ role: 'user', content: 'hi' }])) void _;
+
+      // Exactly one more call: the chat itself, no second /api/show.
+      expect(mockFetch.mock.calls.length).toBe(afterFirst + 1);
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_ctx).toBe(131_072);
+    });
+
+    it('honours SIDECAR_OLLAMA_NUM_CTX so a headless run can pin the window', async () => {
+      // `sidecar.ollama.numCtx` is a VS Code setting with no env fallback, so a
+      // benchmark had no way to set the window at all. Mirrors SIDECAR_AGENT_SEED.
+      __resetNumCtxProbesForTests();
+      process.env.SIDECAR_OLLAMA_NUM_CTX = '65536';
+      try {
+        mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+        for await (const _ of backend.streamChat('gemma4:e4b', '', [{ role: 'user', content: 'hi' }])) void _;
+        // Explicit override wins outright — and no probe was needed to know it.
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_ctx).toBe(65_536);
+      } finally {
+        delete process.env.SIDECAR_OLLAMA_NUM_CTX;
+      }
+    });
+
+    it('still streams at the 32K floor when the probe fails', async () => {
+      __resetNumCtxProbesForTests();
+      mockFetch.mockRejectedValueOnce(new Error('connection refused'));
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+
+      for await (const _ of backend.streamChat('unreachable:7b', '', [{ role: 'user', content: 'hi' }])) void _;
+
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_ctx).toBe(32_768);
+    });
+
+    // -----------------------------------------------------------------------
+    // Generation length in the agent loop was unbounded: the chat request sent
+    // temperature/num_ctx/penalties and no `num_predict`. `num_predict` appeared
+    // exactly once in this file — in the FIM path. gemma4:e4b never exposed it
+    // (median 436 tokens per turn), but gemma4:12b emitted 3,400+ token single
+    // turns at 14 t/s, so one turn ran for minutes and nothing stopped it.
+    //
+    // `sidecar.agentMaxTokens` is NOT this knob: it is a conversation budget
+    // ("message history only") defaulting to 200000, which as a per-response cap
+    // is no cap at all. This is a separate per-turn output ceiling.
+    // -----------------------------------------------------------------------
+    it('bounds per-turn generation with num_predict', async () => {
+      __resetNumCtxProbesForTests();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_predict).toBe(8192);
+    });
+
+    it('honours SIDECAR_NUM_PREDICT so a benchmark can vary the ceiling', async () => {
+      __resetNumCtxProbesForTests();
+      process.env.SIDECAR_NUM_PREDICT = '512';
+      try {
+        mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+        mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+        for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_predict).toBe(512);
+      } finally {
+        delete process.env.SIDECAR_NUM_PREDICT;
+      }
+    });
+
     it('sets options.seed from SIDECAR_AGENT_SEED for reproducible runs, absent otherwise', async () => {
       const respond = () =>
         mockFetch.mockResolvedValueOnce({
@@ -193,7 +303,11 @@ describe('OllamaBackend', () => {
           ]),
         });
 
+      // Self-contained: reset so this test owns the cold-path probe rather than
+      // depending on whether an earlier test happened to warm this model.
+      __resetNumCtxProbesForTests();
       // Unseeded by default — no seed key in options.
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
       respond();
       for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
       expect('seed' in JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options).toBe(false);

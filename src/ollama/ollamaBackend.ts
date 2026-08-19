@@ -14,7 +14,12 @@ import {
 } from './streamUtils.js';
 import { getConfig } from '../config/settings.js';
 import { hasProblematicThinking } from '../config/modelAgentBehavior.js';
-import { TOOL_FAILURE_THRESHOLD, MODEL_PROBE_BATCH_SIZE, contextCapForModel } from '../config/constants.js';
+import {
+  TOOL_FAILURE_THRESHOLD,
+  MODEL_PROBE_BATCH_SIZE,
+  contextCapForModel,
+  AGENT_MAX_OUTPUT_TOKENS,
+} from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
 // Tool support detection
@@ -36,6 +41,83 @@ const toolCapabilityCache = new Map<string, boolean>();
  * baked into the GGUF. null = /api/show didn't report a value.
  */
 const numCtxCache = new Map<string, number | null>();
+/**
+ * Pull a context window out of an `/api/show` payload. Prefers the runtime
+ * `num_ctx` (which reflects Modelfile overrides) over the native GGUF
+ * `context_length` for stock pulls. Null when neither is present.
+ */
+function readNumCtx(data: { parameters?: string; model_info?: Record<string, unknown> }): number | null {
+  const match = data.parameters?.match(/^num_ctx\s+(\d+)/m);
+  if (match) return parseInt(match[1], 10);
+  for (const [key, value] of Object.entries(data.model_info ?? {})) {
+    if (key.toLowerCase().includes('context_length') && typeof value === 'number') return value;
+  }
+  return null;
+}
+
+/** In-flight `/api/show` probes, so concurrent requests don't stampede one model. */
+const numCtxProbes = new Map<string, Promise<void>>();
+
+/**
+ * Guarantee `numCtxCache` holds an entry for `model`, probing once if it does not.
+ *
+ * `numCtxCache` used to be filled ONLY as a side effect of
+ * `probeModelToolSupport`, and every caller of that lives in `src/webview/`.
+ * So the extension got a model's real window while every headless caller —
+ * benchmarks, the eval harness, the SWE runner — silently fell through to
+ * `Math.max(0, 32_768)`, turning the floor into the ceiling. Confirmed live:
+ * `ollama ps` reported CONTEXT 32768 for gemma4:e4b under the eval harness,
+ * against its 131 072 native window. Every SWE number was measured at a quarter
+ * of the context real users get.
+ *
+ * Probing here rather than at each call site is what keeps the two paths from
+ * drifting again: the window is now a property of talking to Ollama, not of
+ * having come through the UI first.
+ *
+ * A failed or uninformative probe caches `null` so a model that cannot report
+ * its window is not re-probed on every single request.
+ */
+async function ensureNumCtxProbed(baseUrl: string, model: string): Promise<void> {
+  if (numCtxCache.has(model)) return;
+  let inflight = numCtxProbes.get(model);
+  if (!inflight) {
+    inflight = (async () => {
+      // Deliberately NOT routed through probeModelToolSupport: that function
+      // short-circuits on `toolCapabilityCache`, so a model whose tool support
+      // was probed at a moment when /api/show carried no context_length would
+      // return early and leave the window unknown forever. The two caches are
+      // now independent, each filled by whoever needs it first.
+      try {
+        const response = await fetch(`${baseUrl}/api/show`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!response.ok) {
+          numCtxCache.set(model, null);
+          return;
+        }
+        const data = (await response.json()) as { parameters?: string; model_info?: Record<string, unknown> };
+        numCtxCache.set(model, readNumCtx(data));
+      } catch {
+        // Unreachable Ollama, timeout, malformed payload: cache the miss so we
+        // do not re-probe on every request, and fall back to the 32 K floor.
+        numCtxCache.set(model, null);
+      }
+    })().finally(() => {
+      numCtxProbes.delete(model);
+    });
+    numCtxProbes.set(model, inflight);
+  }
+  await inflight;
+}
+
+/** Test seam: drop probe state so a case can exercise the cold path. */
+export function __resetNumCtxProbesForTests(): void {
+  numCtxCache.clear();
+  numCtxProbes.clear();
+}
 
 /** Return the cached context length for a model, or null if not yet probed. */
 export function getCachedOllamaNumCtx(model: string): number | null {
@@ -99,20 +181,7 @@ export async function probeModelToolSupport(baseUrl: string, model: string): Pro
     // Extract context length while we have the /api/show response.
     // Prefer the runtime num_ctx (reflects Modelfile overrides); fall back to
     // the native GGUF context_length for stock pulls.
-    let numCtx: number | null = null;
-    if (data.parameters) {
-      const match = data.parameters.match(/^num_ctx\s+(\d+)/m);
-      if (match) numCtx = parseInt(match[1], 10);
-    }
-    if (numCtx === null && data.model_info) {
-      for (const [key, value] of Object.entries(data.model_info)) {
-        if (key.toLowerCase().includes('context_length') && typeof value === 'number') {
-          numCtx = value;
-          break;
-        }
-      }
-    }
-    numCtxCache.set(model, numCtx);
+    numCtxCache.set(model, readNumCtx(data));
 
     return hasTools;
   } catch {
@@ -141,6 +210,7 @@ export async function deleteOllamaModel(baseUrl: string, model: string): Promise
   // Evict capability caches for the deleted model
   toolCapabilityCache.delete(model);
   numCtxCache.delete(model);
+  numCtxProbes.delete(model);
   toolSupportFailures.delete(model);
 }
 
@@ -331,13 +401,25 @@ export class OllamaBackend implements ApiBackend {
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
     const { agentTemperature, agentSeed, ollamaNumCtx, ollamaDisableThinking } = getConfig();
+    // Explicit override, in precedence order: the `sidecar.ollama.numCtx`
+    // setting, then `SIDECAR_OLLAMA_NUM_CTX`. The env fallback exists because
+    // the setting is VS Code-only, which left benchmarks with no way to pin the
+    // window at all (mirrors SIDECAR_AGENT_SEED).
+    const envNumCtx = process.env.SIDECAR_OLLAMA_NUM_CTX;
+    const overrideNumCtx = ollamaNumCtx ?? (envNumCtx !== undefined && envNumCtx !== '' ? Number(envNumCtx) : null);
+    const hasOverride = overrideNumCtx !== null && Number.isFinite(overrideNumCtx);
+    // Without an override the model's real window has to be known, so probe it
+    // here rather than trusting some earlier caller to have done it.
+    if (!hasOverride) await ensureNumCtxProbed(this.baseUrl, model);
     const probedNumCtx = numCtxCache.get(model) ?? null;
     // Use the probed num_ctx, floored at 32 768 (models that report < 32 K still
     // get a full 32 K window) and capped per-model (contextCapForModel): the
     // general ceiling is 128 K, but global-attention models get lower caps —
     // llama3.2 at 131 K allocated a 17.4 GB KV for a 2 GB model (observed
-    // live). sidecar.ollama.numCtx overrides in both directions.
-    const numCtx = ollamaNumCtx ?? Math.min(Math.max(probedNumCtx ?? 0, 32_768), contextCapForModel(model));
+    // live). An explicit override wins outright, in both directions.
+    const numCtx = hasOverride
+      ? (overrideNumCtx as number)
+      : Math.min(Math.max(probedNumCtx ?? 0, 32_768), contextCapForModel(model));
     // Neutralize presence/frequency penalties. Some models ship aggressive
     // penalty defaults in their Ollama Modelfile (e.g. qwen3.5's `presence_penalty
     // 1.5`), which sabotage structured tool-call generation: the XML tool format
@@ -347,9 +429,18 @@ export class OllamaBackend implements ApiBackend {
     // sending 0 overrides the Modelfile default and makes tool calling reliable.
     // Correct for agentic coding regardless of model — code and tool-call syntax
     // are legitimately repetitive and should never be penalized.
+    // Bound the turn. Without this a verbose model generates until it decides
+    // to stop; measured live at 3,400+ tokens in one turn on gemma4:12b, which
+    // at 14 t/s is minutes of wall-clock nothing interrupts.
+    const envPredict = process.env.SIDECAR_NUM_PREDICT;
+    const numPredict =
+      envPredict !== undefined && envPredict !== '' && Number.isFinite(Number(envPredict)) && Number(envPredict) > 0
+        ? Number(envPredict)
+        : AGENT_MAX_OUTPUT_TOKENS;
     const options: Record<string, unknown> = {
       temperature: agentTemperature,
       num_ctx: numCtx,
+      num_predict: numPredict,
       presence_penalty: 0,
       frequency_penalty: 0,
     };
