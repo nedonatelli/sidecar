@@ -32,6 +32,19 @@ import type { AgentEvalCase } from './agentTypes.js';
 //   - Keep the workspace fixture under ~20 lines of content. Big
 //     fixtures run slowly and the model spends its turns reading
 //     instead of doing the thing you're testing.
+//
+// The ~20-line rule has a known blind spot. It is correct for pinning tool
+// choice, argument shape, and trajectory order — but edit_file's real failure
+// mode does not exist at that scale. Measured in the same week on gemma4:e4b:
+// 14% edit_file error rate here, 60% on SWE-bench files of 399-2091 lines, and
+// 62% of SWE trajectories never landed a single successful edit. Thirty-five
+// commits to src/agent/tools/fs.ts shipped green against these fixtures
+// without moving that number, because a 20-line file cannot produce a repeated
+// anchor, a byte-exact-copy failure, or context pressure.
+//
+// So: keep fixtures small HERE, and put anything that needs scale, nesting
+// depth, or a derived (not dictated) replacement in `largeFileEditCases.ts`,
+// which owns that regime and pins its own preconditions.
 // ---------------------------------------------------------------------------
 
 export const AGENT_CASES: AgentEvalCase[] = [
