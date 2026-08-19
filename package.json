@@ -56,7 +56,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
+            "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| OpenAI-compatible | your endpoint, e.g. `https://host/v1` (trailing `/v1` optional) |\n| Kickstand | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
           },
           "sidecar.apiKey": {
             "type": "string",
@@ -126,6 +126,7 @@
               "ollama",
               "anthropic",
               "openai",
+              "openai-compat",
               "openrouter",
               "groq",
               "fireworks",
@@ -139,6 +140,7 @@
               "Local Ollama (http://localhost:11434). Free, private, no key needed.",
               "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
               "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, together.ai). Requires an API key.",
+              "Any OpenAI-compatible endpoint — self-hosted (vLLM, mlx-lm, llama.cpp) or a gateway. Set sidecar.baseUrl to the endpoint and sidecar.apiKey to its token. A trailing /v1 is optional.",
               "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
               "Groq (https://api.groq.com/openai/v1). LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec. Free tier with rate limits. Requires a Groq API key from console.groq.com.",
               "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",

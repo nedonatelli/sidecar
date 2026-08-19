@@ -131,7 +131,8 @@ export class SideCarClient {
     | 'fireworks'
     | 'gemini'
     | 'copilot'
-    | 'bedrock',
+    | 'bedrock'
+    | 'openai-compat',
     RateLimitStore
   >();
 
@@ -189,6 +190,11 @@ export class SideCarClient {
           getConfig().bedrockFips,
         );
       case 'openai':
+      case 'openai-compat':
+        // Same wire protocol; the two differ only in what the user is telling us.
+        // 'openai-compat' exists so a self-hosted or gateway endpoint is a
+        // first-class choice in the UI instead of something you get by setting
+        // provider='openai' and hoping the URL sniffing does not reclassify it.
         return new OpenAIBackend(this.baseUrl, this.apiKey, this.rateLimitsFor('openai'));
     }
   }
@@ -204,7 +210,8 @@ export class SideCarClient {
       | 'fireworks'
       | 'gemini'
       | 'copilot'
-      | 'bedrock',
+      | 'bedrock'
+      | 'openai-compat',
   ): RateLimitStore {
     let store = this.rateLimitsByProvider.get(provider);
     if (!store) {
@@ -790,7 +797,8 @@ export class SideCarClient {
     | 'fireworks'
     | 'gemini'
     | 'copilot'
-    | 'bedrock' {
+    | 'bedrock'
+    | 'openai-compat' {
     return detectProvider(this.baseUrl, getConfig().provider);
   }
 

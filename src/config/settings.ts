@@ -72,7 +72,8 @@ export interface SideCarConfig {
     | 'fireworks'
     | 'gemini'
     | 'copilot'
-    | 'bedrock';
+    | 'bedrock'
+    | 'openai-compat';
   bedrockRegion: string;
   /** Use the Bedrock FIPS endpoint (bedrock-runtime-fips.*) — required for some
    *  connections, e.g. AWS GovCloud (us-gov-east-1 / us-gov-west-1). */
@@ -450,6 +451,7 @@ function readConfig(): SideCarConfig {
     | 'gemini'
     | 'copilot'
     | 'bedrock'
+    | 'openai-compat'
   >('provider', 'auto');
   const rawBaseUrl = cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434';
   // Provider-aware default: if the user switched provider to Anthropic but left

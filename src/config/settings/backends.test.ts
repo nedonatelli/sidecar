@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import {
   detectActiveProfile,
   isLocalOllama,
@@ -8,6 +10,8 @@ import {
   isGroq,
   isFireworks,
   detectProvider,
+  openAiApiRoot,
+  providerDisplayLabel,
   BUILT_IN_BACKEND_PROFILES,
   OLLAMA_DEFAULT_MODEL,
   ANTHROPIC_DEFAULT_MODEL,
@@ -147,5 +151,58 @@ describe('default model constants', () => {
   });
   it('ANTHROPIC_DEFAULT_MODEL is defined', () => {
     expect(ANTHROPIC_DEFAULT_MODEL).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `openai-compat`: a self-hosted or gateway endpoint as a first-class choice.
+//
+// It was reachable before only by setting provider='openai' and hoping the URL
+// sniffing did not reclassify the host — and the chat URL appended `/v1`
+// unconditionally, so pasting the endpoint a provider documents
+// (`https://bedrock-mantle.us-gov-west-1.api.aws/v1`) produced
+// `/v1/v1/chat/completions` and a 404 that reads like a wrong host.
+// ---------------------------------------------------------------------------
+describe('openAiApiRoot', () => {
+  it('appends /v1 when the base URL omits it', () => {
+    expect(openAiApiRoot('https://api.openai.com')).toBe('https://api.openai.com/v1');
+  });
+
+  it('does NOT double-append when the base URL already ends in /v1', () => {
+    expect(openAiApiRoot('https://bedrock-mantle.us-gov-west-1.api.aws/v1')).toBe(
+      'https://bedrock-mantle.us-gov-west-1.api.aws/v1',
+    );
+  });
+
+  it('absorbs a trailing slash in either form', () => {
+    expect(openAiApiRoot('https://host/')).toBe('https://host/v1');
+    expect(openAiApiRoot('https://host/v1/')).toBe('https://host/v1');
+  });
+
+  it('leaves a path-prefixed gateway intact', () => {
+    expect(openAiApiRoot('https://gw.internal/llm/v1')).toBe('https://gw.internal/llm/v1');
+    expect(openAiApiRoot('https://gw.internal/llm')).toBe('https://gw.internal/llm/v1');
+  });
+});
+
+describe('openai-compat provider', () => {
+  it('is honoured explicitly and never reclassified by URL sniffing', () => {
+    // The whole point: an arbitrary host must stay openai-compat even though it
+    // matches none of the known-provider patterns.
+    expect(detectProvider('https://bedrock-mantle.us-gov-west-1.api.aws/v1', 'openai-compat')).toBe('openai-compat');
+    expect(detectProvider('http://localhost:11434', 'openai-compat')).toBe('openai-compat');
+  });
+
+  it('has an honest display label', () => {
+    expect(providerDisplayLabel('openai-compat')).toBe('OpenAI-compatible');
+  });
+
+  it('is offered in the settings UI', async () => {
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8'));
+    const props = Object.assign(
+      {},
+      ...pkg.contributes.configuration.map((b: never) => (b as { properties?: object }).properties ?? {}),
+    );
+    expect(props['sidecar.provider'].enum).toContain('openai-compat');
   });
 });

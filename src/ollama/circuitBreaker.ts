@@ -32,7 +32,8 @@ export type ProviderType =
   | 'fireworks'
   | 'gemini'
   | 'copilot'
-  | 'bedrock';
+  | 'bedrock'
+  | 'openai-compat';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 
