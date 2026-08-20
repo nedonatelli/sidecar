@@ -278,6 +278,60 @@ export const DEFAULT_CASE_TIMEOUT_MS = (() => {
  *
  * SIDECAR_EVAL_RAG_ORIENTATION: unset/'0' (default off) | '1' | a topK integer
  */
+/**
+ * Simulated production context injection, in characters.
+ *
+ * PRODUCTION AND THE EVAL HARNESSES SEND DIFFERENT SYSTEM PROMPTS. `chatHandlers`
+ * calls `buildBaseSystemPrompt` and then `injectSystemContext`, which appends
+ * SIDECAR.md, user instructions, memory, skills, pinned files and workspace
+ * retrieval up to LOCAL_MAX_SYSTEM_CHARS (52,000). Neither harness calls it — so
+ * every eval number in this repo was measured on a ~26,113-char prompt while a
+ * real user on a local model can receive nearly twice that, and the extra half
+ * is injected context the model did not ask for and cannot decline.
+ *
+ * That is the same class of divergence as the num_ctx probe (see
+ * feedback_measurement_env_diverges_from_production) and it is larger.
+ *
+ * This knob appends a reference-file block in production's own format so the
+ * MECHANISM can be dose-tested. It is a simulation, not the real function —
+ * `injectSystemContext` needs a live ChatState (workspace index, history DB,
+ * skills). Wiring that is the honest fix and is tracked separately.
+ *
+ * SIDECAR_EVAL_INJECT_CONTEXT=<chars>   0/unset = off
+ */
+const ENV_INJECT_CONTEXT = Number(process.env.SIDECAR_EVAL_INJECT_CONTEXT ?? '0') || 0;
+
+/**
+ * Filler shaped like retrieved reference code: plausible, same language as the
+ * fixture, and deliberately NOT the file under edit — which is the realistic
+ * case, since retrieval missed the gold file 29% of the time on SWE-bench.
+ */
+function referenceContextBlock(chars: number): string {
+  if (chars <= 0) return '';
+  const unit = [
+    'class RecordBatch:',
+    '    """Accumulates rows before a bulk insert."""',
+    '',
+    '    def __init__(self, size=100):',
+    '        self.size = size',
+    '        self.rows = []',
+    '',
+    '    def add(self, row):',
+    '        self.rows.append(row)',
+    '        if len(self.rows) >= self.size:',
+    '            self.flush()',
+    '',
+    '    def flush(self):',
+    '        rows, self.rows = self.rows, []',
+    '        return rows',
+    '',
+  ].join('\n');
+  let body = '';
+  let i = 0;
+  while (body.length < chars) body += unit.replace(/RecordBatch/g, `RecordBatch${i++}`);
+  return `\n\n## Workspace Context (reference files — not your task)\n${body.slice(0, chars)}`;
+}
+
 const ENV_RAG_ORIENTATION = (() => {
   const raw = process.env.SIDECAR_EVAL_RAG_ORIENTATION;
   if (!raw || raw === '0') return null;
@@ -510,6 +564,7 @@ export async function runAgentCase(
   }
   if (ENV_SYSTEM_PROMPT_MODE === 'none') systemPrompt = '';
   else if (ENV_SYSTEM_PROMPT_MODE === 'minimal') systemPrompt = MINIMAL_SYSTEM_PROMPT;
+  systemPrompt += referenceContextBlock(ENV_INJECT_CONTEXT);
 
   let clarifyFnCalled = false;
 
