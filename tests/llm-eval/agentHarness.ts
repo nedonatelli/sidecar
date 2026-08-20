@@ -1,14 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
+import type { AgentCallbacks, AgentOptions } from '../../src/agent/loop.js';
 import { parsePlanFromText } from '../../src/agent/plans/externalPlan.js';
-import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildRepoIndex, retrieveContext } from '../../bench/swe/rag.js';
-import { getToolDefinitionsForTier } from '../../src/agent/tools.js';
-import { hash as surfaceHash } from '../../bench/promptlab/manifest.js';
-import { createTrajectoryLogger } from './trajectoryLog.js';
+import { createTurnLoopSession } from './agentTurnLoop.js';
 import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
@@ -493,7 +490,6 @@ export async function runAgentCase(
     /* non-fatal — retrieval simply stays unavailable for this case */
   }
   const model = modelOverride ?? backend.defaultModel();
-  const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
   const promptConfig = { ...getConfig(), ...evalCase.configOverrides, ...ENV_CONFIG_OVERRIDES } as Record<
     string,
     unknown
@@ -514,9 +510,7 @@ export async function runAgentCase(
   }
   if (ENV_SYSTEM_PROMPT_MODE === 'none') systemPrompt = '';
   else if (ENV_SYSTEM_PROMPT_MODE === 'minimal') systemPrompt = MINIMAL_SYSTEM_PROMPT;
-  client.updateSystemPrompt(systemPrompt);
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), timeoutMs);
+
   let clarifyFnCalled = false;
 
   const callbacks: AgentCallbacks = {
@@ -618,39 +612,23 @@ export async function runAgentCase(
     { role: 'user', content: userMessage },
   ];
 
-  // Snapshot what this run is ACTUALLY sending, from the resolved values.
-  const effectiveTools = getToolDefinitionsForTier(
-    (ENV_TOOL_TIER ?? 'full') as 'read' | 'full',
-    undefined,
-    options.config as never,
-  );
-  const seedEnv = process.env.SIDECAR_AGENT_SEED;
-  const surface: EffectiveSurface = {
-    systemPromptChars: systemPrompt.length,
-    systemPromptHash: surfaceHash(systemPrompt),
-    toolNames: effectiveTools.map((t) => t.name).sort(),
-    toolCatalogHash: surfaceHash(JSON.stringify(effectiveTools)),
+  // The shared core owns client, system prompt, abort/timeout, surface capture
+  // and trajectory logging — the span swe.eval.ts used to re-implement. See
+  // docs/superpowers/specs/2026-08-20-harness-unification-design.md.
+  const session = createTurnLoopSession({
+    model,
+    baseUrl: backend.baseUrl(),
+    apiKey: backend.apiKey(),
+    systemPrompt,
+    options,
+    callbacks,
+    timeoutMs,
+    caseId: evalCase.id,
+    arm: process.env.SIDECAR_EVAL_ARM || 'default',
+    trial: Number(process.env.SIDECAR_EVAL_TRIAL_INDEX ?? 0),
     ragOrientationChars: orientationChars,
-    seed: seedEnv ? Number(seedEnv) : null,
-    temperature: (options.config as { agentTemperature?: number } | undefined)?.agentTemperature ?? NaN,
-    numCtx: process.env.SIDECAR_OLLAMA_NUM_CTX ? Number(process.env.SIDECAR_OLLAMA_NUM_CTX) : null,
-  };
-
-  // One live log per trial. Arm/seed/trial are in the filename so a sweep's
-  // logs sort into comparable groups without a manifest lookup.
-  const trajLogger =
-    process.env.SIDECAR_EVAL_TRAJECTORY_DIR === 'off'
-      ? null
-      : createTrajectoryLogger({
-          dir: path.join(process.env.SIDECAR_EVAL_TRAJECTORY_DIR || '.sidecar/logs/eval-trajectories', 'live'),
-          caseId: evalCase.id,
-          arm: process.env.SIDECAR_EVAL_ARM || 'default',
-          seed: surface.seed,
-          trial: Number(process.env.SIDECAR_EVAL_TRIAL_INDEX ?? 0),
-          surface,
-          configOverrides: { ...evalCase.configOverrides, ...(ENV_CONFIG_OVERRIDES ?? {}) } as Record<string, unknown>,
-        });
-  const loggedCallbacks: AgentCallbacks = trajLogger ? trajLogger.wrap(callbacks) : callbacks;
+  });
+  const surface = session.surface;
 
   // Suppress thinking mode for models where it causes stalling or text-only output.
   if (hasProblematicThinking(model) && options.config) {
@@ -661,7 +639,7 @@ export async function runAgentCase(
 
   let runError: Error | null = null;
   try {
-    await runAgentLoop(client, initialMessages, loggedCallbacks, abort.signal, options);
+    await session.run(initialMessages);
 
     // Cooperative user, text channel: a run that ENDS on a genuine clarifying
     // question (rather than routing it through ask_user) used to dead-end —
@@ -673,7 +651,7 @@ export async function runAgentCase(
     // the answer — the same bar the ask_user path has always had. Guarded to
     // question-shaped endings with a clarify signal, so a "shall I proceed?"
     // permission stall does not earn a free continuation hint.
-    if (!abort.signal.aborted && evalCase.clarifyResponse !== undefined && !clarifyFnCalled) {
+    if (!session.signal.aborted && evalCase.clarifyResponse !== undefined && !clarifyFnCalled) {
       const finalTail = textBuffer.join('').slice(-400);
       // Interrogative ("Which one…?") or imperative ("please clarify which…")
       // — ministral asks correctly with no question mark at all.
@@ -689,13 +667,13 @@ export async function runAgentCase(
           { role: 'assistant', content: textBuffer.join('') },
           { role: 'user', content: answer },
         ];
-        await runAgentLoop(client, continuation, loggedCallbacks, abort.signal, options);
+        await session.run(continuation);
       }
     }
   } catch (err) {
     runError = err instanceof Error ? err : new Error(String(err));
   } finally {
-    clearTimeout(timer);
+    session.close(runError ? 'error' : 'natural');
     snapshot = await sandbox.snapshot().catch(() => ({}));
     await sandbox.teardown();
     toolRuntime.dispose();

@@ -98,7 +98,10 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
     input.logDir === null || process.env.SIDECAR_EVAL_TRAJECTORY_DIR === 'off'
       ? null
       : createTrajectoryLogger({
-          dir: input.logDir ?? '.sidecar/logs/eval-trajectories/live',
+          // SIDECAR_EVAL_TRAJECTORY_DIR is how a sweep isolates its logs; honoring
+          // it here means both harnesses obey the same variable instead of one
+          // silently writing every arm into the same directory.
+          dir: input.logDir ?? `${process.env.SIDECAR_EVAL_TRAJECTORY_DIR || '.sidecar/logs/eval-trajectories'}/live`,
           caseId: input.caseId,
           arm: input.arm,
           seed: surface.seed,

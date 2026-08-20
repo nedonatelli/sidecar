@@ -114,6 +114,21 @@ describe('createTurnLoopSession', () => {
     s.close('natural');
   });
 
+  it('honors SIDECAR_EVAL_TRAJECTORY_DIR so a sweep can isolate its logs', () => {
+    // Regression: the session hardcoded its own default and ignored the variable
+    // every sweep uses, so arms would have written into one shared directory.
+    const alt = fs.mkdtempSync(path.join(os.tmpdir(), 'altdir-'));
+    process.env.SIDECAR_EVAL_TRAJECTORY_DIR = alt;
+    try {
+      const s = createTurnLoopSession(mk({ logDir: undefined }));
+      expect(s.logger!.logPath.startsWith(alt)).toBe(true);
+      s.close('natural');
+    } finally {
+      delete process.env.SIDECAR_EVAL_TRAJECTORY_DIR;
+      fs.rmSync(alt, { recursive: true, force: true });
+    }
+  });
+
   it('can be run without logging when a caller opts out', () => {
     const s = createTurnLoopSession(mk({ logDir: null }));
     expect(s.logger).toBeNull();
