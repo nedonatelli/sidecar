@@ -509,7 +509,7 @@ describe('editFile repeated-failure escalation', () => {
   it('search-not-found: a 3rd identical repeat SUGGESTS a region — it never overwrites one', async () => {
     // This test used to assert the opposite: that a 20%-confidence fuzzy match
     // should overwrite `alpha zzzz zzzz zzzz` with `alpha beta gamma delta
-    // epsilon`. That is nonsense, and it was the DESIGNED behaviour. Measured
+    // epsilon`. That is nonsense, and it was the DESIGNED behavior. Measured
     // over 1,700 real edits from 11 repositories, the matcher picks the wrong
     // region 30% of the time it commits — at ANY confidence threshold. It now
     // hands the candidate to the model instead of writing it.

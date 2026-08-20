@@ -162,7 +162,7 @@ export const UNDERSPECIFIED_CASES: AgentEvalCase[] = [
     // or a system prompt that teaches search, has to earn its place against.
     userMessage:
       'The validator for field13 is too permissive: a value exactly equal to its maximum should be ' +
-      'out of bounds. Fix only that validator; the others must keep their behaviour.',
+      'out of bounds. Fix only that validator; the others must keep their behavior.',
     maxIterations: 16,
     expect: {
       files: {
@@ -174,7 +174,7 @@ export const UNDERSPECIFIED_CASES: AgentEvalCase[] = [
 
   {
     id: 'large-file-vague-semantics',
-    description: 'The target is named but the required behaviour is not — can it infer the fix?',
+    description: 'The target is named but the required behavior is not — can it infer the fix?',
     tags: ['edit', 'scale', 'python', 'specification', 'regression'],
     workspace: { 'src/validators.py': VALIDATOR_MODULE },
     // The one failure reasoning does NOT rescue: 0/3 even with 44,827 chars of
@@ -182,7 +182,7 @@ export const UNDERSPECIFIED_CASES: AgentEvalCase[] = [
     // "by one" is the whole difficulty — it must infer that > should become >=.
     userMessage:
       "In src/validators.py, FieldValidator13's bounds check is too permissive by one. " +
-      'Fix FieldValidator13 only. Every other validator must keep its current behaviour.',
+      'Fix FieldValidator13 only. Every other validator must keep its current behavior.',
     maxIterations: 16,
     expect: {
       files: { equal: [{ path: 'src/validators.py', content: VALIDATOR_MODULE_BOUNDARY_FIXED }] },
@@ -193,7 +193,7 @@ export const UNDERSPECIFIED_CASES: AgentEvalCase[] = [
     id: 'large-file-already-correct',
     description: 'The code already does what is asked — the correct action is to change nothing',
     tags: ['edit', 'scale', 'python', 'restraint', 'regression'],
-    // The fixture is ALREADY fixed, and the request describes the behaviour it
+    // The fixture is ALREADY fixed, and the request describes the behavior it
     // already has. Every other case rewards acting; this is the only one that
     // rewards stopping — and both of the worst failures seen on 2026-08-19 were
     // models that could not stop: one re-edited a file it had already fixed
@@ -216,7 +216,7 @@ export const LARGE_FILE_EDIT_CASES: AgentEvalCase[] = [
     description: 'Change one operator deep in a 500-line Python module, behind an anchor repeated 20 times',
     tags: ['edit', 'scale', 'python', 'regression'],
     workspace: { 'src/validators.py': VALIDATOR_MODULE },
-    // Stated as behaviour, never as text. The model has to derive BOTH fields:
+    // Stated as behavior, never as text. The model has to derive BOTH fields:
     // find the line, copy it byte-exactly into `search`, and write a different
     // string into `replace`. A prompt that names the replacement (as
     // `dogfood-large-file-edit` does) removes the search===replace failure mode
@@ -224,7 +224,7 @@ export const LARGE_FILE_EDIT_CASES: AgentEvalCase[] = [
     userMessage:
       'In src/validators.py, FieldValidator13 is too permissive: a value exactly equal to its ' +
       'maximum should be treated as out of bounds, but is_within_bounds currently accepts it. ' +
-      'Fix FieldValidator13 only. Every other validator must keep its current behaviour.',
+      'Fix FieldValidator13 only. Every other validator must keep its current behavior.',
     maxIterations: 14,
     expect: {
       files: {
@@ -318,7 +318,7 @@ export const LARGE_FILE_EDIT_CASES: AgentEvalCase[] = [
     userMessage:
       'In src/validators.py, FieldValidator13 is too permissive: a value exactly equal to its ' +
       'maximum should be treated as out of bounds, but is_within_bounds currently accepts it. ' +
-      'Fix FieldValidator13 only. Every other validator must keep its current behaviour.',
+      'Fix FieldValidator13 only. Every other validator must keep its current behavior.',
     maxIterations: 18,
     expect: {
       files: {

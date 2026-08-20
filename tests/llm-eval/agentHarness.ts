@@ -342,14 +342,14 @@ export function runConfigForProvenance(): Record<string, unknown> {
  */
 /**
  * Marker on the error `runAgentCase` throws for infra breakage, so a caller can
- * recognise it without matching prose.
+ * recognize it without matching prose.
  *
  * The throw is deliberate: in `agent.eval.ts` every case is its own `it`, so it
  * fails that one test and the suite carries on. The BASELINE recorder runs all
  * cases inside a single `it`, so the same throw killed the entire model run —
  * llama3.2 died at case 16 of 70 on "This operation was aborted" and left a
  * 16-case file where a 69-case one had been. Wrapping strips `err.name`, so
- * `isInfraFailure` cannot recognise the re-thrown error either; hence a marker.
+ * `isInfraFailure` cannot recognize the re-thrown error either; hence a marker.
  */
 export const INFRA_FAILURE_PREFIX = 'Agent run failed (infra, not a regression): ';
 

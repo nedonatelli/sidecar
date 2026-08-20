@@ -42,7 +42,7 @@ Each harness keeps only its own ends:
 
 |              | before the core                              | after the core                           |
 | ------------ | -------------------------------------------- | ---------------------------------------- |
-| agentHarness | materialise fixture, build RAG index         | score expectations -> `AgentCaseResult`  |
+| agentHarness | materialize fixture, build RAG index         | score expectations -> `AgentCaseResult`  |
 | swe.eval     | clone repo, set up venv, compose orientation | `git diff` -> patch -> predictions.jsonl |
 
 Owned by the core: client construction, prompt assembly, tool tier, `ToolRuntime`,
@@ -53,7 +53,7 @@ recording, failure taxonomy.
 `toPredictionsJsonl`, `armConfigOverrides`, `wholeSuiteGuard`,
 `renderTestModuleHint`, `goldFilesInTopK`.
 
-## Behaviour changes (not refactors — these move numbers)
+## Behavior changes (not refactors — these move numbers)
 
 1. **RAG orientation becomes opt-in for SWE.** Likely an improvement on the
    evidence, but old SWE numbers stop being comparable.
@@ -63,7 +63,7 @@ recording, failure taxonomy.
 
 ## Sequencing
 
-1. Characterisation tests for the SWE-specific pieces — `swe.eval.ts` has **no
+1. Characterization tests for the SWE-specific pieces — `swe.eval.ts` has **no
    unit tests**; it is exercised only by running SWE-bench, which takes hours.
    The safety net on that side is thin and must be built first.
 2. Extract the core with both harnesses' existing tests green.

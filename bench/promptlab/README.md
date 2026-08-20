@@ -11,7 +11,7 @@ each of which corrupted a result before being noticed:
 | -------------------------------------- | ----------------------------------------------------- |
 | buffered stdout                        | 20 minutes blind; a working run killed on a bad guess |
 | tool text changed between harnesses    | whole ladder invalid — baseline went 3/3 → 0/3        |
-| levels inserted at index 0             | the gate ran L6 while labelled "L0"                   |
+| levels inserted at index 0             | the gate ran L6 while labeled "L0"                    |
 | case timeout truncated trials          | denominator silently 8 instead of 9                   |
 | timeout `×` read as capability failure | claimed an arm failed that had passed 2/2             |
 | unseeded temp 0.2 at n=3               | 1–2 trial differences read as signal, twice           |

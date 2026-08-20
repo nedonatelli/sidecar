@@ -6,10 +6,10 @@ import { retrieveContext, goldFilesInTopK } from './rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 
 // ---------------------------------------------------------------------------
-// Characterisation tests for the retrieval layer.
+// Characterization tests for the retrieval layer.
 //
 // rag.ts was the only SWE-specific module with no tests, and it is the one whose
-// behaviour is about to change: the SWE harness injects `retrieveContext`'s
+// behavior is about to change: the SWE harness injects `retrieveContext`'s
 // output into EVERY task (2,722-9,633 chars observed), while the agent harness
 // leaves it opt-in. Measured 2026-08-19, that injection took a case from 10/10
 // to 4/10 (p=0.011) — so unification will make it opt-in there too, and these

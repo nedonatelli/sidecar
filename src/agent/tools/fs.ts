@@ -847,7 +847,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // llama3.2 sidestepped edit_file entirely and called write_file with
   // `@tsdoc \n\nfunction welcome(name: string): string {…` — dropping `export`,
   // writing a non-comment, and clobbering a clean file with unparseable source.
-  // Every corruption defence lived in edit_file, so this sailed through and
+  // Every corruption defense lived in edit_file, so this sailed through and
   // reported success. An empty/absent file parses clean, so the same rule
   // covers creation: don't create a file that doesn't parse either. Fails open
   // when no grammar applies (markdown, JSON, unknown extensions).
@@ -886,7 +886,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // llama3.2 sidestepped edit_file entirely and called write_file with
   // `@tsdoc \n\nfunction welcome(name: string): string {…` — dropping `export`,
   // writing a non-comment, and clobbering a clean file with unparseable source.
-  // Every corruption defence lived in edit_file, so this sailed through and
+  // Every corruption defense lived in edit_file, so this sailed through and
   // reported success. An absent file reads as empty, which parses clean, so the
   // same rule covers creation. Fails open when no grammar applies (md, json…).
   const syntax = await editWouldBreakSyntax(filePath, original ?? '', content);

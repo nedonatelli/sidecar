@@ -324,7 +324,7 @@ export function detectProvider(
  * `/v1`, e.g. `https://bedrock-mantle.us-gov-west-1.api.aws/v1` — silently got
  * `/v1/v1/chat/completions` and a 404 that looks like the host being wrong.
  *
- * Accepts either form and normalises: a trailing slash and an existing `/v1`
+ * Accepts either form and normalizes: a trailing slash and an existing `/v1`
  * suffix are both absorbed.
  */
 export function openAiApiRoot(baseUrl: string): string {
