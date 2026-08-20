@@ -3525,7 +3525,9 @@
     "check": "npm run compile && npm run compile:bench && npm run compile:tests && npm run lint && npm run format:check && npm run test",
     "bump": "bash scripts/bump-version.sh",
     "prepare": "husky",
-    "compile:tests": "tsc -p tsconfig.tests.json"
+    "compile:tests": "tsc -p tsconfig.tests.json",
+    "deadcode": "knip --no-progress",
+    "deadcode:fix": "knip --fix --no-progress"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
@@ -3550,6 +3552,7 @@
     "fast-check": "^4.9.0",
     "happy-dom": "^20.10.5",
     "husky": "^9.1.7",
+    "knip": "^6.32.2",
     "lint-staged": "^16.4.0",
     "mysql2": "^3.22.2",
     "pg": "^8.20.0",
