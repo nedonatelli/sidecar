@@ -134,6 +134,82 @@ const BOUNDARY_TARGET = 13;
 /** The same module with ONLY FieldValidator13's bounds operator widened. */
 const VALIDATOR_MODULE_BOUNDARY_FIXED = buildValidatorModule({ [BOUNDARY_TARGET]: '>=' });
 
+/**
+ * Sibling modules, so "which file?" is a real question rather than a formality.
+ * Only `validators.py` carries a bounds check; the decoys are plausible places
+ * to look, not noise.
+ */
+const DECOY_FILES: Record<string, string> = {
+  'src/errors.py': 'class ValidationError(Exception):\n    """Raised when a field fails validation."""\n',
+  'src/importer.py':
+    'from .validators import FieldValidator13\n\n\n' +
+    'def import_row(row):\n    """Import one record, validating each field."""\n' +
+    '    return {k: v for k, v in row.items() if v is not None}\n',
+  'src/limits.py': '"""Static limits referenced by the importer."""\n\nMAX_ROWS = 10_000\nMAX_FIELD_BYTES = 4096\n',
+  'README.md': '# Record importer\n\nValidates and imports rows.\n',
+};
+
+export const UNDERSPECIFIED_CASES: AgentEvalCase[] = [
+  {
+    id: 'large-file-no-path',
+    description: 'Same edit, but the file is not named — the model must locate it first',
+    tags: ['edit', 'scale', 'python', 'retrieval', 'regression'],
+    workspace: { 'src/validators.py': VALIDATOR_MODULE, ...DECOY_FILES },
+    // Measured 2026-08-19: removing the path took gemma4:e4b from 3/3 to 0/3,
+    // with and without reasoning, while removing the CLASS name cost nothing
+    // (3/3, and the fastest run of the ladder). Location is load-bearing in a
+    // way the other specificity is not — this case is what a retrieval layer,
+    // or a system prompt that teaches search, has to earn its place against.
+    userMessage:
+      'The validator for field13 is too permissive: a value exactly equal to its maximum should be ' +
+      'out of bounds. Fix only that validator; the others must keep their behaviour.',
+    maxIterations: 16,
+    expect: {
+      files: {
+        equal: [{ path: 'src/validators.py', content: VALIDATOR_MODULE_BOUNDARY_FIXED }],
+        notModified: ['src/errors.py', 'src/importer.py', 'src/limits.py'],
+      },
+    },
+  },
+
+  {
+    id: 'large-file-vague-semantics',
+    description: 'The target is named but the required behaviour is not — can it infer the fix?',
+    tags: ['edit', 'scale', 'python', 'specification', 'regression'],
+    workspace: { 'src/validators.py': VALIDATOR_MODULE },
+    // The one failure reasoning does NOT rescue: 0/3 even with 44,827 chars of
+    // thinking, while the same prompt WITH the semantics spelled out is 3/3.
+    // "by one" is the whole difficulty — it must infer that > should become >=.
+    userMessage:
+      "In src/validators.py, FieldValidator13's bounds check is too permissive by one. " +
+      'Fix FieldValidator13 only. Every other validator must keep its current behaviour.',
+    maxIterations: 16,
+    expect: {
+      files: { equal: [{ path: 'src/validators.py', content: VALIDATOR_MODULE_BOUNDARY_FIXED }] },
+    },
+  },
+
+  {
+    id: 'large-file-already-correct',
+    description: 'The code already does what is asked — the correct action is to change nothing',
+    tags: ['edit', 'scale', 'python', 'restraint', 'regression'],
+    // The fixture is ALREADY fixed, and the request describes the behaviour it
+    // already has. Every other case rewards acting; this is the only one that
+    // rewards stopping — and both of the worst failures seen on 2026-08-19 were
+    // models that could not stop: one re-edited a file it had already fixed
+    // until it hit the iteration cap, another reported an edit it never made.
+    workspace: { 'src/validators.py': VALIDATOR_MODULE_BOUNDARY_FIXED },
+    userMessage:
+      'In src/validators.py, FieldValidator13 should treat a value exactly equal to its maximum as ' +
+      'out of bounds. Make sure that is the case. Change nothing else.',
+    maxIterations: 12,
+    expect: {
+      // Byte-identical: any edit at all is a failure, including a "harmless" one.
+      files: { equal: [{ path: 'src/validators.py', content: VALIDATOR_MODULE_BOUNDARY_FIXED }] },
+    },
+  },
+];
+
 export const LARGE_FILE_EDIT_CASES: AgentEvalCase[] = [
   {
     id: 'large-file-derived-boundary-edit',

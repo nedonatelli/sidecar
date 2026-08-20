@@ -5,7 +5,7 @@ import { parsePlanFromText } from '../../src/agent/plans/externalPlan.js';
 import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
-import { buildRepoIndex } from '../../bench/swe/rag.js';
+import { buildRepoIndex, retrieveContext } from '../../bench/swe/rag.js';
 import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
@@ -246,6 +246,60 @@ export const DEFAULT_CASE_TIMEOUT_MS = (() => {
  * Malformed JSON throws at module load — a silent fallback would run the
  * whole sweep under the wrong arm and label the results as if it hadn't.
  */
+/**
+ * Prompt-surface ablation knobs. The three layers a local model pays for every
+ * turn — system prompt, tool catalog, gates — are separately switchable so a
+ * sweep can ask "what does this layer buy?" instead of guessing.
+ *
+ * Measured 2026-08-19 on gemma4:e4b: the same one-line edit took 3 turns with a
+ * 189-token prompt surface and 13 turns with SideCar's full 12,597-token one,
+ * with NO gates or hooks involved. The cost lives in the surface, and nothing
+ * could vary it, so nothing could measure it.
+ *
+ * SIDECAR_EVAL_SYSTEM_PROMPT: 'full' (default) | 'minimal' | 'none'
+ * SIDECAR_EVAL_TOOL_TIER:     'full' (default) | 'read'
+ *
+ * Gates need no knob here — SIDECAR_EVAL_CONFIG_OVERRIDES already reaches them.
+ */
+/**
+ * RAG orientation: inject the top-k semantically-retrieved symbol bodies into
+ * the first user message, the way the SWE harness does, instead of leaving the
+ * model to search for itself.
+ *
+ * Both harnesses already build the SAME index — `project_knowledge_search` works
+ * in every case — so this knob is NOT "retrieval on/off". It is "pre-retrieved
+ * context injected vs the model asking". Those are different interventions and
+ * were being conflated.
+ *
+ * Worth measuring rather than assuming: on SWE-bench the orientation block ran
+ * 2,700-9,600 chars and retrieval recall MISSED the gold file 29% of the time,
+ * so a third of those injections point a small model at the wrong code inside a
+ * window it cannot spare.
+ *
+ * SIDECAR_EVAL_RAG_ORIENTATION: unset/'0' (default off) | '1' | a topK integer
+ */
+const ENV_RAG_ORIENTATION = (() => {
+  const raw = process.env.SIDECAR_EVAL_RAG_ORIENTATION;
+  if (!raw || raw === '0') return null;
+  const n = Number(raw);
+  return { topK: Number.isFinite(n) && n > 1 ? n : 6 };
+})();
+
+const ENV_SYSTEM_PROMPT_MODE = (process.env.SIDECAR_EVAL_SYSTEM_PROMPT ?? 'full') as 'full' | 'minimal' | 'none';
+const ENV_TOOL_TIER = process.env.SIDECAR_EVAL_TOOL_TIER as 'read' | 'full' | undefined;
+
+/**
+ * The smallest system prompt that still states the loop's contract. Not zero:
+ * with no prompt at all the model cannot know edits are applied by tools rather
+ * than proposed as text. Everything beyond this — persona, verification rules,
+ * safety rules, worked examples — is what the ablation puts a price on.
+ */
+const MINIMAL_SYSTEM_PROMPT = [
+  'You are a coding agent working in a real project.',
+  'Use the provided tools to inspect and change files; do not print code and call it done.',
+  'When the task is complete, say so briefly.',
+].join('\n');
+
 const ENV_CONFIG_OVERRIDES = (() => {
   const raw = process.env.SIDECAR_EVAL_CONFIG_OVERRIDES;
   if (!raw) return null;
@@ -429,6 +483,8 @@ export async function runAgentCase(
   if (evalCase.workspace['SIDECAR.md']) {
     systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${evalCase.workspace['SIDECAR.md']}`;
   }
+  if (ENV_SYSTEM_PROMPT_MODE === 'none') systemPrompt = '';
+  else if (ENV_SYSTEM_PROMPT_MODE === 'minimal') systemPrompt = MINIMAL_SYSTEM_PROMPT;
   client.updateSystemPrompt(systemPrompt);
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -493,6 +549,7 @@ export async function runAgentCase(
     // controlled temp dir; seatbelt wrapping causes shell init hangs
     // when the ShellSession CWD is /var/folders (not the VS Code workspace).
     config: { ...getConfig(), sandboxEnabled: false, ...evalCase.configOverrides, ...ENV_CONFIG_OVERRIDES },
+    ...(ENV_TOOL_TIER ? { toolTier: ENV_TOOL_TIER } : {}),
   };
 
   // Determine whether this model needs a cold start (no prior context).
@@ -500,9 +557,36 @@ export async function runAgentCase(
   // switches them from tool-use mode to chat-response mode.
   const coldStart = needsColdStart(model);
   const keepSetup = evalCase.setupMessages && (!coldStart || evalCase.setupMessagesRequired);
+  // RAG orientation, when enabled: prepend retrieved symbol bodies to the user
+  // message, matching how the SWE harness seeds turn 0. Best-effort — a fixture
+  // whose index is empty simply contributes nothing, which is the honest
+  // "retrieval found nothing" rather than a failed run.
+  let userMessage = evalCase.userMessage;
+  let orientationChars = 0;
+  if (ENV_RAG_ORIENTATION && toolRuntime.symbolEmbeddings) {
+    try {
+      const { context } = await retrieveContext(
+        toolRuntime.symbolEmbeddings,
+        evalCase.userMessage,
+        sandbox.root,
+        ENV_RAG_ORIENTATION.topK,
+      );
+      if (context) {
+        orientationChars = context.length;
+        userMessage = `${context}\n\n${evalCase.userMessage}`;
+      }
+    } catch {
+      /* non-fatal — an unretrievable fixture runs without orientation */
+    }
+  }
+  if (orientationChars > 0) {
+    // Surfaced so a sweep can tell "orientation helped" from "orientation was empty".
+    console.log(`[rag-orientation] ${evalCase.id}: injected ${orientationChars} chars`);
+  }
+
   const initialMessages: ChatMessage[] = [
     ...(keepSetup ? evalCase.setupMessages! : []),
-    { role: 'user', content: evalCase.userMessage },
+    { role: 'user', content: userMessage },
   ];
 
   // Suppress thinking mode for models where it causes stalling or text-only output.
