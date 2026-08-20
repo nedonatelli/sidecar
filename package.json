@@ -3527,7 +3527,8 @@
     "prepare": "husky",
     "compile:tests": "tsc -p tsconfig.tests.json",
     "deadcode": "knip --no-progress",
-    "deadcode:fix": "knip --fix --no-progress"
+    "deadcode:fix": "knip --fix --no-progress",
+    "promptlab": "npx --yes tsx bench/promptlab/cli.ts"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

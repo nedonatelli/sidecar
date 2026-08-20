@@ -42,7 +42,37 @@ response is not "be more careful" — it is guards that fail loudly.
    harder, because repeat runs of the same config will disagree (observed: the
    same arm scored 0/3 and 2/3 an hour apart).
 
+## Usage
+
+```
+npm run promptlab -- [--case <id>] [--trials <n>] [--file <path>]
+```
+
+Reads the trajectory JSONL every eval run already writes, groups records into
+arms **by what they ran** (system-prompt hash + tool-catalog hash + RAG on/off,
+never a label someone typed), and reports each pair with Fisher's exact.
+
+Real output from the two shapes this session produced:
+
+```
+# large-file-no-path
+  10/10   sys:sysA tools:toolA rag:off
+   4/10   sys:sysA tools:toolA rag:on
+  ... 10/10 vs 4/10 — p=0.011 CONCLUSIVE
+
+# large-file-already-correct
+   2/3    sys:sysA tools:toolA rag:off
+   0/3    sys:sysA tools:toolA rag:on
+  ... 2/3 vs 0/3 — p=0.400 INCONCLUSIVE (within sampling noise)
+  trials/arm needed to resolve 0.67 vs 0.00: 6
+```
+
+The second is the shape that was reported as a finding twice before being
+retracted. An INCONCLUSIVE verdict is not a dead end — the trials-needed line
+turns it into a sample-size decision.
+
 ## Status
 
-`guards.ts` and `manifest.ts` are complete and tested. The runner that drives
-`agentHarness` across arms and emits the manifest is the next piece.
+`guards.ts`, `manifest.ts` and `compare.ts` are complete and tested. Records
+written before surface recording existed are grouped as `unrecorded-surface`
+and reported as unattributable rather than silently mixed into an arm.
