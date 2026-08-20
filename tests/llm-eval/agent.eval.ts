@@ -51,6 +51,19 @@ const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim()
 // models "solvable but unreliable" and "broken" need different responses.
 // Default 1 preserves the classic single-shot semantics exactly.
 const TRIALS = Math.max(1, parseInt(process.env.SIDECAR_EVAL_TRIALS ?? '1', 10) || 1);
+/**
+ * Base seed for reproducible-but-varied trials.
+ *
+ * A FIXED seed across trials is worse than none: identical input + identical
+ * seed = identical output, so ten trials measure one sample and report it as
+ * ten. The seed is therefore derived per trial (base + index) — every trial is
+ * a different draw, and re-running the sweep reproduces all of them exactly.
+ *
+ * Unset leaves sampling unseeded, which is what produced 0/3 and 2/3 for the
+ * SAME arm on the same case an hour apart at temperature 0.2.
+ */
+const SEED_BASE = process.env.SIDECAR_AGENT_SEED ? Number(process.env.SIDECAR_AGENT_SEED) : null;
+
 /** How many times a timed-out (zero-output) trial is re-run before being excluded. */
 const TIMEOUT_RETRIES = Math.max(0, parseInt(process.env.SIDECAR_EVAL_TIMEOUT_RETRIES ?? '1', 10) || 0);
 /** Counted so the summary can report retries and exclusions instead of hiding them. */
@@ -153,6 +166,8 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
         // produce output, leave it apiUnavailable so the circuit breaker can
         // still catch a dead endpoint — but the report names the exclusion
         // instead of hiding it.
+        // Per-trial seed: reproducible across sweeps, varied within one.
+        if (SEED_BASE !== null) process.env.SIDECAR_AGENT_SEED = String(SEED_BASE + trial);
         let trialResult: AgentCaseResult;
         let attempt = 0;
         for (;;) {

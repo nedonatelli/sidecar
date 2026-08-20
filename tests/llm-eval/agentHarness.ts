@@ -6,6 +6,9 @@ import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildRepoIndex, retrieveContext } from '../../bench/swe/rag.js';
+import { getToolDefinitionsForTier } from '../../src/agent/tools.js';
+import { hash as surfaceHash } from '../../bench/promptlab/manifest.js';
+import { createTrajectoryLogger } from './trajectoryLog.js';
 import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
@@ -370,12 +373,37 @@ export function isInfraFailure(err: Error): boolean {
  * scorer. Non-fatal on write failure: trajectories are telemetry, the
  * case result is the primary output.
  */
+/**
+ * The configuration a run ACTUALLY executed under, computed from the values
+ * used rather than the ones intended.
+ *
+ * Recording only non-empty `configOverrides` meant an arm running shipped
+ * defaults recorded nothing at all, so two arms were indistinguishable in the
+ * accumulated JSONL — and every claim about "which arm was this?" became a
+ * memory exercise. That is how an arm got described as "no RAG" while
+ * project_knowledge_search was in its catalog the whole time.
+ *
+ * Hash the surface, list the tools, name the seed. A claim about a run should
+ * be checkable against the run.
+ */
+export interface EffectiveSurface {
+  systemPromptChars: number;
+  systemPromptHash: string;
+  toolNames: string[];
+  toolCatalogHash: string;
+  ragOrientationChars: number;
+  seed: number | null;
+  temperature: number;
+  numCtx: number | null;
+}
+
 function dumpTrajectory(
   caseId: string,
   model: string,
   backendName: string,
   result: AgentCaseResult,
   configOverrides?: AgentEvalCase['configOverrides'],
+  surface?: EffectiveSurface,
 ): void {
   // Capture by DEFAULT. This used to require SIDECAR_EVAL_TRAJECTORY_DIR to be
   // set, so the question the comment above promises to answer — "do models
@@ -394,9 +422,10 @@ function dumpTrajectory(
       caseId,
       model,
       backend: backendName,
-      // The active config arm — without this, sweep runs across option
-      // variants would be indistinguishable in the accumulated JSONL.
-      ...(Object.keys(mergedOverrides).length > 0 ? { configOverrides: mergedOverrides } : {}),
+      // ALWAYS recorded, even when empty — an arm on shipped defaults still
+      // needs to be identifiable after the fact.
+      configOverrides: mergedOverrides,
+      ...(surface ? { surface } : {}),
       passed: result.passed,
       ...(result.apiUnavailable ? { apiUnavailable: true } : {}),
       durationMs: result.durationMs,
@@ -589,6 +618,40 @@ export async function runAgentCase(
     { role: 'user', content: userMessage },
   ];
 
+  // Snapshot what this run is ACTUALLY sending, from the resolved values.
+  const effectiveTools = getToolDefinitionsForTier(
+    (ENV_TOOL_TIER ?? 'full') as 'read' | 'full',
+    undefined,
+    options.config as never,
+  );
+  const seedEnv = process.env.SIDECAR_AGENT_SEED;
+  const surface: EffectiveSurface = {
+    systemPromptChars: systemPrompt.length,
+    systemPromptHash: surfaceHash(systemPrompt),
+    toolNames: effectiveTools.map((t) => t.name).sort(),
+    toolCatalogHash: surfaceHash(JSON.stringify(effectiveTools)),
+    ragOrientationChars: orientationChars,
+    seed: seedEnv ? Number(seedEnv) : null,
+    temperature: (options.config as { agentTemperature?: number } | undefined)?.agentTemperature ?? NaN,
+    numCtx: process.env.SIDECAR_OLLAMA_NUM_CTX ? Number(process.env.SIDECAR_OLLAMA_NUM_CTX) : null,
+  };
+
+  // One live log per trial. Arm/seed/trial are in the filename so a sweep's
+  // logs sort into comparable groups without a manifest lookup.
+  const trajLogger =
+    process.env.SIDECAR_EVAL_TRAJECTORY_DIR === 'off'
+      ? null
+      : createTrajectoryLogger({
+          dir: path.join(process.env.SIDECAR_EVAL_TRAJECTORY_DIR || '.sidecar/logs/eval-trajectories', 'live'),
+          caseId: evalCase.id,
+          arm: process.env.SIDECAR_EVAL_ARM || 'default',
+          seed: surface.seed,
+          trial: Number(process.env.SIDECAR_EVAL_TRIAL_INDEX ?? 0),
+          surface,
+          configOverrides: { ...evalCase.configOverrides, ...(ENV_CONFIG_OVERRIDES ?? {}) } as Record<string, unknown>,
+        });
+  const loggedCallbacks: AgentCallbacks = trajLogger ? trajLogger.wrap(callbacks) : callbacks;
+
   // Suppress thinking mode for models where it causes stalling or text-only output.
   if (hasProblematicThinking(model) && options.config) {
     options.config = { ...options.config, ollamaDisableThinking: true };
@@ -598,7 +661,7 @@ export async function runAgentCase(
 
   let runError: Error | null = null;
   try {
-    await runAgentLoop(client, initialMessages, callbacks, abort.signal, options);
+    await runAgentLoop(client, initialMessages, loggedCallbacks, abort.signal, options);
 
     // Cooperative user, text channel: a run that ENDS on a genuine clarifying
     // question (rather than routing it through ask_user) used to dead-end —
@@ -626,7 +689,7 @@ export async function runAgentCase(
           { role: 'assistant', content: textBuffer.join('') },
           { role: 'user', content: answer },
         ];
-        await runAgentLoop(client, continuation, callbacks, abort.signal, options);
+        await runAgentLoop(client, continuation, loggedCallbacks, abort.signal, options);
       }
     }
   } catch (err) {
@@ -672,7 +735,7 @@ export async function runAgentCase(
       durationMs,
       iterationsUsed,
     };
-    dumpTrajectory(evalCase.id, model, backend.name, errorResult, evalCase.configOverrides);
+    dumpTrajectory(evalCase.id, model, backend.name, errorResult, evalCase.configOverrides, surface);
     return errorResult;
   }
 
@@ -684,6 +747,6 @@ export async function runAgentCase(
     iterationsUsed,
   });
   const finalResult = apiUnavailable ? { ...scored, apiUnavailable: true } : scored;
-  dumpTrajectory(evalCase.id, model, backend.name, finalResult, evalCase.configOverrides);
+  dumpTrajectory(evalCase.id, model, backend.name, finalResult, evalCase.configOverrides, surface);
   return finalResult;
 }
