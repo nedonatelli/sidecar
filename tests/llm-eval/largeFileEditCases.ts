@@ -149,6 +149,92 @@ const DECOY_FILES: Record<string, string> = {
   'README.md': '# Record importer\n\nValidates and imports rows.\n',
 };
 
+/**
+ * A ~500-line module of DISTINCT services, deliberately unlike the validator
+ * fixture's twenty near-identical classes.
+ *
+ * Retrieval injection cost gemma4 90% -> 55% on `large-file-no-path`, and the
+ * retriever dump shows why: it ranked the correct symbol #1 (sim=0.669) and then
+ * shipped five near-identical decoys behind it, separated by 0.022. The model
+ * was handed six places the edit could go.
+ *
+ * That fixture is deliberately pathological. This one is the control: same
+ * shape of task, same size of file, but every symbol is semantically distinct,
+ * so top-k retrieval cannot manufacture the same ambiguity. If injection still
+ * hurts here, the harm is injection itself; if it does not, the harm is
+ * top-k-over-similar-symbols and the fix is about separation, not volume.
+ */
+function buildServiceModule(fixed = false): string {
+  const services: [string, string, string][] = [
+    ['CacheWarmer', 'warm', 'Preload frequently requested keys into the cache.'],
+    ['RetryPolicy', 'should_retry', 'Decide whether another attempt is allowed.'],
+    ['AuditTrail', 'record', 'Append an immutable entry to the audit log.'],
+    ['RateLimiter', 'allow', 'Decide whether a caller may proceed this second.'],
+    ['SchemaMigrator', 'upgrade', 'Apply pending migrations in order.'],
+    ['SessionReaper', 'sweep', 'Expire sessions idle past the cutoff.'],
+    ['MetricsBuffer', 'flush', 'Emit buffered metrics to the collector.'],
+    ['FeatureGate', 'enabled_for', 'Resolve a feature flag for one account.'],
+    ['TokenMinter', 'issue', 'Mint a short-lived access token.'],
+    ['DigestMailer', 'compose', 'Build the daily digest for a subscriber.'],
+    ['QuotaLedger', 'consume', 'Deduct usage from an account quota.'],
+    ['BlobPruner', 'prune', 'Delete blobs unreferenced past the grace period.'],
+  ];
+  const head = '"""Background services for the record importer."""\n\n' + 'from .errors import ValidationError\n\n';
+  const body = services
+    .map(([cls, method, doc], i) => {
+      // The target: RetryPolicy admits the ceiling with `>` where it must use `>=`.
+      // The guard MUST return a boolean. An earlier version returned `self.ceiling`
+      // on the `>` branch and `delay` otherwise — which makes `>` and `>=` produce
+      // identical behavior at delay == ceiling, so the task had no correct answer to
+      // reason toward. It scored 3/20 unaided and silently became an
+      // under-specification test instead of the retrieval control it is meant to be.
+      const op = cls === 'RetryPolicy' && fixed ? '>=' : '>';
+      const arg = method === 'should_retry' ? 'attempt' : 'item';
+      const guard =
+        cls === 'RetryPolicy'
+          ? `        if delay ${op} self.ceiling:\n            return False\n        return True\n`
+          : `        if not self._ready:\n            return None\n        return self._run(${arg})\n`;
+      return (
+        `\n\nclass ${cls}:\n    """${doc}"""\n\n` +
+        // RetryPolicy's ceiling must be a power of two: `delay` is `2 ** attempt`,
+        // so with any other ceiling the `delay == ceiling` branch is unreachable and
+        // `>` vs `>=` is again a distinction without a difference.
+        `    ceiling = ${cls === 'RetryPolicy' ? 32 : 30 + i * 5}\n\n` +
+        `    def __init__(self, ready=True):\n        self._ready = ready\n\n` +
+        `    def _run(self, item):\n        return item\n\n` +
+        `    def ${method}(self, ${arg}):\n` +
+        `        """${doc}"""\n` +
+        (cls === 'RetryPolicy' ? '        delay = 2 ** attempt\n' : '') +
+        guard
+      );
+    })
+    .join('');
+  return `${head}${body}`;
+}
+
+export const SERVICE_MODULE = buildServiceModule();
+const SERVICE_MODULE_FIXED = buildServiceModule(true);
+
+export const DISTINCT_SYMBOL_CASES: AgentEvalCase[] = [
+  {
+    id: 'distinct-no-path',
+    description: 'Find-then-edit in a module of semantically DISTINCT symbols — the retrieval control',
+    tags: ['edit', 'scale', 'python', 'retrieval', 'control'],
+    workspace: { 'src/services.py': SERVICE_MODULE, ...DECOY_FILES },
+    userMessage:
+      'The retry policy is too permissive: an attempt whose backoff delay is exactly equal to the ' +
+      'ceiling should not be retried, but it is currently allowed through. Fix only that; everything ' +
+      'else must keep its behavior.',
+    maxIterations: 16,
+    expect: {
+      files: {
+        equal: [{ path: 'src/services.py', content: SERVICE_MODULE_FIXED }],
+        notModified: ['src/errors.py', 'src/importer.py', 'src/limits.py'],
+      },
+    },
+  },
+];
+
 export const UNDERSPECIFIED_CASES: AgentEvalCase[] = [
   {
     id: 'large-file-no-path',
