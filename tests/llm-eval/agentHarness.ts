@@ -279,6 +279,65 @@ export const DEFAULT_CASE_TIMEOUT_MS = (() => {
  * SIDECAR_EVAL_RAG_ORIENTATION: unset/'0' (default off) | '1' | a topK integer
  */
 /**
+ * Simulated production-style SEMANTIC retrieval injection.
+ *
+ * Production runs a `SemanticRetriever` over the workspace code index and
+ * injects the hits — symbol bodies with a provenance label (`vector: 0.823`),
+ * graph-expanded outward over `calls` edges. `adaptiveGraphDepth` gives depth 2
+ * at >=65,536 context, so gemma4 at 128k receives the WIDEST expansion.
+ *
+ * On/off is not the decisive experiment. Injecting 40,000 chars of irrelevant
+ * reference code costs nothing measurable, while 4,366 chars of semantically
+ * retrieved symbols took a case from 10/10 to 4/10. The harm is not volume — it
+ * is retrieval pointing confidently at the WRONG place. So the arm that decides
+ * the fix separates a retrieval HIT from a MISS:
+ *
+ *   off   — no injection (baseline)
+ *   hit   — inject the region the correct edit actually touches
+ *   miss  — inject plausible neighbors that are NOT the target (the 29% case)
+ *
+ *   hit >= off and miss < off  -> retrieval helps when right; gate on confidence
+ *   hit ~= off and miss < off  -> retrieval never helps, only hurts; remove it
+ *   both < off                 -> injection itself harms; remove it
+ *
+ * SIDECAR_EVAL_RETRIEVAL_SIM=off|hit|miss
+ */
+const ENV_RETRIEVAL_SIM = (process.env.SIDECAR_EVAL_RETRIEVAL_SIM ?? 'off') as 'off' | 'hit' | 'miss';
+
+/**
+ * Render retrieval hits the way production does, from the case's own fixture.
+ *
+ * The target region is derived from the case's expected post-edit file rather
+ * than hard-coded, so this stays generic: whatever lines the correct answer
+ * changes ARE the region a perfect retriever would surface.
+ */
+function simulatedRetrievalBlock(
+  mode: 'off' | 'hit' | 'miss',
+  workspace: Record<string, string>,
+  expected: { path: string; content: string }[] | undefined,
+): string {
+  if (mode === 'off' || !expected?.length) return '';
+  const { path: file, content: after } = expected[0];
+  const before = workspace[file];
+  if (!before) return '';
+  const b = before.split('\n');
+  const a = after.split('\n');
+  const changed = b.map((l, i) => (l !== a[i] ? i : -1)).filter((i) => i >= 0);
+  if (changed.length === 0) return '';
+  const target = changed[0];
+  // hit: the window around the real edit. miss: a window far from it, which is
+  // what a retriever returns when it scores the wrong symbol.
+  const center = mode === 'hit' ? target : (target + Math.floor(b.length / 2)) % b.length;
+  const from = Math.max(0, center - 12);
+  const body = b.slice(from, from + 26).join('\n');
+  const sim = mode === 'hit' ? '0.871' : '0.834';
+  return (
+    `\n\nSymbols in this repository most relevant to the request (semantic retrieval — start here):` +
+    `\n\n### ${file} (lines ${from + 1}-${from + 26})  [vector: ${sim}]\n\`\`\`python\n${body}\n\`\`\``
+  );
+}
+
+/**
  * Simulated production context injection, in characters.
  *
  * PRODUCTION AND THE EVAL HARNESSES SEND DIFFERENT SYSTEM PROMPTS. `chatHandlers`
@@ -565,6 +624,7 @@ export async function runAgentCase(
   if (ENV_SYSTEM_PROMPT_MODE === 'none') systemPrompt = '';
   else if (ENV_SYSTEM_PROMPT_MODE === 'minimal') systemPrompt = MINIMAL_SYSTEM_PROMPT;
   systemPrompt += referenceContextBlock(ENV_INJECT_CONTEXT);
+  systemPrompt += simulatedRetrievalBlock(ENV_RETRIEVAL_SIM, evalCase.workspace, evalCase.expect.files?.equal);
 
   let clarifyFnCalled = false;
 
