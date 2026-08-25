@@ -56,11 +56,13 @@ export function readRecords(jsonlPath: string): TrajectoryRecord[] {
 export function armKey(r: TrajectoryRecord): string {
   const s = r.surface;
   if (!s) return 'unrecorded-surface';
-  return [
-    `sys:${s.systemPromptHash}`,
-    `tools:${s.toolCatalogHash}`,
-    `rag:${s.ragOrientationChars > 0 ? 'on' : 'off'}`,
-  ].join(' ');
+  // Orientation SIZE, not just on/off. Injected context lands in the user
+  // message, so the system-prompt hash is identical across top-k variants —
+  // keying on a boolean collapsed top-1 (801c) and top-6 (4,366c) into one
+  // bucket of 76 trials and the comparison was correctly refused as INVALID.
+  // The size is the arm.
+  const rag = s.ragOrientationChars === 0 ? 'off' : `${s.ragOrientationChars}c`;
+  return [`sys:${s.systemPromptHash}`, `tools:${s.toolCatalogHash}`, `rag:${rag}`].join(' ');
 }
 
 export function toManifest(r: TrajectoryRecord, cases: string[], trials: number): RunManifest | null {

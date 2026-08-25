@@ -56,8 +56,16 @@ describe('armKey', () => {
   });
 
   it('separates RAG-on from RAG-off', () => {
-    expect(armKey(rec({ surface: surface({ ragOrientationChars: 4366 }) }))).toMatch(/rag:on/);
+    expect(armKey(rec({ surface: surface({ ragOrientationChars: 4366 }) }))).toMatch(/rag:4366c/);
     expect(armKey(rec())).toMatch(/rag:off/);
+  });
+
+  it('separates injection SIZES, not merely on from off', () => {
+    // top-1 injects 801 chars and top-6 injects 4,366. A boolean key pooled
+    // four top-k arms into one 76-trial bucket and the comparison was refused.
+    const k1 = armKey(rec({ surface: surface({ ragOrientationChars: 801 }) }));
+    const k6 = armKey(rec({ surface: surface({ ragOrientationChars: 4366 }) }));
+    expect(k1).not.toBe(k6);
   });
 
   it('flags records that predate surface recording', () => {

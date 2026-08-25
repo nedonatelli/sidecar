@@ -395,6 +395,12 @@ const ENV_RAG_ORIENTATION = (() => {
   const raw = process.env.SIDECAR_EVAL_RAG_ORIENTATION;
   if (!raw || raw === '0') return null;
   const n = Number(raw);
+  // `=1` historically meant "enabled, default topK 6" and the committed
+  // replication runs depend on that reading, so it is preserved. Use
+  // SIDECAR_EVAL_RAG_TOPK to set topK explicitly — including topK=1, which the
+  // `n > 1` guard here cannot express.
+  const explicit = Number(process.env.SIDECAR_EVAL_RAG_TOPK ?? '');
+  if (Number.isFinite(explicit) && explicit >= 1) return { topK: explicit };
   return { topK: Number.isFinite(n) && n > 1 ? n : 6 };
 })();
 
