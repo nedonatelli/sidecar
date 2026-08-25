@@ -418,7 +418,14 @@ export async function injectSystemContext(
           }
         : undefined;
       retrievers.push(
-        new SemanticRetriever(state.workspaceIndex, activeFilePath, undefined, undefined, graphExpansion),
+        new SemanticRetriever(
+          state.workspaceIndex,
+          activeFilePath,
+          undefined,
+          undefined,
+          graphExpansion,
+          config.retrievalCliffGateEnabled,
+        ),
       );
     }
     // SIDECAR.md retrieval mode: scoped + low sections are scored

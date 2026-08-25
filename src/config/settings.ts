@@ -374,6 +374,8 @@ export interface SideCarConfig {
   numericalContractGateEnabled: boolean;
   analyticBoundsGateEnabled: boolean;
   injectionGuardEnabled: boolean;
+  /* Trim retrieval results at their similarity cliff before injection */
+  retrievalCliffGateEnabled: boolean;
   /* Eval history DB */
   evalHistoryEnabled: boolean;
   /* LaTeX Agentic Debugging */
@@ -719,6 +721,7 @@ function readConfig(): SideCarConfig {
     numericalContractGateEnabled: cfg.get<boolean>('numericalContracts.gate', false),
     analyticBoundsGateEnabled: cfg.get<boolean>('analyticBounds.gate', false),
     injectionGuardEnabled: cfg.get<boolean>('injectionGuard.enabled', true),
+    retrievalCliffGateEnabled: cfg.get<boolean>('retrieval.cliffGate', true),
     evalHistoryEnabled: cfg.get<boolean>('evalHistory.enabled', false),
     latexEnabled: cfg.get<boolean>('latex.enabled', false),
     latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),

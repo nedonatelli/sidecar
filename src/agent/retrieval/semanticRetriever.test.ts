@@ -368,3 +368,54 @@ describe('SemanticRetriever', () => {
     });
   });
 });
+
+describe('SemanticRetriever similarity-cliff gate', () => {
+  const sym = (name: string, similarity: number) => ({
+    symbolId: `src/m.py::${name}`,
+    filePath: 'src/m.py',
+    qualifiedName: name,
+    name,
+    kind: 'function',
+    startLine: 1,
+    endLine: 2,
+    similarity,
+  });
+
+  // The two measured distributions. See similarityCliff.ts.
+  const UNDIFFERENTIATED = [0.6694, 0.6473, 0.6431, 0.6359, 0.6316, 0.6289];
+  const WITH_CLIFF = [0.6456, 0.6111, 0.2346, 0.1795, 0.1559, 0.1416];
+
+  const retrieverFor = (scores: number[], cliffGate = true) =>
+    new SemanticRetriever(
+      fakeIndex({
+        getSymbolEmbeddings: () => fakeSymbolIndex({ search: async () => scores.map((v, i) => sym(`sym${i}`, v)) }),
+      }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      cliffGate,
+    );
+
+  it('sends one hit when the ranking never falls off', async () => {
+    expect(await retrieverFor(UNDIFFERENTIATED).retrieve('q', 6)).toHaveLength(1);
+  });
+
+  it('keeps the region above the cliff', async () => {
+    expect(await retrieverFor(WITH_CLIFF).retrieve('q', 6)).toHaveLength(2);
+  });
+
+  it('passes everything through when the gate is off', async () => {
+    expect(await retrieverFor(UNDIFFERENTIATED, false).retrieve('q', 6)).toHaveLength(6);
+  });
+
+  it('defaults to on, so the measured harm is gated without opting in', async () => {
+    const retriever = new SemanticRetriever(
+      fakeIndex({
+        getSymbolEmbeddings: () =>
+          fakeSymbolIndex({ search: async () => UNDIFFERENTIATED.map((v, i) => sym(`sym${i}`, v)) }),
+      }),
+    );
+    expect(await retriever.retrieve('q', 6)).toHaveLength(1);
+  });
+});

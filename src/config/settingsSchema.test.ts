@@ -137,7 +137,7 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(245);
+    expect(totalKeys).toBe(246);
   });
 
   it('no setting key is duplicated across sections', () => {

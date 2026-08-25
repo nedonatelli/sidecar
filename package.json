@@ -2199,6 +2199,11 @@
             "default": true,
             "markdownDescription": "Prompt-injection guard. Scans tool output (file contents, web-search results, fetched URLs, shell/CI logs, tickets) for injection attempts — instruction overrides ('ignore previous instructions'), role hijacks ('you are now…'), fake system turns, permission manipulation, and secret-exfiltration lures — and FENCES any it finds in an explicit untrusted-data boundary before the content reaches the model, so external text is treated as data, not instructions. Non-blocking: it only wraps flagged content and surfaces a 🛡️ notice; clean output is untouched. On by default (small models are markedly more injection-susceptible). This is reasoning-layer defense, distinct from the secret/vulnerability scanners."
           },
+          "sidecar.retrieval.cliffGate": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Trim workspace retrieval at its similarity cliff. Semantic search returns the top-k symbols by score; when those scores are tightly packed, the extra hits are near-identical siblings of the right answer rather than additional information, and they measurably hurt smaller models — injecting an undifferentiated top-6 took a local model from 90% to 55% on a one-line edit, while the same injection over clearly-distinct symbols cost nothing. With this on, hits below a sharp drop in score are dropped, and a result with no drop at all is reduced to its single best hit. Off restores the full top-k."
+          },
           "sidecar.evalHistory.enabled": {
             "type": "boolean",
             "default": false,

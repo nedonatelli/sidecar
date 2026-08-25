@@ -391,6 +391,12 @@ function referenceContextBlock(chars: number): string {
   return `\n\n## Workspace Context (reference files — not your task)\n${body.slice(0, chars)}`;
 }
 
+// Matches the production default (`sidecar.retrieval.cliffGate`). Set
+// SIDECAR_EVAL_CLIFF_GATE=0 to measure the pre-gate behavior — note that doing
+// so changes ragOrientationChars, so promptlab sees it as a distinct arm rather
+// than silently blending it with a gated run.
+const ENV_CLIFF_GATE = process.env.SIDECAR_EVAL_CLIFF_GATE !== '0';
+
 const ENV_RAG_ORIENTATION = (() => {
   const raw = process.env.SIDECAR_EVAL_RAG_ORIENTATION;
   if (!raw || raw === '0') return null;
@@ -714,6 +720,7 @@ export async function runAgentCase(
         evalCase.userMessage,
         sandbox.root,
         ENV_RAG_ORIENTATION.topK,
+        ENV_CLIFF_GATE,
       );
       if (context) {
         orientationChars = context.length;

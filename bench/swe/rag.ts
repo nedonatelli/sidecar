@@ -17,6 +17,7 @@ import { SymbolEmbeddingIndex, type SymbolMetadata } from '../../src/config/symb
 import { FlatVectorStore } from '../../src/config/vectorStore.js';
 import { extractSymbolInputs } from '../../src/config/symbolExtraction.js';
 import { setGrammarsPath } from '../../src/parsing/registry.js';
+import { trimAtSimilarityCliff } from '../../src/agent/retrieval/similarityCliff.js';
 
 /** MiniLM all-MiniLM-L6-v2 embedding dimension — the model the index uses. */
 const RAG_DIM = 384;
@@ -195,7 +196,8 @@ export async function retrieveContext(
   query: string,
   dir: string,
   topK = 6,
-): Promise<{ hits: RetrievalHit[]; context: string }> {
+  cliffGate = true,
+): Promise<{ hits: RetrievalHit[]; injected: RetrievalHit[]; context: string }> {
   const results = await index.search(query, topK);
   const hits: RetrievalHit[] = results.map((r) => ({
     filePath: r.filePath,
@@ -204,9 +206,19 @@ export async function retrieveContext(
     endLine: r.endLine,
     similarity: r.similarity,
   }));
-  if (hits.length === 0) return { hits, context: '' };
+  if (hits.length === 0) return { hits, injected: [], context: '' };
+
+  // `hits` stays the FULL top-k so fix-file recall@k keeps measuring retrieval;
+  // only `injected` — what the model is actually shown — is trimmed. Folding the
+  // trim into `hits` would silently redefine the localization metric as a
+  // property of the gate.
+  const trim = cliffGate
+    ? trimAtSimilarityCliff(hits.map((h) => h.similarity))
+    : { keep: hits.length, reason: 'off' as const, maxDrop: 0 };
+  const injected = hits.slice(0, trim.keep);
+
   const lines = ['Symbols in this repository most relevant to the issue (semantic retrieval — start here):'];
-  for (const h of hits) {
+  for (const h of injected) {
     lines.push(`\n### ${h.filePath} :: ${h.name} (lines ${h.startLine}-${h.endLine})`);
     try {
       const src = fs
@@ -219,7 +231,7 @@ export async function retrieveContext(
       /* unreadable — skip snippet */
     }
   }
-  return { hits, context: lines.join('\n') };
+  return { hits, injected, context: lines.join('\n') };
 }
 
 /** Localization metric: was any file touched by the gold patch retrieved in the
