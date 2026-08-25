@@ -37,6 +37,9 @@ const COVERAGE_THRESHOLDS = {
 
 export default defineConfig({
   test: {
+    // Refuse to run alongside another vitest instance (notably a live eval
+    // sweep, which this would contend with for the local model).
+    globalSetup: ['./tests/vitestLock.ts'],
     globals: true,
     environment: 'node',
     // tests/llm-eval/**/*.test.ts holds PURE unit tests of eval infrastructure
@@ -51,7 +54,7 @@ export default defineConfig({
     // untested — the same blind spot tests/ had before tsconfig.tests.json.
     // These are .mjs because the scripts they cover are plain ESM, run by node
     // without a compile step.
-    include: ['src/**/*.test.ts', 'bench/**/*.test.ts', 'tests/llm-eval/*.test.ts', 'scripts/**/*.test.mjs'],
+    include: ['src/**/*.test.ts', 'bench/**/*.test.ts', 'tests/*.test.ts', 'tests/llm-eval/*.test.ts', 'scripts/**/*.test.mjs'],
     exclude: ['src/test/integration/**'],
     coverage: {
       provider: 'v8',
