@@ -21,8 +21,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'node:child_process';
 import { normalizeOllamaHost } from '../../src/ollama/hostUrl.js';
-import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
-import { SideCarClient } from '../../src/ollama/client.js';
+import { type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
+import { createTurnLoopSession } from './agentTurnLoop.js';
 import { circuitBreaker } from '../../src/ollama/circuitBreaker.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
@@ -255,11 +255,6 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // a bearer token to drive a remote OpenAI-compatible endpoint instead — e.g.
     // a Vast box's token-authed /v1 edge (OLLAMA_HOST=http://<host>:<port>), which
     // uses independent HTTP requests rather than a fragile persistent SSH tunnel.
-    const client = new SideCarClient(
-      MODEL,
-      normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
-      process.env.SIDECAR_SWE_API_KEY || 'ollama',
-    );
     const systemPrompt = buildBaseSystemPrompt({
       isLocal: true,
       extensionVersion: '0.0.0-bench',
@@ -268,9 +263,6 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       root: dir,
       approvalMode: 'autonomous',
     });
-    client.updateSystemPrompt(systemPrompt);
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), PER_TASK_MS);
     // Trajectory: append every event to disk LIVE (not buffered-then-dumped), so
     // a run is watchable mid-flight with `tail -f` — same observability the
     // real product/logger gives, instead of a black box until the solve ends.
@@ -381,10 +373,35 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         `(rag_orientation=${retrieval.context.length}c problem=${task.problem_statement.length}c) ` +
         `total≈${systemPrompt.length + userMsg.length}c`,
     );
+    // The shared core owns client construction, system-prompt assignment, the
+    // abort/timeout, and surface recording — the four things this file used to
+    // re-implement, and where it silently diverged from agentHarness (hardcoded
+    // ollama backend, unrecorded prompt surface, timeouts indistinguishable
+    // from failures).
+    const session = createTurnLoopSession({
+      model: MODEL,
+      baseUrl: normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
+      apiKey: process.env.SIDECAR_SWE_API_KEY || 'ollama',
+      systemPrompt,
+      options,
+      // This file's own per-task trajectory callbacks are preserved; the session
+      // wraps them, so SWE keeps its elapsed-ms log AND gains the structured
+      // record promptlab reads.
+      callbacks,
+      timeoutMs: PER_TASK_MS,
+      caseId: task.instance_id,
+      arm,
+      trial: 0,
+      ragOrientationChars: retrieval.context.length,
+      logDir: OUT,
+    });
     try {
-      await runAgentLoop(client, messages, callbacks, abort.signal, options);
+      await session.run(messages);
     } finally {
-      clearTimeout(timer);
+      const closed = session.close(terminationBucket ?? 'natural');
+      // A timeout is a fact about the configuration, not the model. It used to
+      // arrive as a bare abort and land in the same bucket as a real failure.
+      if (closed.timedOut && !failureReason) failureReason = `per-task timeout after ${PER_TASK_MS}ms`;
     }
   } catch (err) {
     // Surface the cause — a silently swallowed failure here turned a broken
@@ -396,7 +413,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     console.error(`[swe] solve failed for ${task.instance_id} (${arm}) [${classified.kind}]:`, classified.reason);
   } finally {
     // ALWAYS attempt the diff, including after a throw. `captureDiff` used to
-    // sit inside the try AFTER runAgentLoop, so any abort — per-task timeout,
+    // sit inside the try AFTER the agent loop, so any abort — per-task timeout,
     // fetch failure, stream error — skipped it and forced an empty patch,
     // discarding edits the agent had already written to disk. `touchedPaths` is
     // populated during the run, so the diff is recoverable. The loss was not
