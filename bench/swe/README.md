@@ -67,12 +67,23 @@ machine):
 ```bash
 pip install swebench
 python -m swebench.harness.run_evaluation \
-  --dataset_name princeton-nlp/SWE-bench_Verified \
+  --dataset_name SWE-bench/SWE-bench_Verified \
   --predictions_path out/preds.scaffold-on.jsonl \
   --run_id sidecar-on --max_workers 4
 # repeat with preds.scaffold-off.jsonl → run_id sidecar-off
 # (three-arm: also preds.scaffold-on-ratchet.jsonl → run_id sidecar-ratchet)
 ```
+
+> **Dataset namespace matters.** `swebench` 5.x requires `image`, `eval_script`,
+> `log_parser` and `eval_type` on each instance. The classic
+> `princeton-nlp/SWE-bench_Verified` carries none of them and fails with a bare
+> `KeyError: 'image'` _after_ downloading the split, which reads like a corrupt
+> download rather than a wrong dataset. Use the `SWE-bench/` namespace.
+>
+> **Apple Silicon.** The eval images are `swebench/sweb.eval.x86_64.*`, so an
+> arm64 Mac needs amd64 emulation. `colima start --vm-type vz --vz-rosetta`
+> provides it; verify with
+> `docker run --rm --platform linux/amd64 alpine uname -m` before a long run.
 
 **4. Compute the ablation** from the two resolved reports the harness wrote:
 

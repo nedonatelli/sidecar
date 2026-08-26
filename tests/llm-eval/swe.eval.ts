@@ -78,10 +78,21 @@ const ENV_CACHE_BASE =
   path.join(os.tmpdir(), 'sidecar-swe-venvs');
 // Arms to run this pass. Default is the core on/off ablation; SIDECAR_SWE_ARMS
 // (comma-separated) selects a decomposed set, e.g. "scaffold-off,gate-only,scaffold-on".
+const VALID_ARMS: readonly ArmName[] = ['scaffold-on', 'scaffold-off', 'gate-only', 'scaffold-on-ratchet'];
 const ARMS: ArmName[] = (process.env.SIDECAR_SWE_ARMS || 'scaffold-off,scaffold-on')
   .split(',')
   .map((s) => s.trim())
-  .filter(Boolean) as ArmName[];
+  .filter(Boolean)
+  .map((name) => {
+    // `armConfigOverrides` returns SCAFFOLD_OFF from its `default` branch, so a
+    // typo did not fail — it ran the BARE arm and labeled every prediction,
+    // report and output file with the typo. Observed live: `SIDECAR_SWE_ARMS=
+    // scaffold` produced a run reported as "scaffold" that was scaffold-off.
+    if (!VALID_ARMS.includes(name as ArmName)) {
+      throw new Error(`Unknown SWE arm "${name}". Valid arms: ${VALID_ARMS.join(', ')}`);
+    }
+    return name as ArmName;
+  });
 
 function git(args: string[], cwd?: string): string {
   return execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString();
