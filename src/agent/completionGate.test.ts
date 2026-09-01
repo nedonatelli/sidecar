@@ -36,6 +36,12 @@ vi.mock('vscode', () => ({
 }));
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+
+// findColocatedTest builds its lookup with path.join, so the stat mock has to
+// compare against the platform form. A POSIX literal never matched on Windows
+// and the gate correctly reported no colocated test.
+const at = (...segs: string[]): string => path.join('/test', ...segs);
 const mockWorkspace = vscode.workspace as any;
 
 function makeEdit(file: string): ToolUseContentBlock {
@@ -522,7 +528,7 @@ describe('completionGate — findColocatedTest', () => {
 
   it('returns the .test.ts path when one exists next to the source', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const result = await findColocatedTest('src/foo.ts');
@@ -531,7 +537,7 @@ describe('completionGate — findColocatedTest', () => {
 
   it('falls back to .spec.ts if .test.ts is missing', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.spec.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.spec.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const result = await findColocatedTest('src/foo.ts');
@@ -567,7 +573,7 @@ describe('completionGate — checkCompletionGate', () => {
 
   it('flags missing test run when a colocated test exists', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const state = createGateState();
@@ -579,7 +585,7 @@ describe('completionGate — checkCompletionGate', () => {
 
   it('passes when lint ran and the colocated test ran (and test file was also edited)', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const state = createGateState();
@@ -596,7 +602,7 @@ describe('completionGate — checkCompletionGate', () => {
     // runs existing tests (they pass), but never updates the test file.
     // Gate should prompt: "add coverage for the new functionality."
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const state = createGateState();
@@ -609,7 +615,7 @@ describe('completionGate — checkCompletionGate', () => {
 
   it('does NOT flag testNotUpdated when the test file was also edited', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const state = createGateState();
@@ -623,7 +629,7 @@ describe('completionGate — checkCompletionGate', () => {
 
   it('does NOT flag testNotUpdated when tests were not run (missingTest fires instead)', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const state = createGateState();
@@ -637,7 +643,7 @@ describe('completionGate — checkCompletionGate', () => {
 
   it('passes when projectTestsRan covers all edited files', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
-      if (uri.fsPath === '/test/src/foo.test.ts') return { type: 1 };
+      if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
       throw new Error('not found');
     });
     const state = createGateState();

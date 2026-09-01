@@ -5,6 +5,11 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { sweepStaleShadows, formatSweepResult } from './shadowSweep.js';
 
+// `git worktree list` prints forward slashes even on Windows, while these
+// fixture paths come from mkdtemp/path.join and carry backslashes. Compare
+// both in git's form rather than asserting one against the other.
+const gitPath = (p: string): string => p.replace(/\\/g, '/');
+
 /**
  * Tests for `sweepStaleShadows`. The sweep needs a real
  * git repo with real worktrees to exercise the worktree-remove code
@@ -111,7 +116,7 @@ describe('sweepStaleShadows', () => {
       expect(result.prunedWorktrees).toEqual([]);
       // Git still knows about the external worktree because we didn't prune it.
       const listOutput = execFileSync('git', ['worktree', 'list'], { cwd: tmp, encoding: 'utf8' });
-      expect(listOutput).toContain(externalWorktree.split('/').pop() ?? 'sidecar-user-wt');
+      expect(gitPath(listOutput)).toContain(path.basename(externalWorktree));
     } finally {
       // Clean up the external worktree metadata manually.
       try {

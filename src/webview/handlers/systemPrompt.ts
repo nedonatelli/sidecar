@@ -562,9 +562,12 @@ export async function injectSystemContext(
   // cache, which requires a 1024+ token stable prefix.
   const sessionRoot = getWorkspaceRoot();
   if (sessionRoot) {
+    // Forward-slashed: every tool in the prompt takes a forward-slash relative
+    // path, so handing the model a Windows `srcoo.ts` here invites it back in
+    // tool arguments, where the backslashes then have to survive JSON escaping.
     const activeFile =
       state.activeFileIncluded && window.activeTextEditor
-        ? path.relative(sessionRoot, window.activeTextEditor.document.uri.fsPath)
+        ? path.relative(sessionRoot, window.activeTextEditor.document.uri.fsPath).split(path.sep).join('/')
         : undefined;
     const platform = os.platform(); // 'win32' | 'darwin' | 'linux' | …
     const shell = platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : (process.env.SHELL ?? '/bin/bash');

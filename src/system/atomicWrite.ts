@@ -25,10 +25,40 @@ export async function writeFileAtomic(file: string, data: string): Promise<void>
   const tmp = `${file}.${process.pid}.${++writeCounter}.tmp`;
   await fs.writeFile(tmp, data, 'utf8');
   try {
-    await fs.rename(tmp, file);
+    await renameWithRetry(tmp, file);
   } catch (err: unknown) {
     await fs.rm(tmp, { force: true }).catch(() => {});
     throw err;
+  }
+}
+
+/** Windows rename failures that are contention, not a real error. */
+const TRANSIENT_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const RENAME_BACKOFF_MS = [5, 10, 25, 50, 100];
+
+/**
+ * Rename, retrying the errors Windows raises for a target someone else holds
+ * open. POSIX replaces the target atomically no matter who has it open, so this
+ * loop is a no-op there. Windows instead fails with EPERM/EACCES/EBUSY when the
+ * destination has a live handle — a concurrent write of the same file, a virus
+ * scanner, or the search indexer — and the caller saw a hard write failure for
+ * something that resolves in milliseconds.
+ *
+ * Retrying does not weaken the guarantee this module exists for: the rename
+ * either replaces the target or it does not, so no reader ever sees a partial
+ * file. Only the last error propagates, so a genuine permission problem still
+ * surfaces rather than looping.
+ */
+async function renameWithRetry(tmp: string, file: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmp, file);
+      return;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code ?? '';
+      if (!TRANSIENT_RENAME_ERRORS.has(code) || attempt >= RENAME_BACKOFF_MS.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, RENAME_BACKOFF_MS[attempt]));
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'path';
 import { logger } from '../../system/logger.js';
 
 vi.mock('fs', async (importOriginal) => {
@@ -120,6 +121,6 @@ describe('loadRepoPolicy', () => {
   it('reads from the correct path', async () => {
     mockReadFile.mockResolvedValue(JSON.stringify({ version: 1 }));
     await loadRepoPolicy('/my/project');
-    expect(mockReadFile).toHaveBeenCalledWith(expect.stringContaining('.sidecar/policy.json'), 'utf-8');
+    expect(mockReadFile).toHaveBeenCalledWith(expect.stringContaining(path.join('.sidecar', 'policy.json')), 'utf-8');
   });
 });

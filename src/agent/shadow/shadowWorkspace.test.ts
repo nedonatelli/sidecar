@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
+
 import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
@@ -41,6 +42,11 @@ function rmTmp(dir: string): void {
   }
 }
 
+// `git worktree list` prints forward slashes even on Windows, while these
+// fixture paths come from mkdtemp/path.join and carry backslashes. Compare
+// both in git's form rather than asserting one against the other.
+const gitPath = (p: string): string => p.replace(/\\/g, '/');
+
 describe('ShadowWorkspace', () => {
   let mainRoot: string;
 
@@ -62,7 +68,7 @@ describe('ShadowWorkspace', () => {
       expect(shadow.isActive).toBe(true);
 
       const worktrees = git(mainRoot, ['worktree', 'list', '--porcelain']);
-      expect(worktrees).toContain(shadow.path);
+      expect(gitPath(worktrees)).toContain(gitPath(shadow.path));
 
       await shadow.dispose();
     });

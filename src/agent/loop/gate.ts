@@ -47,7 +47,11 @@ interface SymbolImpact {
  * advisory (counts) and the gate (block decision + reprompt).
  */
 function gatherImpact(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): SymbolImpact[] {
-  const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
+  // Forward-slashed: symbolIndexer keys the graph that way, so a backslash
+  // relative path from path.relative matched nothing on Windows and the
+  // advisory silently reported no downstream impact.
+  const relativize = (f: string): string =>
+    root && path.isAbsolute(f) ? path.relative(root, f).split(path.sep).join('/') : f;
   const editedRel = new Set<string>();
   for (const f of editedFiles) editedRel.add(relativize(f));
 
