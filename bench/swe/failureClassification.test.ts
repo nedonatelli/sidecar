@@ -65,3 +65,26 @@ describe('isInfraFailure', () => {
     expect(isInfraFailure({ failureReason: null, toolCalls: undefined, model_patch: '' })).toBe(false);
   });
 });
+
+describe('repo-preparation failures are infrastructure', () => {
+  // Verbatim from a 20-task run: 3 tasks died here, 0 turns, ~3s, and were
+  // reported as [capability] — the exact conflation this module exists to stop.
+  const gitReset = 'Command failed: git reset --hard --quiet 44c24bf02835323d5418512ebe8e76166739ebf8';
+
+  it('classifies a failed checkout as infra, not capability', () => {
+    expect(classifyFailure(new Error(gitReset)).kind).toBe('infra');
+  });
+
+  it('classifies other git plumbing failures as infra', () => {
+    for (const msg of [
+      'fatal: reference is not a tree: abc123',
+      "error: pathspec 'deadbeef' did not match any file(s) known to git",
+    ]) {
+      expect(classifyFailure(new Error(msg)).kind).toBe('infra');
+    }
+  });
+
+  it('still calls a model-side failure capability', () => {
+    expect(classifyFailure(new Error('edit_file: search string not found')).kind).toBe('capability');
+  });
+});

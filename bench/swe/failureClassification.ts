@@ -37,6 +37,17 @@ const INFRA_SIGNATURES = [
   'etimedout',
   'network',
   'stream closed',
+  // Repo preparation, not the model. A checkout that cannot reach its base
+  // commit fails BEFORE the agent runs — 0 turns, 3 seconds — yet landed in the
+  // capability bucket because every signature above describes the backend.
+  // Observed on 3 of 20 tasks in one run: `Command failed: git reset --hard
+  // --quiet 44c24bf…`, reported as `[capability]`. The ablation excluded them
+  // anyway via the toolCalls===0 fallback, so the numbers were right and only
+  // the label lied — but the label is what a reader trusts a run by.
+  'command failed: git',
+  'fatal: ',
+  'reference is not a tree',
+  'did not match any file(s) known to git',
 ];
 
 export function classifyFailure(err: unknown): FailureClassification {

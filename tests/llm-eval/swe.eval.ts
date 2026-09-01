@@ -104,6 +104,28 @@ function git(args: string[], cwd?: string): string {
 // tasks or arms. Cleaned up after the run.
 const repoClones = new Map<string, string>();
 
+function resetHardWithRetry(dir: string, baseCommit: string, attempts = 3): void {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      if (i === attempts - 1) {
+        // Last chance: pull the objects down explicitly rather than relying on
+        // the lazy fetch that just failed.
+        try {
+          git(['fetch', '--quiet', 'origin', baseCommit], dir);
+        } catch {
+          /* best-effort — the reset below is what actually has to succeed */
+        }
+      }
+      git(['reset', '--hard', '--quiet', baseCommit], dir);
+      return;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 /** Get the repo checked out cleanly at base_commit (cached clone, hard-reset). */
 function prepareRepo(task: SweTask): string {
   let dir = repoClones.get(task.repo);
@@ -123,7 +145,14 @@ function prepareRepo(task: SweTask): string {
     repoClones.set(task.repo, dir);
   }
   // Pristine checkout at this task's base: discard any prior arm/task edits.
-  git(['reset', '--hard', '--quiet', task.base_commit], dir);
+  //
+  // Retried, because the fallback clone is `--filter=blob:none` and therefore
+  // fetches blobs LAZILY — this reset needs the network, and a transient egress
+  // failure here kills the task before the agent runs at all (0 turns, empty
+  // patch). Measured: 3 of 20 tasks lost this way in one run, one of them after
+  // a 955s stall. An explicit fetch of the commit precedes the last attempt so a
+  // retry is not just the same failing lazy fetch again.
+  resetHardWithRetry(dir, task.base_commit);
   git(['clean', '-fdxq'], dir);
   const head = git(['rev-parse', 'HEAD'], dir).trim();
   if (head !== task.base_commit)
