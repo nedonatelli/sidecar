@@ -13,15 +13,15 @@ SideCar works with local Ollama models, Kickstand, Anthropic, OpenAI, OpenRouter
 
 ## Quick Picks
 
-| Use case                        | Recommended model                                          | Why                                                                                                                                                                                                         |
-| ------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Best all-around local (default) | `gemma4:e4b`                                               | The most-dogfooded local model — its agent quirks are the best understood and hardened against; **highest local agent baseline: 96% (67/70, 2026-08)**; cold-start handled automatically; 9 GB, ~10 GB VRAM |
-| Lighter local pick              | `ministral-3:latest`                                       | 89% agent baseline (62/70, 2026-08) — the lighter pick (6 GB, 8 GB VRAM) when VRAM is tight; second-best local agent score                                                                                  |
-| Low-RAM local                   | `granite4.1:3b`                                            | 73% agent baseline (51/70, 2026-08); 2 GB — the lightweight alternative when 8 GB VRAM isn't available                                                                                                      |
-| Best cloud                      | `claude-haiku-4-5-20251001`                                | 96% overall (88/92); highest score of all tested models; fast, cheap, 200K context                                                                                                                          |
-| Best budget cloud               | `claude-haiku-4-5-20251001`                                | Significantly cheaper than Sonnet/Opus at near-identical scores for agentic tasks; SideCar prompt caching cuts input costs ~90% on cache hits                                                               |
-| Best for large codebases        | `claude-haiku-4-5-20251001` or `deepseek-v4-pro`           | 200K context (Haiku) or 1M context (DeepSeek v4 Pro via Fireworks) — both handle full-repo indexing without truncation                                                                                      |
-| Best for speed                  | `gemma4:2b` (local) or `claude-haiku-4-5-20251001` (cloud) | Smallest local model that still supports tool use; Haiku has the lowest latency of the Claude family                                                                                                        |
+| Use case                        | Recommended model                                              | Why                                                                                                                                                                                                         |
+| ------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Best all-around local (default) | `gemma4:e4b`                                                   | The most-dogfooded local model — its agent quirks are the best understood and hardened against; **highest local agent baseline: 96% (67/70, 2026-08)**; cold-start handled automatically; 9 GB, ~10 GB VRAM |
+| Lighter local pick              | `ministral-3:latest`                                           | 89% agent baseline (62/70, 2026-08) — the lighter pick (6 GB, 8 GB VRAM) when VRAM is tight; second-best local agent score                                                                                  |
+| Low-RAM local                   | `granite4.1:3b`                                                | 73% agent baseline (51/70, 2026-08); 2 GB — the lightweight alternative when 8 GB VRAM isn't available                                                                                                      |
+| Best cloud                      | `claude-haiku-4-5-20251001`                                    | 96% overall (88/92); highest score of all tested models; fast, cheap, 200K context                                                                                                                          |
+| Best budget cloud               | `claude-haiku-4-5-20251001`                                    | Significantly cheaper than Sonnet/Opus at near-identical scores for agentic tasks; SideCar prompt caching cuts input costs ~90% on cache hits                                                               |
+| Best for large codebases        | `claude-haiku-4-5-20251001` or `deepseek-v4-pro`               | 200K context (Haiku) or 1M context (DeepSeek v4 Pro via Fireworks) — both handle full-repo indexing without truncation                                                                                      |
+| Best for speed                  | `granite4.1:3b` (local) or `claude-haiku-4-5-20251001` (cloud) | Smallest local model that still supports tool use; Haiku has the lowest latency of the Claude family                                                                                                        |
 
 ---
 
@@ -34,14 +34,12 @@ SideCar clamps local context windows to **131,072 tokens** (`LOCAL_CONTEXT_CAP`,
 | `gemma4:e4b`            | 9 GB    | 10 GB    | Native   | 128K (SideCar-clamped) | **Default SideCar model**; most-dogfooded local model; highest local agent baseline (96%, 2026-08); needs a cold-start (handled automatically) |
 | `ministral-3:latest`    | 6 GB    | 8 GB     | Native   | 128K (SideCar-clamped) | Second-best local agent baseline (89%, 2026-08); the lighter alternative to the default when VRAM is tight                                     |
 | `granite4.1:3b`         | 2 GB    | 4 GB     | Native   | 128K (SideCar-clamped) | Low-RAM alternative to the default; 73% agent baseline (2026-08)                                                                               |
-| `gemma4:2b`             | ~3 GB   | 4 GB     | Native   | 128K (SideCar-clamped) | Low-RAM machines; fast turnaround; good for simple edits and Q&A                                                                               |
 | `qwen3-coder:30b`       | ~18 GB  | 20 GB    | Native   | 32K                    | Highest code quality among local models; speculative decoding supported (draft: `qwen2.5-coder:0.5b`)                                          |
-| `qwen3-coder:8b`        | ~5 GB   | 6 GB     | Native   | 32K                    | Solid mid-range coding model; speculative decoding supported                                                                                   |
-| `qwen2.5-coder:7b`      | ~4.5 GB | 5 GB     | Native   | 32K                    | Reliable tool use; speculative decoding supported; good for focused coding tasks                                                               |
+| `qwen2.5-coder:7b`      | ~4.5 GB | 5 GB     | Text     | 32K                    | Emits tool calls as bare JSON text, not native calls — SideCar's text parser handles them; speculative decoding supported                      |
 | `llama3.1:8b`           | ~5 GB   | 6 GB     | Native   | 128K (SideCar-clamped) | General-purpose; broad instruction following; widely tested with Ollama                                                                        |
 | `llama3.3:70b`          | ~40 GB  | 48 GB    | Native   | 128K (SideCar-clamped) | Maximum local quality; requires high-end hardware; not recommended on unified-memory Macs under 48 GB                                          |
 | `deepseek-coder-v2:16b` | ~9 GB   | 10 GB    | Native   | 128K (SideCar-clamped) | Strong on code completion and multi-file edits; speculative decoding supported (draft: `deepseek-coder:1.3b-base`)                             |
-| `phi-4:14b`             | ~8 GB   | 9 GB     | Native   | 16K                    | Microsoft reasoning model; good for logic-heavy refactoring; modest context window                                                             |
+| `phi4:14b`              | ~8 GB   | 9 GB     | Native   | 16K                    | Microsoft reasoning model; good for logic-heavy refactoring; modest context window                                                             |
 | `codestral:22b`         | ~12 GB  | 14 GB    | Native   | 32K                    | Mistral's code-first model; strong fill-in-the-middle for inline completions                                                                   |
 
 > **RAM ceiling on 36 GB hardware:** models larger than ~12 GB risk OOM when another model is already loaded. Always unload the active model before pulling a large one. `qwen3.6` (23 GB) caused a kernel panic in testing — it is excluded from this list.
@@ -75,11 +73,11 @@ SideCar's full agentic capabilities — file editing, shell commands, git operat
 These models pass tool-use cases consistently in the eval harness:
 
 - All current Claude models (`claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`)
-- `gemma4:e4b`, `gemma4:2b`
-- `qwen3-coder:30b`, `qwen3-coder:8b`, `qwen2.5-coder:7b`
+- `gemma4:e4b`
+- `qwen3-coder:30b`
 - `llama3.1:8b`, `llama3.3:70b`
 - `deepseek-coder-v2:16b`
-- `phi-4:14b`
+- `phi4:14b`
 - `codestral:22b`
 - `deepseek-v4-pro` (Fireworks)
 - `gpt-4o`, `gpt-4o-mini` (OpenAI, paid tier)
@@ -88,7 +86,7 @@ These models pass tool-use cases consistently in the eval harness:
 
 Some models emit tool calls as structured text inside the model's response rather than via the API's native function-calling mechanism. SideCar's `textParsing.ts` module parses these automatically, so models like `qwen3.5` and Hermes-format models work with the full tool suite. Performance is slightly less reliable than native function calling — expect occasional parse failures on complex multi-tool turns.
 
-Models in this category: `qwen3.5:latest` and any Hermes-format model. Check the [eval results](model-eval-results.md) page for per-case failure rates before relying on these for production agent workflows.
+Models in this category: `qwen3.5:latest`, `qwen2.5-coder:7b`, and any Hermes-format model. Check the [eval results](model-eval-results.md) page for per-case failure rates before relying on these for production agent workflows.
 
 ### No tool use / incompatible
 
@@ -142,7 +140,7 @@ In this setup, `sidecar.model` handles intent classification, plan generation, a
 ```json
 {
   "sidecar.model": "qwen3-coder:30b",
-  "sidecar.editorModel": "qwen3-coder:8b"
+  "sidecar.editorModel": "qwen2.5-coder:7b"
 }
 ```
 

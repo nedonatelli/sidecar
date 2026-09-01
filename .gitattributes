@@ -1,0 +1,26 @@
+# Normalize all text to LF in the repo AND in the working tree.
+#
+# Without this, a Windows checkout (core.autocrlf=true) gets CRLF working
+# files while the index stays LF. Prettier then reports ~935 files as
+# unformatted when only the line endings differ, and CRLF leaks into test
+# fixtures. CI is ubuntu-latest, so none of that is visible there.
+* text=auto eol=lf
+
+# Vendored Fabric patterns are not authored here and carry mixed line
+# endings upstream; normalizing them creates churn against the source.
+skills/fabric/** -text
+
+# Binaries git must never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.wasm binary
+*.vsix binary
+*.gz binary
+*.zip binary

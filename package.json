@@ -77,7 +77,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Model to use for chat. **Recommended local default: `gemma4:e4b`** (9 GB, ~10 GB VRAM; the most-dogfooded local model, strongest prompt-following).\n\nExamples:\n\n- Ollama: `gemma4:e4b`, `ministral-3:latest` (6 GB, lighter), `granite4.1:3b` (2 GB low-RAM), `qwen3-coder:8b`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
+            "markdownDescription": "Model to use for chat. **Recommended local default: `gemma4:e4b`** (9 GB, ~10 GB VRAM; the most-dogfooded local model, strongest prompt-following).\n\nExamples:\n\n- Ollama: `gemma4:e4b`, `ministral-3:latest` (6 GB, lighter), `granite4.1:3b` (2 GB low-RAM), `qwen2.5-coder:7b`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
           },
           "sidecar.editorModel": {
             "type": "string",
@@ -3497,8 +3497,8 @@
     "bench:swe:ablate": "vitest run --config vitest.eval.config.ts bench/swe/ablate.eval.ts",
     "compile:bench": "tsc -p tsconfig.bench.json",
     "lint": "eslint src/ media/",
-    "format": "prettier --write 'src/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts'",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "check": "npm run compile && npm run compile:bench && npm run compile:tests && npm run lint && npm run format:check && npm run test",
     "bump": "bash scripts/bump-version.sh",
     "prepare": "husky",

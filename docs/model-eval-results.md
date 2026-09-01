@@ -159,7 +159,7 @@ npm run bench:bfcl
 
 # A specific candidate
 SIDECAR_BFCL_MODEL=ministral-3:latest npm run bench:bfcl
-SIDECAR_BFCL_MODEL=qwen3-coder:8b npm run bench:bfcl
+SIDECAR_BFCL_MODEL=qwen2.5-coder:7b npm run bench:bfcl
 
 # Full upstream dataset (the bundled fixtures are only a pipeline smoke test)
 SIDECAR_BFCL_DATA=/path/to/bfcl SIDECAR_BFCL_MODEL=gemma4:e4b npm run bench:bfcl

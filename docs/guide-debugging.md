@@ -119,18 +119,18 @@ This happens because:
 
 **Fix: switch to a model with reliable function calling.**
 
-Open [model-recommendations.md](model-recommendations) to see which models are verified for agentic use. For local models, `qwen3-coder:8b` and larger are reliable. For cloud, any Claude Sonnet or Haiku 4.x works.
+Open [model-recommendations.md](model-recommendations) to see which models are verified for agentic use. For local models, `gemma4:e4b` and `ministral-3:latest` emit native tool calls and are the reliable picks. For cloud, any Claude Sonnet or Haiku 4.x works.
 
 Switch mid-conversation:
 
 ```
-/model qwen3-coder:8b
+/model gemma4:e4b
 ```
 
 Or change the default in settings:
 
 ```json
-"sidecar.model": "qwen3-coder:8b"
+"sidecar.model": "gemma4:e4b"
 ```
 
 **If you want to keep the model.** Some models produce tool calls only when prompted explicitly. Try prefixing your message:
