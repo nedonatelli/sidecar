@@ -96,6 +96,8 @@ export class ShellSession {
   private cwd: string;
   private env: Record<string, string>;
   private busy = false;
+  /** Resolves once the shell's startup noise has been consumed. See flushStartupBanner. */
+  private ready: Promise<void> | null = null;
   private commandQueue: Array<() => void> = [];
   private backgroundCommands = new Map<string, BackgroundCommand>();
   private maxOutputSize: number;
@@ -121,6 +123,14 @@ export class ShellSession {
     this.maxOutputSize = maxOutputSize;
     this.isWindows = os.platform() === 'win32';
     this.shellPath = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash';
+    if (this.isWindows) {
+      // cmd.exe writes its prompt before each command's output, so every
+      // captured result arrived prefixed with `C:\path>`. POSIX shells print no
+      // prompt on a pipe; `$_` (a bare newline) is the closest cmd equivalent.
+      // Setting PROMPT to the empty string does nothing — cmd falls back to its
+      // default — so the value has to be a real, minimal prompt.
+      this.env.PROMPT = '$_';
+    }
   }
 
   get isAlive(): boolean {
@@ -164,9 +174,49 @@ export class ShellSession {
 
     this.proc.on('exit', () => {
       this.proc = null;
+      this.ready = null;
     });
 
+    this.ready = this.isWindows ? this.flushStartupBanner(this.proc) : Promise.resolve();
+
     return this.proc;
+  }
+
+  /**
+   * Swallow cmd.exe's startup banner before any real command can capture it.
+   *
+   * No flag suppresses it — `/Q` only turns echo off — so the two banner lines
+   * ("Microsoft Windows [Version ...]" and the copyright notice) landed in the
+   * FIRST command's captured output. The model then read them as that command's
+   * result: the version-from-package-json eval case ran `jq` and was handed the
+   * Windows banner, so it never saw the version it was asked for.
+   *
+   * Rather than pattern-match the banner text, which is localized and varies by
+   * build, prime the shell with a marker and drop everything up to it. The
+   * timeout means a shell that never starts delays the first command instead of
+   * hanging it forever.
+   */
+  private flushStartupBanner(proc: ChildProcess): Promise<void> {
+    const marker = makeSentinel() + '_READY';
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      let seen = '';
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        proc.stdout?.off('data', onData);
+        clearTimeout(timer);
+        resolve();
+      };
+      const onData = (chunk: Buffer): void => {
+        seen += chunk.toString();
+        if (seen.includes(marker)) finish();
+      };
+      const timer = setTimeout(finish, 5_000);
+      timer.unref?.();
+      proc.stdout?.on('data', onData);
+      proc.stdin?.write(`echo ${marker}\r\n`);
+    });
   }
 
   /**
@@ -192,6 +242,9 @@ export class ShellSession {
 
   private async executeInternal(command: string, options: ShellExecuteOptions): Promise<ShellResult> {
     const proc = this.ensureProcess();
+    // Must complete before this command's listeners attach, or the banner it
+    // is draining lands in this command's output instead.
+    await this.ready;
     const { timeout = 120_000, maxTimeout = 30 * 60_000, onOutput: rawOnOutput, signal } = options;
     // Every consumer of streamed shell output in SideCar lands in the
     // webview via `postMessage({command: 'toolOutput', ...})`, where it

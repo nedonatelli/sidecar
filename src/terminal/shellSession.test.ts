@@ -5,6 +5,10 @@ import * as os from 'os';
 // Skip on Windows CI — these tests use bash
 const isWindows = os.platform() === 'win32';
 const describeUnix = isWindows ? describe.skip : describe;
+// The suite above is bash-only, so until now nothing exercised the Windows
+// shell path at all — which is how cmd.exe's startup banner reached the model
+// as a command's output without any test noticing.
+const describeWindows = isWindows ? describe : describe.skip;
 
 describeUnix('ShellSession', () => {
   let session: ShellSession;
@@ -376,4 +380,47 @@ describeUnix('stdin never reaches the command (sentinel-swallowing regression)',
     const r = await session.execute('echo to-stderr 1>&2');
     expect(r.stdout).toContain('to-stderr');
   }, 30000);
+});
+
+describeWindows("ShellSession on Windows — output is the command's, and only the command's", () => {
+  let session: ShellSession;
+
+  afterEach(() => {
+    session?.dispose();
+  });
+
+  it('does not leak the cmd.exe startup banner into the first command', async () => {
+    session = new ShellSession(os.tmpdir());
+    const result = await session.execute('echo hello');
+    expect(result.stdout).toContain('hello');
+    // The banner is only ever emitted once, at startup, so the first command is
+    // the one that captured it. `jq ... package.json` returning "Microsoft
+    // Windows [Version ...]" is what this prevents.
+    expect(result.stdout).not.toMatch(/Microsoft Windows \[Version/);
+    expect(result.stdout).not.toMatch(/All rights reserved/);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('does not prefix output with the cmd.exe prompt', async () => {
+    session = new ShellSession(os.tmpdir());
+    const result = await session.execute('echo hello');
+    // `C:\some\path>` before the output. A prompt is any drive-rooted path
+    // ending in '>', which is never legitimate output for `echo hello`.
+    expect(result.stdout).not.toMatch(/[A-Za-z]:\\[^\n]*>/);
+    expect(result.stdout.trim()).toBe('hello');
+  });
+
+  it('keeps later commands clean too, and preserves exit codes', async () => {
+    session = new ShellSession(os.tmpdir());
+    await session.execute('echo first');
+    const second = await session.execute('echo second');
+    expect(second.stdout.trim()).toBe('second');
+    expect(second.stdout).not.toMatch(/Microsoft Windows \[Version/);
+    expect(second.exitCode).toBe(0);
+
+    // `cmd /c exit 3`, not `exit /b 3` — the latter exits the session's own
+    // shell, so the next command would be talking to a dead process.
+    const failed = await session.execute('cmd /c exit 3');
+    expect(failed.exitCode).toBe(3);
+  }, 30_000);
 });
