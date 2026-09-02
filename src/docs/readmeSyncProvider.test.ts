@@ -85,6 +85,14 @@ vi.mock('vscode', () => {
 import { toDiagnostic, buildArityFix, isReadmeUri, isSourceFileUri, ExportIndex } from './readmeSyncProvider.js';
 import { detectStaleReferences, type ExportedFunction, type StaleReference } from './readmeSync.js';
 import { Diagnostic, Position, Range, DiagnosticSeverity, WorkspaceEdit } from 'vscode';
+import * as path from 'path';
+
+// isReadmeUri/isSourceFileUri compare with path.join and path.sep, so these
+// fixtures have to be real paths for the platform under test. Hardcoded POSIX
+// literals never matched a Windows-joined prefix, and the functions correctly
+// answered false.
+const ROOT = path.join('/test');
+const at = (...segs: string[]): string => path.join(ROOT, ...segs);
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -102,7 +110,7 @@ function makeExports(fns: ExportedFunction[]): Map<string, ExportedFunction> {
 function makeDoc(markdown: string): any {
   const lines = markdown.split('\n');
   return {
-    uri: { scheme: 'file', fsPath: '/test/README.md', path: '/test/README.md' },
+    uri: { scheme: 'file', fsPath: at('README.md'), path: at('README.md') },
     languageId: 'markdown',
     getText: () => markdown,
     lineCount: lines.length,
@@ -246,54 +254,54 @@ describe('buildArityFix', () => {
 describe('isReadmeUri', () => {
   beforeEach(async () => {
     const vscode = await import('vscode');
-    (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: '/test' } }];
+    (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: ROOT } }];
   });
 
   it('matches README.md at the workspace root', () => {
-    expect(isReadmeUri({ fsPath: '/test/README.md' } as any)).toBe(true);
+    expect(isReadmeUri({ fsPath: at('README.md') } as any)).toBe(true);
   });
 
   it('does not match README.md in a subdirectory', () => {
-    expect(isReadmeUri({ fsPath: '/test/docs/README.md' } as any)).toBe(false);
+    expect(isReadmeUri({ fsPath: at('docs', 'README.md') } as any)).toBe(false);
   });
 
   it('does not match other markdown files at the root', () => {
-    expect(isReadmeUri({ fsPath: '/test/CONTRIBUTING.md' } as any)).toBe(false);
+    expect(isReadmeUri({ fsPath: at('CONTRIBUTING.md') } as any)).toBe(false);
   });
 
   it('is case-sensitive on the filename', () => {
-    expect(isReadmeUri({ fsPath: '/test/readme.md' } as any)).toBe(false);
+    expect(isReadmeUri({ fsPath: at('readme.md') } as any)).toBe(false);
   });
 });
 
 describe('isSourceFileUri', () => {
   beforeEach(async () => {
     const vscode = await import('vscode');
-    (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: '/test' } }];
+    (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: ROOT } }];
   });
 
   it('matches a .ts file under src/', () => {
-    expect(isSourceFileUri({ fsPath: '/test/src/foo.ts' } as any)).toBe(true);
+    expect(isSourceFileUri({ fsPath: at('src', 'foo.ts') } as any)).toBe(true);
   });
 
   it('matches a .tsx file under src/', () => {
-    expect(isSourceFileUri({ fsPath: '/test/src/Component.tsx' } as any)).toBe(true);
+    expect(isSourceFileUri({ fsPath: at('src', 'Component.tsx') } as any)).toBe(true);
   });
 
   it('matches nested src files', () => {
-    expect(isSourceFileUri({ fsPath: '/test/src/docs/readmeSync.ts' } as any)).toBe(true);
+    expect(isSourceFileUri({ fsPath: at('src', 'docs', 'readmeSync.ts') } as any)).toBe(true);
   });
 
   it('does not match files outside src/', () => {
-    expect(isSourceFileUri({ fsPath: '/test/scripts/run.ts' } as any)).toBe(false);
+    expect(isSourceFileUri({ fsPath: at('scripts', 'run.ts') } as any)).toBe(false);
   });
 
   it('does not match node_modules even under src/', () => {
-    expect(isSourceFileUri({ fsPath: '/test/src/node_modules/foo/index.ts' } as any)).toBe(false);
+    expect(isSourceFileUri({ fsPath: at('src', 'node_modules', 'foo', 'index.ts') } as any)).toBe(false);
   });
 
   it('does not match non-source extensions', () => {
-    expect(isSourceFileUri({ fsPath: '/test/src/styles.css' } as any)).toBe(false);
+    expect(isSourceFileUri({ fsPath: at('src', 'styles.css') } as any)).toBe(false);
   });
 });
 
@@ -325,13 +333,13 @@ describe('ExportIndex', () => {
     const index = new ExportIndex();
     const vscode = await import('vscode');
     (vscode.workspace.fs.readFile as any) = vi.fn(async () => Buffer.from(`export function foo(a: number) {}`));
-    await index.scanFile({ fsPath: '/test/src/foo.ts' } as any);
+    await index.scanFile({ fsPath: at('src', 'foo.ts') } as any);
     expect(index.getByName().get('foo')?.paramNames).toEqual(['a']);
 
     (vscode.workspace.fs.readFile as any) = vi.fn(async () =>
       Buffer.from(`export function foo(a: number, b: number) {}`),
     );
-    await index.scanFile({ fsPath: '/test/src/foo.ts' } as any);
+    await index.scanFile({ fsPath: at('src', 'foo.ts') } as any);
     expect(index.getByName().get('foo')?.paramNames).toEqual(['a', 'b']);
     expect(index.size).toBe(1);
   });
@@ -340,9 +348,9 @@ describe('ExportIndex', () => {
     const index = new ExportIndex();
     const vscode = await import('vscode');
     (vscode.workspace.fs.readFile as any) = vi.fn(async () => Buffer.from(`export function foo(a: number) {}`));
-    await index.scanFile({ fsPath: '/test/src/foo.ts' } as any);
+    await index.scanFile({ fsPath: at('src', 'foo.ts') } as any);
     expect(index.size).toBe(1);
-    index.remove({ fsPath: '/test/src/foo.ts' } as any);
+    index.remove({ fsPath: at('src', 'foo.ts') } as any);
     expect(index.size).toBe(0);
     expect(index.getByName().size).toBe(0);
   });
@@ -352,13 +360,13 @@ describe('ExportIndex', () => {
     const vscode = await import('vscode');
     // First scan succeeds.
     (vscode.workspace.fs.readFile as any) = vi.fn(async () => Buffer.from(`export function foo(a: number) {}`));
-    await index.scanFile({ fsPath: '/test/src/foo.ts' } as any);
+    await index.scanFile({ fsPath: at('src', 'foo.ts') } as any);
     expect(index.size).toBe(1);
     // Second scan fails — the entry should be removed.
     (vscode.workspace.fs.readFile as any) = vi.fn(async () => {
       throw new Error('gone');
     });
-    await index.scanFile({ fsPath: '/test/src/foo.ts' } as any);
+    await index.scanFile({ fsPath: at('src', 'foo.ts') } as any);
     expect(index.size).toBe(0);
   });
 

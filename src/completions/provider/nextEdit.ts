@@ -20,6 +20,15 @@ import * as path from 'path';
 // Circled digit characters for suggestion badges
 const BADGES = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨'];
 
+/**
+ * Symbol-graph keys are forward-slashed (see symbolIndexer). path.relative
+ * returns backslashes on Windows, so an unnormalized key matched no file and
+ * next-edit suggestions came back empty.
+ */
+function toGraphKey(relativePath: string): string {
+  return relativePath.split(path.sep).join('/');
+}
+
 export interface NextEditSuggestion {
   /** Absolute file path */
   filePath: string;
@@ -124,7 +133,7 @@ export class NextEditEngine implements Disposable {
     opts: { maxHops: number; topK: number; crossFileEnabled: boolean },
   ): NextEditSuggestion[] {
     const root = getWorkspaceRoot() ?? '';
-    const relPath = root ? path.relative(root, filePath) : filePath;
+    const relPath = root ? toGraphKey(path.relative(root, filePath)) : filePath;
 
     // Find symbols whose definition spans the edited line
     const symbols = this.graph
@@ -193,12 +202,12 @@ export class NextEditEngine implements Disposable {
     if (!editor || editor.document.uri.fsPath !== activeFilePath) return;
 
     const root = getWorkspaceRoot() ?? '';
-    const relActive = root ? path.relative(root, activeFilePath) : activeFilePath;
+    const relActive = root ? toGraphKey(path.relative(root, activeFilePath)) : activeFilePath;
 
     // Same-file decorations: place a badge at the end of the candidate line
     const sameFileRanges = this.suggestions
       .filter((s) => {
-        const rel = root ? path.relative(root, s.filePath) : s.filePath;
+        const rel = root ? toGraphKey(path.relative(root, s.filePath)) : s.filePath;
         return rel === relActive;
       })
       .map((s) => {

@@ -11,16 +11,24 @@ type VirtualFs = {
   dirs: Record<string, string[]>; // abs path → entries
 };
 
+// detectMonorepo builds every lookup with path.join, which yields backslashes
+// on Windows, while these fixtures are keyed with forward slashes. A real
+// filesystem accepts either separator, so the virtual one has to as well —
+// otherwise every lookup misses on Windows and the detector correctly reports
+// that it found nothing, turning a green suite red for the wrong reason.
+const vfsKey = (p: string): string => p.replace(/\\/g, '/');
+
 function makeFs(vfs: VirtualFs): FsAdapter {
   return {
     async readFile(p) {
-      return p in vfs.files ? vfs.files[p] : null;
+      const k = vfsKey(p);
+      return k in vfs.files ? vfs.files[k] : null;
     },
     async listDir(p) {
-      return vfs.dirs[p] ?? [];
+      return vfs.dirs[vfsKey(p)] ?? [];
     },
     async isDir(p) {
-      return p in vfs.dirs;
+      return vfsKey(p) in vfs.dirs;
     },
   };
 }

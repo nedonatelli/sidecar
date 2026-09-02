@@ -595,7 +595,7 @@ export class ChatState {
       }
       const content = this.perDirSidecarMdCache.get(dirPath);
       if (content) {
-        results.push({ content, relativePath: path.relative(rootPath, dirPath) });
+        results.push({ content, relativePath: path.relative(rootPath, dirPath).split(path.sep).join('/') });
       }
     }
     return results;

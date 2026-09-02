@@ -125,6 +125,20 @@ export class SymbolIndexer implements Disposable {
   }
 
   /**
+   * Workspace-relative graph key, always forward-slashed.
+   *
+   * path.relative returns backslashes on Windows, but every consumer of these
+   * keys treats them as POSIX. resolveImportPath in particular finds the
+   * importing file's directory with lastIndexOf('/'), which on a backslash key
+   * returns -1 — so the importer looked like it sat at the repo root and every
+   * relative import resolved to the wrong file. The graph was silently wrong on
+   * Windows; CI is ubuntu-only, so nothing caught it.
+   */
+  private relKey(fsPath: string): string {
+    return path.relative(this.rootPath, fsPath).split(path.sep).join('/');
+  }
+
+  /**
    * Build the symbol graph for the workspace.
    * Tries to restore from cache first, then incrementally updates stale files.
    */
@@ -163,7 +177,7 @@ export class SymbolIndexer implements Disposable {
     let parsed = 0;
     await Promise.allSettled(
       codeUris.map(async (uri) => {
-        const relativePath = path.relative(this.rootPath, uri.fsPath);
+        const relativePath = this.relKey(uri.fsPath);
         const stat = await workspace.fs.stat(uri);
         const hash = `${stat.size}:${stat.mtime}`;
         if (restored && this.graph.getFileHash(relativePath) === hash) return;
@@ -189,7 +203,7 @@ export class SymbolIndexer implements Disposable {
 
     // Remove files that no longer exist
     if (restored) {
-      const currentFiles = new Set(codeUris.map((u) => path.relative(this.rootPath, u.fsPath)));
+      const currentFiles = new Set(codeUris.map((u) => this.relKey(u.fsPath)));
       for (const indexed of Object.entries(this.graph.toJSON().fileHashes)) {
         if (!currentFiles.has(indexed[0])) {
           this.graph.removeFile(indexed[0]);

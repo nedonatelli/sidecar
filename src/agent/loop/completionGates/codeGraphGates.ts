@@ -36,7 +36,11 @@ interface SymbolImpact {
  * advisory (counts) and the gate (block decision + reprompt).
  */
 function gatherImpact(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): SymbolImpact[] {
-  const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
+  // Forward-slashed: symbolIndexer keys the graph that way, so a backslash
+  // relative path from path.relative matched nothing on Windows and these
+  // gates silently reported no downstream impact.
+  const relativize = (f: string): string =>
+    root && path.isAbsolute(f) ? path.relative(root, f).split(path.sep).join('/') : f;
   const editedRel = new Set<string>();
   for (const f of editedFiles) editedRel.add(relativize(f));
 
@@ -116,7 +120,11 @@ function gatherNumericalFindings(
   editedFiles: ReadonlySet<string>,
   root: string,
 ): NumericalFindings {
-  const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
+  // Forward-slashed: symbolIndexer keys the graph that way, so a backslash
+  // relative path from path.relative matched nothing on Windows and these
+  // gates silently reported no downstream impact.
+  const relativize = (f: string): string =>
+    root && path.isAbsolute(f) ? path.relative(root, f).split(path.sep).join('/') : f;
   const editedRel = new Set<string>();
   for (const f of editedFiles) editedRel.add(relativize(f));
   const readSource = (f: string): string | undefined => {
@@ -185,7 +193,11 @@ function buildNumericalGateReprompt(f: NumericalFindings): string {
 // gap this surfaces, with the exact assertion to add.
 
 function gatherBoundFindings(graph: SymbolGraph, editedFiles: ReadonlySet<string>, root: string): FileBoundFinding[] {
-  const relativize = (f: string): string => (root && path.isAbsolute(f) ? path.relative(root, f) : f);
+  // Forward-slashed: symbolIndexer keys the graph that way, so a backslash
+  // relative path from path.relative matched nothing on Windows and these
+  // gates silently reported no downstream impact.
+  const relativize = (f: string): string =>
+    root && path.isAbsolute(f) ? path.relative(root, f).split(path.sep).join('/') : f;
   const editedRel = new Set<string>();
   for (const f of editedFiles) editedRel.add(relativize(f));
   const readSource = (f: string): string | undefined => {

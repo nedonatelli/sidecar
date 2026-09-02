@@ -42,7 +42,11 @@ export async function handleInlineChat(
   if (!instruction) return;
 
   const root = getWorkspaceRoot();
-  const fileName = root ? path.relative(root, editor.document.fileName) : editor.document.fileName;
+  // Forward-slashed — this goes straight into the prompt, where every tool
+  // path the model may produce is forward-slashed too.
+  const fileName = root
+    ? path.relative(root, editor.document.fileName).split(path.sep).join('/')
+    : editor.document.fileName;
 
   // Build context: surrounding code for better edits
   const doc = editor.document;

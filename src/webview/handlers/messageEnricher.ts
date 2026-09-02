@@ -17,7 +17,9 @@ function getActiveFileContext(): string {
   if (!editor) return '';
   const doc = editor.document;
   const root = getWorkspaceRoot();
-  const fileName = root ? path.relative(root, doc.fileName) : doc.fileName;
+  // Forward-slashed for the same reason as the Session block: this path goes
+  // into the prompt, and every tool the model can call takes forward slashes.
+  const fileName = root ? path.relative(root, doc.fileName).split(path.sep).join('/') : doc.fileName;
   const cursorLine = editor.selection.active.line + 1;
   const content = doc.getText();
   const maxChars = 50_000;

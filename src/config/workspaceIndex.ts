@@ -310,7 +310,7 @@ export class WorkspaceIndex implements Disposable {
     for (let j = 0; j < allUris.length; j++) {
       const stat = statResults[j];
       if (stat.status !== 'fulfilled' || stat.value.size > MAX_FILE_SIZE) continue;
-      const relativePath = path.relative(rootPath, allUris[j].fsPath);
+      const relativePath = this.relKey(rootPath, allUris[j].fsPath);
       freshFiles.set(relativePath, {
         relativePath,
         sizeBytes: stat.value.size,
@@ -347,7 +347,7 @@ export class WorkspaceIndex implements Disposable {
       const watchRoot = root.uri.fsPath;
       const watcher = workspace.createFileSystemWatcher(new RelativePattern(root.uri, '**/*'));
       watcher.onDidCreate((uri) => {
-        const rel = path.relative(watchRoot, uri.fsPath);
+        const rel = this.relKey(watchRoot, uri.fsPath);
         if (this.shouldExclude(rel)) return;
         workspace.fs.stat(uri).then(
           (stat) => {
@@ -363,14 +363,14 @@ export class WorkspaceIndex implements Disposable {
         );
       });
       watcher.onDidChange((uri) => {
-        const rel = path.relative(watchRoot, uri.fsPath);
+        const rel = this.relKey(watchRoot, uri.fsPath);
         if (this.shouldExclude(rel)) return;
         this.fileContentCache.delete(rel);
         this.symbolIndexer?.queueUpdate(rel);
         this.embeddingIndex?.queuePath(rel, watchRoot);
       });
       watcher.onDidDelete((uri) => {
-        const rel = path.relative(watchRoot, uri.fsPath);
+        const rel = this.relKey(watchRoot, uri.fsPath);
         this.fileContentCache.delete(rel);
         this.files.delete(rel);
         this.pinnedFileCache = null;
@@ -878,7 +878,7 @@ export class WorkspaceIndex implements Disposable {
     const lines: string[] = [];
 
     for (const filePath of sorted) {
-      const depth = filePath.split(path.sep).length - 1;
+      const depth = filePath.split('/').length - 1;
       const indent = '  '.repeat(depth);
       const basename = path.basename(filePath);
       lines.push(`${indent}${basename}`);
@@ -892,8 +892,20 @@ export class WorkspaceIndex implements Disposable {
     this.treeCache = tree;
   }
 
+  /**
+   * Workspace-relative key, always forward-slashed.
+   *
+   * path.relative returns backslashes on Windows. These keys are compared
+   * against pinned paths that come from settings — which users write with
+   * forward slashes — and are handed to symbolIndexer.queueUpdate, which keys
+   * its graph the same way. A backslash key silently matched neither.
+   */
+  private relKey(from: string, to: string): string {
+    return path.relative(from, to).split(path.sep).join('/');
+  }
+
   private shouldExclude(relativePath: string): boolean {
-    const parts = relativePath.split(path.sep);
+    const parts = relativePath.split('/');
     const defaultExcludes = new Set<string>(DEFAULT_EXCLUDES);
     // Check default directory excludes
     if (parts.some((p) => defaultExcludes.has(p))) return true;
@@ -916,7 +928,7 @@ export class WorkspaceIndex implements Disposable {
     const config = getConfig();
     if (config.maxTraversalDepth <= 0) return true; // 0 = no limit
 
-    const depth = relativePath.split(path.sep).length - 1;
+    const depth = relativePath.split('/').length - 1;
     return depth < config.maxTraversalDepth;
   }
 

@@ -151,7 +151,9 @@ async function newestFileNamed(dir, matches, target, root) {
       if (found !== 'a source file') return found;
     } else if (matches(entry.name)) {
       const s = await stat(full);
-      if (s.mtimeMs === target) return path.relative(root, full);
+      // Forward slashes: this goes into a message beside literal paths like
+      // `out/src/`, and path.relative yields backslashes on Windows.
+      if (s.mtimeMs === target) return path.relative(root, full).split(path.sep).join('/');
     }
   }
   return 'a source file';

@@ -41,7 +41,7 @@ The extension targets the desktop API surface. Some capabilities (native file sy
 
 ### Which model should I start with?
 
-For Ollama: `gemma4:e4b` (the default, ~10 GB VRAM) is the most-tested starting point. On lighter hardware, try `ministral-3:latest` (6 GB), `gemma4:2b`, or `qwen2.5-coder:7b`. For agent tasks that require reliable tool use, `qwen3-coder` variants perform well. For the Anthropic API: `claude-sonnet-4-6` is the recommended default.
+For Ollama: `gemma4:e4b` (the default, ~10 GB VRAM) is the most-tested starting point. On lighter hardware, try `ministral-3:latest` (6 GB), `granite4.1:3b`, or `qwen2.5-coder:7b`. For agent tasks that require reliable tool use, `qwen3-coder` variants perform well. For the Anthropic API: `claude-sonnet-4-6` is the recommended default.
 
 ### How do I connect to OpenRouter, Groq, or Fireworks?
 

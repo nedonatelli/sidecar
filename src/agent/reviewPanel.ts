@@ -73,7 +73,8 @@ export class ReviewTreeProvider implements TreeDataProvider<PendingEdit> {
       workspaceRoot && element.filePath.startsWith(workspaceRoot)
         ? path.relative(workspaceRoot, element.filePath)
         : element.filePath;
-    item.description = path.dirname(rel) === '.' ? undefined : path.dirname(rel);
+    const parentDir = path.dirname(rel).split(path.sep).join('/');
+    item.description = parentDir === '.' ? undefined : parentDir;
     item.tooltip = `${rel}\n\nTool: ${element.lastTool}\nUpdated: ${new Date(element.updatedAt).toLocaleTimeString()}`;
 
     // Icon signals "new file" vs "modified file".
