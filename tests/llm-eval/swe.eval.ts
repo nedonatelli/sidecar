@@ -164,7 +164,22 @@ function cleanupRepoClones(): void {
   // Never delete a pre-populated cache — it is reused across runs and (with a
   // per-model copy) across concurrent campaigns.
   if (!process.env.SIDECAR_SWE_REPO_CACHE) {
-    for (const dir of repoClones.values()) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of repoClones.values()) {
+      // Best-effort, and it MUST NOT throw. Windows keeps handles on git pack
+      // files and marks objects read-only, so rm fails with EPERM even with
+      // force. This runs in a `finally` after the task loop, so a throw here
+      // skipped the `preds.{arm}.jsonl` writes immediately below — the files
+      // the official swebench harness actually consumes. A whole run's output
+      // was lost to a failed cleanup of a temp directory.
+      //
+      // Losing the directory costs disk, not correctness: it is under the OS
+      // temp root and every task re-clones or resets from scratch.
+      try {
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      } catch (err) {
+        console.warn(`[swe] could not remove clone ${dir}: ${(err as Error).message}`);
+      }
+    }
   }
   repoClones.clear();
 }
