@@ -105,12 +105,21 @@ export function setupTaskEnv(
   // cwd=repoDir, so a relative path would resolve against the repo and fail.
   const venvDir = path.resolve(cacheBase, 'venvs', key);
   const marker = path.join(venvDir, '.sidecar-ready');
-  const binDir = path.join(venvDir, 'bin');
-  const pythonBin = path.join(binDir, 'python');
+  // Windows venvs put the interpreter in Scripts\python.exe, not bin/python.
+  // Hardcoding the POSIX layout made `uv pip install --python .../bin/python`
+  // fail with "No virtual environment or system Python installation found" for
+  // every repo that builds a venv — django, sympy, pytest, sphinx, requests and
+  // pylint, 78 of 100 task-arms. The repos that appeared to work were the ones
+  // in NATIVE_DEP_REPOS, which return null above and never build one.
+  const isWindows = process.platform === 'win32';
+  const binDir = path.join(venvDir, isWindows ? 'Scripts' : 'bin');
+  const pythonBin = path.join(binDir, isWindows ? 'python.exe' : 'python');
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     VIRTUAL_ENV: venvDir,
-    PATH: `${binDir}:${process.env.PATH ?? ''}`,
+    // path.delimiter, not ':' — PATH is ';'-separated on Windows, so a POSIX
+    // join silently produced one unusable entry instead of two.
+    PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
   };
 
   if (!fs.existsSync(marker)) {
