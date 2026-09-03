@@ -509,7 +509,11 @@ describe('screenshot_page viewport clamping', () => {
     // Must not return a viewport-related error — only browser launch or playwright missing.
     expect(result).not.toMatch(/viewport/i);
     expect(result).toMatch(/playwright|browser|launch/i);
-  });
+    // 30s, not vitest's 5s default: this genuinely attempts a browser launch, and
+    // the attempt is what takes the time. Under a loaded machine it exceeded 5s
+    // and failed the whole suite while passing in isolation — a false red that
+    // recurred across several runs.
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
