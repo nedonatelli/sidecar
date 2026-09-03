@@ -5,13 +5,17 @@ import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
 // getConfig removed — config is now captured once at initLoopState via options.config ?? getConfig()
-import { estimateTokensFromState } from '../config/tokenEstimation.js';
 import { firstTokenTimeoutMsFor } from './loop/firstTokenTimeout.js';
 import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
-import { applyBudgetCompression, maybeCompressPostTool, clearCompressionCache } from './loop/compression.js';
+import {
+  applyBudgetCompression,
+  maybeCompressPostTool,
+  clearCompressionCache,
+  projectedPromptTokens,
+} from './loop/compression.js';
 import { initLoopState } from './loop/state.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { isDegenerateText } from './loop/textParsing.js';
@@ -490,8 +494,7 @@ export async function runAgentLoop(
       }
       if (compressionOutcome === 'exhausted') {
         state.termination = 'out-of-resources';
-        const estimatedTokens =
-          state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
+        const estimatedTokens = projectedPromptTokens(state);
         state.logger?.warn(
           `Token budget exceeded after compaction: ~${estimatedTokens} tokens > ${state.maxTokens} limit`,
         );
@@ -544,7 +547,7 @@ export async function runAgentLoop(
       // Context-adaptive first-token timeout: configured value is a floor; large
       // contexts add prefill headroom so a real-repo prefill isn't aborted and
       // mislabeled a capability failure. See firstTokenTimeout.ts.
-      const inputTokens = state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
+      const inputTokens = projectedPromptTokens(state);
       const firstTokenTimeoutMs = firstTokenTimeoutMsFor(state.config.firstTokenTimeout * 1000, inputTokens);
       let rawTurn;
       try {

@@ -117,6 +117,17 @@ export interface LoopState {
    * cached count no longer applies to the new context).
    */
   lastActualInputTokens?: number;
+  /**
+   * `totalChars` at the moment `lastActualInputTokens` was measured.
+   *
+   * Lets the loop estimate only what has CHANGED since a real measurement
+   * instead of re-deriving the whole prompt from characters. The char
+   * estimator carries a large, sign-flipping error — measured against
+   * gemma4:e4b's own prompt_eval_count: +51% on prose, -15% on TypeScript,
+   * -42% on JSON, -36% on log lines — so applying it to the full history
+   * throws away a number we already know exactly.
+   */
+  charsAtLastMeasurement?: number;
 
   // Session-scoped episodic memory: summaries of compressed turns are
   // embedded here so semantically relevant prior context can be

@@ -299,6 +299,9 @@ export async function streamOneTurn(
           // Input + output because after this turn the model's output
           // becomes part of the next turn's input context.
           state.lastActualInputTokens = event.usage.inputTokens + event.usage.outputTokens;
+          // Anchor the projection: everything after this point is measured as a
+          // delta from here, not re-estimated from scratch.
+          state.charsAtLastMeasurement = state.totalChars;
           callbacks.onUsage?.(event.usage);
           logApiCall(
             {
