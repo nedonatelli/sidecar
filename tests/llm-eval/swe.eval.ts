@@ -209,6 +209,10 @@ function captureDiff(dir: string, baseCommit: string, touchedPaths: Set<string>)
 }
 
 const RETRIEVAL_TOPK = parseInt(process.env.SIDECAR_SWE_RETRIEVAL_TOPK ?? '6', 10);
+// Mirrors SIDECAR_EVAL_CLIFF_GATE in agentHarness. The SWE path hardcoded the
+// gate on, so the arm where injection was actually measured to hurt (top-6
+// UNTRIMMED: 55% vs 85% for the leader alone) could not be run here at all.
+const CLIFF_GATE = process.env.SIDECAR_SWE_CLIFF_GATE !== '0';
 
 // Real RAG: SideCar's symbol-embedding index (local MiniLM, tree-sitter symbols)
 // per repo, memoized (the build is the expensive part). Set on each task's
@@ -304,7 +308,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // not the old keyword-ranked file heads.
     const repoIndex = await getRepoIndex(task.repo, dir);
     toolRuntime.symbolEmbeddings = repoIndex;
-    const retrieval = await retrieveContext(repoIndex, task.problem_statement, dir, RETRIEVAL_TOPK);
+    const retrieval = await retrieveContext(repoIndex, task.problem_statement, dir, RETRIEVAL_TOPK, CLIFF_GATE);
     retrievalRecall = task.patch ? goldFilesInTopK(retrieval.hits, task.patch).recalled : undefined;
     // API key defaults to 'ollama' (local, authless). Set SIDECAR_SWE_API_KEY to
     // a bearer token to drive a remote OpenAI-compatible endpoint instead — e.g.
@@ -567,6 +571,7 @@ describe('SWE-bench Verified — prediction generation', () => {
         arms: ARMS,
         maxIterations: MAX_ITERS,
         retrievalTopK: RETRIEVAL_TOPK,
+        retrievalCliffGate: CLIFF_GATE,
         perTaskTimeoutMs: PER_TASK_MS,
         nodeVersion: process.version,
         createdAt: new Date().toISOString(),
