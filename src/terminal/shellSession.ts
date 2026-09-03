@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from 'child_process';
 import { logger } from '../system/logger.js';
 import { randomBytes } from 'crypto';
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
 import { stripAnsi } from './ansi.js';
 import { ManagedChildProcess, getProcessRegistry } from '../agent/processLifecycle.js';
@@ -39,6 +41,48 @@ interface BackgroundCommand {
 // Generate a short alphanumeric sentinel (no special chars to worry about)
 function makeSentinel(): string {
   return 'SIDECAR' + randomBytes(8).toString('hex').toUpperCase();
+}
+
+/**
+ * Prefer a POSIX shell on Windows when one is installed.
+ *
+ * cmd.exe cannot run the commands models actually emit. Measured across a
+ * 50-task SWE-bench run: 237 rejections of `./script` ("'.' is not recognized")
+ * plus ~100 more for `bin/...`, `export`, `rg`, `tox` — roughly 4.7 failures
+ * per task before any real work, on a corpus of POSIX repos where
+ * `./tests/runtests.py` is the documented way to run the suite.
+ *
+ * Git Bash understands Windows drive paths, so the workspace, the repo and the
+ * agent all agree about where files are.
+ *
+ * WSL's C:\Windows\System32\bash.exe is deliberately EXCLUDED: it launches a
+ * different filesystem namespace, where the workspace path does not exist.
+ * Finding it on PATH and using it would be worse than cmd.exe.
+ *
+ * SIDECAR_SHELL overrides the search entirely. Falls back to cmd.exe when no
+ * suitable shell is found, so a machine without Git for Windows still works.
+ */
+export function resolveWindowsShell(): string {
+  const override = process.env.SIDECAR_SHELL;
+  if (override && fs.existsSync(override)) return override;
+
+  const roots = [
+    process.env.ProgramFiles,
+    process.env['ProgramW6432'],
+    process.env['ProgramFiles(x86)'],
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs') : undefined,
+  ].filter((r): r is string => Boolean(r));
+
+  for (const root of roots) {
+    const candidate = path.join(root, 'Git', 'bin', 'bash.exe');
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return process.env.COMSPEC || 'cmd.exe';
+}
+
+/** True when `shellPath` speaks POSIX — decides the command protocol, not the platform. */
+function isPosixShell(shellPath: string): boolean {
+  return /(^|[\\/])(bash|sh|zsh|dash)(\.exe)?$/i.test(shellPath);
 }
 
 /**
@@ -102,6 +146,8 @@ export class ShellSession {
   private backgroundCommands = new Map<string, BackgroundCommand>();
   private maxOutputSize: number;
   private isWindows: boolean;
+  /** Whether the resolved shell speaks POSIX. Drives quoting, redirection and startup flags. */
+  private usesPosixShell: boolean;
   /** Captured at construction time so the hardening prefix knows which
    *  shell dialect to emit (bash vs zsh vs windows). */
   private shellPath: string;
@@ -122,8 +168,11 @@ export class ShellSession {
     this.env = { ...(process.env as Record<string, string>), ...env };
     this.maxOutputSize = maxOutputSize;
     this.isWindows = os.platform() === 'win32';
-    this.shellPath = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash';
-    if (this.isWindows) {
+    this.shellPath = this.isWindows ? resolveWindowsShell() : process.env.SHELL || '/bin/bash';
+    // The PROTOCOL follows the shell, not the platform: on Windows running Git
+    // Bash we need POSIX quoting and redirection, not cmd's.
+    this.usesPosixShell = isPosixShell(this.shellPath);
+    if (this.isWindows && !this.usesPosixShell) {
       // cmd.exe writes its prompt before each command's output, so every
       // captured result arrived prefixed with `C:\path>`. POSIX shells print no
       // prompt on a pipe; `$_` (a bare newline) is the closest cmd equivalent.
@@ -147,7 +196,7 @@ export class ShellSession {
     // zsh:  -f (--no-rcs)
     // other: try --norc
     let args: string[];
-    if (this.isWindows) {
+    if (this.isWindows && !this.usesPosixShell) {
       args = ['/Q'];
     } else if (shellPath.endsWith('/zsh') || shellPath.endsWith('/zsh5')) {
       args = ['-f'];
@@ -177,7 +226,8 @@ export class ShellSession {
       this.ready = null;
     });
 
-    this.ready = this.isWindows ? this.flushStartupBanner(this.proc) : Promise.resolve();
+    // Only cmd.exe prints a banner; bash with --norc --noprofile prints nothing.
+    this.ready = this.isWindows && !this.usesPosixShell ? this.flushStartupBanner(this.proc) : Promise.resolve();
 
     return this.proc;
   }
@@ -511,7 +561,7 @@ export class ShellSession {
       // calls. The newline before the closing brace — rather than `; }` — is
       // load-bearing: `{ sleep 1 & ; }` is a syntax error, and a trailing `#`
       // comment would swallow a semicolon.
-      if (this.isWindows) {
+      if (this.isWindows && !this.usesPosixShell) {
         proc.stdin?.write(`(${command}) < NUL\r\necho ${sentinel}_%ERRORLEVEL%_END\r\n`);
       } else {
         const hardening = hardeningPrefixFor(this.shellPath);
@@ -545,8 +595,8 @@ export class ShellSession {
     }
 
     const id = randomBytes(4).toString('hex');
-    let bgCmd = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : this.shellPath;
-    let bgArgs = this.isWindows ? ['/C', command] : ['-c', command];
+    let bgCmd = this.isWindows && !this.usesPosixShell ? process.env.COMSPEC || 'cmd.exe' : this.shellPath;
+    let bgArgs = this.isWindows && !this.usesPosixShell ? ['/C', command] : ['-c', command];
     if (!this.isWindows && this.sandboxEnabled && isSeatbeltSupported()) {
       ({ cmd: bgCmd, args: bgArgs } = wrapWithSeatbelt(bgCmd, bgArgs, this.cwd));
     }

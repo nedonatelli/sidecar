@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { ShellSession } from './shellSession.js';
 import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 // Skip on Windows CI — these tests use bash
 const isWindows = os.platform() === 'win32';
@@ -410,6 +412,29 @@ describeWindows("ShellSession on Windows — output is the command's, and only t
     expect(result.stdout.trim()).toBe('hello');
   });
 
+  it('runs the POSIX-shaped commands cmd.exe rejects', async () => {
+    // Measured on a 50-task SWE-bench run under cmd.exe: 237 rejections of
+    // `./script` ("'.' is not recognized") plus ~100 more for bin/…, export, rg
+    // and tox — about 4.7 per task, on a corpus of POSIX repos where
+    // `./tests/runtests.py` is the documented way to run the suite. The agent
+    // burned turns on shell syntax instead of the task.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-posix-'));
+    fs.writeFileSync(path.join(dir, 'runtests.py'), "#!/usr/bin/env python\nprint('ran')\n");
+    session = new ShellSession(dir);
+
+    const ls = await session.execute('ls -1');
+    expect(ls.stdout).toContain('runtests.py');
+    expect(ls.stdout).not.toMatch(/is not recognized/);
+
+    const exported = await session.execute('export FOO=bar && echo $FOO');
+    expect(exported.stdout).toContain('bar');
+
+    // The point is that `./x` RESOLVES. Whether the script then runs depends on
+    // its interpreter, which is not what this pins.
+    const dotSlash = await session.execute('./runtests.py 2>&1 || true');
+    expect(dotSlash.stdout).not.toMatch(/is not recognized/);
+  }, 60_000);
+
   it('keeps later commands clean too, and preserves exit codes', async () => {
     session = new ShellSession(os.tmpdir());
     await session.execute('echo first');
@@ -418,9 +443,11 @@ describeWindows("ShellSession on Windows — output is the command's, and only t
     expect(second.stdout).not.toMatch(/Microsoft Windows \[Version/);
     expect(second.exitCode).toBe(0);
 
-    // `cmd /c exit 3`, not `exit /b 3` — the latter exits the session's own
-    // shell, so the next command would be talking to a dead process.
-    const failed = await session.execute('cmd /c exit 3');
+    // A subshell, so the exit does not kill the session's own shell. Written in
+    // POSIX form because the Windows shell is now Git Bash when it is installed
+    // — and note `cmd /c exit 3` does NOT work here: MSYS rewrites the `/c`
+    // argument into a path, so cmd never sees the switch and exits 0.
+    const failed = await session.execute('(exit 3)');
     expect(failed.exitCode).toBe(3);
   }, 30_000);
 });
