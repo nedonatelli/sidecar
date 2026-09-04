@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { applyIdenticalEditReprompt } from './identicalEditReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import type { ToolResultContentBlock, ToolUseContentBlock } from '../../ollama/types.js';
@@ -17,6 +17,10 @@ const IDENTICAL = 'Error: edit_file failed — search and replace text are ident
 const AGAIN = 'Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace.';
 
 describe('applyIdenticalEditReprompt', () => {
+  afterEach(() => {
+    delete process.env.SIDECAR_DISABLE_IDENTICAL_REPROMPT;
+  });
+
   it('nudges once, quoting the region the model already found', () => {
     const state = stubLoopState();
     const fired = applyIdenticalEditReprompt(
@@ -52,6 +56,19 @@ describe('applyIdenticalEditReprompt', () => {
     const call = [use('1', { path: 'src/a.py', search: 'x = 1', replace: 'x = 1' })];
     expect(applyIdenticalEditReprompt(state, call, [err('1', IDENTICAL)], stubCallbacks())).toBe(true);
     expect(applyIdenticalEditReprompt(state, call, [err('1', IDENTICAL)], stubCallbacks())).toBe(false);
+  });
+
+  it('can be disabled for A/B measurement', () => {
+    process.env.SIDECAR_DISABLE_IDENTICAL_REPROMPT = 'true';
+    const state = stubLoopState();
+    const fired = applyIdenticalEditReprompt(
+      state,
+      [use('1', { path: 'src/a.py', search: 'x = 1', replace: 'x = 1' })],
+      [err('1', IDENTICAL)],
+      stubCallbacks(),
+    );
+    expect(fired).toBe(false);
+    expect(state.messages).toHaveLength(0);
   });
 
   it('stays silent on a successful edit', () => {

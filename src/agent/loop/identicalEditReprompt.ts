@@ -72,6 +72,11 @@ export function applyIdenticalEditReprompt(
   toolResults: ToolResultContentBlock[],
   callbacks: AgentCallbacks,
 ): boolean {
+  // Diagnostic escape hatch, mirroring SIDECAR_DISABLE_CYCLE_DETECTION: the
+  // only way to A/B this hook is to be able to turn it off in one arm while
+  // everything else stays byte-identical.
+  if (process.env.SIDECAR_DISABLE_IDENTICAL_REPROMPT === 'true') return false;
+
   const byId = new Map(toolResults.map((r) => [r.tool_use_id, r]));
   for (const tu of pendingToolUses) {
     if (tu.name !== 'edit_file') continue;
