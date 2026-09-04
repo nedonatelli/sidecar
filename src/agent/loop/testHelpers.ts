@@ -17,6 +17,8 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     config: {} as SideCarConfig,
     maxIterations: 25,
     maxTokens: 100_000,
+    fileMutations: 0,
+    commandRuns: new Map(),
     approvalMode: 'cautious',
     tools: [],
     logger: undefined,

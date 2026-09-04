@@ -24,6 +24,8 @@ function makeState(logger?: AgentLogger): LoopState {
     config: {} as import('../../config/settings.js').SideCarConfig,
     maxIterations: 10,
     maxTokens: 100_000,
+    fileMutations: 0,
+    commandRuns: new Map(),
     approvalMode: 'cautious',
     tools: [],
     logger: logger,

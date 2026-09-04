@@ -1,4 +1,5 @@
 import type { ChatMessage, ToolDefinition, TokenUsage } from '../ollama/types.js';
+import { collapseRepeatedCommandResults } from './loop/commandDedup.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
@@ -882,6 +883,13 @@ export async function runAgentLoop(
       // Record files successfully edited via edit_file so write_file blocks a
       // full rewrite that would clobber those targeted fixes.
       recordSuccessfulEdits(pendingToolUses, toolResults, state);
+      // Any successful write invalidates every cached shell result: a command
+      // that was a no-op repeat a moment ago may now produce something new.
+      for (let i = 0; i < pendingToolUses.length; i++) {
+        const name = pendingToolUses[i]?.name;
+        if (name !== 'edit_file' && name !== 'write_file' && name !== 'delete_file') continue;
+        if (!toolResults[i]?.is_error) state.fileMutations++;
+      }
 
       // A deleted file is a clean slate — clear its rewrite-thrash tracking so a
       // delete-then-recreate (the natural "start this file over" move) isn't
@@ -917,9 +925,24 @@ export async function runAgentLoop(
       // (e.g. "grep kickstand") can return hundreds of KB and exhaust
       // the token budget even in a fresh conversation, because the raw
       // size is counted even though the backend truncates it anyway.
+      // run_command is exempt from the pruner's dedup (nondeterministicOutput),
+      // which is correct per-tool but wrong per-invocation: an identical command
+      // with no write since it last ran cannot have new output. Collapse those
+      // to a pointer before capping, so the duplicate never reaches totalChars.
+      const { results: dedupedResults, collapsed } = collapseRepeatedCommandResults(
+        toolResults,
+        pendingToolUses,
+        state.commandRuns,
+        state.fileMutations,
+        state.iteration,
+      );
+      for (const cmd of collapsed) {
+        state.logger?.info(`Collapsed repeated command (no writes since): ${cmd.slice(0, 120)}`);
+      }
+
       const cappedResults = state.config.promptPruningEnabled
-        ? capToolResults(toolResults, pendingToolUses, state.config.promptPruningMaxToolResultTokens)
-        : toolResults;
+        ? capToolResults(dedupedResults, pendingToolUses, state.config.promptPruningMaxToolResultTokens)
+        : dedupedResults;
 
       // Prompt-injection guard (§4): fence tool output that carries injection
       // attempts as untrusted data before it reaches the model. Runs after

@@ -1,4 +1,5 @@
 import type { ChatMessage, ToolDefinition } from '../../ollama/types.js';
+import type { CommandRunRecord } from './commandDedup.js';
 import { LOCAL_CONTEXT_CAP } from '../../config/constants.js';
 import { getContentLength } from '../../ollama/types.js';
 import type { ApprovalMode } from '../executor.js';
@@ -117,6 +118,15 @@ export interface LoopState {
    * after compression fires (since we've modified the message history and the
    * cached count no longer applies to the new context).
    */
+  /**
+   * Monotonic count of successful file mutations this run. Lets the loop tell
+   * whether an identical shell command could possibly produce new output — a
+   * question `nondeterministicOutput` cannot answer, since it is a property of
+   * the tool rather than of the invocation.
+   */
+  fileMutations: number;
+  /** Last run of each shell command, for collapsing exact repeats. */
+  commandRuns: Map<string, CommandRunRecord>;
   lastActualInputTokens?: number;
   /**
    * `totalChars` at the moment `lastActualInputTokens` was measured.
@@ -358,6 +368,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     // runner — pass nothing and fell through to a hardcoded 100K, budgeting
     // BELOW the window the model actually has. Same shape as the num_ctx bug
     // in 99a0369, where headless runs got a 32K floor as a ceiling.
+    fileMutations: 0,
+    commandRuns: new Map(),
     maxTokens: options.maxTokens || LOCAL_CONTEXT_CAP,
     approvalMode: options.approvalMode || 'cautious',
     // injectedConfig: the catalog must gate on THIS run's config (facet/eval
