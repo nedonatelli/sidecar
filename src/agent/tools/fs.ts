@@ -1481,11 +1481,51 @@ export async function resolveEditedText(params: {
     anchorAt = resolveWithin(text, within, filePath);
   }
 
-  const match = within ? findEditMatch(text.slice(anchorAt), search, replace) : findEditMatch(text, search, replace);
-  if (within && match) {
+  let match = within ? findEditMatch(text.slice(anchorAt), search, replace) : findEditMatch(text, search, replace);
+
+  /**
+   * `within` exists to pick ONE of several candidate locations. When `search`
+   * occurs exactly once in the whole file there are no candidates to choose
+   * between, so the locator decides nothing -- and must not be able to veto the
+   * edit. It could before: the slice starts at the anchor, so a search sitting
+   * ABOVE the locator simply vanished and the model was told "search string not
+   * found" about text plainly present in the file. That reading sends it off to
+   * rewrite the search string, which was never the problem.
+   *
+   * Measured over the multi-line not-found failures in three 50-task SWE-bench
+   * runs, on files still at their base commit: 13 of 42 failed exactly this
+   * way, and ALL 13 had exactly one whole-file occurrence. A redundant locator
+   * was the entire cause.
+   *
+   * Uniqueness is what makes the fallback safe. The distance guard below exists
+   * to stop a wrong locator steering an AMBIGUOUS search into the wrong region;
+   * where there is one occurrence, there is no other region to land in.
+   */
+  let anchorRedundant = false;
+  const fallBackToWholeFile = (): boolean => {
+    const whole = findEditMatch(text, search, replace);
+    if (!whole || whole.count !== 1) return false;
+    match = whole;
+    anchorAt = 0; // so the re-base below is a no-op on an already whole-file span
+    anchorRedundant = true;
+    return true;
+  };
+  if (within && !match) fallBackToWholeFile();
+
+  // Say plainly that the locator was the problem. Silently ignoring it would
+  // teach the model nothing, and it would keep paying for anchors it does not
+  // need on the next edit.
+  const anchorRedundantNote = () =>
+    anchorRedundant
+      ? `[note: your 'within' locator did not contain the search text, but the search matched exactly once in ` +
+        `${filePath}, so the locator was not needed and was ignored. Pass 'within' only when 'search' really ` +
+        `appears more than once.]
+`
+      : '';
+  if (within && match && !anchorRedundant) {
     const anchorLine = text.slice(0, anchorAt).split('\n').length;
     const matchLine = text.slice(0, anchorAt + match.start).split('\n').length;
-    if (matchLine - anchorLine > WITHIN_MAX_LINES) {
+    if (matchLine - anchorLine > WITHIN_MAX_LINES && !fallBackToWholeFile()) {
       // A wrong locator that quietly edits a distant region is the worst
       // outcome available here — worse than any error. Refuse instead.
       throw new Error(
@@ -1764,7 +1804,7 @@ export async function resolveEditedText(params: {
 
   return {
     newText,
-    prefixNote: matchToleranceNote(match, filePath, text) + duplicateTrimNote,
+    prefixNote: anchorRedundantNote() + matchToleranceNote(match, filePath, text) + duplicateTrimNote,
     suffixNote: escapeRecoveryNote,
   };
 }

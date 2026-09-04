@@ -1780,6 +1780,42 @@ describe('edit_file — search must not double as the locator', () => {
       expect(writeSpy).not.toHaveBeenCalled();
     });
 
+    it('ignores a redundant locator when the search is unique in the file', async () => {
+      // The locator sits BELOW the search text, so scoping to "after the
+      // anchor" hid a line plainly present in the file and reported "search
+      // string not found". Measured on three 50-task SWE-bench runs, 13 of 42
+      // multi-line not-found failures were this, every one of them with a
+      // single whole-file occurrence. One occurrence means the locator has
+      // nothing to disambiguate, so it must not be able to veto the edit.
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field13."""',
+        search: '        """Bounds check for field12."""',
+        replace: '        """Bounds check for field12 (revised)."""',
+      });
+
+      expect(msg).toContain('File edited');
+      expect(written).toContain('Bounds check for field12 (revised).');
+      // and it is told why, so it stops paying for locators it does not need
+      expect(msg).toMatch(/locator was not needed|was ignored/i);
+    });
+
+    it('still refuses when the search is ambiguous and the locator excludes it', async () => {
+      // Both `def is_within_bounds` lines sit above this locator, so the scoped
+      // search finds nothing and the whole-file fallback sees TWO occurrences.
+      // That is exactly the case `within` exists for, so falling back would be
+      // guessing. Refuse instead of writing to a region we cannot identify.
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field13."""',
+        search: '    def is_within_bounds(self, value):',
+        replace: '    def is_within_bounds(self, value):  # checked',
+      });
+
+      expect(msg).toMatch(/not found|appears/i);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
     it('rejects `within` together with replace_all as contradictory', async () => {
       const msg = await editMsg({
         path: 'src/validators.py',
