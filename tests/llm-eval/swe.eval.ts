@@ -572,6 +572,13 @@ describe('SWE-bench Verified — prediction generation', () => {
         maxIterations: MAX_ITERS,
         retrievalTopK: RETRIEVAL_TOPK,
         retrievalCliffGate: CLIFF_GATE,
+        // The deterministic control layer. bench/swe/README notes it is not
+        // config-gated and runs in BOTH ablation arms, so a scaffold-on/off
+        // number never isolates it. When these are disabled the run is a bare
+        // loop — a different baseline entirely — and a manifest that omits
+        // them reads exactly like a normal guarded run.
+        cycleDetectionDisabled: process.env.SIDECAR_DISABLE_CYCLE_DETECTION === 'true',
+        circuitBreakerDisabled: process.env.SIDECAR_DISABLE_CIRCUIT_BREAKER === 'true',
         perTaskTimeoutMs: PER_TASK_MS,
         nodeVersion: process.version,
         createdAt: new Date().toISOString(),
