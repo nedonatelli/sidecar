@@ -77,6 +77,10 @@ vi.mock('../../terminal/shellSession.js', () => {
         return mockShellDispose(...args);
       }
     },
+    // injectSystemContext reports the shell the agent will actually run, so it
+    // imports this. A fixed value keeps the Session block byte-stable, which the
+    // prompt-cache tests below depend on.
+    resolveWindowsShell: () => 'C:\Program Files\Git\bin\bash.exe',
   };
 });
 
