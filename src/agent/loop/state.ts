@@ -1,4 +1,5 @@
 import type { ChatMessage, ToolDefinition } from '../../ollama/types.js';
+import { LOCAL_CONTEXT_CAP } from '../../config/constants.js';
 import { getContentLength } from '../../ollama/types.js';
 import type { ApprovalMode } from '../executor.js';
 import type { AgentLogger } from '../logger.js';
@@ -351,7 +352,13 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     runId: crypto.randomUUID(),
     config: options.config ?? getConfig(),
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
-    maxTokens: options.maxTokens || 100_000,
+    // 128K, matching LOCAL_CONTEXT_CAP and the default local model's native
+    // window. Production clamps agentMaxTokens to the probed context length
+    // (chatHandlers), but headless callers — benchmarks, llm-eval, the SWE
+    // runner — pass nothing and fell through to a hardcoded 100K, budgeting
+    // BELOW the window the model actually has. Same shape as the num_ctx bug
+    // in 99a0369, where headless runs got a 32K floor as a ceiling.
+    maxTokens: options.maxTokens || LOCAL_CONTEXT_CAP,
     approvalMode: options.approvalMode || 'cautious',
     // injectedConfig: the catalog must gate on THIS run's config (facet/eval
     // overrides), not global settings — otherwise a tool enabled per-run is
