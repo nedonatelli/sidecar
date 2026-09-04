@@ -2,6 +2,7 @@ import type { ApiBackend, ResponseFormat } from './backend.js';
 import { logger } from '../system/logger.js';
 import type { ChatMessage, ContentBlock, ToolDefinition, ToolUseContentBlock, StreamEvent } from './types.js';
 import { sidecarFetch } from './sidecarFetch.js';
+import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import {
   abortableRead,
   toFunctionTools,
@@ -400,7 +401,14 @@ export class OllamaBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const { agentTemperature, agentSeed, ollamaNumCtx, ollamaDisableThinking } = getConfig();
+    const {
+      agentTemperature,
+      agentSeed,
+      ollamaNumCtx,
+      ollamaDisableThinking,
+      promptPruningEnabled,
+      promptPruningMaxToolResultTokens,
+    } = getConfig();
     // Explicit override, in precedence order: the `sidecar.ollama.numCtx`
     // setting, then `SIDECAR_OLLAMA_NUM_CTX`. The env fallback exists because
     // the setting is VS Code-only, which left benchmarks with no way to pin the
@@ -456,9 +464,24 @@ export class OllamaBackend implements ApiBackend {
     // calls. That list was previously honored ONLY by the eval harness, so we
     // protected our own tests from a failure mode we then shipped to users.
     if (ollamaDisableThinking || hasProblematicThinking(model)) options.think = false;
+    // The pruner was wired into the Anthropic, Bedrock and OpenAI backends but
+    // never into this one, so the local path -- SideCar's default, and the one
+    // every benchmark run uses -- had no tool-result cap and no dedup at all.
+    // Measured over 102 SWE-bench task-runs: read_file alone returned 512KB,
+    // of which 105KB was identical re-reads of an unchanged file.
+    const dedupExemptTools = tools
+      ? new Set(tools.filter((t) => t.nondeterministicOutput).map((t) => t.name))
+      : undefined;
+    const pruned = prunePrompt(systemPrompt, messages, {
+      enabled: promptPruningEnabled,
+      maxToolResultTokens: promptPruningMaxToolResultTokens,
+      dedupExemptTools,
+    });
+    const pruneLog = formatPruneStats(pruned.stats);
+    if (pruneLog) logger.info(`[SideCar] ${pruneLog}`);
     const body: Record<string, unknown> = {
       model,
-      messages: toOllamaMessages(messages, systemPrompt),
+      messages: toOllamaMessages(pruned.messages, pruned.systemPrompt),
       stream: true,
       options,
       // Keep the model warm between requests — every request refreshes the
@@ -709,9 +732,14 @@ export class OllamaBackend implements ApiBackend {
     signal?: AbortSignal,
     responseFormat?: ResponseFormat,
   ): Promise<string> {
+    const completeCfg = getConfig();
+    const prunedComplete = prunePrompt(systemPrompt, messages, {
+      enabled: completeCfg.promptPruningEnabled,
+      maxToolResultTokens: completeCfg.promptPruningMaxToolResultTokens,
+    });
     const body: Record<string, unknown> = {
       model,
-      messages: toOllamaMessages(messages, systemPrompt),
+      messages: toOllamaMessages(prunedComplete.messages, prunedComplete.systemPrompt),
       stream: false,
     };
     // V3: Ollama enforces structured output via the `format` field — 'json'

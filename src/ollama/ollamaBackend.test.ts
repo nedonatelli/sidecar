@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   OllamaBackend,
   probeModelToolSupport,
@@ -33,6 +33,114 @@ describe('OllamaBackend', () => {
   beforeEach(() => {
     backend = new OllamaBackend('http://localhost:11434');
     mockFetch.mockReset();
+  });
+
+  describe('prompt pruning', () => {
+    // This backend was the ONLY one that never called prunePrompt: Anthropic,
+    // Bedrock and OpenAI all did. So the local path -- SideCar's default -- ran
+    // with no tool-result cap and no dedup, and nothing in the suite noticed.
+    // These tests exist so that gap cannot silently reopen.
+    //
+    // The model-probe cache is process-wide, so reset it on both sides: without
+    // the leading reset each drain() would skip its probe and read the probe's
+    // mock as the chat response; without the trailing one the tests that follow
+    // would find 'test' already probed.
+    beforeEach(__resetNumCtxProbesForTests);
+    afterEach(__resetNumCtxProbesForTests);
+
+    function sentBody(): { messages: { role: string; content: string }[] } {
+      return JSON.parse(String(mockFetch.mock.calls.at(-1)?.[1]?.body));
+    }
+
+    async function drain(messages: ChatMessage[], tools?: ToolDefinition[]) {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { model: 'test', message: { role: 'assistant', content: 'ok' }, done: true, done_reason: 'stop' },
+        ]),
+      });
+      for await (const _e of backend.streamChat('test', 'sys', messages, undefined, tools)) void _e;
+    }
+
+    it('caps an oversized tool result instead of sending it whole', async () => {
+      const huge = 'x'.repeat(200_000); // ~50K tokens, far over the 4,000 cap
+      await drain([
+        { role: 'user', content: 'go' },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: huge }],
+        } as unknown as ChatMessage,
+      ]);
+      const sent = JSON.stringify(sentBody());
+      expect(sent).not.toContain(huge);
+      expect(sent.length).toBeLessThan(huge.length / 2);
+    });
+
+    it('replaces an identical repeated read_file result with a back-reference', async () => {
+      // Over 200 chars: below that the pruner leaves a result alone, since the
+      // back-reference marker would not be smaller than the content.
+      const body = 'export const answer = 42; ' + 'padding to clear the dedup floor. '.repeat(8);
+      await drain([
+        {
+          role: 'user',
+          content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'a.ts' } }],
+        } as unknown as ChatMessage,
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: body }],
+        } as unknown as ChatMessage,
+        {
+          role: 'user',
+          content: [{ type: 'tool_use', id: 't2', name: 'read_file', input: { path: 'a.ts' } }],
+        } as unknown as ChatMessage,
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't2', content: body }],
+        } as unknown as ChatMessage,
+      ]);
+      const sent = JSON.stringify(sentBody());
+      // First copy survives, the repeat becomes a marker.
+      expect(sent.split(body).length - 1).toBe(1);
+    });
+
+    it('leaves a nondeterministic tool exempt from dedup', async () => {
+      // run_command output must never be deduped by the pruner: the same
+      // command legitimately returns something new after an edit. That case is
+      // handled in the loop, which can see whether a write happened.
+      const out = 'Ran 12 tests OK. ' + 'stdout line to clear the dedup floor. '.repeat(8);
+      const tools = [
+        {
+          name: 'run_command',
+          description: 'run a shell command',
+          input_schema: { type: 'object', properties: {}, required: [] },
+          nondeterministicOutput: true,
+        },
+      ] as unknown as ToolDefinition[];
+      await drain(
+        [
+          {
+            role: 'user',
+            content: [{ type: 'tool_use', id: 't1', name: 'run_command', input: { command: 'pytest' } }],
+          } as unknown as ChatMessage,
+          {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: 't1', content: out }],
+          } as unknown as ChatMessage,
+          {
+            role: 'user',
+            content: [{ type: 'tool_use', id: 't2', name: 'run_command', input: { command: 'pytest' } }],
+          } as unknown as ChatMessage,
+          {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: 't2', content: out }],
+          } as unknown as ChatMessage,
+        ],
+        tools,
+      );
+      const sent = JSON.stringify(sentBody());
+      expect(sent.split(out).length - 1).toBe(2);
+    });
   });
 
   describe('streamChat', () => {
