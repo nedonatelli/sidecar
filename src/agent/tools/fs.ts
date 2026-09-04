@@ -265,7 +265,15 @@ function suggestRegionError(filePath: string, candidate: string, why: string): s
     `The closest matching region in the file is:\n\`\`\`\n${candidate}\n\`\`\`\n\n` +
     `If that is the code you meant to change, call edit_file again with 'search' set to EXACTLY that text ` +
     `(copy it byte-for-byte) and your new version in 'replace'. If it is not, call read_file to find the ` +
-    `right text first.`
+    `right text first.
+
+` +
+    // Copying the quoted block into BOTH fields is the single most common way
+    // this suggestion is misread: 29 of the 130 identical-edit failures across
+    // three 50-task SWE-bench runs had a search string that came from a
+    // suggestion like this one. Naming the mistake costs one line.
+    `Do NOT paste the block above into 'replace' as well — 'replace' must be the text you want AFTERWARDS. ` +
+    `If the two are the same the edit changes nothing and will be rejected.`
   );
 }
 
