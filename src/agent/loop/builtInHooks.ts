@@ -1,5 +1,6 @@
 import { applyAutoFix } from './autoFix.js';
 import { applyIsolateRewriteNudge } from './isolateRewrite.js';
+import { applyIdenticalEditReprompt } from './identicalEditReprompt.js';
 import { applyUnappliedEditNudge } from './unappliedEdit.js';
 import { applyStubCheck } from './stubCheck.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
@@ -50,6 +51,15 @@ const autoFixHook: PolicyHook = {
  * auto-fix so a turn with both errors and a full rewrite gets "fix these" plus
  * "and do it with a targeted edit".
  */
+const identicalEditRepromptHook: PolicyHook = {
+  name: 'identicalEditReprompt',
+  async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
+    if (!ctx.pendingToolUses || !ctx.toolResults) return { mutated: false };
+    const mutated = applyIdenticalEditReprompt(state, ctx.pendingToolUses, ctx.toolResults, ctx.callbacks);
+    return { mutated };
+  },
+};
+
 const isolateRewriteHook: PolicyHook = {
   name: 'isolateRewrite',
   async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
@@ -137,5 +147,13 @@ export function defaultPolicyHooks(): PolicyHook[] {
   // actionRepromptHook runs before completionGate so the model gets
   // nudged to call tools before the gate demands verification of edits
   // it hasn't made yet.
-  return [autoFixHook, isolateRewriteHook, unappliedEditHook, stubCheckHook, actionRepromptHook, completionGateHook];
+  return [
+    autoFixHook,
+    identicalEditRepromptHook,
+    isolateRewriteHook,
+    unappliedEditHook,
+    stubCheckHook,
+    actionRepromptHook,
+    completionGateHook,
+  ];
 }

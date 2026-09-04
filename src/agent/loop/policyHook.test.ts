@@ -65,6 +65,7 @@ function makeState(logger?: AgentLogger): LoopState {
     enforceEditBlocksByFile: new Map(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
+    identicalEditRepromptsByFile: new Map(),
     fenceWriteCoercions: 0,
     filesReadThisRun: new Set<string>(),
     unappliedEditNudged: false,

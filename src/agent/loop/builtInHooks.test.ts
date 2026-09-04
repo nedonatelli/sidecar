@@ -79,6 +79,7 @@ describe('defaultPolicyHooks list shape', () => {
     const hooks = defaultPolicyHooks();
     expect(hooks.map((h) => h.name)).toEqual([
       'autoFix',
+      'identicalEditReprompt',
       'isolateRewrite',
       'unappliedEdit',
       'stubValidator',
@@ -115,7 +116,8 @@ describe('autoFix adapter', () => {
 });
 
 describe('stubValidator adapter', () => {
-  const hook = defaultPolicyHooks()[3];
+  // By name, not position: a new hook in the middle should not break unrelated tests.
+  const hook = defaultPolicyHooks().find((h) => h.name === 'stubValidator')!;
 
   it('short-circuits when pendingToolUses is missing', async () => {
     const result = await hook.afterToolResults!(stubLoopState(), stubContext({ pendingToolUses: undefined }));
@@ -131,7 +133,7 @@ describe('stubValidator adapter', () => {
 });
 
 describe('completionGate adapter', () => {
-  const hook = defaultPolicyHooks()[5]; // autoFix, isolateRewrite, unappliedEdit, stub, actionReprompt, completionGate
+  const hook = defaultPolicyHooks().find((h) => h.name === 'completionGate')!;
 
   describe('afterToolResults phase (recording)', () => {
     it('short-circuits when pendingToolUses or toolResults are missing', async () => {
