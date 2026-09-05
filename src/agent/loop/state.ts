@@ -276,13 +276,6 @@ export interface LoopState {
   actionRepromptCount: number;
 
   /**
-   * Files already nudged after a no-op edit (search === replace), and how many
-   * times. One nudge per file: past that, the existing AGAIN escalation and
-   * cycle detection take over rather than nudging a model that is not listening.
-   */
-  identicalEditRepromptsByFile: Map<string, number>;
-
-  /**
    * How many write_file calls the code-as-text recovery synthesized from a
    * printed code fence this run (synthesizeFenceWrite). Capped at 2 so a
    * model that keeps printing wrong fences can't be driven through endless
@@ -422,7 +415,6 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
-    identicalEditRepromptsByFile: new Map(),
     fenceWriteCoercions: 0,
     filesReadThisRun: new Set<string>(),
     unappliedEditNudged: false,

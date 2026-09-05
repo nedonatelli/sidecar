@@ -79,7 +79,6 @@ describe('defaultPolicyHooks list shape', () => {
     const hooks = defaultPolicyHooks();
     expect(hooks.map((h) => h.name)).toEqual([
       'autoFix',
-      'identicalEditReprompt',
       'isolateRewrite',
       'unappliedEdit',
       'stubValidator',
