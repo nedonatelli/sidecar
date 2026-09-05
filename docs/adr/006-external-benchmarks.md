@@ -113,3 +113,23 @@ seeds, and per-case timeout. Scores are reported **weight-class-relative**
   weight-class-relative or the numbers read as a loss.
 - Competes with feature work for engineering time; the phased plan exists so
   Phase 1 ships value before the heavy Phase 2 lift.
+
+## Amendment (2026-09-05): Phase 2 runs SWE-bench Lite, not Verified
+
+This ADR specifies Verified throughout. The implementation uses **Lite**, and has
+since the first prediction run: `bench/swe/data/canary.jsonl` (50 tasks) is drawn
+from Lite, and every scoring run has passed `--dataset_name
+SWE-bench/SWE-bench_Lite` against the 300-instance split. Scoring these
+predictions against Verified would simply not find the instance ids.
+
+The original text above is left as written — it records what was decided, not
+what shipped. The code and the `bench/` docs have been corrected to say Lite so
+they describe what actually runs.
+
+Nothing in the ADR's reasoning depends on which split is used: the contamination
+argument, the weight-class-relative framing, and the on-vs-off ablation all hold
+for Lite. What changes is the absolute number's comparability — Lite and Verified
+resolve rates are not interchangeable, so any figure must name its split.
+
+Deciding whether to move to Verified (larger, and the split more papers report)
+is deferred; it would invalidate comparison with every run recorded so far.

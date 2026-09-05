@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// SWE-bench Verified — data model (external benchmark Phase 2).
+// SWE-bench Lite — data model (external benchmark Phase 2).
 //
 // A SYSTEM-LEVEL benchmark: it scores the whole agent (SideCar's loop + a model
 // + a real repo), end-to-end, on real GitHub issues. The flagship metric is an

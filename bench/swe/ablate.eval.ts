@@ -33,7 +33,7 @@ const OFF = process.env.SIDECAR_SWE_RESOLVED_OFF;
 const PREDS = process.env.SIDECAR_SWE_PREDS;
 const ready = Boolean(DATA && ON && OFF && PREDS);
 
-describe('SWE-bench Verified — ablation', () => {
+describe('SWE-bench Lite — ablation', () => {
   it.skipIf(!ready)('computes the harness lift from the official resolved reports', () => {
     const all = parseTasks(fs.readFileSync(DATA as string, 'utf-8'));
     const repos = (process.env.SIDECAR_SWE_REPOS || '')
@@ -57,7 +57,7 @@ describe('SWE-bench Verified — ablation', () => {
       quantization: process.env.SIDECAR_SWE_QUANT || 'unknown (≈Q4_K_M)',
       backend: 'ollama',
       contextTokens: 32_768,
-      dataset: `SWE-bench_Verified slice (${tasks.length})${repos.length ? ` · repos: ${repos.join(',')}` : ''}`,
+      dataset: `SWE-bench_Lite slice (${tasks.length})${repos.length ? ` · repos: ${repos.join(',')}` : ''}`,
       taskCount: tasks.length,
       maxIterations: parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '20', 10),
       swebenchHarnessVersion: process.env.SIDECAR_SWE_HARNESS_VERSION || 'unspecified',

@@ -14,7 +14,7 @@ export interface SweEnvelope {
   quantization: string;
   backend: string;
   contextTokens: number;
-  /** "SWE-bench_Verified slice (N)" + any repo filter. */
+  /** "SWE-bench_Lite slice (N)" + any repo filter. */
   dataset: string;
   taskCount: number;
   maxIterations: number;
@@ -33,7 +33,7 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
   const signedPct = (x: number): string => `${x >= 0 ? '+' : ''}${pct(x)}`;
   const ci = (iv: [number, number]): string => `[${signedPct(iv[0])}, ${signedPct(iv[1])}]`;
   const lines: string[] = [];
-  lines.push(`# SWE-bench Verified ablation — ${env.model}`);
+  lines.push(`# SWE-bench Lite ablation — ${env.model}`);
   lines.push('');
   lines.push(
     `## Headline: scaffolding lift = ${signedPct(lift)} (95% CI ${ci(sg.liftCI)}), ` +

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// SWE-bench Verified — live prediction generation driver (Phase 2).
+// SWE-bench Lite — live prediction generation driver (Phase 2).
 //
 // For each sampled task and each ablation arm: check the repo out at base_commit
 // into a temp dir, run SideCar's agent loop autonomously against the issue with
@@ -534,7 +534,7 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
   return retrievalContext ? `${head}\n\n---\n${retrievalContext}` : head;
 }
 
-describe('SWE-bench Verified — prediction generation', () => {
+describe('SWE-bench Lite — prediction generation', () => {
   it.skipIf(!DATA)(
     `generates predictions for ${MODEL}`,
     async () => {
