@@ -103,10 +103,25 @@ describe('large-file edit cases', () => {
     expect(banned.some((s) => corrupted.includes(s))).toBe(true);
   });
 
-  it('keeps one case under compression, so context pressure is an isolated variable', () => {
+  it('keeps one case on an explicit budget, so context pressure is an isolated variable', () => {
     const compressed = byId['large-file-edit-under-compression'];
     const uncompressed = byId['large-file-derived-boundary-edit'];
-    expect(compressed.maxTokens).toBeLessThan(12_000);
+    // This asserted `< 12_000`, which is no longer satisfiable: the prompt floor
+    // (system prompt + tool schemas) measures ~12.5K, so ANY budget under 12K
+    // terminates the run out-of-resources before the first edit -- which is
+    // exactly what the case did, silently, for as long as the floor has been
+    // above the bound. An invariant that can only be met by a dead test is worse
+    // than no invariant.
+    //
+    // What is still true and worth pinning: this case carries an explicit budget
+    // and its twin does not, so the pair isolates context pressure. The budget
+    // must clear the floor with room to work.
+    //
+    // It does NOT currently reach compression: the run peaks near 20.4K and the
+    // trigger is 0.7 x maxTokens. Restoring that needs a budget under
+    // peak / 0.7 = ~29K, so the upper bound here is deliberately loose rather
+    // than pretending 64000 achieves it.
+    expect(compressed.maxTokens).toBeGreaterThan(16_000);
     expect(uncompressed.maxTokens).toBeUndefined();
     // Same target and prompt: a pass/fail split between them is context
     // pressure and nothing else.

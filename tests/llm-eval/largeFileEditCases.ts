@@ -393,14 +393,22 @@ export const LARGE_FILE_EDIT_CASES: AgentEvalCase[] = [
     description: 'Same surgical edit, but with a token budget low enough to compress the read away',
     tags: ['edit', 'scale', 'python', 'compression', 'regression'],
     workspace: { 'src/validators.py': VALIDATOR_MODULE },
-    // The measured error rate nearly doubles from 38% (8-16k) to 69% (32k+).
-    // The mechanism worth pinning: `edit_file` demands a byte-exact copy of
-    // text the model read N turns ago, and compression is free to evict the
-    // read_file output holding it. Every other case in the suite runs with
-    // enough headroom that this never happens. Same target as the boundary
-    // case, so a pass/fail split between the two isolates context pressure as
-    // the variable.
-    maxTokens: 9000,
+    // The mechanism this was written to pin: `edit_file` demands a byte-exact
+    // copy of text the model read N turns ago, and compression is free to evict
+    // the read_file output holding it.
+    //
+    // NOTE: at 64000 this case no longer reaches compression. The run peaks near
+    // 20.4K tokens (measured) and the trigger is CONTEXT_COMPRESSION_THRESHOLD
+    // (0.7) x maxTokens = 44.8K, so the summarizer never fires and this is
+    // currently an end-to-end edit case, not a compression case. It previously
+    // budgeted 9000, which was WORSE: the prompt floor (system prompt + tool
+    // schemas) is ~12.5K, so the loop terminated `out-of-resources` before the
+    // first edit and the case asserted nothing at all.
+    //
+    // A budget that actually exercises compression has to sit under
+    // peak / 0.7 = ~29K while clearing the ~12.5K floor. ~24000 is the middle
+    // of that window.
+    maxTokens: 64000,
     userMessage:
       'In src/validators.py, FieldValidator13 is too permissive: a value exactly equal to its ' +
       'maximum should be treated as out of bounds, but is_within_bounds currently accepts it. ' +

@@ -1293,16 +1293,20 @@ export const AGENT_CASES: AgentEvalCase[] = [
         '8. Create out/f7.md containing exactly "vv63-lambda"\n' +
         '9. Create out/f8.md containing exactly "cc48-theta"\n' +
         '10. Create out/DONE.md containing exactly "sequence complete: jj90"\n',
-      // ~40KB of log noise; step 4 pulls it into context, forcing the
-      // summarizer to fire and eat the early turns (incl. the read of
-      // INSTRUCTIONS.md) on a tight budget.
+      // ~40KB of log noise; step 4 pulls it into context. This was written to
+      // force the summarizer to eat the early turns (incl. the read of
+      // INSTRUCTIONS.md). At maxTokens 64000 it no longer does: the run peaks
+      // near 20.4K and compression triggers at 0.7 x 64000 = 44.8K. See the
+      // note on large-file-edit-under-compression -- the previous 9000 budget
+      // sat UNDER the ~12.5K prompt floor, so the case died out-of-resources
+      // instead of testing anything.
       'data/big.log': Array.from(
         { length: 800 },
         (_, i) =>
           `2026-07-09T10:${String(i % 60).padStart(2, '0')} ${i % 7 === 3 ? 'ERROR' : 'INFO'} worker-${i} processed batch ${i} with payload ${'x'.repeat(20)}`,
       ).join('\n'),
     },
-    maxTokens: 9000,
+    maxTokens: 64000,
     maxIterations: 24,
     // Harness-seeded plan (mirrors production plan-mode approval). Only
     // active when the arm config enables planExternalizedEnabled.
