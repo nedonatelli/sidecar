@@ -224,9 +224,22 @@ function cleanupRepoClones(): void {
       // clone behind, and plain rmSync removed it the moment the run's process
       // exited.
       //
-      // Hence a retry budget that outlasts the force-kill window rather than the
-      // 1s it used to allow. Losing the directory still costs disk and not
-      // correctness, and sweepStaleClones() collects anything that survives.
+      // The retry budget below was raised from 1s to 4.5s to outlast that
+      // force-kill. MEASURED: it did not help. A second 6-task run still left
+      // exactly one clone behind, and the same directory deleted cleanly the
+      // moment the run's process exited.
+      //
+      // So the holder is very likely a GRANDCHILD, not the shell: run_command
+      // starts python inside the shell, and killing a process on Windows does
+      // not kill its children. Orphaned venv pythons from earlier runs are still
+      // on this box, which is exactly that failure mode. Fixing it properly
+      // means killing the whole process tree in ShellSession.dispose() -- a
+      // change to PRODUCT code, on the shell every user's run_command goes
+      // through, and worth measuring on its own rather than smuggling in here.
+      //
+      // Residual: one clone per repo per run, which sweepStaleClones() collects
+      // on a later run. Down from 167. Losing the directory still costs disk and
+      // not correctness.
       try {
         fs.rmSync(dir, { recursive: true, force: true, maxRetries: 15, retryDelay: 300 });
       } catch (err) {
