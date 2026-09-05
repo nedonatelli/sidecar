@@ -20,7 +20,12 @@ function git(cwd: string, args: string[]): string {
 }
 
 function makeTmpRepo(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-shadow-test-'));
+  // realpathSync.native resolves the 8.3 short name Windows hands back from
+  // os.tmpdir() when the user name is over eight characters -- a GitHub runner
+  // gets C:/Users/RUNNER~1/... while `git worktree list` prints the long form
+  // C:/Users/runneradmin/..., and the two never compare equal. It also collapses
+  // the macOS /var -> /private/var symlink, which is the same bug wearing a hat.
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-shadow-test-')));
   git(dir, ['init', '-q', '-b', 'main']);
   git(dir, ['config', 'user.email', 'test@example.com']);
   git(dir, ['config', 'user.name', 'Test']);

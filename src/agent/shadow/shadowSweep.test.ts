@@ -21,7 +21,12 @@ const gitPath = (p: string): string => p.replace(/\\/g, '/');
  */
 
 function initTmpRepo(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-sweep-'));
+  // realpathSync.native resolves the 8.3 short name Windows hands back from
+  // os.tmpdir() when the user name is over eight characters -- a GitHub runner
+  // gets C:/Users/RUNNER~1/... while `git worktree list` prints the long form
+  // C:/Users/runneradmin/..., and the two never compare equal. It also collapses
+  // the macOS /var -> /private/var symlink, which is the same bug wearing a hat.
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-sweep-')));
   execFileSync('git', ['init'], { cwd: root });
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: root });
@@ -128,7 +133,7 @@ describe('sweepStaleShadows', () => {
   });
 
   it('does not throw when the path is not a git repo', async () => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-non-repo-'));
+    tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-non-repo-')));
     const result = await sweepStaleShadows(tmp);
     // Should register an error but not crash.
     expect(result.errors.length).toBeGreaterThan(0);
