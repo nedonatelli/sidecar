@@ -208,17 +208,27 @@ function cleanupRepoClones(): void {
   // per-model copy) across concurrent campaigns.
   if (!process.env.SIDECAR_SWE_REPO_CACHE) {
     for (const dir of repoClones.values()) {
-      // Best-effort, and it MUST NOT throw. Windows keeps handles on git pack
-      // files and marks objects read-only, so rm fails with EPERM even with
-      // force. This runs in a `finally` after the task loop, so a throw here
-      // skipped the `preds.{arm}.jsonl` writes immediately below — the files
-      // the official swebench harness actually consumes. A whole run's output
-      // was lost to a failed cleanup of a temp directory.
+      // Best-effort, and it MUST NOT throw. This runs in a `finally` after the
+      // task loop, so a throw here skipped the `preds.{arm}.jsonl` writes
+      // immediately below — the files the official swebench harness actually
+      // consumes. A whole run's output was lost to a failed cleanup of a temp
+      // directory.
       //
-      // Losing the directory costs disk, not correctness: it is under the OS
-      // temp root and every task re-clones or resets from scratch.
+      // The EPERM is NOT read-only pack files, which is what this comment used
+      // to claim: clearing the read-only bit changes nothing. Windows refuses to
+      // remove a directory that is a live process's working directory, and the
+      // per-task shell has its cwd there. toolRuntime.dispose() now kills it,
+      // but ShellSession.dispose() sends SIGTERM and only force-kills after 3
+      // SECONDS — so cleanup arriving immediately after the last task can still
+      // land while the shell is dying. Measured: a 6-task run left exactly one
+      // clone behind, and plain rmSync removed it the moment the run's process
+      // exited.
+      //
+      // Hence a retry budget that outlasts the force-kill window rather than the
+      // 1s it used to allow. Losing the directory still costs disk and not
+      // correctness, and sweepStaleClones() collects anything that survives.
       try {
-        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 15, retryDelay: 300 });
       } catch (err) {
         console.warn(`[swe] could not remove clone ${dir}: ${(err as Error).message}`);
       }
