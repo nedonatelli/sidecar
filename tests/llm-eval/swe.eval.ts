@@ -160,6 +160,49 @@ function prepareRepo(task: SweTask): string {
   return dir;
 }
 
+/**
+ * Remove clone directories left behind by EARLIER runs.
+ *
+ * Per-run cleanup now disposes the shell that used to pin each directory, but
+ * a killed run (Ctrl-C, a hung vitest child, a crash) never reaches its
+ * `finally` at all. Without a sweep those leak forever: 167 directories and
+ * several GB had accumulated over two days of measurement runs before anyone
+ * looked at the temp folder.
+ *
+ * The age floor is the safety mechanism. A concurrent campaign's clones are
+ * minutes old, so only directories untouched for hours are eligible -- this
+ * sweep can never delete a live run's checkout. A failure to remove is ignored
+ * for the same reason the per-run cleanup ignores one: this is disk hygiene,
+ * and it must never take out the run that is starting.
+ */
+const STALE_CLONE_AGE_MS = 6 * 60 * 60 * 1000;
+
+function sweepStaleClones(now: number = Date.now()): number {
+  if (process.env.SIDECAR_SWE_REPO_CACHE) return 0;
+  const tmp = os.tmpdir();
+  let removed = 0;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(tmp);
+  } catch {
+    return 0;
+  }
+  for (const name of entries) {
+    if (!name.startsWith('swe-repo-')) continue;
+    const dir = path.join(tmp, name);
+    try {
+      const st = fs.statSync(dir);
+      if (!st.isDirectory() || now - st.mtimeMs < STALE_CLONE_AGE_MS) continue;
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      removed++;
+    } catch {
+      // Still pinned, or gone already. Either way the next run tries again.
+    }
+  }
+  if (removed > 0) console.log(`[swe] swept ${removed} stale repo clone(s) from ${tmp}`);
+  return removed;
+}
+
 function cleanupRepoClones(): void {
   // Never delete a pre-populated cache — it is reused across runs and (with a
   // per-model copy) across concurrent campaigns.
@@ -259,6 +302,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   let failureReason: string | null = null;
   let dir: string | null = null;
   let restoreMock: (() => void) | null = null;
+  // Hoisted so the finally below can dispose it even when the run throws.
+  let toolRuntime: ToolRuntime | null = null;
   // F1 failure-taxonomy bucket the loop terminated with (null = natural
   // completion). Diagnostic: lets us see WHY a run ended (stuck / timeout /
   // incomplete / bad-reasoning) instead of inferring it from patch shape alone.
@@ -301,7 +346,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // execute against installed deps. null = no local env (native-dep repo) →
     // the agent runs without one (blind) until the container fallback lands.
     const taskEnv = task.version ? setupTaskEnv(task.repo, task.version, dir, ENV_CACHE_BASE, ENV_SPECS) : null;
-    const toolRuntime = new ToolRuntime(dir, taskEnv?.env);
+    toolRuntime = new ToolRuntime(dir, taskEnv?.env);
     // Real RAG: attach the repo's symbol-embedding index so the agent's
     // project_knowledge_search tool queries it (same retrieval as the product),
     // and seed the orientation block from the SAME index — real symbol bodies,
@@ -486,6 +531,18 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       patch = '';
     }
     if (restoreMock) restoreMock();
+    // Dispose the per-task shell. ToolRuntime spawns a PERSISTENT shell whose
+    // cwd is the clone, and nothing ever released it: one orphaned shell per
+    // task (50 per run), each pinning a directory that Windows then refuses to
+    // delete. That is what produced the cleanup warnings --
+    //
+    //   EPERM, Permission denied: \?\C:\...\swe-repo-astropy_astropy-e3LOTH
+    //
+    // note the failure is on the DIRECTORY, not on a file inside it: on Windows
+    // a directory that is any live process's working directory cannot be
+    // removed. 184 such warnings across the runs recorded so far, and the
+    // clones they left behind were still on disk days later.
+    toolRuntime?.dispose();
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
   return {
@@ -538,6 +595,7 @@ describe('SWE-bench Lite — prediction generation', () => {
   it.skipIf(!DATA)(
     `generates predictions for ${MODEL}`,
     async () => {
+      sweepStaleClones();
       const all = parseTasks(fs.readFileSync(DATA as string, 'utf-8'));
       const sampled = sampleTasks(all, N, REPOS);
       // Take this shard's slice (round-robin over the deterministic sample).
