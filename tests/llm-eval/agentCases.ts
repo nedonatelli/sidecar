@@ -32,6 +32,19 @@ import type { AgentEvalCase } from './agentTypes.js';
 //   - Keep the workspace fixture under ~20 lines of content. Big
 //     fixtures run slowly and the model spends its turns reading
 //     instead of doing the thing you're testing.
+//
+// The ~20-line rule has a known blind spot. It is correct for pinning tool
+// choice, argument shape, and trajectory order — but edit_file's real failure
+// mode does not exist at that scale. Measured in the same week on gemma4:e4b:
+// 14% edit_file error rate here, 60% on SWE-bench files of 399-2091 lines, and
+// 62% of SWE trajectories never landed a single successful edit. Thirty-five
+// commits to src/agent/tools/fs.ts shipped green against these fixtures
+// without moving that number, because a 20-line file cannot produce a repeated
+// anchor, a byte-exact-copy failure, or context pressure.
+//
+// So: keep fixtures small HERE, and put anything that needs scale, nesting
+// depth, or a derived (not dictated) replacement in `largeFileEditCases.ts`,
+// which owns that regime and pins its own preconditions.
 // ---------------------------------------------------------------------------
 
 export const AGENT_CASES: AgentEvalCase[] = [
@@ -1251,8 +1264,7 @@ export const AGENT_CASES: AgentEvalCase[] = [
     // the wrong instrument for a verify scaffold: a real review always mentions
     // at least one conventional non-source path (dist/, an inferred module), so
     // it fails 100% in both arms and measures no lift. The right instrument is a
-    // COUNT/RATE of unresolved citations (V1 reduces it) — see the M1/M2
-    // follow-up in docs/scaffolding-roadmap.md. Kept as a soft signal so the
+    // COUNT/RATE of unresolved citations (V1 reduces it). Kept as a soft signal so the
     // case still exercises the review flow without being a permanent red.
     softExpect: {
       citationsResolve: true,
@@ -1281,16 +1293,20 @@ export const AGENT_CASES: AgentEvalCase[] = [
         '8. Create out/f7.md containing exactly "vv63-lambda"\n' +
         '9. Create out/f8.md containing exactly "cc48-theta"\n' +
         '10. Create out/DONE.md containing exactly "sequence complete: jj90"\n',
-      // ~40KB of log noise; step 4 pulls it into context, forcing the
-      // summarizer to fire and eat the early turns (incl. the read of
-      // INSTRUCTIONS.md) on a tight budget.
+      // ~40KB of log noise; step 4 pulls it into context. This was written to
+      // force the summarizer to eat the early turns (incl. the read of
+      // INSTRUCTIONS.md). At maxTokens 64000 it no longer does: the run peaks
+      // near 20.4K and compression triggers at 0.7 x 64000 = 44.8K. See the
+      // note on large-file-edit-under-compression -- the previous 9000 budget
+      // sat UNDER the ~12.5K prompt floor, so the case died out-of-resources
+      // instead of testing anything.
       'data/big.log': Array.from(
         { length: 800 },
         (_, i) =>
           `2026-07-09T10:${String(i % 60).padStart(2, '0')} ${i % 7 === 3 ? 'ERROR' : 'INFO'} worker-${i} processed batch ${i} with payload ${'x'.repeat(20)}`,
       ).join('\n'),
     },
-    maxTokens: 9000,
+    maxTokens: 64000,
     maxIterations: 24,
     // Harness-seeded plan (mirrors production plan-mode approval). Only
     // active when the arm config enables planExternalizedEnabled.

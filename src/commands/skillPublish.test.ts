@@ -1,4 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'path';
+
+// publishSkill resolves the source path before comparing it against roots it
+// builds with path.join. On Windows path.resolve adds a drive letter and
+// path.join does not, so a bare POSIX literal never matched an allowed root
+// and every publish was correctly rejected as outside the skills directory.
+const HOME = path.resolve('/testhome');
+const REG = '/reg';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -74,9 +82,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/testhome/.sidecar/skill.md',
-      registryDir: '/reg',
-      homeDir: '/testhome',
+      filePath: path.join(HOME, '.sidecar', 'skill.md'),
+      registryDir: REG,
+      homeDir: HOME,
     });
     expect(result).toBe(false);
     expect(mockShowWarningMessage).toHaveBeenCalledWith(expect.stringContaining('offline'));
@@ -91,9 +99,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/testhome/.sidecar/skill.md',
-      registryDir: '/reg',
-      homeDir: '/testhome',
+      filePath: path.join(HOME, '.sidecar', 'skill.md'),
+      registryDir: REG,
+      homeDir: HOME,
     });
     expect(result).toBe(false);
     expect(mockShowWarningMessage).toHaveBeenCalledWith(expect.stringContaining('userRegistry'), expect.any(String));
@@ -111,22 +119,22 @@ describe('publishSkill', () => {
   it('copies file, commits, and pushes on success', async () => {
     // registryDir exists, destPath does not exist (no overwrite prompt)
     mockAccess.mockImplementation(async (p: string) => {
-      if (p === '/reg') return;
+      if (p === REG) return;
       throw new Error('ENOENT');
     });
     const git = { stage: mockStage, commit: mockCommit, push: mockPush };
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/testhome/.sidecar/my-skill.md',
-      registryDir: '/reg',
-      homeDir: '/testhome',
+      filePath: path.join(HOME, '.sidecar', 'my-skill.md'),
+      registryDir: REG,
+      homeDir: HOME,
       git: git as unknown as import('../github/git.js').GitCLI,
     });
 
     expect(result).toBe(true);
-    expect(mockWriteFile).toHaveBeenCalledWith('/reg/my-skill.md', expect.any(String), 'utf-8');
-    expect(mockStage).toHaveBeenCalledWith(['/reg/my-skill.md']);
+    expect(mockWriteFile).toHaveBeenCalledWith(path.join(REG, 'my-skill.md'), expect.any(String), 'utf-8');
+    expect(mockStage).toHaveBeenCalledWith([path.join(REG, 'my-skill.md')]);
     expect(mockCommit).toHaveBeenCalledWith('Add skill: my-skill');
     expect(mockPush).toHaveBeenCalled();
     expect(mockShowInformationMessage).toHaveBeenCalledWith(expect.stringContaining('Published'));
@@ -140,9 +148,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/testhome/.sidecar/existing.md',
-      registryDir: '/reg',
-      homeDir: '/testhome',
+      filePath: path.join(HOME, '.sidecar', 'existing.md'),
+      registryDir: REG,
+      homeDir: HOME,
       git: git as unknown as import('../github/git.js').GitCLI,
     });
 
@@ -160,9 +168,9 @@ describe('publishSkill', () => {
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/testhome/.sidecar/existing.md',
-      registryDir: '/reg',
-      homeDir: '/testhome',
+      filePath: path.join(HOME, '.sidecar', 'existing.md'),
+      registryDir: REG,
+      homeDir: HOME,
     });
 
     expect(result).toBe(false);
@@ -172,16 +180,16 @@ describe('publishSkill', () => {
   it('shows error and returns false on git push failure', async () => {
     mockAccess.mockImplementation(async (p: string) => {
       // registryDir exists, destPath does not
-      if (p === '/reg') return;
+      if (p === REG) return;
       throw new Error('ENOENT');
     });
     const failingGit = { stage: vi.fn(), commit: vi.fn(), push: vi.fn().mockRejectedValue(new Error('auth failed')) };
     const { publishSkill } = await import('./skillPublish.js');
 
     const result = await publishSkill({
-      filePath: '/testhome/.sidecar/new-skill.md',
-      registryDir: '/reg',
-      homeDir: '/testhome',
+      filePath: path.join(HOME, '.sidecar', 'new-skill.md'),
+      registryDir: REG,
+      homeDir: HOME,
       git: failingGit as unknown as import('../github/git.js').GitCLI,
     });
 

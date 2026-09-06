@@ -29,6 +29,7 @@ vi.mock('../completionGate.js', () => ({
 }));
 
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
+import { maybeInjectSyntaxGate } from './completionGates/syntaxGate.js';
 import { recordToolCall, checkCompletionGate, buildMcpMutationVerifyReprompt } from '../completionGate.js';
 import { setSymbolGraph } from '../tools/runtime.js';
 import { SymbolGraph } from '../../config/symbolGraph.js';
@@ -65,6 +66,63 @@ beforeEach(async () => {
   // paths. Give it parseable source; the syntax gate has its own tests.
   const { workspace } = await import('vscode');
   vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('export const x = 1;\n') as never);
+});
+
+describe('maybeInjectSyntaxGate', () => {
+  const signal = new AbortController().signal;
+
+  it("injects and returns 'injected' when an edited file fails to parse", async () => {
+    const { workspace } = await import('vscode');
+    // A block opener whose body dedents to an OUTER level — the django-10914
+    // corruption class: tree-sitter parses it clean, the Python indent check
+    // (fixed) catches it. Exercises the whole chain into the syntax gate.
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('def f():\n    if x:\ny = 2\n') as never);
+    const gateState = { editedFiles: new Set(['bad.py']), gateInjections: 0 } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(state, stubConfig(), signal, stubCallbacks());
+    expect(out).toBe('injected');
+    expect(gateState.syntaxGateInjections).toBe(1);
+    expect([...(gateState.syntaxGateFixTargets ?? [])].some((f) => f.includes('bad.py'))).toBe(true);
+    expect(state.messages.some((m) => JSON.stringify(m.content).includes('does not parse'))).toBe(true);
+  });
+
+  it("returns 'clean' and injects nothing when the edited file parses", async () => {
+    // A .ts file is parse-checked in-process (no shell checker), so a clean file
+    // resolves without spawning py_compile. The beforeEach mock already returns
+    // valid TS. (A clean .py would fall through to the real py_compile shell,
+    // which hangs in tests — see the syntaxGateInjections:2 note elsewhere.)
+    const gateState = { editedFiles: new Set(['ok.ts']), gateInjections: 0 } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(state, stubConfig(), signal, stubCallbacks());
+    expect(out).toBe('clean');
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it("returns 'skip' when the completion gate is disabled", async () => {
+    const gateState = { editedFiles: new Set(['bad.py']), gateInjections: 0 } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(
+      state,
+      stubConfig({ completionGateEnabled: false }),
+      signal,
+      stubCallbacks(),
+    );
+    expect(out).toBe('skip');
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it("returns 'skip' and clears fix targets once the injection budget is spent", async () => {
+    const gateState = {
+      editedFiles: new Set(['bad.py']),
+      gateInjections: 0,
+      syntaxGateInjections: 2,
+      syntaxGateFixTargets: new Set(['bad.py']),
+    } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState });
+    const out = await maybeInjectSyntaxGate(state, stubConfig(), signal, stubCallbacks());
+    expect(out).toBe('skip');
+    expect(gateState.syntaxGateFixTargets?.size).toBe(0);
+  });
 });
 
 describe('recordGateToolUses', () => {
@@ -568,5 +626,66 @@ describe('maybeInjectCompletionGate — numerical-contract gate', () => {
       stubCallbacks(),
     );
     expect(out).toBe('skip');
+  });
+});
+
+describe('maybeInjectCompletionGate — red-check refusal (scaffold 5.0.0)', () => {
+  // The gate verified that checks RAN, not that they PASSED — v0.122 gemma4
+  // ran tsc, saw both errors, called them "expected", and finished with a
+  // broken import. A set failedCheckOutput now refuses completion, twice at
+  // most, with wording that lets an honest could-not-complete report exit.
+  function makeArgs(gateOverrides: Record<string, unknown>) {
+    const state = stubLoopState({
+      gateState: {
+        ...stubGateState(),
+        failedCheckOutput: 'src/calc.ts(1,10): error TS2305: no exported member',
+        redCheckInjections: 0,
+        ...gateOverrides,
+      } as never,
+    });
+    const cb = stubCallbacks();
+    return { state, cb };
+  }
+
+  it('refuses completion while the last verification failed', async () => {
+    const { state, cb } = makeArgs({});
+    const outcome = await maybeInjectCompletionGate(
+      state,
+      stubConfig(),
+      { approvalMode: 'autonomous' } as never,
+      new AbortController().signal,
+      cb,
+    );
+    expect(outcome).toBe('injected');
+    const injected = JSON.stringify(state.messages.at(-1));
+    expect(injected).toContain('FAILED');
+    expect(injected).toContain('error TS2305');
+    expect(injected).toContain('could not be completed');
+    // Fix work in response is the user's primary work — ratchet must not arm.
+    expect(state.gateState.lastInjectionWasPrimaryWork).toBe(true);
+  });
+
+  it('is bounded at two firings — the third attempt lets the run end', async () => {
+    const { state, cb } = makeArgs({ redCheckInjections: 2 });
+    const outcome = await maybeInjectCompletionGate(
+      state,
+      stubConfig(),
+      { approvalMode: 'autonomous' } as never,
+      new AbortController().signal,
+      cb,
+    );
+    expect(outcome).toBe('skip');
+  });
+
+  it('does not fire when no failing output is recorded', async () => {
+    const { state, cb } = makeArgs({ failedCheckOutput: undefined });
+    const outcome = await maybeInjectCompletionGate(
+      state,
+      stubConfig(),
+      { approvalMode: 'autonomous' } as never,
+      new AbortController().signal,
+      cb,
+    );
+    expect(outcome).toBe('skip');
   });
 });

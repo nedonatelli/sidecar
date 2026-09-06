@@ -1,4 +1,4 @@
-# SWE-bench Verified — system-level ablation (Phase 2)
+# SWE-bench Lite — system-level ablation (Phase 2)
 
 The flagship benchmark ([ADR-006](../../docs/adr/006-external-benchmarks.md)). A
 **system-level** measure: the whole agent (SideCar's loop + a model + a real
@@ -27,7 +27,7 @@ the lift.
 
 `bench/swe/arms.ts` defines them with real `SideCarConfig` keys:
 
-- **scaffold-on** — critic + completion gate + auto-fix + impact/numerical gates + adaptive intensity.
+- **scaffold-on** — completion gate + auto-fix + impact/numerical gates + adaptive intensity.
 - **scaffold-off** — bare loop: every verification scaffold disabled.
 
 > The zero-token **deterministic control** (cycle detection, burst cap,
@@ -38,13 +38,16 @@ the lift.
 
 ## Run protocol
 
-**1. Get the dataset.** Export `princeton-nlp/SWE-bench_Verified` (HuggingFace)
-to JSON or JSONL at `$SIDECAR_SWE_DATA`.
+**1. Get the dataset.** Export `SWE-bench/SWE-bench_Lite` (HuggingFace) to JSON
+or JSONL at `$SIDECAR_SWE_DATA`. The checked-in canary set
+(`bench/swe/data/canary.jsonl`, 50 tasks) is drawn from Lite, and every scoring
+run to date has used the 300-instance Lite split — score against another split
+and the harness will not find these instance ids.
 
 **2. Generate predictions** (this repo, needs Ollama + the repos cloneable):
 
 ```bash
-SIDECAR_SWE_DATA=/path/to/swe_verified.jsonl \
+SIDECAR_SWE_DATA=/path/to/swe_lite.jsonl \
 SIDECAR_SWE_N=50 \
 SIDECAR_SWE_MODEL=gemma4:e4b \
 SIDECAR_SWE_OUT=/path/to/out \
@@ -67,17 +70,28 @@ machine):
 ```bash
 pip install swebench
 python -m swebench.harness.run_evaluation \
-  --dataset_name princeton-nlp/SWE-bench_Verified \
+  --dataset_name SWE-bench/SWE-bench_Lite \
   --predictions_path out/preds.scaffold-on.jsonl \
   --run_id sidecar-on --max_workers 4
 # repeat with preds.scaffold-off.jsonl → run_id sidecar-off
 # (three-arm: also preds.scaffold-on-ratchet.jsonl → run_id sidecar-ratchet)
 ```
 
+> **Dataset namespace matters.** `swebench` 5.x requires `image`, `eval_script`,
+> `log_parser` and `eval_type` on each instance. The classic
+> `princeton-nlp/*` mirrors carry none of them and fail with a bare
+> `KeyError: 'image'` _after_ downloading the split, which reads like a corrupt
+> download rather than a wrong dataset. Use the `SWE-bench/` namespace.
+>
+> **Apple Silicon.** The eval images are `swebench/sweb.eval.x86_64.*`, so an
+> arm64 Mac needs amd64 emulation. `colima start --vm-type vz --vz-rosetta`
+> provides it; verify with
+> `docker run --rm --platform linux/amd64 alpine uname -m` before a long run.
+
 **4. Compute the ablation** from the two resolved reports the harness wrote:
 
 ```bash
-SIDECAR_SWE_DATA=/path/to/swe_verified.jsonl \
+SIDECAR_SWE_DATA=/path/to/swe_lite.jsonl \
 SIDECAR_SWE_RESOLVED_ON=on.report.json \
 SIDECAR_SWE_RESOLVED_OFF=off.report.json \
 SIDECAR_SWE_PREDS=out \
@@ -113,13 +127,13 @@ base commit, ran the loop under each arm's config, captured the diff, and wrote
 valid official-format predictions. So the driver works on a non-Docker machine
 (Ollama + git is enough). **Scoring** a single light pure-Python task can also be
 done host-locally by hand (see the worked example below); scoring the **full
-Verified set reproducibly** requires Docker + the `swebench` package — that part
+Lite set reproducibly** requires Docker + the `swebench` package — that part
 has not been run.
 
 > **Set a generous iteration budget.** A small local model spends many
 > iterations just _locating_ the file in a large repo. Default is 30; real runs
 > want **30–40+** (`SIDECAR_SWE_MAX_ITERS`). Expect empty/wrong patches often: a
-> bare small model resolves little of Verified absolutely — the headline is the
+> bare small model resolves little of Lite absolutely — the headline is the
 > on/off **lift**, not the raw rate.
 
 ### Worked example (pass@5, scored host-locally without Docker)
@@ -134,7 +148,7 @@ discriminates: the gold patch resolves 60/60, base fails the FAIL_TO_PASS):
 | scaffold-on (full harness) | **1 / 5** |
 
 **On this task the harness is net-negative.** The bare loop reliably makes the
-clean 3-line fix; the scaffolded arm — critic pushing more edits, gate demanding
+clean 3-line fix; the scaffolded arm — gate demanding
 tests — over-engineers, writes a large patch, and breaks itself (IndentationError,
 test churn). Individual runs flip wildly (in one earlier sample off _deleted_
 `super().__init__()` and on landed the correct fix — the exact opposite), which is
@@ -155,7 +169,7 @@ stub), and a keyword retrieval block so the agent starts oriented.
 ## Files
 
 - `types.ts` — task / prediction / ablation model
-- `loader.ts` — SWE-bench Verified parsing + deterministic sampling
+- `loader.ts` — SWE-bench Lite parsing + deterministic sampling
 - `arms.ts` — scaffold-on / scaffold-off config (real `SideCarConfig` keys)
 - `predictions.ts` — official `swebench` JSONL emission + resolved-report parsing
 - `ablation.ts` — lift / rescued / regressed / latency math

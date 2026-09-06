@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Keep-best ratchet — Pareto-safe scaffolding (scaffolding roadmap §2.1).
 //
-// The problem: a scaffold intervention (completion gate, critic, auto-fix) can
+// The problem: a scaffold intervention (completion gate, auto-fix) can
 // make a run WORSE than it was before the intervention fired. Dogfooding is
 // unambiguous — the completion gate reliably drives ~32 KB test-churn patches
 // where the bare model stayed ~450 b, and a gate reprompt that demands "write a

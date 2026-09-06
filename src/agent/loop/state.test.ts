@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { LOCAL_CONTEXT_CAP } from '../../config/constants.js';
 import { initLoopState, DEFAULT_MAX_ITERATIONS } from './state.js';
 import type { AgentOptions } from '../loop.js';
 import type { ChatMessage } from '../../ollama/types.js';
@@ -24,9 +25,14 @@ describe('initLoopState', () => {
       expect(state.maxIterations).toBe(DEFAULT_MAX_ITERATIONS);
     });
 
-    it('falls back to 100K tokens when options.maxTokens is missing', () => {
+    it('falls back to the local context cap when options.maxTokens is missing', () => {
+      // 128K, not a hardcoded 100K. Production clamps agentMaxTokens to the
+      // probed context length, but headless callers (benchmarks, llm-eval, the
+      // SWE runner) pass nothing — and used to get a budget BELOW the window the
+      // model actually has, so compression fired earlier than the model required.
       const state = initLoopState([], emptyOptions());
-      expect(state.maxTokens).toBe(100_000);
+      expect(state.maxTokens).toBe(LOCAL_CONTEXT_CAP);
+      expect(state.maxTokens).toBe(131_072);
     });
 
     it('defaults approvalMode to "cautious"', () => {
@@ -44,8 +50,6 @@ describe('initLoopState', () => {
       expect(state.recentToolCalls).toEqual([]);
       expect(state.autoFixRetriesByFile.size).toBe(0);
       expect(state.stubFixRetries).toBe(0);
-      expect(state.criticInjectionsByFile.size).toBe(0);
-      expect(state.criticInjectionsByTestHash.size).toBe(0);
       expect(state.toolCallCounts.size).toBe(0);
     });
 
@@ -178,8 +182,6 @@ describe('initLoopState', () => {
         'recentNormalizedCalls',
         'autoFixRetriesByFile',
         'stubFixRetries',
-        'criticInjectionsByFile',
-        'criticInjectionsByTestHash',
         'toolCallCounts',
         'gateState',
         'checkpointFired',

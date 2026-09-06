@@ -218,3 +218,43 @@ describe('grep', () => {
     expect(seenCwd).toBe(SHADOW);
   });
 });
+
+describe('searchFiles — name-vs-content teaching (2026-08 audit)', () => {
+  // granite concluded an entire task was a no-op after name-searching for
+  // CONTENT (search-then-edit-multi-file), and never looked inside a directory
+  // it had already listed (latch-stale-fact). A bare "No files found." taught
+  // nothing; the retry + teaching message close both holes.
+  beforeEach(() => vi.restoreAllMocks());
+
+  it('retries a bare word as a name substring and labels the match', async () => {
+    const { workspace, Uri } = await import('vscode');
+    const calls: string[] = [];
+    vi.spyOn(workspace, 'findFiles').mockImplementation(async (pattern: unknown) => {
+      calls.push(String(pattern));
+      if (String(pattern) === '**/*config*/**') return [Uri.file('/root/config/app.json')] as never;
+      return [] as never;
+    });
+    const { searchFiles } = await import('./search.js');
+    const out = await searchFiles({ pattern: 'config' });
+    expect(calls[0]).toBe('config'); // literal attempt first
+    expect(out).toContain('matched "config" as a name substring');
+    expect(out).toContain('app.json');
+  });
+
+  it('teaches names-vs-contents when nothing matches at all', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([] as never);
+    const { searchFiles } = await import('./search.js');
+    const out = await searchFiles({ pattern: 'legacy' });
+    expect(out).toContain('does not search file');
+    expect(out).toContain('grep');
+  });
+
+  it('does not retry a real glob — only bare terms get the substring fallback', async () => {
+    const { workspace } = await import('vscode');
+    const spy = vi.spyOn(workspace, 'findFiles').mockResolvedValue([] as never);
+    const { searchFiles } = await import('./search.js');
+    await searchFiles({ pattern: '**/*.rs' });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});

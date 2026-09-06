@@ -4,18 +4,17 @@ import { stubLoopState } from './testHelpers.js';
 // ---------------------------------------------------------------------------
 // Tests for builtInHooks.ts (loop helper hardening).
 //
-// `defaultPolicyHooks()` adapts the four existing post-turn helpers
-// (autoFix / stub validator / critic / completion gate) to the
+// `defaultPolicyHooks()` adapts the existing post-turn helpers
+// (autoFix / stub validator / action reprompt / completion gate) to the
 // PolicyHook interface defined in policyHook.ts. The underlying
 // helpers are tested separately; these tests pin the adapter wiring:
 //
-//   1. The default list contains exactly 4 hooks in the expected order.
+//   1. The default list contains the expected hooks in the expected order.
 //   2. Each adapter short-circuits to `mutated: false` when its
 //      required context fields are missing (defensive coding — the
 //      helpers would throw otherwise).
 //   3. afterToolResults delegates to the right helper and reports
-//      `mutated` from its return value (or inferred from
-//      state.messages.length delta, in critic's case).
+//      `mutated` from its return value.
 //   4. The completionGate hook implements BOTH afterToolResults
 //      (recording) and onEmptyResponse (injection) phases.
 // ---------------------------------------------------------------------------
@@ -26,9 +25,6 @@ vi.mock('./autoFix.js', () => ({
 vi.mock('./stubCheck.js', () => ({
   applyStubCheck: vi.fn(() => false),
 }));
-vi.mock('./criticHook.js', () => ({
-  applyCritic: vi.fn(async () => {}),
-}));
 vi.mock('./gate.js', () => ({
   recordGateToolUses: vi.fn(),
   maybeInjectCompletionGate: vi.fn(async () => 'skip'),
@@ -37,7 +33,6 @@ vi.mock('./gate.js', () => ({
 import { defaultPolicyHooks } from './builtInHooks.js';
 import { applyAutoFix } from './autoFix.js';
 import { applyStubCheck } from './stubCheck.js';
-import { applyCritic } from './criticHook.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
 import type { HookContext } from './policyHook.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
@@ -75,7 +70,6 @@ const sampleToolResult: ToolResultContentBlock = {
 beforeEach(() => {
   vi.mocked(applyAutoFix).mockClear();
   vi.mocked(applyStubCheck).mockClear();
-  vi.mocked(applyCritic).mockClear();
   vi.mocked(recordGateToolUses).mockClear();
   vi.mocked(maybeInjectCompletionGate).mockClear();
 });
@@ -88,25 +82,9 @@ describe('defaultPolicyHooks list shape', () => {
       'isolateRewrite',
       'unappliedEdit',
       'stubValidator',
-      'adversarialCritic',
       'actionReprompt',
       'completionGate',
-      'analysisCritic',
     ]);
-  });
-
-  it('the critic runs at COMPLETION, never after each tool batch', () => {
-    // The bug this pins. The critic used to implement `afterToolResults`, firing
-    // once per successful write_file / edit_file — so on a multi-file change it
-    // reviewed file A alone, mid-refactor, before file B existed, and reported the
-    // real-but-irrelevant problems of an unfinished job. With blocking on it then
-    // sent the agent to fix a phantom: the SWE-bench arm carrying the critic
-    // terminated ~7.5x faster while producing MORE empty patches.
-    //
-    // A critic reviews work. It belongs at the boundary where the work is done.
-    const critic = defaultPolicyHooks().find((h) => h.name === 'adversarialCritic')!;
-    expect(critic.onEmptyResponse).toBeDefined();
-    expect(critic.afterToolResults).toBeUndefined();
   });
 
   it('returns a fresh array on each call so the orchestrator can mutate without aliasing', () => {
@@ -137,7 +115,8 @@ describe('autoFix adapter', () => {
 });
 
 describe('stubValidator adapter', () => {
-  const hook = defaultPolicyHooks()[3];
+  // By name, not position: a new hook in the middle should not break unrelated tests.
+  const hook = defaultPolicyHooks().find((h) => h.name === 'stubValidator')!;
 
   it('short-circuits when pendingToolUses is missing', async () => {
     const result = await hook.afterToolResults!(stubLoopState(), stubContext({ pendingToolUses: undefined }));
@@ -152,39 +131,8 @@ describe('stubValidator adapter', () => {
   });
 });
 
-describe('adversarialCritic adapter', () => {
-  const hook = defaultPolicyHooks().find((h) => h.name === 'adversarialCritic')!;
-
-  // The critic now runs in onEmptyResponse — at the completion boundary, over the
-  // run's cumulative edits — not in afterToolResults after every tool batch. It
-  // reads the edited-file set from gateState, so it needs no tool uses at all.
-
-  it('short-circuits when fullText is missing', async () => {
-    const r = await hook.onEmptyResponse!(stubLoopState(), stubContext({}));
-    expect(r?.mutated).toBe(false);
-    expect(applyCritic).not.toHaveBeenCalled();
-  });
-
-  it('infers mutated from state.messages.length delta (critic returns void)', async () => {
-    vi.mocked(applyCritic).mockImplementationOnce(async (state) => {
-      state.messages.push({ role: 'user', content: 'injected by critic' });
-    });
-    const state = stubLoopState();
-    const result = await hook.onEmptyResponse!(state, stubContext({ fullText: 'some assistant text' }));
-    expect(result?.mutated).toBe(true);
-    expect(state.messages).toHaveLength(1);
-  });
-
-  it('reports mutated:false when critic runs but does not inject', async () => {
-    vi.mocked(applyCritic).mockResolvedValueOnce(undefined);
-    const result = await hook.onEmptyResponse!(stubLoopState(), stubContext({ fullText: 'some text' }));
-    expect(result?.mutated).toBe(false);
-    expect(applyCritic).toHaveBeenCalledOnce();
-  });
-});
-
 describe('completionGate adapter', () => {
-  const hook = defaultPolicyHooks()[6]; // autoFix, isolateRewrite, unappliedEdit, stub, critic, actionReprompt, completionGate
+  const hook = defaultPolicyHooks().find((h) => h.name === 'completionGate')!;
 
   describe('afterToolResults phase (recording)', () => {
     it('short-circuits when pendingToolUses or toolResults are missing', async () => {

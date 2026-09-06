@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as path from 'path';
 import { loadFacetRegistry, type FacetFsOverride } from './facetDiskLoader.js';
 import { builtInFacets } from './facetLoader.js';
 
@@ -13,14 +14,22 @@ import { builtInFacets } from './facetLoader.js';
 // Panel is never empty.
 // ---------------------------------------------------------------------------
 
+// The loader joins paths with path.join, which yields backslashes on Windows,
+// while these fixtures are keyed with forward slashes. A real filesystem takes
+// either separator, so the fake one does too — otherwise every lookup throws
+// ENOENT on Windows and the loader correctly reports an empty facets dir.
+const fsKey = (p: string): string => p.replace(/\\/g, '/');
+
 function fs(files: Record<string, string>, dirs: Record<string, string[]> = {}): FacetFsOverride {
   return {
     async readFile(absolutePath: string): Promise<string> {
-      if (!(absolutePath in files)) throw new Error(`ENOENT: ${absolutePath}`);
-      return files[absolutePath];
+      const k = fsKey(absolutePath);
+      if (!(k in files)) throw new Error(`ENOENT: ${absolutePath}`);
+      return files[k];
     },
     async readDirectory(absolutePath: string): Promise<string[]> {
-      if (absolutePath in dirs) return dirs[absolutePath];
+      const k = fsKey(absolutePath);
+      if (k in dirs) return dirs[k];
       throw new Error(`ENOENT: ${absolutePath}`);
     },
   };
@@ -89,7 +98,7 @@ describe('loadFacetRegistry — project facets (.sidecar/facets)', () => {
     expect(outcome.registry.has('good')).toBe(true);
     expect(outcome.errors).toHaveLength(1);
     expect(outcome.errors[0].reason).toBe('missing-frontmatter');
-    expect(outcome.errors[0].filePath).toBe('/workspace/.sidecar/facets/bad.md');
+    expect(outcome.errors[0].filePath).toBe(path.join('/workspace', '.sidecar', 'facets', 'bad.md'));
   });
 
   it('marks project facets with source: project', async () => {

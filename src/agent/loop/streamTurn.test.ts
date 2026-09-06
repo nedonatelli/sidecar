@@ -338,3 +338,59 @@ describe('plan nudge before a plan exists (S1 adoption)', () => {
     expect(captured.prompt ?? '').not.toContain('plan_state');
   });
 });
+
+describe('fence-write coercion — already-done escape', () => {
+  // v0.122 gemma4 (fix-wrong-comparison-operator): after edit_file answered
+  // "No change needed", the model printed the correct final file as a
+  // completion summary. Coercion read the fence as an unapplied edit and
+  // synthesized a write_file over it, re-entering the loop the already-applied
+  // response exists to end. A fence after that signal is a summary, not work.
+  const FENCE_TURN =
+    'The fix is in place. Final state of src/minmax.ts:\n' +
+    '```typescript\nexport function max(a: number, b: number): number {\n  return a >= b ? a : b;\n}\n```\n';
+
+  function makeCoercionState(latestResultText: string) {
+    const state = stubLoopState({
+      approvalMode: 'autonomous',
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'edit_file', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: latestResultText }] },
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    (state as any).tools = [
+      {
+        name: 'write_file',
+        description: 'Writes a file',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      },
+    ];
+    return state;
+  }
+
+  it('does NOT synthesize a write after a "No change needed" result', () => {
+    const state = makeCoercionState(
+      '<tool_output tool="edit_file">\nNo change needed: src/minmax.ts already contains the result of this edit.\n</tool_output>',
+    );
+    const onToolCall = vi.fn();
+    const turn = { fullText: FENCE_TURN, pendingToolUses: [], stopReason: 'stop', terminated: undefined };
+    const result = resolveTurnContent(turn as never, state, makeCallbacks({ onToolCall }));
+    expect(onToolCall).not.toHaveBeenCalled();
+    expect(result.pendingToolUses).toHaveLength(0);
+    expect(result.stopReason).not.toBe('tool_use');
+  });
+
+  it('still synthesizes the write when the latest result shows real progress', () => {
+    const state = makeCoercionState('<tool_output tool="edit_file">\nFile edited: src/other.ts\n</tool_output>');
+    const onToolCall = vi.fn();
+    const turn = { fullText: FENCE_TURN, pendingToolUses: [], stopReason: 'stop', terminated: undefined };
+    const result = resolveTurnContent(turn as never, state, makeCallbacks({ onToolCall }));
+    expect(onToolCall).toHaveBeenCalledWith(
+      'write_file',
+      expect.objectContaining({ path: 'src/minmax.ts' }),
+      expect.any(String),
+    );
+    expect(result.pendingToolUses).toHaveLength(1);
+  });
+});

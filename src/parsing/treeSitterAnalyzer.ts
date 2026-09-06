@@ -73,6 +73,16 @@ interface ElementMapping {
    * body is not an addressable symbol.
    */
   perDeclarator?: string;
+  /**
+   * Python module-level assignment (`NAME = value`). The name lives on the
+   * `left` field, not a `name` field, and — like `perDeclarator` — only
+   * top-level (directly under `module`) assignments are addressable symbols;
+   * `x = 1` inside a function is not. Only simple identifier targets are emitted
+   * (tuple / attribute / subscript assignments have no single addressable name).
+   * Without this, Python module constants (e.g. a settings default) are invisible
+   * to symbol extraction, find_references, impact analysis, and RAG.
+   */
+  moduleAssignment?: boolean;
 }
 
 const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
@@ -133,6 +143,7 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   python: [
     { nodeType: 'function_definition', elementType: 'function', nameField: 'name' },
     { nodeType: 'class_definition', elementType: 'class', nameField: 'name' },
+    { nodeType: 'assignment', elementType: 'variable', moduleAssignment: true },
     { nodeType: 'import_statement', elementType: 'import' },
     { nodeType: 'import_from_statement', elementType: 'import' },
   ],
@@ -311,6 +322,29 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
                 exported: parent?.type === 'export_statement',
               });
             }
+            break;
+          }
+
+          if (mapping.moduleAssignment) {
+            // Python `NAME = value` at module level. Top-level only: the
+            // assignment's parent is `expression_statement` directly under
+            // `module`. Only a bare identifier target is an addressable symbol.
+            const stmt = node.parent;
+            const topLevel = stmt?.type === 'expression_statement' && stmt.parent?.type === 'module';
+            if (!topLevel) break;
+            const target = node.childForFieldName('left');
+            if (!target || target.type !== 'identifier') break;
+            const startLine = node.startPosition.row;
+            const endLine = node.endPosition.row;
+            elements.push({
+              type: mapping.elementType,
+              name: target.text,
+              startLine,
+              endLine,
+              content: lines.slice(startLine, endLine + 1).join('\n'),
+              relevanceScore: 0,
+              exported: false,
+            });
             break;
           }
 

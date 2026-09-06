@@ -549,6 +549,9 @@ describe('OpenAIBackend', () => {
         ok: true,
         json: async () => ({ models: [{ name: 'qwen3-coder:30b' }] }),
       }));
+      // The delegated OllamaBackend probes /api/show once for the model's
+      // context window before issuing the chat request.
+      mockFetch.mockImplementationOnce(async () => ({ ok: true, json: async () => ({ capabilities: ['tools'] }) }));
       // Then the actual /api/chat request returns a minimal Ollama
       // NDJSON stream (one line + done).
       const ndjson = new ReadableStream<Uint8Array>({
@@ -572,10 +575,11 @@ describe('OpenAIBackend', () => {
         events.push(ev as { type: string; text?: string });
       }
 
-      // Second request went to /api/chat (not /v1/chat/completions).
-      expect(mockFetch.mock.calls.length).toBe(2);
-      const secondUrl = mockFetch.mock.calls[1][0] as string;
-      expect(secondUrl).toContain('/api/chat');
+      // The chat request went to /api/chat (not /v1/chat/completions), after
+      // the Ollama-shape probe and the cold-model context probe.
+      expect(mockFetch.mock.calls.length).toBe(3);
+      expect(mockFetch.mock.calls[1][0] as string).toContain('/api/show');
+      expect(mockFetch.mock.calls[2][0] as string).toContain('/api/chat');
       // And we got the text event back.
       const text = events.find((e) => e.type === 'text');
       expect(text?.text).toBe('hello');

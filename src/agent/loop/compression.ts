@@ -330,9 +330,7 @@ export async function applyBudgetCompression(
   state: LoopState,
   callbacks?: { onText: (text: string) => void },
 ): Promise<CompressionOutcome> {
-  // Prefer actual token count from the last API usage event; fall back to
-  // script-type-aware char-based estimation when we don't have it yet.
-  let estimatedTokens = state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
+  let estimatedTokens = projectedPromptTokens(state);
 
   // C4 — weak models stall/lose-the-thread sooner, so they compact earlier;
   // strong models hold more before paying the summarization cost. Medium ==
@@ -439,13 +437,41 @@ export async function applyBudgetCompression(
       state.totalChars -= compressed;
     }
 
-    // After compressing, actual token count is stale — reestimate from chars
-    // since we've modified the message history.
-    state.lastActualInputTokens = undefined;
-    estimatedTokens = estimateTokensFromState(state.totalChars, state.messages);
+    // Re-project rather than discard. Compression changed totalChars, and the
+    // signed delta against the anchor accounts for exactly that — dropping the
+    // real measurement here was what forced a full char re-estimate every time
+    // compression ran.
+    estimatedTokens = projectedPromptTokens(state);
   }
 
   return estimatedTokens > state.maxTokens ? 'exhausted' : 'ok';
+}
+
+/**
+ * Best available estimate of the current prompt size.
+ *
+ * Once a backend has reported real usage, that count is the anchor and stays
+ * the anchor: only the characters added or removed SINCE it was taken are
+ * estimated. Before the first usage event there is nothing to anchor to, so
+ * the whole history is estimated as before.
+ *
+ * The previous code mixed the two — it used the real count for the trigger,
+ * then threw it away after compressing and re-derived everything from
+ * characters. With an estimator that is wrong by -42%..+51% depending on
+ * content type, the loop was comparing two incompatible measurements against
+ * one threshold.
+ */
+export function projectedPromptTokens(state: LoopState): number {
+  // Both halves or neither: a token count without the char total it was taken
+  // at cannot be projected forward, and silently treating the delta as zero
+  // would freeze the anchor and hide every later change.
+  if (state.lastActualInputTokens === undefined || state.charsAtLastMeasurement === undefined) {
+    return estimateTokensFromState(state.totalChars, state.messages);
+  }
+  const deltaChars = state.totalChars - state.charsAtLastMeasurement;
+  if (deltaChars === 0) return state.lastActualInputTokens;
+  const deltaTokens = estimateTokensFromState(Math.abs(deltaChars), state.messages);
+  return Math.max(0, state.lastActualInputTokens + (deltaChars > 0 ? deltaTokens : -deltaTokens));
 }
 
 /**
@@ -457,7 +483,9 @@ export async function applyBudgetCompression(
  * in place.
  */
 export function maybeCompressPostTool(state: LoopState): void {
-  const postToolTokens = estimateTokensFromState(state.totalChars, state.messages);
+  // Same measurement as the pre-turn trigger, so the two cannot disagree
+  // about how close to the budget we are.
+  const postToolTokens = projectedPromptTokens(state);
   const compressionThreshold = state.scaffoldingProfile?.compressionThreshold ?? CONTEXT_COMPRESSION_THRESHOLD;
   if (postToolTokens > state.maxTokens * compressionThreshold) {
     const compressed = compressMessages(state.messages);

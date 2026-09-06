@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   classifyError,
   languageToExtension,
@@ -35,7 +35,35 @@ import {
 import { attachImage } from './fileHandlers.js';
 import { buildBaseSystemPrompt, injectSystemContext } from './systemPrompt.js';
 import type { SystemPromptParams } from './systemPrompt.js';
-import { workspace, window, FileType } from 'vscode';
+import { workspace, window, FileType, Uri } from 'vscode';
+import * as nodePath from 'path';
+
+/**
+ * handleCreateFile / handleMoveFile guard with isWithinRoot, which compares
+ * `fsPath.startsWith(root + path.sep)`. The shared vscode mock joins Uri
+ * segments with '/', so on Windows the joined path never carried the
+ * separator the guard looks for and every path was rejected as invalid.
+ * Real VS Code returns a platform-native fsPath — mirror that here, scoped to
+ * these two suites rather than changing the shared mock every other file
+ * asserts forward slashes against.
+ */
+function usePlatformNativeUriJoin(): void {
+  const origJoin = Uri.joinPath;
+  const origFolders = workspace.workspaceFolders;
+  beforeEach(() => {
+    (Uri as { joinPath: unknown }).joinPath = (base: { fsPath: string }, ...segs: string[]) => {
+      const fsPath = nodePath.join(base.fsPath, ...segs);
+      return { fsPath, scheme: 'file', path: fsPath.split(nodePath.sep).join('/') };
+    };
+    (workspace as Record<string, unknown>).workspaceFolders = [
+      { uri: { fsPath: nodePath.join('/mock-workspace') }, name: 'mock', index: 0 },
+    ];
+  });
+  afterEach(() => {
+    (Uri as { joinPath: unknown }).joinPath = origJoin;
+    (workspace as Record<string, unknown>).workspaceFolders = origFolders;
+  });
+}
 
 const mockShellExecute = vi.fn();
 const mockShellDispose = vi.fn();
@@ -49,6 +77,10 @@ vi.mock('../../terminal/shellSession.js', () => {
         return mockShellDispose(...args);
       }
     },
+    // injectSystemContext reports the shell the agent will actually run, so it
+    // imports this. A fixed value keeps the Session block byte-stable, which the
+    // prompt-cache tests below depend on.
+    resolveWindowsShell: () => 'C:\Program Files\Git\bin\bash.exe',
   };
 });
 
@@ -226,6 +258,7 @@ describe('languageToExtension', () => {
 // handleCreateFile
 // ---------------------------------------------------------------------------
 describe('handleCreateFile', () => {
+  usePlatformNativeUriJoin();
   let state: { postMessage: ReturnType<typeof vi.fn>; requestConfirm: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
@@ -353,6 +386,7 @@ describe('handleSaveCodeBlock', () => {
 // handleMoveFile
 // ---------------------------------------------------------------------------
 describe('handleMoveFile', () => {
+  usePlatformNativeUriJoin();
   let state: { postMessage: ReturnType<typeof vi.fn>; requestConfirm: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {

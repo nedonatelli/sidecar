@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'path';
 
 vi.mock('fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs/promises')>();
@@ -100,7 +101,7 @@ describe('TeamMemoryStore.getDir', () => {
   it('returns the team-memory subdirectory path', () => {
     const store = new TeamMemoryStore('/proj/.sidecar');
     expect(store.getDir()).toContain('team-memory');
-    expect(store.getDir()).toContain('/proj/.sidecar');
+    expect(store.getDir()).toContain(path.join('/proj', '.sidecar'));
   });
 });
 

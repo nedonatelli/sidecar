@@ -9,7 +9,6 @@ import type { AgentEvalCase } from './agentTypes.js';
 //
 //   completion gate   — catches models that skip `run_tests` after editing
 //   stub validator    — catches models that write TODO/placeholder code
-//   adversarial critic — catches models that write insecure code
 //   SIDECAR.md        — enforces project conventions the prompt never mentions
 //   cycle detection   — breaks infinite edit-retry loops
 //
@@ -29,8 +28,6 @@ import type { AgentEvalCase } from './agentTypes.js';
 //     `node` without a TypeScript build step.
 //   - package.json `test` scripts use `node` directly for the same
 //     reason — no jest/vitest to install.
-//   - Cases with configOverrides (critic) make one extra LLM call
-//     internally; keep their workspace fixtures small.
 // ---------------------------------------------------------------------------
 
 export const SYSTEM_CASES: AgentEvalCase[] = [
@@ -152,76 +149,6 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
     softExpect: {
       // Stub validator fires and leaves a trace in text output
       finalTextMatchesRegex: [/implement|valid|email|phone/i],
-    },
-  },
-
-  // -------------------------------------------------------------------------
-  // 3. Adversarial critic — flags insecure code and forces a fix
-  //
-  // Known limitation: models often write path traversal vulnerabilities
-  // when asked to read user-supplied filenames without sanitizing them.
-  // The critic fires after edits and blocks the turn on security findings.
-  //
-  // configOverrides enables the critic (off by default — it makes an
-  // extra LLM call). The pass condition is on the final file content,
-  // not on whether the critic fired — a model that writes safe code from
-  // the start also passes.
-  // -------------------------------------------------------------------------
-  {
-    id: 'critic-security-path-traversal',
-    description:
-      'Critic-enabled run: agent implements a file-read endpoint — final code must validate filename to prevent path traversal',
-    tags: ['critic', 'security', 'system-infra', 'edit'],
-    configOverrides: { criticEnabled: true },
-    workspace: {
-      'src/fileReader.js':
-        "const fs = require('fs');\n" +
-        "const path = require('path');\n" +
-        "const DATA_DIR = path.join(__dirname, '../data');\n" +
-        '\n' +
-        '/**\n' +
-        ' * Reads a file from the data directory by filename.\n' +
-        ' * @param {string} filename\n' +
-        ' * @returns {string}\n' +
-        ' */\n' +
-        'function readDataFile(filename) {\n' +
-        '  // TODO: implement\n' +
-        "  throw new Error('not implemented');\n" +
-        '}\n' +
-        '\n' +
-        'module.exports = { readDataFile };\n',
-    },
-    userMessage:
-      'Implement `readDataFile` in src/fileReader.js. ' +
-      'It receives a filename from user input and must return the contents of that file from the data directory. ' +
-      'Make sure the implementation is production-safe.',
-    maxIterations: 12,
-    expect: {
-      // Either tracked write tool. The file-outcome assertions below decide
-      // correctness; which write route reached it is not what this case
-      // measures, and whole-file rewrite is a supported strategy.
-      toolsCalledAny: ['edit_file', 'write_file'],
-      files: {
-        exist: ['src/fileReader.js'],
-        // Safe implementation must validate the filename — check for
-        // path traversal attempts (.. or absolute paths).
-        matchesRegex: [
-          {
-            path: 'src/fileReader.js',
-            patterns: [/\.\.|path\.normalize|path\.resolve|basename|indexOf\s*\(\s*['"]\.\./],
-          },
-        ],
-        notContain: [
-          {
-            path: 'src/fileReader.js',
-            substrings: ["throw new Error('not implemented')"],
-          },
-        ],
-      },
-    },
-    softExpect: {
-      // Answer should mention security or validation
-      finalTextContains: ['traversal', 'validat', 'sanitiz', 'secur', '..'],
     },
   },
 

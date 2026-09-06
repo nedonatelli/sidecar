@@ -20,19 +20,19 @@ Benchmarks measure one of two layers. SideCar's value is the gap between them.
 | **System-level** | SWE-bench, Terminal-Bench         | the _agent_ (scaffold + model + sandbox) end-to-end                | Yes                  |
 
 **The flagship number is system-level with an on/off ablation:** SideCar + a
-small local model on SWE-bench Verified, **harness-on vs harness-off**. The delta
+small local model on SWE-bench Lite, **harness-on vs harness-off**. The delta
 is the moat — nobody without the harness can produce it. Model-level scores are
 for _model selection_, never presented as a SideCar capability number.
 
 ## Benchmark matrix
 
-| Benchmark                                   | Layer      | What it proves for SideCar                                                                                                     | Priority          | Infra                                                         |
-| ------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------- | ------------------------------------------------------------- |
-| **BFCL v4**                                 | model      | Ranks candidate local models (gemma4:e4b / ministral-3 / qwen3-coder) on a public scale; picks defaults on field-anchored data | **P1**            | Low — AST eval, no Docker                                     |
-| **SWE-bench Verified** (sampled) + ablation | system     | Weight-class-relative resolve rate **and** the scaffolding lift — the thesis-prover                                            | **P1 (flagship)** | High — Docker/repo, slow on local                             |
-| **Terminal-Bench**                          | system     | The shell / command loop specifically                                                                                          | P2                | Medium — sandbox runner                                       |
-| **StableToolBench**                         | model      | Many unfamiliar APIs → the MCP delegation story                                                                                | P3                | Medium — simulated API server                                 |
-| **τ-bench / τ²-bench**                      | model+user | Conversational + policy-following                                                                                              | **Deferred**      | Domain (retail/airline) is the weakest fit for a coding agent |
+| Benchmark                               | Layer      | What it proves for SideCar                                                                                                     | Priority          | Infra                                                         |
+| --------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------- | ------------------------------------------------------------- |
+| **BFCL v4**                             | model      | Ranks candidate local models (gemma4:e4b / ministral-3 / qwen3-coder) on a public scale; picks defaults on field-anchored data | **P1**            | Low — AST eval, no Docker                                     |
+| **SWE-bench Lite** (sampled) + ablation | system     | Weight-class-relative resolve rate **and** the scaffolding lift — the thesis-prover                                            | **P1 (flagship)** | High — Docker/repo, slow on local                             |
+| **Terminal-Bench**                      | system     | The shell / command loop specifically                                                                                          | P2                | Medium — sandbox runner                                       |
+| **StableToolBench**                     | model      | Many unfamiliar APIs → the MCP delegation story                                                                                | P3                | Medium — simulated API server                                 |
+| **τ-bench / τ²-bench**                  | model+user | Conversational + policy-following                                                                                              | **Deferred**      | Domain (retail/airline) is the weakest fit for a coding agent |
 
 ## Phases
 
@@ -44,7 +44,7 @@ path, score with an AST matcher against the gold call, emit per-model /
 per-category percentages via the existing `evalReporter`. No Docker. Outcome: a
 citable model-selection number that replaces the internal "agent %".
 
-### Phase 2 — SWE-bench Verified subset + ablation (flagship)
+### Phase 2 — SWE-bench Lite subset + ablation (flagship)
 
 `bench/swe/` — reuse `agentHarness.ts` + `workspaceSandbox.ts`. For each task in
 a **pinned ~50-task Verified slice**: check out the repo at the base commit in a
@@ -78,7 +78,7 @@ A score without this envelope is not comparable and must not be published:
 
 - **Weight-class-relative framing.** "Within open <8B, SideCar+model resolves
   X%; the harness adds +N." A small local model lands low single-to-double
-  digits on SWE-bench Verified vs ~70%+ for frontier cloud — never frame a
+  digits on SWE-bench Lite vs ~70%+ for frontier cloud — never frame a
   number to invite a direct GPT comparison.
 - **Never average layers.** Model-level and system-level measure different
   things; one combined vanity score is misleading.

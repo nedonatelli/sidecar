@@ -15,7 +15,6 @@ describe('describeScaffold', () => {
     expect(f.injectionGuard).toBe(true);
     expect(f.adaptiveScaffolding).toBe(true);
     expect(f.keepBestRatchet).toBe(true);
-    expect(f.critic).toBe(false);
     expect(f.analyticBoundsGate).toBe(false);
   });
 
@@ -24,7 +23,6 @@ describe('describeScaffold', () => {
     // absence means "settings default", not "off".
     const off = describeScaffold({
       completionGateEnabled: false,
-      criticEnabled: false,
       autoFixOnFailure: false,
       adaptiveScaffoldingEnabled: false,
       impactGateEnabled: false,
@@ -38,7 +36,6 @@ describe('describeScaffold', () => {
   it('captures the ablation scaffold-on arm (pre-2.0 mechanisms)', () => {
     const on = describeScaffold({
       completionGateEnabled: true,
-      criticEnabled: true,
       autoFixOnFailure: true,
       adaptiveScaffoldingEnabled: true,
       impactGateEnabled: true,
@@ -49,7 +46,6 @@ describe('describeScaffold', () => {
     });
     expect(on.features).toMatchObject({
       completionGate: true,
-      critic: true,
       autoFix: true,
       impactGate: true,
       numericalContractGate: true,
@@ -62,10 +58,10 @@ describe('describeScaffold', () => {
 
 describe('scaffoldLabel', () => {
   it('lists the active mechanisms', () => {
-    const label = scaffoldLabel(describeScaffold({ criticEnabled: true }));
+    const label = scaffoldLabel(describeScaffold({ autoFixOnFailure: true }));
     expect(label).toContain(`scaffold ${SCAFFOLD_VERSION}`);
     expect(label).toContain('completionGate');
-    expect(label).toContain('critic');
+    expect(label).toContain('autoFix');
   });
 
   it('shows "bare" when nothing is on', () => {

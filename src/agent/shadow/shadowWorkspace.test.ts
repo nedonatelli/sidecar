@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
+
 import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
@@ -19,7 +20,12 @@ function git(cwd: string, args: string[]): string {
 }
 
 function makeTmpRepo(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-shadow-test-'));
+  // realpathSync.native resolves the 8.3 short name Windows hands back from
+  // os.tmpdir() when the user name is over eight characters -- a GitHub runner
+  // gets C:/Users/RUNNER~1/... while `git worktree list` prints the long form
+  // C:/Users/runneradmin/..., and the two never compare equal. It also collapses
+  // the macOS /var -> /private/var symlink, which is the same bug wearing a hat.
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-shadow-test-')));
   git(dir, ['init', '-q', '-b', 'main']);
   git(dir, ['config', 'user.email', 'test@example.com']);
   git(dir, ['config', 'user.name', 'Test']);
@@ -40,6 +46,11 @@ function rmTmp(dir: string): void {
     // Best-effort — a pending worktree lockfile might hold us up briefly.
   }
 }
+
+// `git worktree list` prints forward slashes even on Windows, while these
+// fixture paths come from mkdtemp/path.join and carry backslashes. Compare
+// both in git's form rather than asserting one against the other.
+const gitPath = (p: string): string => p.replace(/\\/g, '/');
 
 describe('ShadowWorkspace', () => {
   let mainRoot: string;
@@ -62,7 +73,7 @@ describe('ShadowWorkspace', () => {
       expect(shadow.isActive).toBe(true);
 
       const worktrees = git(mainRoot, ['worktree', 'list', '--porcelain']);
-      expect(worktrees).toContain(shadow.path);
+      expect(gitPath(worktrees)).toContain(gitPath(shadow.path));
 
       await shadow.dispose();
     });

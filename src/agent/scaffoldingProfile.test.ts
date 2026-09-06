@@ -42,11 +42,6 @@ describe('resolveScaffoldingProfile', () => {
     expect(resolveScaffoldingProfile('weak').tier).toBe('weak');
     expect(resolveScaffoldingProfile('strong').tier).toBe('strong');
 
-    // D2 — weak primary skips the LLM critic; medium/strong keep it.
-    expect(resolveScaffoldingProfile('weak').runLlmCritic).toBe(false);
-    expect(resolveScaffoldingProfile('medium').runLlmCritic).toBe(true);
-    expect(resolveScaffoldingProfile('strong').runLlmCritic).toBe(true);
-
     // C4 — weak compacts earlier, strong later; medium == historical 0.7.
     expect(resolveScaffoldingProfile('weak').compressionThreshold).toBeLessThan(
       resolveScaffoldingProfile('medium').compressionThreshold,

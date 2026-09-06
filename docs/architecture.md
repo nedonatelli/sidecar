@@ -48,7 +48,7 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
   - `messageBuild.ts` pushes assistant + tool-result messages and accounts tokens
   - `dispatchToolUses.ts` / `executeToolUses.ts` / `multiFileEdit.ts` — turn-level dispatch (Edit-Plan DAG for multi-file writes, parallel execution otherwise; spawn_agent + delegate_task special-cased)
   - `toolBudget.ts` caps oversize tool results before token accounting
-  - `autoFix.ts`, `isolateRewrite.ts`, `unappliedEdit.ts`, `stubCheck.ts`, `criticHook.ts`, `actionReprompt.ts`, `gate.ts`, `syntaxGate.ts` back the policy hooks (the critic file also provides the analysis-critic)
+  - `autoFix.ts`, `isolateRewrite.ts`, `unappliedEdit.ts`, `stubCheck.ts`, `actionReprompt.ts`, `gate.ts`, `syntaxGate.ts` back the policy hooks
   - `keepBestRatchet.ts` / `keepBestRatchetWiring.ts` — snapshot → apply → re-verify → revert-on-regression (default on)
   - `forceFinalAnswer.ts` — answer-forcing for tool-heavy runs that end without a user-facing answer
   - `policyHook.ts` — `PolicyHook` interface + `HookBus` registration class (phases: beforeIteration, afterToolResults, onEmptyResponse, onTermination); `AgentOptions.extraPolicyHooks` and SDK-registered hooks add to the bus
@@ -109,7 +109,7 @@ flowchart LR
     VS --> Results[tool results]
     MCP --> Results
     Results --> Loop
-    Loop --> Hooks[HookBus<br/>auto-fix / stub / critic / gate]
+    Loop --> Hooks[HookBus<br/>auto-fix / stub / gate]
     Hooks --> LLM
     Loop --> Webview
 ```

@@ -276,7 +276,7 @@ Switches to a different model mid-conversation. The conversation history is pres
 
 ```
 /model claude-sonnet-4-6
-/model qwen3-coder:8b
+/model qwen2.5-coder:7b
 ```
 
 ---

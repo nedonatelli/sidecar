@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/extension.ts",
+    "src/sdk/index.ts",
+    "tests/**/*.test.ts",
+    "tests/**/*.eval.ts",
+    "bench/**/*.test.ts",
+    "bench/**/*.eval.ts"
+  ],
+  "project": ["src/**/*.ts", "tests/**/*.ts", "bench/**/*.ts"],
+  "ignore": ["src/agent/tools/__corpus__/**", "tests/llm-eval/fixtures/**"],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": ["@types/.*", "mermaid", "tree-sitter-wasms", "@vscode/test-electron", "eslint-config-prettier"]
+}

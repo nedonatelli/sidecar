@@ -1,4 +1,6 @@
 import type { ChatMessage, ToolDefinition } from '../../ollama/types.js';
+import type { CommandRunRecord } from './commandDedup.js';
+import { LOCAL_CONTEXT_CAP } from '../../config/constants.js';
 import { getContentLength } from '../../ollama/types.js';
 import type { ApprovalMode } from '../executor.js';
 import type { AgentLogger } from '../logger.js';
@@ -116,7 +118,27 @@ export interface LoopState {
    * after compression fires (since we've modified the message history and the
    * cached count no longer applies to the new context).
    */
+  /**
+   * Monotonic count of successful file mutations this run. Lets the loop tell
+   * whether an identical shell command could possibly produce new output — a
+   * question `nondeterministicOutput` cannot answer, since it is a property of
+   * the tool rather than of the invocation.
+   */
+  fileMutations: number;
+  /** Last run of each shell command, for collapsing exact repeats. */
+  commandRuns: Map<string, CommandRunRecord>;
   lastActualInputTokens?: number;
+  /**
+   * `totalChars` at the moment `lastActualInputTokens` was measured.
+   *
+   * Lets the loop estimate only what has CHANGED since a real measurement
+   * instead of re-deriving the whole prompt from characters. The char
+   * estimator carries a large, sign-flipping error — measured against
+   * gemma4:e4b's own prompt_eval_count: +51% on prose, -15% on TypeScript,
+   * -42% on JSON, -36% on log lines — so applying it to the full history
+   * throws away a number we already know exactly.
+   */
+  charsAtLastMeasurement?: number;
 
   // Session-scoped episodic memory: summaries of compressed turns are
   // embedded here so semantically relevant prior context can be
@@ -142,6 +164,17 @@ export interface LoopState {
   // iteration. cycleDetection.ts is the only writer; it fires when the same
   // file appears in more iterations than WRITE_TARGET_THRESHOLD within the window.
   recentWriteTargets: string[][];
+
+  // Ring buffer of exact per-call signatures for MUTATION tools only, one entry
+  // per mutation call (not per iteration). Lets cycle detection count identical
+  // resubmissions of the same failing edit even when reads interleave — the
+  // consecutive-streak check misses those. cycleDetection.ts is the only writer.
+  recentMutationCalls: string[];
+
+  // Count of empty-turn reprompts injected (a turn with no text and no tool
+  // call). Bounded at 1 in loop.ts — silence twice ends the run. loop.ts is
+  // the only writer.
+  emptyTurnReprompts: number;
 
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
@@ -260,23 +293,6 @@ export interface LoopState {
    */
   filesReadThisRun: Set<string>;
 
-  // Per-file critic injection counter. criticHook.ts is the only writer.
-  criticInjectionsByFile: Map<string, number>;
-
-  // Per-test-output-hash critic injection counter. Bounds
-  // the `test_failure` trigger path which was otherwise unbounded —
-  // if tests keep failing with the SAME normalized output, the
-  // critic used to re-fire every turn and could burn $1-2 of spend
-  // before the outer maxIterations cap tripped. Now capped at
-  // MAX_CRITIC_INJECTIONS_PER_TEST_HASH. criticHook.ts is the only
-  // writer. Keyed by a normalized hash (timestamps + memory addresses
-  // stripped) so cosmetic re-runs of the same failure collapse.
-  criticInjectionsByTestHash: Map<string, number>;
-
-  // True once the analysis fact-check critic (V2) has fired this run.
-  // Fires at most once. analysisCriticHook is the only writer.
-  analysisCriticFired: boolean;
-
   // True once the unapplied-edit nudge has fired this run. Bounds the nudge to
   // one injection so a false positive (an explanatory code block) costs at most
   // one extra message. unappliedEditHook is the only writer.
@@ -346,7 +362,15 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     runId: crypto.randomUUID(),
     config: options.config ?? getConfig(),
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
-    maxTokens: options.maxTokens || 100_000,
+    // 128K, matching LOCAL_CONTEXT_CAP and the default local model's native
+    // window. Production clamps agentMaxTokens to the probed context length
+    // (chatHandlers), but headless callers — benchmarks, llm-eval, the SWE
+    // runner — pass nothing and fell through to a hardcoded 100K, budgeting
+    // BELOW the window the model actually has. Same shape as the num_ctx bug
+    // in 99a0369, where headless runs got a 32K floor as a ceiling.
+    fileMutations: 0,
+    commandRuns: new Map(),
+    maxTokens: options.maxTokens || LOCAL_CONTEXT_CAP,
     approvalMode: options.approvalMode || 'cautious',
     // injectedConfig: the catalog must gate on THIS run's config (facet/eval
     // overrides), not global settings — otherwise a tool enabled per-run is
@@ -372,6 +396,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentToolCalls: [],
     recentNormalizedCalls: [],
     recentWriteTargets: [],
+    recentMutationCalls: [],
+    emptyTurnReprompts: 0,
     autoFixRetriesByFile: new Map<string, number>(),
     fullRewriteCountByFile: new Map<string, number>(),
     isolateNudgesByFile: new Map<string, number>(),
@@ -391,9 +417,6 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     actionRepromptCount: 0,
     fenceWriteCoercions: 0,
     filesReadThisRun: new Set<string>(),
-    criticInjectionsByFile: new Map<string, number>(),
-    criticInjectionsByTestHash: new Map<string, number>(),
-    analysisCriticFired: false,
     unappliedEditNudged: false,
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(lastUserText(copiedMessages)),

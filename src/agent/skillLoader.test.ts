@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// These matchers are written with forward slashes, but the loader joins its
+// paths with path.join — so on Windows fsPath arrives backslash-separated and
+// none of them matched. Only the built-in source ever loaded.
+const norm = (p: string): string => p.replace(/\\/g, '/');
+
 vi.mock('vscode', () => ({
   workspace: {
     workspaceFolders: [{ uri: { fsPath: '/project' } }],
@@ -46,13 +51,13 @@ describe('SkillLoader', () => {
     // Simulate built-in skills dir
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) {
+      if (norm(uri.fsPath).includes('/ext/skills')) {
         return [['review-code.md', FileType.File]];
       }
       return [];
     });
     mockReadFile.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('review-code.md')) {
+      if (norm(uri.fsPath).includes('review-code.md')) {
         return Buffer.from('---\nname: Code Review\ndescription: Review code for bugs\n---\n\n# Review\nDo a review.');
       }
       throw new Error('not found');
@@ -71,16 +76,16 @@ describe('SkillLoader', () => {
   it('later sources override earlier on name conflict', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills') || uri.fsPath.includes('.claude/commands')) {
+      if (norm(uri.fsPath).includes('/ext/skills') || norm(uri.fsPath).includes('.claude/commands')) {
         return [['test-skill.md', FileType.File]];
       }
       return [];
     });
     mockReadFile.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) {
+      if (norm(uri.fsPath).includes('/ext/skills')) {
         return Buffer.from('---\nname: Built-in\n---\nBuilt-in version');
       }
-      if (uri.fsPath.includes('.claude/commands')) {
+      if (norm(uri.fsPath).includes('.claude/commands')) {
         return Buffer.from('---\nname: Project Override\n---\nProject version');
       }
       throw new Error('not found');
@@ -95,7 +100,7 @@ describe('SkillLoader', () => {
   it('getAll returns all skills', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) {
+      if (norm(uri.fsPath).includes('/ext/skills')) {
         return [
           ['a.md', FileType.File],
           ['b.md', FileType.File],
@@ -112,7 +117,7 @@ describe('SkillLoader', () => {
   it('listFormatted returns formatted string', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) {
+      if (norm(uri.fsPath).includes('/ext/skills')) {
         return [['my-skill.md', FileType.File]];
       }
       return [];
@@ -131,7 +136,7 @@ describe('SkillLoader', () => {
   it('match returns skill by keyword', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) {
+      if (norm(uri.fsPath).includes('/ext/skills')) {
         return [['debug.md', FileType.File]];
       }
       return [];
@@ -160,7 +165,7 @@ describe('SkillLoader', () => {
   it('parses allowed-tools as inline comma list', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['restricted.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['restricted.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -175,7 +180,7 @@ describe('SkillLoader', () => {
   it('parses allowed-tools as YAML block list', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['block.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['block.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -190,7 +195,7 @@ describe('SkillLoader', () => {
   it('parses preferred-model', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['smart.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['smart.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -204,7 +209,7 @@ describe('SkillLoader', () => {
   it('parses max-iterations', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['quick.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['quick.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () => Buffer.from('---\nname: Quick\nmax-iterations: 5\n---\nContent'));
@@ -216,7 +221,7 @@ describe('SkillLoader', () => {
   it('parses disable-model-invocation: true', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['ref.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['ref.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -230,7 +235,7 @@ describe('SkillLoader', () => {
   it('parses guards as inline comma list', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['guarded.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['guarded.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -244,7 +249,7 @@ describe('SkillLoader', () => {
   it('parses guards as YAML block list', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['guarded2.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['guarded2.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -258,7 +263,7 @@ describe('SkillLoader', () => {
   it('parses both allowed-tools block list and guards block list independently', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['both.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['both.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -276,7 +281,7 @@ describe('SkillLoader', () => {
   it('does not set skills 2.0 fields when not in frontmatter', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) return [['plain.md', FileType.File]];
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['plain.md', FileType.File]];
       return [];
     });
     mockReadFile.mockImplementation(async () =>
@@ -295,7 +300,7 @@ describe('SkillLoader', () => {
   it('listFormatted shows shield badge for restricted skills', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills'))
+      if (norm(uri.fsPath).includes('/ext/skills'))
         return [
           ['restricted.md', FileType.File],
           ['plain.md', FileType.File],
@@ -303,7 +308,7 @@ describe('SkillLoader', () => {
       return [];
     });
     mockReadFile.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('restricted'))
+      if (norm(uri.fsPath).includes('restricted'))
         return Buffer.from('---\nname: Restricted\nallowed-tools: read_file\n---\nContent');
       return Buffer.from('---\nname: Plain\n---\nContent');
     });
@@ -320,7 +325,7 @@ describe('SkillLoader', () => {
   it('skips non-.md files', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
-      if (uri.fsPath.includes('/ext/skills')) {
+      if (norm(uri.fsPath).includes('/ext/skills')) {
         return [
           ['readme.txt', FileType.File],
           ['skill.md', FileType.File],

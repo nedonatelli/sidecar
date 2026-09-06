@@ -166,14 +166,33 @@ function findNearestMatch(fileText: string, search: string): string | null {
  * "search string not found" — technically true, uselessly so — and it edited
  * until cycle detection bailed. The file was right the whole time.
  *
- * The signal is deterministic: the tokens the edit meant to REMOVE are absent
- * from the file, and the tokens it meant to ADD are present. Nothing is left
- * to do. Deliberately conservative — it fires only when the search introduces
- * at least one distinctive token that is now gone AND every distinctive token
- * the replacement adds is already there, so a half-finished rename (old name
- * still present somewhere) still reads as a normal failure.
+ * Two signals, both deterministic:
+ *
+ * 1. Exact outcome: the replacement text is present verbatim exactly once and
+ *    the searched-for text is gone — the file is already in the requested end
+ *    state. This is the only signal that can see an edit whose delta is pure
+ *    punctuation or an operator (`a < b` → `a >= b`): the token heuristic
+ *    below compares identifier sets, which such an edit leaves identical, so
+ *    without this check a landed operator fix reads as "search string not
+ *    found" forever (v0.122 gemma4: fixed `max` correctly on iteration 2, then
+ *    burned 14 iterations re-sending the edit).
+ *
+ * 2. Token delta: the tokens the edit meant to REMOVE are absent from the
+ *    file, and the tokens it meant to ADD are present. Nothing is left to do.
+ *    Deliberately conservative — it fires only when the search introduces at
+ *    least one distinctive token that is now gone AND every distinctive token
+ *    the replacement adds is already there, so a half-finished rename (old
+ *    name still present somewhere) still reads as a normal failure.
  */
 function isEditAlreadyApplied(fileText: string, search: string, replace: string): boolean {
+  const norm = (s: string) => s.replace(/\r\n/g, '\n');
+  const text = norm(fileText);
+  const replaced = norm(replace);
+  if (replaced.trim().length >= 5 && !text.includes(norm(search))) {
+    const occurrences = text.split(replaced).length - 1;
+    if (occurrences === 1) return true;
+  }
+
   const tokens = (s: string) => new Set((s.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? []).map((t) => t));
   const searchTokens = tokens(search);
   const replaceTokens = tokens(replace);
@@ -246,7 +265,15 @@ function suggestRegionError(filePath: string, candidate: string, why: string): s
     `The closest matching region in the file is:\n\`\`\`\n${candidate}\n\`\`\`\n\n` +
     `If that is the code you meant to change, call edit_file again with 'search' set to EXACTLY that text ` +
     `(copy it byte-for-byte) and your new version in 'replace'. If it is not, call read_file to find the ` +
-    `right text first.`
+    `right text first.
+
+` +
+    // Copying the quoted block into BOTH fields is the single most common way
+    // this suggestion is misread: 29 of the 130 identical-edit failures across
+    // three 50-task SWE-bench runs had a search string that came from a
+    // suggestion like this one. Naming the mistake costs one line.
+    `Do NOT paste the block above into 'replace' as well — 'replace' must be the text you want AFTERWARDS. ` +
+    `If the two are the same the edit changes nothing and will be rejected.`
   );
 }
 
@@ -498,9 +525,8 @@ export const editFileDef: ToolDefinition = {
     'Edit an existing file by replacing an exact search string with a replacement. ' +
     'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
     'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
-    'Not for multi-location changes in one call — call `edit_file` once per location, each with a unique search string. ' +
-    'The `search` argument must match exactly one location in the file; if it appears multiple times the call returns an error — add more surrounding lines to make it unique. ' +
-    'Match is byte-exact: whitespace, indentation, and trailing spaces must match the file verbatim. When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
+    '`search` must resolve to ONE location. If it appears several times, pass `within` (a unique line just above the edit, e.g. the enclosing `class`/`def`) rather than growing `search` — every line you add to `search` must be repeated verbatim in `replace` or it is DELETED. To change every occurrence instead, pass `replace_all: true`. ' +
+    'When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
     'There is ONE operation: substitution. To ADD text, put an anchor in `search` and REPEAT that anchor inside `replace` alongside the new code — dropping the anchor from `replace` DELETES it. ' +
     'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
     'Insert example — add a comment above a function by restating the function line: `edit_file(path="src/utils.ts", search="export function greet(", replace="/** Greets someone. */\\nexport function greet(")`.',
@@ -511,13 +537,22 @@ export const editFileDef: ToolDefinition = {
       search: {
         type: 'string',
         description:
-          'Exact text to find in the file — whitespace and indentation must match the file byte-for-byte. Must appear exactly once; if it appears multiple times the call returns an error. Include enough surrounding lines to guarantee uniqueness.',
+          'Exact text to find — whitespace and indentation must match the file byte-for-byte. Keep it to the text you are CHANGING; disambiguate with `within`, not with extra lines, since anything extra here must be repeated in `replace` or it is deleted.',
       },
       replace: {
         type: 'string',
         description:
-          'New text to substitute for the search match. Must differ from search — if they are identical the call returns an error. ' +
-          'If the replacement is very short and appears verbatim inside the search string, the call succeeds but appends a warning; call read_file to verify the result.',
+          'New text to substitute for the search match. Must differ from search — identical fields are an error. If it is very short and appears verbatim inside search, the call warns; read_file to verify.',
+      },
+      within: {
+        type: 'string',
+        description:
+          'Optional locator: unique text just ABOVE the edit (enclosing `class`/`def`, a docstring, a comment) saying which occurrence you mean. `search` is matched only at or after it. Must appear exactly once. Never written to the file, never repeated in `replace`. Not usable with `replace_all`.',
+      },
+      replace_all: {
+        type: 'boolean',
+        description:
+          'Replace EVERY occurrence of `search` instead of requiring a unique match. Use when the same text repeats. Default false.',
       },
     },
     // Only `path` is structurally required. search/replace presence is
@@ -602,6 +637,18 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   try {
     bytes = await workspace.fs.readFile(fileUri);
   } catch (err: unknown) {
+    // A directory path leaks a raw `EISDIR: illegal operation on a directory`
+    // with an absolute path — seen 7× in one llama3.2 run, never converted.
+    // Name the tool that actually handles directories.
+    const isDir =
+      err instanceof Error &&
+      (err.message.includes('EISDIR') || (err as { code?: string }).code === 'FileIsADirectory');
+    if (isDir) {
+      throw new Error(
+        `Error: "${filePath}" is a directory, not a file. Use list_directory(path="${filePath}") to see its ` +
+          `contents, then read_file on a specific file inside it.`,
+      );
+    }
     const isNotFound =
       err instanceof Error && (err.message.includes('ENOENT') || (err as { code?: string }).code === 'FileNotFound');
     if (!isNotFound) throw err;
@@ -740,7 +787,25 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // file, a full write_file would clobber them — regenerating the whole file
   // re-introduces the bug the edit just fixed (dogfooding caught exactly that
   // write→edit→write→edit loop on a recurring syntax error). Force edit_file.
+  //
+  // Exception: content identical to the file's current state clobbers nothing.
+  // That is a model re-stating the finished file (usually a final-state code
+  // block auto-converted to write_file), and the clobber lecture is actively
+  // wrong there — v0.122 gemma4 fixed `max` via edit_file, printed the correct
+  // final file, was told it "keeps re-introducing the bug", and spiralled into
+  // re-fixing a file that was already right. Confirm the state instead.
   if (context?.filesEditedViaEditTool && pathInSetByBasename(filePath, context.filesEditedViaEditTool)) {
+    const currentText = isAuditModeActive(context)
+      ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
+      : await readDiskViaWorkspace(context, filePath);
+    const norm = (s: string) => s.replace(/\r\n/g, '\n').replace(/\n$/, '');
+    if (currentText !== undefined && norm(currentText) === norm(content)) {
+      return (
+        `No change needed: \`${filePath}\` already matches this content exactly — your earlier edit is in place ` +
+        `and the file is in the state you want. Do NOT rewrite it or repeat the edit. If the task is complete, ` +
+        `say so and finish; otherwise move on to the next step.`
+      );
+    }
     throw new Error(
       `write_file to \`${filePath}\` was NOT applied. You've been making targeted edits to this file, and a full ` +
         `rewrite would clobber them — regenerating the whole file keeps re-introducing the bug you just fixed with ` +
@@ -790,7 +855,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // llama3.2 sidestepped edit_file entirely and called write_file with
   // `@tsdoc \n\nfunction welcome(name: string): string {…` — dropping `export`,
   // writing a non-comment, and clobbering a clean file with unparseable source.
-  // Every corruption defence lived in edit_file, so this sailed through and
+  // Every corruption defense lived in edit_file, so this sailed through and
   // reported success. An empty/absent file parses clean, so the same rule
   // covers creation: don't create a file that doesn't parse either. Fails open
   // when no grammar applies (markdown, JSON, unknown extensions).
@@ -829,7 +894,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // llama3.2 sidestepped edit_file entirely and called write_file with
   // `@tsdoc \n\nfunction welcome(name: string): string {…` — dropping `export`,
   // writing a non-comment, and clobbering a clean file with unparseable source.
-  // Every corruption defence lived in edit_file, so this sailed through and
+  // Every corruption defense lived in edit_file, so this sailed through and
   // reported success. An absent file reads as empty, which parses clean, so the
   // same rule covers creation. Fails open when no grammar applies (md, json…).
   const syntax = await editWouldBreakSyntax(filePath, original ?? '', content);
@@ -919,6 +984,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // `replace` — which the duplicated-tail repair and syntax guard below already
   // protect against the classic 'replace ate the function' mistake.
   const replace = rawReplace;
+  // replace_all: change EVERY occurrence of `search` in one call. Without it a
+  // search that appears N times is rejected as ambiguous, forcing the model into
+  // N context-disambiguated edits — where weak models thrash (gemma4 on django-11099:
+  // the identical regex lived in two validators, and it looped on the "appears 2
+  // times" rejection until cycle detection bailed, despite knowing the fix).
+  const replaceAll = input.replace_all === true;
+  const within = typeof input.within === 'string' ? input.within : undefined;
 
   // Creation-intent coercion. Small models constantly call edit_file with
   // one of search/replace missing on a file that doesn't exist yet — the
@@ -1142,7 +1214,14 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       }
       currentText = diskText;
     }
-    const resolvedAudit = await resolveEditedText({ filePath, text: currentText, search, replace, context });
+    const resolvedAudit = await resolveEditedText({
+      filePath,
+      text: currentText,
+      search,
+      replace,
+      replaceAll,
+      context,
+    });
     if (resolvedAudit.newText === null) return resolvedAudit.message;
     const auditPatch = computeLineDiff(currentText, resolvedAudit.newText, filePath);
     await buf.write(filePath, resolvedAudit.newText, (p) => readDiskViaWorkspace(context, p));
@@ -1158,6 +1237,18 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   try {
     bytes = await workspace.fs.readFile(fileUri);
   } catch (err: unknown) {
+    // A directory path leaks a raw `EISDIR: illegal operation on a directory`
+    // with an absolute path — seen 7× in one llama3.2 run, never converted.
+    // Name the tool that actually handles directories.
+    const isDir =
+      err instanceof Error &&
+      (err.message.includes('EISDIR') || (err as { code?: string }).code === 'FileIsADirectory');
+    if (isDir) {
+      throw new Error(
+        `Error: "${filePath}" is a directory, not a file. Use list_directory(path="${filePath}") to see its ` +
+          `contents, then read_file on a specific file inside it.`,
+      );
+    }
     const isNotFound =
       err instanceof Error && (err.message.includes('ENOENT') || (err as { code?: string }).code === 'FileNotFound');
     if (!isNotFound) throw err;
@@ -1197,7 +1288,16 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
         })()
       : '';
 
-  const resolved = await resolveEditedText({ filePath, text, search, replace, unreadPrefix, context });
+  const resolved = await resolveEditedText({
+    filePath,
+    text,
+    search,
+    replace,
+    replaceAll,
+    within,
+    unreadPrefix,
+    context,
+  });
   if (resolved.newText === null) return resolved.message;
   const newText = resolved.newText;
 
@@ -1253,15 +1353,98 @@ export type ResolvedEdit =
  * Throws the teaching errors. Returns `newText: null` when the file already
  * matches the requested outcome.
  */
+/**
+ * Lines that introduce a named definition, across the languages the edit tools
+ * see most. Deliberately shallow: this feeds a COUNT comparison, not a parse,
+ * and a pattern that misses a definition only makes the guard quieter.
+ */
+const DEFINITION_LINE =
+  /^\s*(?:@\w[\w.]*\s*(?:\([^)]*\))?\s*$|(?:async\s+)?def\s+\w|class\s+\w|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*\w|(?:export\s+)?(?:const|let|var)\s+\w[\w$]*\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>|(?:public|private|protected|static)\s+\w)/;
+
+function countDefinitions(text: string): number {
+  return text.split('\n').filter((l) => DEFINITION_LINE.test(l)).length;
+}
+
+/**
+ * A `replace` holding fewer definitions than its `search` deletes one.
+ *
+ * The count, not the text, is the signal: a rename legitimately rewrites a
+ * `def` line (1 -> 1) and must stay legal, while the live corruption dropped
+ * the header entirely (1 -> 0). Returns the first definition line that
+ * disappeared, for the error message; null when nothing was lost.
+ *
+ * This is the only guard that can see this edit. Delimiter balance is nearly
+ * blind on Python, the tokens align, and the orphaned body re-indents into the
+ * preceding method — so the result still parses and the syntax guard passes it.
+ */
+function droppedDefinition(search: string, replace: string): string | null {
+  if (countDefinitions(replace) >= countDefinitions(search)) return null;
+  const kept = new Set(replace.split('\n').map((l) => l.trim()));
+  return search.split('\n').find((l) => DEFINITION_LINE.test(l) && !kept.has(l.trim())) ?? null;
+}
+
+/**
+ * Suggest a concrete `within` value: the nearest preceding line that is unique
+ * in the file. A named field beats an abstract instruction — the model can copy
+ * this straight back, the same reason the search-not-found path hands over the
+ * actual file text instead of describing it.
+ */
+function buildWithinHint(text: string, search: string, matchStart: number): string {
+  const before = text.slice(0, matchStart).split('\n').slice(-12).reverse();
+  for (const line of before) {
+    const t = line.trim();
+    if (t.length < 4 || t === search.trim()) continue;
+    if (text.split(t).length - 1 === 1) {
+      return `\n\nFor example, to target the occurrence nearest your search: within="${t.replace(/"/g, '\\"')}"`;
+    }
+  }
+  return '';
+}
+
+/** How far from its locator a `within`-scoped match may sit before we refuse. */
+const WITHIN_MAX_LINES = 40;
+
+/**
+ * Resolve `within` to the offset the search should be measured from.
+ *
+ * `within` exists to break the conflation that causes the corruption above:
+ * it carries the "where", so `search` can stay short enough to mirror into
+ * `replace` without error. It must be unique — an ambiguous locator would just
+ * move the ambiguity one field over.
+ *
+ * Throws the teaching error; returns the offset to search from.
+ */
+function resolveWithin(text: string, within: string, filePath: string): number {
+  const count = text.split(within).length - 1;
+  if (count === 0) {
+    throw new Error(
+      `Error: edit_file 'within' not found in ${filePath} — the locator text does not appear in the file. ` +
+        `The file was NOT modified. 'within' must be text currently in the file, copied byte-for-byte, that is ` +
+        `near the edit and appears exactly once (a class line, a docstring, a comment). Call read_file to check it.`,
+    );
+  }
+  if (count > 1) {
+    throw new Error(
+      `Error: edit_file 'within' appears ${count} times in ${filePath}, so it cannot identify one location. ` +
+        `The file was NOT modified. Pick a locator that is unique — the enclosing class or function line is ` +
+        `usually the shortest one that is.`,
+    );
+  }
+  return text.indexOf(within);
+}
+
 export async function resolveEditedText(params: {
   filePath: string;
   text: string;
   search: string;
   replace: string;
+  replaceAll?: boolean;
+  within?: string;
   unreadPrefix?: string;
   context?: ToolExecutorContext;
 }): Promise<ResolvedEdit> {
-  const { filePath, text, search, replace, context } = params;
+  const { filePath, text, search, replace, within, context } = params;
+  const replaceAll = params.replaceAll ?? false;
   const unreadPrefix = params.unreadPrefix ?? '';
   // Before matching: an empty search matches nothing, and the tolerance tiers
   // would report it as a plain miss. The model needs the directive error that
@@ -1274,7 +1457,98 @@ export async function resolveEditedText(params: {
   // below still runs against real file bytes — and they run BEFORE the
   // intent-based fuzzy recovery, which guesses at the region from word overlap
   // and is far less certain than "the same text with different line endings".
-  const match = findEditMatch(text, search, replace);
+  // A `replace` that drops a definition its `search` carried deletes it. Runs
+  // BEFORE matching so the refusal is about the two fields, not about where
+  // they landed, and so no tolerance tier can turn it into a silent write.
+  const dropped = droppedDefinition(search, replace);
+  if (dropped) {
+    recordEditFailure(context, filePath, search, replace);
+    throw new Error(
+      `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — your 'replace' drops the line ` +
+        `\`${dropped.trim()}\`, which your 'search' contained. The file was NOT modified. ` +
+        `edit_file substitutes: everything in 'search' and missing from 'replace' is DELETED, and deleting a ` +
+        `definition leaves its body attached to whatever precedes it — which still parses, so nothing downstream ` +
+        `would catch it. Either repeat that line inside 'replace' alongside your change, or shorten 'search' to ` +
+        `just the line you are changing and pass the enclosing definition in 'within' to disambiguate.`,
+    );
+  }
+
+  // `within` carries the "where" so `search` can carry only the "what". Both
+  // roles in one field is what makes a model grow `search` for uniqueness and
+  // then fail to mirror the growth into `replace`, silently deleting the
+  // difference. A locator is never echoed into `replace`, so it cannot be lost.
+  let anchorAt = 0;
+  if (within !== undefined && within !== '') {
+    if (replaceAll) {
+      throw new Error(
+        `${unreadPrefix}Error: edit_file cannot combine 'within' with 'replace_all' — one narrows to a single ` +
+          `location, the other changes every occurrence. The file was NOT modified. Drop 'within' to change all ` +
+          `occurrences, or drop 'replace_all' to change only the one near your locator.`,
+      );
+    }
+    anchorAt = resolveWithin(text, within, filePath);
+  }
+
+  let match = within ? findEditMatch(text.slice(anchorAt), search, replace) : findEditMatch(text, search, replace);
+
+  /**
+   * `within` exists to pick ONE of several candidate locations. When `search`
+   * occurs exactly once in the whole file there are no candidates to choose
+   * between, so the locator decides nothing -- and must not be able to veto the
+   * edit. It could before: the slice starts at the anchor, so a search sitting
+   * ABOVE the locator simply vanished and the model was told "search string not
+   * found" about text plainly present in the file. That reading sends it off to
+   * rewrite the search string, which was never the problem.
+   *
+   * Measured over the multi-line not-found failures in three 50-task SWE-bench
+   * runs, on files still at their base commit: 13 of 42 failed exactly this
+   * way, and ALL 13 had exactly one whole-file occurrence. A redundant locator
+   * was the entire cause.
+   *
+   * Uniqueness is what makes the fallback safe. The distance guard below exists
+   * to stop a wrong locator steering an AMBIGUOUS search into the wrong region;
+   * where there is one occurrence, there is no other region to land in.
+   */
+  let anchorRedundant = false;
+  const fallBackToWholeFile = (): boolean => {
+    const whole = findEditMatch(text, search, replace);
+    if (!whole || whole.count !== 1) return false;
+    match = whole;
+    anchorAt = 0; // so the re-base below is a no-op on an already whole-file span
+    anchorRedundant = true;
+    return true;
+  };
+  if (within && !match) fallBackToWholeFile();
+
+  // Say plainly that the locator was the problem. Silently ignoring it would
+  // teach the model nothing, and it would keep paying for anchors it does not
+  // need on the next edit.
+  const anchorRedundantNote = () =>
+    anchorRedundant
+      ? `[note: your 'within' locator did not contain the search text, but the search matched exactly once in ` +
+        `${filePath}, so the locator was not needed and was ignored. Pass 'within' only when 'search' really ` +
+        `appears more than once.]
+`
+      : '';
+  if (within && match && !anchorRedundant) {
+    const anchorLine = text.slice(0, anchorAt).split('\n').length;
+    const matchLine = text.slice(0, anchorAt + match.start).split('\n').length;
+    if (matchLine - anchorLine > WITHIN_MAX_LINES && !fallBackToWholeFile()) {
+      // A wrong locator that quietly edits a distant region is the worst
+      // outcome available here — worse than any error. Refuse instead.
+      throw new Error(
+        `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — the nearest match for 'search' is ` +
+          `${matchLine - anchorLine} lines past your 'within' locator, too far to be the location you meant. ` +
+          `The file was NOT modified. Choose a locator immediately above the edit.`,
+      );
+    }
+    // Re-base onto the whole file and collapse to the one occurrence the
+    // locator selected, so every downstream guard sees real file offsets and
+    // the ambiguity branch cannot re-fire on siblings before the anchor.
+    match.start += anchorAt;
+    match.end += anchorAt;
+    match.count = 1;
+  }
   if (!match) {
     // Already applied? The rename the model is retrying may have LANDED on an
     // earlier iteration — the old tokens are gone, the new ones are present.
@@ -1373,12 +1647,48 @@ export async function resolveEditedText(params: {
     );
   }
   if (match.count > 1) {
+    // replace_all: the caller wants EVERY occurrence changed. Splice all copies
+    // of the exact matched bytes in one pass (String.split/join, so no `$&`/`$1`
+    // regex expansion), then run the same syntax guard a single splice gets.
+    if (replaceAll) {
+      const matchedExact = text.slice(match.start, match.end);
+      const newTextAll = text.split(matchedExact).join(applyEol(replace, detectEol(text).eol));
+      const allSyntax = await editWouldBreakSyntax(filePath, text, newTextAll);
+      if (allSyntax.refuse) {
+        recordEditFailure(context, filePath, search, replace);
+        throw new Error(`${unreadPrefix}${allSyntax.message}`);
+      }
+      clearEditFailure(context, filePath);
+      return {
+        newText: newTextAll,
+        summary: `File edited: ${filePath} (replace_all — ${match.count} occurrences replaced)`,
+        prefixNote: '',
+        suffixNote: '',
+      };
+    }
     // Ambiguity is counted at the tier that matched: if the search is unique
     // byte-for-byte it is unique, full stop, even when a laxer tier would have
     // found siblings. Only a search that NEEDED the tolerance is judged by it.
     const where = match.tier === 'exact' ? '' : ` (ignoring ${TIER_LABEL[match.tier]})`;
+    // Order matters: this message is read at the moment the model decides what
+    // to do next, and it used to present `replace_all` as a coequal escape from
+    // ambiguity. It is the cheaper of the two options — "add surrounding
+    // context" is exactly what a small model cannot do — so models took it.
+    // Live: granite4.1:3b answered "appears 20 times" with replace_all and
+    // rewrote all twenty validators when the task named one. It reported
+    // success; nothing downstream could see the damage.
+    //
+    // `within` leads because it resolves the ambiguity WITHOUT enlarging
+    // `search`, so there is nothing extra to mirror into `replace`.
+    const locatorHint = buildWithinHint(text, search, match.start);
     throw new Error(
-      `${unreadPrefix}Error: edit_file failed — search string appears ${match.count} times in ${filePath}${where}. The file was NOT modified. Add more surrounding context to your search string to make it unique, then retry.`,
+      `${unreadPrefix}Error: edit_file failed — search string appears ${match.count} times in ${filePath}${where}. ` +
+        `The file was NOT modified.\n\n` +
+        `FIX: add \`within\` — unique text just ABOVE the one you mean (the enclosing class/def line, a docstring, ` +
+        `a comment). \`search\` then matches only after it, and stays exactly as you already wrote it.` +
+        `${locatorHint}\n\n` +
+        `Only if you truly intend to change all ${match.count} places: \`replace_all: true\` rewrites EVERY ` +
+        `occurrence in ${filePath}. That is ${match.count} separate edits — do not use it to escape this error.`,
     );
   }
 
@@ -1481,11 +1791,72 @@ export async function resolveEditedText(params: {
       `not \\n escapes.]`;
   }
 
+  // Shadow-definition guard. A weak model told to CHANGE an existing top-level
+  // value often ADDS a second definition instead of editing the first — anchoring
+  // on a nearby comment — leaving the original below it. The later definition
+  // wins, so the "fix" is a silent no-op that still PARSES (the syntax guard can't
+  // see it). Live: gemma4 on django-10914 added `FILE_UPLOAD_PERMISSIONS = 0o644`
+  // above the existing `= None`, read the diff, declared success, and committed a
+  // patch that changed nothing. Refuse the edit and point at the real target.
+  const dup = introducedTopLevelDuplicate(text, newText);
+  if (dup) {
+    recordEditFailure(context, filePath, search, replace);
+    throw new Error(
+      `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — it would define \`${dup.name}\` at the ` +
+        `top level ${dup.lines.length} times (lines ${dup.lines.join(', ')}), which it isn't in the current file. ` +
+        `The LAST top-level definition wins, so adding a second \`${dup.name}\` is usually a no-op — the existing ` +
+        `line overrides the one you added. To CHANGE an existing top-level \`${dup.name}\`, put its CURRENT line ` +
+        `in \`search\` and the new version in \`replace\` (do not add a second definition). The file was NOT modified.`,
+    );
+  }
+
   return {
     newText,
-    prefixNote: matchToleranceNote(match, filePath, text) + duplicateTrimNote,
+    prefixNote: anchorRedundantNote() + matchToleranceNote(match, filePath, text) + duplicateTrimNote,
     suffixNote: escapeRecoveryNote,
   };
+}
+
+/**
+ * Top-level (column-0) definitions in `text`: assignments (`X =`, `X: T =`),
+ * Python `def`/`class`, and JS/TS `function`/`class`/`const`/`let`/`var`. Maps
+ * name → the 1-based lines it's defined on. Column-0-only keeps it to module
+ * scope (indented = inside a function/class/block, a different namespace) and
+ * dodges the tree-sitter-scope ambiguity of the flat symbol list.
+ */
+function topLevelDefs(text: string): Map<string, number[]> {
+  const defs = new Map<string, number[]>();
+  const add = (name: string, line: number): void => {
+    const arr = defs.get(name);
+    if (arr) arr.push(line);
+    else defs.set(name, [line]);
+  };
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    if (ln.length === 0 || /^\s/.test(ln)) continue; // module scope only
+    let m: RegExpMatchArray | null;
+    // NAME = ... or NAME: Type = ...  (excludes ==, +=, <=, etc. via the =(?![=]) tail)
+    if ((m = ln.match(/^([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=(?!=)/))) add(m[1], i + 1);
+    else if ((m = ln.match(/^(?:async\s+)?def\s+([A-Za-z_]\w*)/))) add(m[1], i + 1);
+    else if ((m = ln.match(/^class\s+([A-Za-z_]\w*)/))) add(m[1], i + 1);
+    else if (
+      (m = ln.match(/^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/))
+    )
+      add(m[1], i + 1);
+  }
+  return defs;
+}
+
+/** A top-level name the edit newly duplicated: present ≥2× in `newText` and more
+ *  times than in `oldText`. Null when the edit introduced no such shadow. */
+function introducedTopLevelDuplicate(oldText: string, newText: string): { name: string; lines: number[] } | null {
+  const before = topLevelDefs(oldText);
+  const after = topLevelDefs(newText);
+  for (const [name, lines] of after) {
+    if (lines.length >= 2 && lines.length > (before.get(name)?.length ?? 0)) return { name, lines };
+  }
+  return null;
 }
 
 /** How a tier's tolerance reads in an ambiguity error. */

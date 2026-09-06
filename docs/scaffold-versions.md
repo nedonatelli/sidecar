@@ -38,6 +38,158 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 5.1.0 — the adversarial critic is removed (2026-08)
+
+MINOR: a scaffold mechanism was **removed**, so the scaffold descriptor no
+longer carries a `critic` feature key. Behavior is unchanged for default
+installs (the critic shipped default-off), but manifests either side of this
+boundary differ in shape.
+
+- **Critic removed entirely.** The adversarial critic (`critic.ts`,
+  `criticHook.ts`, the `analysisCritic` hook, `sidecar.critic.*` settings, the
+  `critic` router role, the `critic-only` ablation arm, and the
+  `runLlmCritic` scaffolding-profile trigger) is deleted. It had shipped
+  default-off since the SWE-bench ablation measured it as actively harmful
+  (~7.5× faster termination, MORE empty patches — a blocking model-judges-model
+  verdict sent weak models chasing phantom findings and over-editing). With no
+  measured benefit and a real maintenance cost, it is gone rather than dormant.
+  Deterministic verification (completion gate, lint, tests, syntax) remains the
+  load-bearing layer.
+
+### 5.0.0 — checks must PASS, and silence is not an answer (2026-08)
+
+MAJOR twice over: a gate's verification semantics changed (red-check refusal)
+and a new default-on mechanism was added (empty-turn reprompt). Results either
+side of this boundary are **not** directly comparable.
+
+- **Red-check completion gate.** The gate verified that checks RAN, not that
+  they PASSED — v0.122 gemma4 ran `tsc --noEmit`, saw both errors, wrote
+  "this is expected, the compiler hasn't picked up the change," and finished
+  with a broken import (`rename-propagates-to-cross-file-caller`, the one
+  fleet-universal failure). A failing verification result (shared
+  `isFailingCheckOutput` predicate, single-sourced with the 4.0.4 reprompt
+  escapes) now refuses completion at most twice, with wording that explicitly
+  allows an honest could-not-complete report to exit. A new mutation stales
+  the flag — the model is fixing, and the normal re-verification
+  requirements re-arm it. Fix work in response is primary work: the
+  keep-best ratchet does not arm on this injection.
+- **Empty-turn reprompt.** A turn with no text and no tool call ended the
+  run as 'natural' completion. Observed as recorded failures on three models
+  (granite ×2, deterministic across runs; ministral ×1), always right after
+  a successful read. One bounded continue-reprompt; recurring silence still
+  ends the run.
+- **Tool prompt surface** (same batch): ask_user replies framed as
+  `The user answered: "…"` in the standard tool_output wrapper — the only
+  bare-string result on the surface was being discounted (north-mini-code
+  re-asked an already-answered question); search_files retries bare terms as
+  name substrings and teaches names-vs-contents; run_tests' no-runner hint
+  is workspace-aware (no more pytest suggestions at TypeScript); read_file
+  on a directory names list_directory instead of leaking raw EISDIR.
+- **Eval-harness companion** (not scaffold runtime): the cooperative user
+  now also answers a run that ends on a genuine clarifying question in chat
+  text, once, so ask-in-text models are measured on whether they USE the
+  answer — the same bar the ask_user path has always had.
+
+### 4.0.4 — intent-aware reprompt escapes: run state over request phrasing (2026-08)
+
+PATCH. Firing-condition tuning within the action-reprompt and fence-coercion
+mechanisms — no change to which mechanisms run.
+
+The "No tool calls detected" trigger classified turns by the REQUEST's shape
+(action verb + file path) with no awareness of run state, so it fired on
+text-only turns that were the legitimate end of the work. Two evidence-keyed
+escapes:
+
+- **Read request already answered**: the request is read-only
+  (`!isMutationRequest`) and non-error read-shaped results exist since the
+  user's real message — the text-only turn is the deliverable.
+- **Mutation verified done**: a successful mutation is followed by a CLEAN
+  verification result (run_command/run_tests/get_diagnostics, no error flag,
+  no failing-output signature). The text-only turn is a completion summary.
+- **A red check blocks the second escape outright** — nonzero exit codes,
+  `error TS…`, `FAILED`, `Traceback` keep the pressure on. (gemma4,
+  2026-08-07: rationalized failing tsc output and quit with a broken import;
+  no escape may make that exit easier.)
+- **Deferred-intent text keeps the reprompt** regardless of prior work —
+  "Next, I will…" then stopping is still a stall.
+- Not included (needs an A/B): a clarifying-question escape. It would fight
+  the measured "Shall I proceed?" stall-detection clause; distinguishing
+  disambiguation-with-candidates from permission-stalling is future work.
+
+### 4.0.3 — cycle detection distinguishes hammering from recovery (2026-08)
+
+PATCH. Threshold and exemption tuning within the cycle-detection mechanism —
+no change to which mechanisms run.
+
+The tolerances were inverted: blind byte-identical resubmission got
+`cycleDetectionMinRepeats + 1` = **11** chances, while the prescribed recovery
+loop (read the file, then retry — exactly what the edit errors instruct) formed
+a length-2 pattern that bailed after **2** cycles, before `edit_file`'s
+3rd-failure escalation tier could run.
+
+- **Consecutive-identical threshold decoupled and fixed at 4.** As config+1 it
+  silently rose 4→11 when the normalized default went 3→10 — tolerance meant
+  for varying-content retries applied to resubmissions that get the same
+  deterministic answer every time.
+- **New identical-mutation pass**: byte-identical mutation calls counted
+  ACROSS interleaved reads; 4th occurrence bails. Evidence: gemma4
+  (`thinking-missing-await-in-loop`) sent one failing edit at positions
+  10/14/15/17/18 — longest consecutive streak 2, so nothing fired until a
+  [read, edit, edit] block happened to repeat verbatim.
+- **Recovery-shape exemption** for length-2..4 pattern bails (exact and
+  normalized): a pattern containing a read of a file under active mutation is
+  the model doing work — reading a larger slice, retrying per instructions.
+  Truly stuck variants still bail via the identical-mutation pass (a
+  content-identical pattern necessarily repeats its mutation byte-for-byte).
+- Granite baseline evidence: `no-op-recognition`, `run-fix-iteration-cycle`,
+  `thinking-semantic-version-compare`, `dogfood-rename-no-corruption` all died
+  as "pattern of length 2/3" mid-recovery.
+
+### 4.0.2 — the "already done" signal disarms the act-now machinery (2026-08)
+
+PATCH. Firing-condition tuning within two existing mechanisms — no change to
+which mechanisms run.
+
+- **Action reprompt stands down** when the newest tool evidence is a
+  "No change needed" / already-applied result. A text-only completion turn
+  after that signal is the model obeying the message's own instruction ("if
+  the task is complete, say so and finish") — re-prompting it to use tools
+  re-entered the edit loop.
+- **Fence-write coercion stands down** under the same evidence: a final-state
+  code fence after "No change needed" is a completion summary, not an
+  unapplied edit, and synthesizing a `write_file` from it fed the loop.
+- **Evidence walk**: newest-first through tool-result batches, past read-only
+  results and synthetic `[`-prefixed injections; any successful mutation
+  ("File edited/written") or the user's real request ends the walk. Marker
+  predicate (`isNoChangeNeededResult`) single-sourced with the completion
+  gate's no-op-edit bookkeeping.
+- **Why**: without this, 4.0.1's messages and the loop fought each other —
+  gemma4 obeyed "say so and finish" and was re-prompted straight back into
+  re-fixing an already-correct file (fix-wrong-comparison-operator,
+  2026-08-05: 14 wasted iterations). Both suppressions log, so firing counts
+  are observable in run logs.
+
+### 4.0.1 — landed-fix recognition in the rewrite guards (2026-08)
+
+PATCH. Tunes recognition within two existing guards — no change to which
+mechanisms run.
+
+- **`isEditAlreadyApplied` gains an exact-outcome signal**: the edit is
+  reported "already applied" when the replacement text is present verbatim
+  exactly once and the searched-for text is gone. The token heuristic compares
+  identifier sets, so an edit whose only delta is an operator (`a < b` →
+  `a >= b`) was invisible to it and read as "search string not found" forever.
+- **The enforce-edit-over-rewrite guard confirms instead of blocking** when the
+  write content is identical (modulo CRLF / trailing newline) to the file's
+  current state — "No change needed … the file is in the state you want" —
+  instead of claiming the rewrite "keeps re-introducing the bug".
+- **Evidence** (gemma4:e4b, `fix-wrong-comparison-operator`, 2026-08-02 and
+  2026-08-05 trajectories): the fix landed via `edit_file` on iteration 2 and
+  verified clean with `tsc --noEmit`; the model then burned 14 iterations
+  re-sending the edit ("search string not found") and re-stating the file
+  (blocked with the clobber lecture), never once being told the fix was in.
+  Both retry shapes now get an explicit "already done — finish" signal.
+
 ### 4.0.0 — edit_file collapses to one operation (2026-07)
 
 MAJOR. A mechanism was removed and the repair path changed, so results either

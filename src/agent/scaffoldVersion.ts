@@ -80,6 +80,80 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.0.0** (2026-08) — checks must PASS, and silence is not an answer.
+ *   MAJOR twice over: a gate's verification semantics changed and a new
+ *   default-on mechanism was added.
+ *   (1) Red-check completion gate: the gate verified that checks RAN, not
+ *   that they PASSED — gemma4 ran tsc, saw both errors, called them
+ *   "expected", and finished with a broken import. A failing verification
+ *   result (shared isFailingCheckOutput predicate) now refuses completion,
+ *   at most twice, with wording that lets an honest could-not-complete
+ *   report exit; a new mutation stales the flag (the model is fixing) and
+ *   the normal re-verification requirements re-arm it.
+ *   (2) Empty-turn reprompt: a turn with no text and no tool call ended
+ *   the run as 'natural' completion — three models recorded silent deaths
+ *   right after a successful read. One bounded continue-reprompt; recurring
+ *   silence still ends the run.
+ *   Also in this batch (tool prompt surface): ask_user replies framed as
+ *   "The user answered:" in the standard tool_output wrapper (bare-string
+ *   replies were discounted — north-mini-code re-asked an answered
+ *   question); search_files retries bare terms as name substrings and
+ *   teaches names-vs-contents with a grep pointer; run_tests' no-runner
+ *   hint is workspace-aware (tsc for TS, interpreter for Python, honest
+ *   "no check available" otherwise); read_file on a directory names
+ *   list_directory instead of leaking raw EISDIR.
+ * - **4.0.4** (2026-08) — intent-aware reprompt escapes: run state over
+ *   request phrasing. The action reprompt and fence coercion triggered on the
+ *   REQUEST's shape (action verb + file path) with no awareness of what had
+ *   already happened, so they fired on text-only turns that were the
+ *   legitimate end of the work. Two evidence-keyed escapes: (1) a read-only
+ *   request already answered from real, non-error read results — the text IS
+ *   the deliverable; (2) a mutation followed by a CLEAN verification result —
+ *   the text is a completion summary. A failing check (nonzero exit, error
+ *   TS…, FAILED, Traceback) blocks escape (2) outright: v0.122 gemma4
+ *   rationalized red tsc output and quit with a broken import, and nothing
+ *   may make that exit easier. Deferred-intent text ("Next, I will…") keeps
+ *   the reprompt regardless — announcing more work then stopping is still a
+ *   stall. PATCH: firing-condition tuning within existing mechanisms.
+ * - **4.0.3** (2026-08) — cycle detection distinguishes hammering from
+ *   recovery. Three linked changes: (1) the consecutive-identical threshold
+ *   is decoupled from cycleDetectionMinRepeats and fixed at 4 — defined as
+ *   config+1, it had silently risen 4→11 when the normalized default went
+ *   3→10, tolerance meant for varying-content retries applied to
+ *   byte-identical resubmissions that can never self-correct; (2) a new
+ *   identical-mutation pass counts byte-identical mutation calls ACROSS
+ *   interleaved reads (gemma4 sent one failing edit 5× with reads between —
+ *   longest streak 2, nothing fired); (3) length-2..4 pattern bails exempt
+ *   the recovery shape (pattern includes a read of a file under active
+ *   mutation — the exact behavior the edit errors prescribe), which
+ *   previously died at 2 cycles, before edit_file's 3rd-failure escalation
+ *   tier could run; the identical-mutation pass bounds the truly-stuck
+ *   variant at 4. PATCH: threshold/exemption tuning within one mechanism.
+ * - **4.0.2** (2026-08) — the "already done" signal disarms the act-now
+ *   machinery. The action reprompt and fence-write coercion now stand down
+ *   when the newest tool evidence is a "No change needed"/already-applied
+ *   result (walking back past read-only results and synthetic injections,
+ *   stopping at any real mutation or the user's actual request). Without this
+ *   the two mechanisms fought the 4.0.1 messages: the model obeyed "if the
+ *   task is complete, say so and finish", and its text-only completion turn
+ *   triggered "No tool calls detected — re-prompting" plus a coerced write of
+ *   its own summary fence — the exact loop the already-applied response exists
+ *   to end. Marker predicate single-sourced (isNoChangeNeededResult) with the
+ *   completion gate's no-op-edit bookkeeping. PATCH: firing-condition tuning
+ *   within two existing mechanisms; no mechanism added, removed, or
+ *   re-defaulted.
+ * - **4.0.1** (2026-08) — landed-fix recognition in the rewrite guards.
+ *   `isEditAlreadyApplied` gains an exact-outcome signal (replacement present
+ *   verbatim exactly once + search gone ⇒ "already applied") — the token
+ *   heuristic compares identifier sets, so an operator-only edit (`a < b` →
+ *   `a >= b`) could never be recognized as landed and read as "search string
+ *   not found" forever. The enforce-edit-over-rewrite guard now confirms "no
+ *   change needed" when the write content is identical (modulo CRLF/trailing
+ *   newline) to the file's current state, instead of a clobber lecture about
+ *   content that clobbers nothing. Evidence: gemma4:e4b burned 14 iterations
+ *   re-fixing an already-correct minmax.ts (fix-wrong-comparison-operator,
+ *   2026-08-02 and 2026-08-05). PATCH: recognition tuning within existing
+ *   guards; no mechanism added, removed, or re-defaulted.
  * - **4.0.0** (2026-07) — edit_file collapses to ONE operation. insert_before /
  *   insert_after / new_text and the V2 insert convention are removed, along with
  *   the splitFusedAnchor recovery. The field names contradicted their semantics
@@ -100,17 +174,16 @@
  *   `scaffold-on` set — a `scaffold-on` run at 2.0.0 measures the SAME mechanisms
  *   as 1.x unless the arm config opts them in. The version differs because the
  *   SHARED path (repair, gate internals) changed.
- * - **1.x** — pre-2026-07 baseline (completion gate, adversarial critic,
- *   auto-fix, adaptive scaffolding, impact gate, numerical-contract gate).
+ * - **1.x** — pre-2026-07 baseline (completion gate, auto-fix, adaptive
+ *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '4.0.0';
+export const SCAFFOLD_VERSION = '5.1.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
 export interface ScaffoldConfigLike {
   completionGateEnabled?: boolean;
-  criticEnabled?: boolean;
   autoFixOnFailure?: boolean;
   adaptiveScaffoldingEnabled?: boolean;
   impactGateEnabled?: boolean;
@@ -141,7 +214,6 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
     version: SCAFFOLD_VERSION,
     features: {
       completionGate: cfg.completionGateEnabled !== false,
-      critic: cfg.criticEnabled === true,
       autoFix: cfg.autoFixOnFailure === true,
       adaptiveScaffolding: cfg.adaptiveScaffoldingEnabled !== false,
       impactGate: cfg.impactGateEnabled === true,
@@ -154,7 +226,7 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
   };
 }
 
-/** Compact one-line label, e.g. `scaffold 2.0.0 [completionGate,critic,autoFix]`. */
+/** Compact one-line label, e.g. `scaffold 2.0.0 [completionGate,autoFix]`. */
 export function scaffoldLabel(desc: ScaffoldDescriptor): string {
   const on = Object.entries(desc.features)
     .filter(([, v]) => v)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildImpactAdvisory } from './gate.js';
+import { buildImpactAdvisory } from './completionGates/codeGraphGates.js';
 import { SymbolGraph } from '../../config/symbolGraph.js';
 
 function graphWithDependents(): SymbolGraph {

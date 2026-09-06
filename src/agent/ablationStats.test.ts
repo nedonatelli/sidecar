@@ -93,7 +93,7 @@ describe('inferAblation verdicts', () => {
 
   it('HURTS when the scaffold breaks significantly more than it rescues', () => {
     // The verdict that matters most: a scaffold can be a net negative, and the
-    // harness must be willing to say so. (The critic ran for months as a blocker.)
+    // harness must be willing to say so. (A blocking scaffold guard can do this.)
     const r = inferAblation(pairs(1, 9, 30, 10));
     expect(r.verdict).toBe('hurts');
     expect(r.lift).toBeLessThan(0);
@@ -244,7 +244,7 @@ describe('three-arm contrasts — bare vs always-on vs dynamic', () => {
   });
 
   it('says ALWAYS-ON LOSES TO BARE when piling on guards makes things worse', () => {
-    // Not hypothetical. The critic shipped as a BLOCKING guard and made runs bail
+    // Not hypothetical: a scaffold has shipped as a BLOCKING guard and made runs bail
     // early — the SWE arm carrying it terminated 7.5x faster with MORE empty
     // patches. "More scaffolding" is a hypothesis, not a direction, and the
     // instrument has to be able to say so out loud.

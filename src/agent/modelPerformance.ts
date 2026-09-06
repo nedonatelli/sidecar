@@ -1,8 +1,8 @@
 // Decide how much scaffolding a model gets from how it actually performs —
 // not from its filename.
 //
-// Every scaffolding decision SideCar makes (burst caps, reprompt budgets, critic
-// on/off, compression thresholds) is driven by a capability tier. That tier used
+// Every scaffolding decision SideCar makes (burst caps, reprompt budgets, gate
+// budgets, compression thresholds) is driven by a capability tier. That tier used
 // to come from `parseParamSizeB(model)` — a regex over the model's NAME.
 // `qwen2.5-coder:7b` → 7 → `weak`. `qwen3.5:latest` has no size in its name at
 // all, so it fell through to "unknown local model — conservative default" →

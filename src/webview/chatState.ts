@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { workspace, Uri, RelativePattern, type ExtensionContext, type Disposable } from 'vscode';
 import { type ChatMessage, getContentText, getContentLength, serializeContent } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
@@ -213,15 +214,18 @@ export class ChatState {
   /**
    * Get or create the tmp file path for the current chat log.
    * Each conversation gets its own file in the OS temp directory.
-   * Format: sidecar-chat-{timestamp}.jsonl
+   * Format: sidecar-chat-{timestamp}-{random}.jsonl
    */
   private async ensureChatLogPath(): Promise<string> {
     if (!this.chatLogPath) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const tmpDir = path.join(os.tmpdir(), 'sidecar-chatlogs');
-      // Assign synchronously (before the first await) so getChatLogPath() returns
-      // a non-null value even when logMessage() is called fire-and-forget.
-      this.chatLogPath = path.join(tmpDir, `sidecar-chat-${timestamp}.jsonl`);
+      // Random suffix so two ChatState instances created in the same millisecond
+      // (rapid sessions in prod; parallel workers in tests) never share — and
+      // append to — one another's log file. Timestamp alone (ms granularity) is
+      // not unique enough. Assigned synchronously (before the first await) so
+      // getChatLogPath() is non-null even when logMessage() is fire-and-forget.
+      this.chatLogPath = path.join(tmpDir, `sidecar-chat-${timestamp}-${randomUUID().slice(0, 8)}.jsonl`);
       await fs.promises.mkdir(tmpDir, { recursive: true });
     }
     return this.chatLogPath;
@@ -591,7 +595,7 @@ export class ChatState {
       }
       const content = this.perDirSidecarMdCache.get(dirPath);
       if (content) {
-        results.push({ content, relativePath: path.relative(rootPath, dirPath) });
+        results.push({ content, relativePath: path.relative(rootPath, dirPath).split(path.sep).join('/') });
       }
     }
     return results;

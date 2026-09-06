@@ -21,7 +21,8 @@ export type ProviderType =
   | 'fireworks'
   | 'gemini'
   | 'copilot'
-  | 'bedrock';
+  | 'bedrock'
+  | 'openai-compat';
 
 export interface InstalledModel {
   name: string;

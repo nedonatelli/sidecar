@@ -41,7 +41,7 @@ Ratings persist to `.sidecar/arena/elo.json` and accumulate across both chat and
 ```
 /arena                          # QuickPick to select models
 /arena llama3.2:3b,qwen3:8b    # pre-fill two models, skip QuickPick
-/arena qwen3:8b,gemma4:4b,mistral:7b  # three-way match
+/arena qwen3:8b,gemma4:e4b,mistral:7b  # three-way match
 ```
 
 **From the Command Palette:**
@@ -159,7 +159,7 @@ Use agent arena for benchmarks where the answer matters — not as a substitute 
 The leaderboard bar at the bottom of the Arena panel shows all models that have appeared in the current session, sorted by ELO descending. Each entry shows:
 
 ```
-ELO:  qwen3:8b  1231  (8W 3L)    llama3.2:3b  1188  (3W 7L)    gemma4:4b  1201  (5W 5L)
+ELO:  qwen3:8b  1231  (8W 3L)    llama3.2:3b  1188  (3W 7L)    gemma4:e4b  1201  (5W 5L)
 ```
 
 The pill badges in the toolbar also show each model's current ELO inline.
@@ -175,17 +175,17 @@ Ratings are persisted to `.sidecar/arena/elo.json` in your workspace. The format
   "ratings": {
     "qwen3:8b": 1231,
     "llama3.2:3b": 1188,
-    "gemma4:4b": 1201
+    "gemma4:e4b": 1201
   },
   "wins": {
     "qwen3:8b": 8,
     "llama3.2:3b": 3,
-    "gemma4:4b": 5
+    "gemma4:e4b": 5
   },
   "losses": {
     "qwen3:8b": 3,
     "llama3.2:3b": 7,
-    "gemma4:4b": 5
+    "gemma4:e4b": 5
   },
   "totalMatches": 11
 }
@@ -207,7 +207,7 @@ The file is written after every vote and is human-editable if you want to reset 
 **Example: always compare the same two models:**
 
 ```json
-"sidecar.arena.defaultModels": ["qwen3-coder:8b", "gemma4:4b"]
+"sidecar.arena.defaultModels": ["qwen2.5-coder:7b", "gemma4:e4b"]
 ```
 
 With this set, `/arena` opens the panel immediately with those two models — no picker.

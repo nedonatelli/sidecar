@@ -191,15 +191,35 @@ export function findPythonIndentErrors(source: string): IndentError[] {
     const cur = lines[k];
     const prevOpens = opensBlock(prev.code);
 
-    if (cur.indent > prev.indent) {
-      if (!prevOpens) {
+    // A block opener (`:` ending a logical line) REQUIRES its body indented
+    // deeper than the opener. If the next logical line is at the SAME indent or
+    // SHALLOWER, the body was orphaned — CPython raises "expected an indented
+    // block", but tree-sitter parses it clean. This is the corruption class the
+    // guard exists for (an edit deletes a block's only statement, e.g. removing
+    // the `break` under an `else:`, leaving `else:` immediately followed by a
+    // dedented line). The shallower case used to fall through to the dedent
+    // branch, match a valid outer level, and ship a file that will not compile.
+    if (prevOpens) {
+      if (cur.indent > prev.indent) {
+        stack.push(cur.indent);
+      } else {
         errors.push({
           line: cur.line,
-          message: `unexpected indent — line ${cur.line} is indented deeper than the line above it, which does not open a block (no trailing ':')`,
+          message: `expected an indented block after the ':' on line ${prev.line}`,
         });
-      } else {
-        stack.push(cur.indent);
+        // Resync to cur's level so a single orphan does not cascade into
+        // spurious unindent errors across the rest of the file.
+        while (stack.length > 1 && stack[stack.length - 1] > cur.indent) stack.pop();
+        if (stack[stack.length - 1] !== cur.indent) stack.push(cur.indent);
       }
+      continue;
+    }
+
+    if (cur.indent > prev.indent) {
+      errors.push({
+        line: cur.line,
+        message: `unexpected indent — line ${cur.line} is indented deeper than the line above it, which does not open a block (no trailing ':')`,
+      });
     } else if (cur.indent < prev.indent) {
       while (stack.length > 1 && stack[stack.length - 1] > cur.indent) stack.pop();
       if (stack[stack.length - 1] !== cur.indent) {
@@ -209,11 +229,6 @@ export function findPythonIndentErrors(source: string): IndentError[] {
         });
         stack.push(cur.indent); // resync so one error does not cascade
       }
-    } else if (prevOpens) {
-      errors.push({
-        line: cur.line,
-        message: `expected an indented block after the ':' on line ${prev.line}`,
-      });
     }
   }
 

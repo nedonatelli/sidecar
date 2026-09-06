@@ -17,7 +17,7 @@ import {
 // Keep-best ratchet — loop wiring (scaffolding roadmap §2.1).
 //
 // This is the harness half of the keep-best judgment: it brackets the
-// scaffold-driven tail of a run so a completion-gate / critic reprompt can
+// scaffold-driven tail of a run so a completion-gate reprompt can
 // never turn a good run into a worse one. Three touch points in runAgentLoop:
 //
 //   1. `captureRatchetOriginals` — BEFORE each tool dispatch, snapshot the

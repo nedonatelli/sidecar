@@ -4,6 +4,7 @@ import type { ChatMessage, ContentBlock, ToolDefinition, StreamEvent } from './t
 import { toFunctionTools } from './streamUtils.js';
 import { streamOpenAiSse } from './openAiSseStream.js';
 import { getConfig } from '../config/settings.js';
+import { openAiApiRoot } from '../config/settings/backends.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
@@ -190,7 +191,7 @@ export class OpenAIBackend implements ApiBackend {
   }
 
   protected get chatUrl(): string {
-    return `${this.baseUrl}/v1/chat/completions`;
+    return `${openAiApiRoot(this.baseUrl)}/chat/completions`;
   }
 
   protected get modelsUrl(): string {

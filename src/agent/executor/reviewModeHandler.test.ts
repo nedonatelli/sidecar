@@ -261,7 +261,10 @@ describe('handleReviewModeTool — edit_file', () => {
       store,
     );
     expect(result!.is_error).toBe(true);
-    expect(result!.content).toContain('syntax error');
+    // Dropping the signature that `search` carried is now refused by the
+    // dropped-definition guard, which runs before the syntax guard and gives the
+    // more specific diagnosis. What this pins is unchanged: refused, never queued.
+    expect(result!.content).toMatch(/syntax error|drops the line/);
     expect(store.record).not.toHaveBeenCalled();
   });
 });

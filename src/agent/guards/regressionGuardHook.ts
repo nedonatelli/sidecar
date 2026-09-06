@@ -114,7 +114,7 @@ function formatGuardFailure(guard: RegressionGuardConfig, exitCode: number, stdo
  * `sidecar.regressionGuards`; `buildRegressionGuardHooks()` below
  * wraps the config read + per-entry construction.
  *
- * Same lifecycle as the built-in auto-fix / stub / critic hooks:
+ * Same lifecycle as the built-in auto-fix / stub hooks:
  * registered on the `HookBus`, fires at its declared phase, pushes
  * a synthetic user message into `state.messages` on failure so the
  * loop continues to the next iteration to address the guard's

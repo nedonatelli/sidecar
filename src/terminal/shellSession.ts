@@ -1,14 +1,26 @@
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, execFileSync, type ChildProcess } from 'child_process';
 import { logger } from '../system/logger.js';
 import { randomBytes } from 'crypto';
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
 import { stripAnsi } from './ansi.js';
 import { ManagedChildProcess, getProcessRegistry } from '../agent/processLifecycle.js';
 import { isSeatbeltSupported, wrapWithSeatbelt } from './seatbelt.js';
 
 export interface ShellExecuteOptions {
-  timeout?: number; // ms, default 120_000
+  /**
+   * Idle timeout, ms (default 120_000). Time the command may go WITHOUT
+   * producing output before it is treated as hung and killed. Any output
+   * resets the clock, so a slow-but-progressing command runs to completion.
+   */
+  timeout?: number;
+  /**
+   * Absolute ceiling, ms (default 30 min). Backstop for a command that never
+   * stops producing output and never exits (`tail -f`, a dev server).
+   */
+  maxTimeout?: number;
   onOutput?: (chunk: string) => void; // streaming callback
   signal?: AbortSignal; // cancellation
 }
@@ -29,6 +41,48 @@ interface BackgroundCommand {
 // Generate a short alphanumeric sentinel (no special chars to worry about)
 function makeSentinel(): string {
   return 'SIDECAR' + randomBytes(8).toString('hex').toUpperCase();
+}
+
+/**
+ * Prefer a POSIX shell on Windows when one is installed.
+ *
+ * cmd.exe cannot run the commands models actually emit. Measured across a
+ * 50-task SWE-bench run: 237 rejections of `./script` ("'.' is not recognized")
+ * plus ~100 more for `bin/...`, `export`, `rg`, `tox` — roughly 4.7 failures
+ * per task before any real work, on a corpus of POSIX repos where
+ * `./tests/runtests.py` is the documented way to run the suite.
+ *
+ * Git Bash understands Windows drive paths, so the workspace, the repo and the
+ * agent all agree about where files are.
+ *
+ * WSL's C:\Windows\System32\bash.exe is deliberately EXCLUDED: it launches a
+ * different filesystem namespace, where the workspace path does not exist.
+ * Finding it on PATH and using it would be worse than cmd.exe.
+ *
+ * SIDECAR_SHELL overrides the search entirely. Falls back to cmd.exe when no
+ * suitable shell is found, so a machine without Git for Windows still works.
+ */
+export function resolveWindowsShell(): string {
+  const override = process.env.SIDECAR_SHELL;
+  if (override && fs.existsSync(override)) return override;
+
+  const roots = [
+    process.env.ProgramFiles,
+    process.env['ProgramW6432'],
+    process.env['ProgramFiles(x86)'],
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs') : undefined,
+  ].filter((r): r is string => Boolean(r));
+
+  for (const root of roots) {
+    const candidate = path.join(root, 'Git', 'bin', 'bash.exe');
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return process.env.COMSPEC || 'cmd.exe';
+}
+
+/** True when `shellPath` speaks POSIX — decides the command protocol, not the platform. */
+function isPosixShell(shellPath: string): boolean {
+  return /(^|[\\/])(bash|sh|zsh|dash)(\.exe)?$/i.test(shellPath);
 }
 
 /**
@@ -81,15 +135,58 @@ function hardeningPrefixFor(shellPath: string): string {
  * Uses a long-lived shell process with sentinel-based command completion detection.
  * Output streams incrementally via the onOutput callback.
  */
+/**
+ * Kill a process AND everything it spawned. Windows only; returns false when it
+ * did not handle the kill so the caller falls back to signals.
+ *
+ * Killing a process on Windows does not touch its children. The shell session is
+ * long-lived and `run_command` runs everything inside it, so a python or node
+ * the model started outlives the shell we killed -- with its working directory
+ * still held open. Measured on a SWE-bench harness: 50 orphaned shells per run,
+ * and clone directories that Windows then refused to delete because a live
+ * process still had its cwd inside them. Orphaned venv pythons from those runs
+ * were still resident days later.
+ *
+ * Nothing graceful is lost by using /F. Windows has no SIGTERM: Node's
+ * `proc.kill('SIGTERM')` already calls TerminateProcess, so the existing path is
+ * a forced kill that merely misses the children. `taskkill /T` is the same
+ * bluntness applied to the whole tree.
+ *
+ * Synchronous on purpose. Callers tear down a shell and then immediately touch
+ * the directory it was sitting in; returning before the tree is actually gone is
+ * what left those directories undeletable.
+ *
+ * @param exec injection seam for tests — the default shells out to taskkill.
+ */
+export function killProcessTree(
+  pid: number | undefined,
+  isWindows: boolean,
+  exec: (cmd: string, args: string[]) => void = (cmd, args) =>
+    execFileSync(cmd, args, { stdio: 'ignore', timeout: 5000 }),
+): boolean {
+  if (!isWindows || !pid) return false;
+  try {
+    exec('taskkill', ['/pid', String(pid), '/T', '/F']);
+    return true;
+  } catch {
+    // Already dead, or taskkill unavailable. The signal path still runs.
+    return false;
+  }
+}
+
 export class ShellSession {
   private proc: ChildProcess | null = null;
   private cwd: string;
   private env: Record<string, string>;
   private busy = false;
+  /** Resolves once the shell's startup noise has been consumed. See flushStartupBanner. */
+  private ready: Promise<void> | null = null;
   private commandQueue: Array<() => void> = [];
   private backgroundCommands = new Map<string, BackgroundCommand>();
   private maxOutputSize: number;
   private isWindows: boolean;
+  /** Whether the resolved shell speaks POSIX. Drives quoting, redirection and startup flags. */
+  private usesPosixShell: boolean;
   /** Captured at construction time so the hardening prefix knows which
    *  shell dialect to emit (bash vs zsh vs windows). */
   private shellPath: string;
@@ -110,7 +207,18 @@ export class ShellSession {
     this.env = { ...(process.env as Record<string, string>), ...env };
     this.maxOutputSize = maxOutputSize;
     this.isWindows = os.platform() === 'win32';
-    this.shellPath = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : process.env.SHELL || '/bin/bash';
+    this.shellPath = this.isWindows ? resolveWindowsShell() : process.env.SHELL || '/bin/bash';
+    // The PROTOCOL follows the shell, not the platform: on Windows running Git
+    // Bash we need POSIX quoting and redirection, not cmd's.
+    this.usesPosixShell = isPosixShell(this.shellPath);
+    if (this.isWindows && !this.usesPosixShell) {
+      // cmd.exe writes its prompt before each command's output, so every
+      // captured result arrived prefixed with `C:\path>`. POSIX shells print no
+      // prompt on a pipe; `$_` (a bare newline) is the closest cmd equivalent.
+      // Setting PROMPT to the empty string does nothing — cmd falls back to its
+      // default — so the value has to be a real, minimal prompt.
+      this.env.PROMPT = '$_';
+    }
   }
 
   get isAlive(): boolean {
@@ -127,7 +235,7 @@ export class ShellSession {
     // zsh:  -f (--no-rcs)
     // other: try --norc
     let args: string[];
-    if (this.isWindows) {
+    if (this.isWindows && !this.usesPosixShell) {
       args = ['/Q'];
     } else if (shellPath.endsWith('/zsh') || shellPath.endsWith('/zsh5')) {
       args = ['-f'];
@@ -154,9 +262,50 @@ export class ShellSession {
 
     this.proc.on('exit', () => {
       this.proc = null;
+      this.ready = null;
     });
 
+    // Only cmd.exe prints a banner; bash with --norc --noprofile prints nothing.
+    this.ready = this.isWindows && !this.usesPosixShell ? this.flushStartupBanner(this.proc) : Promise.resolve();
+
     return this.proc;
+  }
+
+  /**
+   * Swallow cmd.exe's startup banner before any real command can capture it.
+   *
+   * No flag suppresses it — `/Q` only turns echo off — so the two banner lines
+   * ("Microsoft Windows [Version ...]" and the copyright notice) landed in the
+   * FIRST command's captured output. The model then read them as that command's
+   * result: the version-from-package-json eval case ran `jq` and was handed the
+   * Windows banner, so it never saw the version it was asked for.
+   *
+   * Rather than pattern-match the banner text, which is localized and varies by
+   * build, prime the shell with a marker and drop everything up to it. The
+   * timeout means a shell that never starts delays the first command instead of
+   * hanging it forever.
+   */
+  private flushStartupBanner(proc: ChildProcess): Promise<void> {
+    const marker = makeSentinel() + '_READY';
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      let seen = '';
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        proc.stdout?.off('data', onData);
+        clearTimeout(timer);
+        resolve();
+      };
+      const onData = (chunk: Buffer): void => {
+        seen += chunk.toString();
+        if (seen.includes(marker)) finish();
+      };
+      const timer = setTimeout(finish, 5_000);
+      timer.unref?.();
+      proc.stdout?.on('data', onData);
+      proc.stdin?.write(`echo ${marker}\r\n`);
+    });
   }
 
   /**
@@ -182,7 +331,10 @@ export class ShellSession {
 
   private async executeInternal(command: string, options: ShellExecuteOptions): Promise<ShellResult> {
     const proc = this.ensureProcess();
-    const { timeout = 120_000, onOutput: rawOnOutput, signal } = options;
+    // Must complete before this command's listeners attach, or the banner it
+    // is draining lands in this command's output instead.
+    await this.ready;
+    const { timeout = 120_000, maxTimeout = 30 * 60_000, onOutput: rawOnOutput, signal } = options;
     // Every consumer of streamed shell output in SideCar lands in the
     // webview via `postMessage({command: 'toolOutput', ...})`, where it
     // is inserted as DOM `textContent`. The webview has no ANSI renderer,
@@ -198,6 +350,13 @@ export class ShellSession {
       let output = '';
       let timedOut = false;
       let resolved = false;
+      // Kept OUT of `output` deliberately. The truncation path in finish()
+      // rebuilds stdout from `failureTailRing`, which silently discarded a
+      // notice appended to `output` — so a flooding command that timed out
+      // reached the model with no timeout marker at all, and it re-ran the
+      // identical command. Appended after reassembly instead, so it always
+      // survives.
+      let notice = '';
 
       // A ring buffer that always holds the last ~30% of max output,
       // regardless of how long the stream runs. When the main `output`
@@ -247,13 +406,19 @@ export class ShellSession {
         // but `output` is the accumulated pre-wrap buffer (built from
         // raw `data` events), so the final blob still contains the
         // original escape sequences until we strip here.
-        resolve({ stdout: stripAnsi(stdout), exitCode, timedOut });
+        resolve({ stdout: stripAnsi(stdout + notice), exitCode, timedOut });
       };
 
-      // Timeout handler
-      const timer = setTimeout(() => {
+      // Timeout handling is IDLE-based: the guard exists to catch a hung
+      // process, not a slow one, and a wall-clock kill cannot tell those apart.
+      // Measured cost of getting this wrong — a SWE-bench run killed django's
+      // test suite at exactly 120s ten times across five arms while it was
+      // actively emitting output, burning ~20 minutes of a 39-minute run and
+      // returning no test signal at all. Any output resets the clock;
+      // `maxTimeout` is the backstop for output that never stops (`tail -f`).
+      const killTimedOut = (reason: string) => {
         timedOut = true;
-        output += '\n\n⚠️ Command timed out after ' + timeout / 1000 + 's';
+        notice = `\n\n⚠️ Command timed out after ${reason}`;
         finish(-1);
         // Kill the shell so its subprocess doesn't keep running.
         // Null this.proc immediately (before the SIGTERM 'exit' event fires)
@@ -265,12 +430,20 @@ export class ShellSession {
         } catch {
           /* process already gone */
         }
-      }, timeout);
+      };
+      const idleReason = `${timeout / 1000}s with no output`;
+      let timer = setTimeout(() => killTimedOut(idleReason), timeout);
+      const hardTimer = setTimeout(() => killTimedOut(`${maxTimeout / 1000}s (absolute limit)`), maxTimeout);
+      const armIdle = () => {
+        if (resolved) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => killTimedOut(idleReason), timeout);
+      };
 
       // Abort signal handler
       const onAbort = () => {
         timedOut = true;
-        output += '\n\n⚠️ Command aborted';
+        notice = '\n\n⚠️ Command aborted';
         finish(-1);
         if (this.proc === proc) this.proc = null;
         try {
@@ -283,6 +456,7 @@ export class ShellSession {
 
       const cleanup = () => {
         clearTimeout(timer);
+        clearTimeout(hardTimer);
         signal?.removeEventListener('abort', onAbort);
         if (proc.stdout) proc.stdout.removeListener('data', onData);
         if (proc.stderr) proc.stderr.removeListener('data', onStderrData);
@@ -343,6 +517,7 @@ export class ShellSession {
 
       const onData = (data: Buffer) => {
         const text = data.toString();
+        armIdle();
         buffer += text;
 
         if (checkSentinel()) return;
@@ -384,6 +559,7 @@ export class ShellSession {
         // Stderr goes through the 2>&1 redirect, but just in case
         // some output leaks to stderr directly, capture it
         const text = data.toString();
+        armIdle();
         buffer += text;
         if (!checkSentinel()) {
           onOutput?.(text);
@@ -424,7 +600,7 @@ export class ShellSession {
       // calls. The newline before the closing brace — rather than `; }` — is
       // load-bearing: `{ sleep 1 & ; }` is a syntax error, and a trailing `#`
       // comment would swallow a semicolon.
-      if (this.isWindows) {
+      if (this.isWindows && !this.usesPosixShell) {
         proc.stdin?.write(`(${command}) < NUL\r\necho ${sentinel}_%ERRORLEVEL%_END\r\n`);
       } else {
         const hardening = hardeningPrefixFor(this.shellPath);
@@ -458,8 +634,8 @@ export class ShellSession {
     }
 
     const id = randomBytes(4).toString('hex');
-    let bgCmd = this.isWindows ? process.env.COMSPEC || 'cmd.exe' : this.shellPath;
-    let bgArgs = this.isWindows ? ['/C', command] : ['-c', command];
+    let bgCmd = this.isWindows && !this.usesPosixShell ? process.env.COMSPEC || 'cmd.exe' : this.shellPath;
+    let bgArgs = this.isWindows && !this.usesPosixShell ? ['/C', command] : ['-c', command];
     if (!this.isWindows && this.sandboxEnabled && isSeatbeltSupported()) {
       ({ cmd: bgCmd, args: bgArgs } = wrapWithSeatbelt(bgCmd, bgArgs, this.cwd));
     }
@@ -515,6 +691,8 @@ export class ShellSession {
   dispose(): void {
     const killWithTimeout = (proc: ChildProcess | ManagedChildProcess) => {
       const rawProc = proc instanceof ManagedChildProcess ? proc.getProc() : proc;
+      // Take the children with it where the platform requires asking.
+      if (killProcessTree(rawProc.pid, this.isWindows)) return;
       try {
         rawProc.kill('SIGTERM');
       } catch {

@@ -8,7 +8,7 @@ import type { LoopState } from './state.js';
  * Policy hook interface for runAgentLoop.
  *
  * Closes the last cycle-2 architectural HIGH: the four built-in
- * post-turn policies (auto-fix, stub validator, adversarial critic,
+ * post-turn policies (auto-fix, stub validator, action reprompt,
  * completion gate) used to be called directly from the orchestrator.
  * This interface + `HookBus` below lets them register through a
  * uniform bus instead, which:
@@ -23,7 +23,7 @@ import type { LoopState } from './state.js';
  *
  * Behavior is preserved exactly: the built-in hooks that ship with
  * v0.54 are mechanical wraps around the existing `applyAutoFix`,
- * `applyStubCheck`, `applyCritic`, `recordGateToolUses`, and
+ * `applyStubCheck`, `recordGateToolUses`, and
  * `maybeInjectCompletionGate` helpers. The wrapper layer adds zero
  * new state and changes nothing about when each policy fires.
  */
@@ -77,9 +77,8 @@ export interface HookResult {
  *     Where autoFix, isolateRewrite, unappliedEdit, stubValidator,
  *     and the gate's tool-call recording fire.
  *   - `onEmptyResponse`: reached when the model produced no tool
- *     calls AND no recoverable text. Where the adversarial critic,
- *     action reprompt, completion gate check, and analysis critic
- *     fire — if nothing injects, the loop breaks.
+ *     calls AND no recoverable text. Where the action reprompt and
+ *     completion gate check fire — if nothing injects, the loop breaks.
  *   - `onTermination`: run once in the loop's finally, regardless of
  *     break reason. Final telemetry / cleanup; per-hook errors are
  *     logged, never thrown. No built-in hook uses this today.

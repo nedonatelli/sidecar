@@ -50,6 +50,7 @@ import {
   applyBudgetCompression,
   maybeCompressPostTool,
   clearCompressionCache,
+  projectedPromptTokens,
 } from './compression.js';
 import type { ChatMessage, ContentBlock } from '../../ollama/types.js';
 import type { SideCarClient } from '../../ollama/client.js';
@@ -507,7 +508,6 @@ describe('applyBudgetCompression', () => {
         burstCap: 12,
         maxActionReprompts: 3,
         maxGateInjections: 3,
-        runLlmCritic: false,
         compressionThreshold: 0.6,
         compactionKeepRecentTurns: 3,
         compactionMaxSummaryChars: 500,
@@ -584,12 +584,20 @@ describe('applyBudgetCompression', () => {
       maxTokens: 100_000,
       totalChars: 50_000,
       lastActualInputTokens: 80_000, // above 70% of 100K
+      // A real measurement is the pair (tokens, chars-at-that-moment). Without
+      // the second half there is nothing to project a delta from.
+      charsAtLastMeasurement: 50_000,
     });
     const outcome = await applyBudgetCompression({} as SideCarClient, state);
     expect(mockSummarize).toHaveBeenCalledOnce();
     expect(outcome).toBe('ok');
-    // After compression, lastActualInputTokens should be reset
-    expect(state.lastActualInputTokens).toBeUndefined();
+    // The anchor is KEPT, not discarded. It used to be cleared here, which
+    // forced the next check to re-derive the whole prompt from characters —
+    // an estimate wrong by -42%..+51% depending on content type. Compression
+    // freed 10K chars, so the projection drops by the estimate of that delta
+    // while staying anchored to the one number we actually measured.
+    expect(state.lastActualInputTokens).toBe(80_000);
+    expect(projectedPromptTokens(state)).toBeLessThan(80_000);
   });
 });
 

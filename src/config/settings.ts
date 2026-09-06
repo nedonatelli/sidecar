@@ -72,7 +72,8 @@ export interface SideCarConfig {
     | 'fireworks'
     | 'gemini'
     | 'copilot'
-    | 'bedrock';
+    | 'bedrock'
+    | 'openai-compat';
   bedrockRegion: string;
   /** Use the Bedrock FIPS endpoint (bedrock-runtime-fips.*) — required for some
    *  connections, e.g. AWS GovCloud (us-gov-east-1 / us-gov-west-1). */
@@ -126,6 +127,9 @@ export interface SideCarConfig {
   autoFixOnFailure: boolean;
   autoFixMaxRetries: number;
   completionGateEnabled: boolean;
+  behavioralVerificationGateEnabled: boolean;
+  syntaxGateEnabled: boolean;
+  redCheckGateEnabled: boolean;
   steerQueueCoalesceWindowMs: number;
   steerQueueMaxPending: number;
   multiFileEditsEnabled: boolean;
@@ -159,15 +163,12 @@ export interface SideCarConfig {
   kickstandYarnExtFactor: number;
   kickstandYarnOrigCtx: number;
   kickstandFlashAttn: boolean;
-  criticEnabled: boolean;
-  criticModel: string;
-  criticBlockOnHighSeverity: boolean;
   adaptiveScaffoldingEnabled: boolean;
   /** Learn each model's capability tier from how it actually performs (see modelPerformance.ts). */
   modelLearningEnabled: boolean;
   /** Explicit per-model tier, e.g. `{"llama3.2": "weak"}`. Absolute — overrides detection. */
   modelTierOverrides: Record<string, CapabilityTier>;
-  /** Pin individual scaffolding triggers regardless of tier, e.g. `{"runLlmCritic": true}`. */
+  /** Pin individual scaffolding triggers regardless of tier, e.g. `{"maxGateInjections": 5}`. */
   scaffoldingOverrides: ScaffoldingOverrides;
   keepBestRatchetEnabled: boolean;
   planExternalizedEnabled: boolean;
@@ -238,6 +239,8 @@ export interface SideCarConfig {
   /* Prompt pruning (paid backends) */
   promptPruningEnabled: boolean;
   promptPruningMaxToolResultTokens: number;
+  /* Local models: trim the full-schema tool set to the core coding loop (rest stubbed). */
+  localToolTrimEnabled: boolean;
   /* Hybrid delegation to local Ollama worker (paid backends only) */
   delegateTaskEnabled: boolean;
   delegateTaskWorkerModel: string;
@@ -371,6 +374,8 @@ export interface SideCarConfig {
   numericalContractGateEnabled: boolean;
   analyticBoundsGateEnabled: boolean;
   injectionGuardEnabled: boolean;
+  /* Trim retrieval results at their similarity cliff before injection */
+  retrievalCliffGateEnabled: boolean;
   /* Eval history DB */
   evalHistoryEnabled: boolean;
   /* LaTeX Agentic Debugging */
@@ -448,6 +453,7 @@ function readConfig(): SideCarConfig {
     | 'gemini'
     | 'copilot'
     | 'bedrock'
+    | 'openai-compat'
   >('provider', 'auto');
   const rawBaseUrl = cfg.get<string>('baseUrl', 'http://localhost:11434') || 'http://localhost:11434';
   // Provider-aware default: if the user switched provider to Anthropic but left
@@ -508,11 +514,14 @@ function readConfig(): SideCarConfig {
     requestTimeout: clampMin(cfg.get<number>('requestTimeout'), 0, 120),
     firstTokenTimeout: clampMin(cfg.get<number>('firstTokenTimeout'), 0, 300),
     shellTimeout: clampMin(cfg.get<number>('shellTimeout'), 1, 120),
-    shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 1, 10),
+    shellMaxOutputMB: clampMin(cfg.get<number>('shellMaxOutputMB'), 0, 0),
     pinnedContext: cfg.get<string[]>('pinnedContext', []),
     autoFixOnFailure: cfg.get<boolean>('autoFixOnFailure', false),
     autoFixMaxRetries: clampMin(cfg.get<number>('autoFixMaxRetries'), 0, 3),
     completionGateEnabled: cfg.get<boolean>('completionGate.enabled', true),
+    behavioralVerificationGateEnabled: cfg.get<boolean>('behavioralVerificationGate.enabled', false),
+    syntaxGateEnabled: cfg.get<boolean>('syntaxGate.enabled', true),
+    redCheckGateEnabled: cfg.get<boolean>('redCheckGate.enabled', true),
     steerQueueCoalesceWindowMs: clampMin(cfg.get<number>('steerQueue.coalesceWindowMs', 2000), 0, 10_000),
     steerQueueMaxPending: clampMin(cfg.get<number>('steerQueue.maxPending', 5), 1, 20),
     multiFileEditsEnabled: cfg.get<boolean>('multiFileEdits.enabled', true),
@@ -553,7 +562,6 @@ function readConfig(): SideCarConfig {
     kickstandYarnExtFactor: cfg.get<number>('kickstand.yarnExtFactor', -1),
     kickstandYarnOrigCtx: Math.max(cfg.get<number>('kickstand.yarnOrigCtx', 0), 0),
     kickstandFlashAttn: cfg.get<boolean>('kickstand.flashAttn', false),
-    criticEnabled: cfg.get<boolean>('critic.enabled', false),
     adaptiveScaffoldingEnabled: cfg.get<boolean>('adaptiveScaffolding.enabled', true),
     modelLearningEnabled: cfg.get<boolean>('modelLearning.enabled', true),
     modelTierOverrides: cfg.get<Record<string, CapabilityTier>>('modelTier', {}),
@@ -563,7 +571,7 @@ function readConfig(): SideCarConfig {
     summarizerVerbatimUserChars: cfg.get<number>('compaction.verbatimUserChars', 0),
     durableInstructionsEnabled: cfg.get<boolean>('compaction.durableInstructions', true),
     persistInstructionsEnabled: cfg.get<boolean>('memory.persistInstructions', true),
-    editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 0),
+    editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 800),
     diagnosticsAnalysisBudgetMs: cfg.get<number>('diagnostics.analysisBudgetMs', 5000),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),
@@ -571,18 +579,6 @@ function readConfig(): SideCarConfig {
     wholeFileRewriteStrategyEnabled: cfg.get<boolean>('editStrategy.wholeFileRewrite', false),
     keepBestOverEngineerBytes: cfg.get<number>('scaffolding.keepBestOverEngineerBytes', 0),
     cycleDetectionMinRepeats: Math.max(cfg.get<number>('scaffolding.cycleDetectionMinRepeats', 10), 1),
-    // Provider-aware default: an empty `critic.model` historically meant
-    // "use the main model," which doubled per-iteration cost on paid Anthropic
-    // backends. If the main model is Sonnet/Opus and the user hasn't explicitly
-    // set a critic model, substitute Haiku (~12× cheaper per token). Ollama /
-    // OpenAI / etc. keep the legacy "empty → main model" behavior since we
-    // don't have a provider-specific cheap model to substitute.
-    criticModel:
-      cfg.get<string>('critic.model', '') ||
-      (detectProvider(rawBaseUrl, rawProvider) === 'anthropic' && model !== ANTHROPIC_DEFAULT_MODEL
-        ? ANTHROPIC_DEFAULT_MODEL
-        : ''),
-    criticBlockOnHighSeverity: cfg.get<boolean>('critic.blockOnHighSeverity', false),
     fetchUrlContext: cfg.get<boolean>('fetchUrlContext', true),
     fallbackBaseUrl: cfg.get<string>('fallbackBaseUrl', ''),
     fallbackApiKey: getCachedFallbackApiKey() ?? cfg.get<string>('fallbackApiKey', ''),
@@ -617,6 +613,7 @@ function readConfig(): SideCarConfig {
     bgMaxConcurrent: clampMin(cfg.get<number>('bgMaxConcurrent'), 1, 3),
     /* Prompt pruning (paid backends) */
     promptPruningEnabled: cfg.get<boolean>('promptPruning.enabled', true),
+    localToolTrimEnabled: cfg.get<boolean>('localToolTrim.enabled', true),
     promptPruningMaxToolResultTokens: clampMin(cfg.get<number>('promptPruning.maxToolResultTokens'), 200, 4000),
     /* Hybrid delegation to local Ollama worker */
     delegateTaskEnabled: cfg.get<boolean>('delegateTask.enabled', true),
@@ -724,6 +721,7 @@ function readConfig(): SideCarConfig {
     numericalContractGateEnabled: cfg.get<boolean>('numericalContracts.gate', false),
     analyticBoundsGateEnabled: cfg.get<boolean>('analyticBounds.gate', false),
     injectionGuardEnabled: cfg.get<boolean>('injectionGuard.enabled', true),
+    retrievalCliffGateEnabled: cfg.get<boolean>('retrieval.cliffGate', true),
     evalHistoryEnabled: cfg.get<boolean>('evalHistory.enabled', false),
     latexEnabled: cfg.get<boolean>('latex.enabled', false),
     latexCompiler: cfg.get<'latexmk' | 'pdflatex'>('latex.compiler', 'latexmk'),

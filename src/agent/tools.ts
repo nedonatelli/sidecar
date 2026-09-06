@@ -456,6 +456,37 @@ const CORE_FULL_TIER_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
+ * The minimal full-schema tool set for LOCAL models (Ollama/Kickstand). Small
+ * local models pay a per-turn prefill cost proportional to prompt size AND get
+ * confused choosing among 51 tools, so the local 'full' tier keeps only the core
+ * coding loop at full schema and stubs everything else (git mutations, web
+ * search, domain tools) — still reachable via describe_tool when actually needed.
+ * Measured: cuts the tool block ~9K→6.5K tokens and 28→12 full schemas. Frontier
+ * (cloud) models keep the wider READ_TIER ∪ CORE_FULL_TIER set unchanged.
+ */
+const LOCAL_CORE_TOOL_NAMES = new Set<string>([
+  'read_file',
+  'list_directory',
+  'search_files',
+  'grep',
+  'find_references',
+  'project_knowledge_search',
+  'get_diagnostics',
+  'edit_file',
+  'write_file',
+  'run_command',
+  'run_tests',
+  'describe_tool',
+  'ask_user',
+]);
+
+/** Providers that run locally, where the prompt-size / tool-count cost bites hardest. */
+function isLocalProviderConfig(cfg: SideCarConfig): boolean {
+  const p = detectProvider(cfg.baseUrl, cfg.provider);
+  return p === 'ollama' || p === 'kickstand';
+}
+
+/**
  * Pre-computed set of all built-in tool names (from TOOL_REGISTRY). Used by
  * getToolDefinitionsForTier to avoid stubbing custom/SDK/MCP tools that we
  * don't have special knowledge about.
@@ -489,12 +520,19 @@ export function getToolDefinitionsForTier(
   mcpManager?: MCPManager,
   injectedConfig?: SideCarConfig,
 ): ToolDefinition[] {
-  const all = getToolDefinitions(mcpManager, injectedConfig);
+  const cfg = injectedConfig ?? getConfig();
+  const all = getToolDefinitions(mcpManager, cfg);
   if (tier === 'read') return all.filter((t) => READ_TIER_TOOL_NAMES.has(t.name));
 
   // 'full' tier: core tools get full schemas; extended built-ins and lazy MCP
-  // tools (servers without `alwaysLoad: true`) get compact stubs.
-  const coreNames = new Set([...READ_TIER_TOOL_NAMES, ...CORE_FULL_TIER_TOOL_NAMES]);
+  // tools (servers without `alwaysLoad: true`) get compact stubs. For local
+  // models (where prefill cost and tool-choice confusion bite hardest) the core
+  // set shrinks to LOCAL_CORE_TOOL_NAMES — the coding loop stays full-schema,
+  // everything else stubs down to a describe_tool pointer.
+  const coreNames =
+    cfg.localToolTrimEnabled && isLocalProviderConfig(cfg)
+      ? LOCAL_CORE_TOOL_NAMES
+      : new Set([...READ_TIER_TOOL_NAMES, ...CORE_FULL_TIER_TOOL_NAMES]);
   const builtInNames = getBuiltInToolNames();
   const lazyMcpNames = mcpManager?.getLazyToolNames() ?? new Set<string>();
   return all.map((def) => {

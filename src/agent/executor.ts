@@ -288,10 +288,18 @@ export async function executeTool(
     }
 
     const response = await clarifyFn(question, options, allowCustom);
+    // Frame the reply like every other tool result and name it as the USER'S
+    // ANSWER. It used to return as a bare string — the only unwrapped result
+    // in the tool surface — and models discounted it: north-mini-code asked
+    // the perfect disambiguation question, received the answer, then looped
+    // and re-asked the same question as if nothing had come back
+    // (ask-user-ambiguous-rename, 2026-08-07).
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: response || '(User dismissed the question without answering)',
+      content: response
+        ? `<tool_output tool="ask_user">\nThe user answered: "${response}"\nAct on this answer now — do not ask again.\n</tool_output>`
+        : '<tool_output tool="ask_user">\nThe user dismissed the question without answering. Proceed with your best judgment.\n</tool_output>',
     };
   }
 

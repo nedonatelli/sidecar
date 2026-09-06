@@ -26,7 +26,9 @@ afterEach(async () => {
 const find = (include: string, exclude = ''): Promise<readonly { fsPath: string }[]> =>
   vscode.workspace.findFiles(include, exclude) as unknown as Promise<readonly { fsPath: string }[]>;
 
-const names = (found: readonly { fsPath: string }[]): string[] => found.map((f) => f.fsPath.split('/').pop()!).sort();
+// path.basename, not split('/') — fsPath is backslash-separated on Windows,
+// so splitting on '/' returned the whole absolute path as the "name".
+const names = (found: readonly { fsPath: string }[]): string[] => found.map((f) => path.basename(f.fsPath)).sort();
 
 describe('sandbox findFiles glob support', () => {
   it('matches pytest files through the alternation run_tests actually uses', async () => {

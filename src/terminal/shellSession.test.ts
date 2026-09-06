@@ -1,10 +1,16 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { ShellSession } from './shellSession.js';
 import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 // Skip on Windows CI — these tests use bash
 const isWindows = os.platform() === 'win32';
 const describeUnix = isWindows ? describe.skip : describe;
+// The suite above is bash-only, so until now nothing exercised the Windows
+// shell path at all — which is how cmd.exe's startup banner reached the model
+// as a command's output without any test noticing.
+const describeWindows = isWindows ? describe : describe.skip;
 
 describeUnix('ShellSession', () => {
   let session: ShellSession;
@@ -53,6 +59,53 @@ describeUnix('ShellSession', () => {
     const result = await session.execute('sleep 10', { timeout: 500 });
     expect(result.timedOut).toBe(true);
     expect(result.stdout).toContain('timed out');
+  });
+
+  // The timeout guards against a HUNG process, not a slow one. A wall-clock
+  // kill cannot tell the two apart: it killed django's test suite at exactly
+  // 120s in a SWE-bench run while the suite was actively emitting 680 KB of
+  // output, ten times across five arms — ~20 minutes of a 39-minute run spent
+  // producing no test signal at all.
+  it('does not kill a long command that keeps producing output', async () => {
+    session = new ShellSession(os.tmpdir());
+    // Runs ~1.6s total, emitting every ~200ms — never silent for the 700ms
+    // idle window. Under a wall-clock timeout this is killed at 700ms.
+    const result = await session.execute('for i in 1 2 3 4 5 6 7 8; do echo tick; sleep 0.2; done', {
+      timeout: 700,
+    });
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('tick');
+  });
+
+  it('still kills a hung command that produces no output', async () => {
+    session = new ShellSession(os.tmpdir());
+    const result = await session.execute('sleep 30', { timeout: 500 });
+    expect(result.timedOut).toBe(true);
+  });
+
+  // The truncation reassembly rebuilds stdout from the failure-tail ring, which
+  // dropped the timeout notice appended to `output`. Observed live: django's
+  // suite flooded output, got truncated, timed out at exit -1 — and the model,
+  // seeing no timeout marker, re-ran the identical command three times.
+  it('surfaces the timeout notice even when output was truncated', async () => {
+    session = new ShellSession(os.tmpdir(), undefined, 2000);
+    const result = await session.execute(
+      'for i in $(seq 1 300); do echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; done; sleep 30',
+      { timeout: 700 },
+    );
+    expect(result.timedOut).toBe(true);
+    expect(result.stdout).toContain('timed out');
+  });
+
+  it('enforces an absolute ceiling even while output keeps flowing', async () => {
+    session = new ShellSession(os.tmpdir());
+    // Never idle, so only the absolute cap can stop it — the `tail -f` case.
+    const result = await session.execute('while true; do echo spin; sleep 0.1; done', {
+      timeout: 5000,
+      maxTimeout: 800,
+    });
+    expect(result.timedOut).toBe(true);
   });
 
   it('streams output via onOutput callback', async () => {
@@ -329,4 +382,72 @@ describeUnix('stdin never reaches the command (sentinel-swallowing regression)',
     const r = await session.execute('echo to-stderr 1>&2');
     expect(r.stdout).toContain('to-stderr');
   }, 30000);
+});
+
+describeWindows("ShellSession on Windows — output is the command's, and only the command's", () => {
+  let session: ShellSession;
+
+  afterEach(() => {
+    session?.dispose();
+  });
+
+  it('does not leak the cmd.exe startup banner into the first command', async () => {
+    session = new ShellSession(os.tmpdir());
+    const result = await session.execute('echo hello');
+    expect(result.stdout).toContain('hello');
+    // The banner is only ever emitted once, at startup, so the first command is
+    // the one that captured it. `jq ... package.json` returning "Microsoft
+    // Windows [Version ...]" is what this prevents.
+    expect(result.stdout).not.toMatch(/Microsoft Windows \[Version/);
+    expect(result.stdout).not.toMatch(/All rights reserved/);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('does not prefix output with the cmd.exe prompt', async () => {
+    session = new ShellSession(os.tmpdir());
+    const result = await session.execute('echo hello');
+    // `C:\some\path>` before the output. A prompt is any drive-rooted path
+    // ending in '>', which is never legitimate output for `echo hello`.
+    expect(result.stdout).not.toMatch(/[A-Za-z]:\\[^\n]*>/);
+    expect(result.stdout.trim()).toBe('hello');
+  });
+
+  it('runs the POSIX-shaped commands cmd.exe rejects', async () => {
+    // Measured on a 50-task SWE-bench run under cmd.exe: 237 rejections of
+    // `./script` ("'.' is not recognized") plus ~100 more for bin/…, export, rg
+    // and tox — about 4.7 per task, on a corpus of POSIX repos where
+    // `./tests/runtests.py` is the documented way to run the suite. The agent
+    // burned turns on shell syntax instead of the task.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-posix-'));
+    fs.writeFileSync(path.join(dir, 'runtests.py'), "#!/usr/bin/env python\nprint('ran')\n");
+    session = new ShellSession(dir);
+
+    const ls = await session.execute('ls -1');
+    expect(ls.stdout).toContain('runtests.py');
+    expect(ls.stdout).not.toMatch(/is not recognized/);
+
+    const exported = await session.execute('export FOO=bar && echo $FOO');
+    expect(exported.stdout).toContain('bar');
+
+    // The point is that `./x` RESOLVES. Whether the script then runs depends on
+    // its interpreter, which is not what this pins.
+    const dotSlash = await session.execute('./runtests.py 2>&1 || true');
+    expect(dotSlash.stdout).not.toMatch(/is not recognized/);
+  }, 60_000);
+
+  it('keeps later commands clean too, and preserves exit codes', async () => {
+    session = new ShellSession(os.tmpdir());
+    await session.execute('echo first');
+    const second = await session.execute('echo second');
+    expect(second.stdout.trim()).toBe('second');
+    expect(second.stdout).not.toMatch(/Microsoft Windows \[Version/);
+    expect(second.exitCode).toBe(0);
+
+    // A subshell, so the exit does not kill the session's own shell. Written in
+    // POSIX form because the Windows shell is now Git Bash when it is installed
+    // — and note `cmd /c exit 3` does NOT work here: MSYS rewrites the `/c`
+    // argument into a path, so cmd never sees the switch and exits 0.
+    const failed = await session.execute('(exit 3)');
+    expect(failed.exitCode).toBe(3);
+  }, 30_000);
 });

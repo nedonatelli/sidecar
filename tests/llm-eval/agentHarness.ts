@@ -1,10 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
+import type { AgentCallbacks, AgentOptions } from '../../src/agent/loop.js';
 import { parsePlanFromText } from '../../src/agent/plans/externalPlan.js';
-import { SideCarClient } from '../../src/ollama/client.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
+import { buildRepoIndex, retrieveContext } from '../../bench/swe/rag.js';
+import { createTurnLoopSession } from './agentTurnLoop.js';
 import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTypes.js';
 import { scoreAgentCase } from './agentScorers.js';
@@ -239,12 +240,191 @@ export const DEFAULT_CASE_TIMEOUT_MS = (() => {
  * case's own `configOverrides` (env wins). Lets any eval file sweep feature
  * flags without editing cases:
  *
- *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"criticEnabled":true}' npm run eval:guardprobe
+ *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"impactGateEnabled":true}' npm run eval:guardprobe
  *   SIDECAR_EVAL_CONFIG_OVERRIDES='{"planExternalizedEnabled":true}' npm run eval:smoke
  *
  * Malformed JSON throws at module load — a silent fallback would run the
  * whole sweep under the wrong arm and label the results as if it hadn't.
  */
+/**
+ * Prompt-surface ablation knobs. The three layers a local model pays for every
+ * turn — system prompt, tool catalog, gates — are separately switchable so a
+ * sweep can ask "what does this layer buy?" instead of guessing.
+ *
+ * Measured 2026-08-19 on gemma4:e4b: the same one-line edit took 3 turns with a
+ * 189-token prompt surface and 13 turns with SideCar's full 12,597-token one,
+ * with NO gates or hooks involved. The cost lives in the surface, and nothing
+ * could vary it, so nothing could measure it.
+ *
+ * SIDECAR_EVAL_SYSTEM_PROMPT: 'full' (default) | 'minimal' | 'none'
+ * SIDECAR_EVAL_TOOL_TIER:     'full' (default) | 'read'
+ *
+ * Gates need no knob here — SIDECAR_EVAL_CONFIG_OVERRIDES already reaches them.
+ */
+/**
+ * RAG orientation: inject the top-k semantically-retrieved symbol bodies into
+ * the first user message, the way the SWE harness does, instead of leaving the
+ * model to search for itself.
+ *
+ * Both harnesses already build the SAME index — `project_knowledge_search` works
+ * in every case — so this knob is NOT "retrieval on/off". It is "pre-retrieved
+ * context injected vs the model asking". Those are different interventions and
+ * were being conflated.
+ *
+ * Worth measuring rather than assuming: on SWE-bench the orientation block ran
+ * 2,700-9,600 chars and retrieval recall MISSED the gold file 29% of the time,
+ * so a third of those injections point a small model at the wrong code inside a
+ * window it cannot spare.
+ *
+ * SIDECAR_EVAL_RAG_ORIENTATION: unset/'0' (default off) | '1' | a topK integer
+ */
+/**
+ * Simulated production-style SEMANTIC retrieval injection.
+ *
+ * Production runs a `SemanticRetriever` over the workspace code index and
+ * injects the hits — symbol bodies with a provenance label (`vector: 0.823`),
+ * graph-expanded outward over `calls` edges. `adaptiveGraphDepth` gives depth 2
+ * at >=65,536 context, so gemma4 at 128k receives the WIDEST expansion.
+ *
+ * On/off is not the decisive experiment. Injecting 40,000 chars of irrelevant
+ * reference code costs nothing measurable, while 4,366 chars of semantically
+ * retrieved symbols took a case from 10/10 to 4/10. The harm is not volume — it
+ * is retrieval pointing confidently at the WRONG place. So the arm that decides
+ * the fix separates a retrieval HIT from a MISS:
+ *
+ *   off   — no injection (baseline)
+ *   hit   — inject the region the correct edit actually touches
+ *   miss  — inject plausible neighbors that are NOT the target (the 29% case)
+ *
+ *   hit >= off and miss < off  -> retrieval helps when right; gate on confidence
+ *   hit ~= off and miss < off  -> retrieval never helps, only hurts; remove it
+ *   both < off                 -> injection itself harms; remove it
+ *
+ * SIDECAR_EVAL_RETRIEVAL_SIM=off|hit|miss
+ */
+const ENV_RETRIEVAL_SIM = (process.env.SIDECAR_EVAL_RETRIEVAL_SIM ?? 'off') as 'off' | 'hit' | 'miss';
+
+/**
+ * Render retrieval hits the way production does, from the case's own fixture.
+ *
+ * The target region is derived from the case's expected post-edit file rather
+ * than hard-coded, so this stays generic: whatever lines the correct answer
+ * changes ARE the region a perfect retriever would surface.
+ */
+function simulatedRetrievalBlock(
+  mode: 'off' | 'hit' | 'miss',
+  workspace: Record<string, string>,
+  expected: { path: string; content: string }[] | undefined,
+): string {
+  if (mode === 'off' || !expected?.length) return '';
+  const { path: file, content: after } = expected[0];
+  const before = workspace[file];
+  if (!before) return '';
+  const b = before.split('\n');
+  const a = after.split('\n');
+  const changed = b.map((l, i) => (l !== a[i] ? i : -1)).filter((i) => i >= 0);
+  if (changed.length === 0) return '';
+  const target = changed[0];
+  // hit: the window around the real edit. miss: a window far from it, which is
+  // what a retriever returns when it scores the wrong symbol.
+  const center = mode === 'hit' ? target : (target + Math.floor(b.length / 2)) % b.length;
+  const from = Math.max(0, center - 12);
+  const body = b.slice(from, from + 26).join('\n');
+  const sim = mode === 'hit' ? '0.871' : '0.834';
+  return (
+    `\n\nSymbols in this repository most relevant to the request (semantic retrieval — start here):` +
+    `\n\n### ${file} (lines ${from + 1}-${from + 26})  [vector: ${sim}]\n\`\`\`python\n${body}\n\`\`\``
+  );
+}
+
+/**
+ * Simulated production context injection, in characters.
+ *
+ * PRODUCTION AND THE EVAL HARNESSES SEND DIFFERENT SYSTEM PROMPTS. `chatHandlers`
+ * calls `buildBaseSystemPrompt` and then `injectSystemContext`, which appends
+ * SIDECAR.md, user instructions, memory, skills, pinned files and workspace
+ * retrieval up to LOCAL_MAX_SYSTEM_CHARS (52,000). Neither harness calls it — so
+ * every eval number in this repo was measured on a ~26,113-char prompt while a
+ * real user on a local model can receive nearly twice that, and the extra half
+ * is injected context the model did not ask for and cannot decline.
+ *
+ * That is the same class of divergence as the num_ctx probe (see
+ * feedback_measurement_env_diverges_from_production) and it is larger.
+ *
+ * This knob appends a reference-file block in production's own format so the
+ * MECHANISM can be dose-tested. It is a simulation, not the real function —
+ * `injectSystemContext` needs a live ChatState (workspace index, history DB,
+ * skills). Wiring that is the honest fix and is tracked separately.
+ *
+ * SIDECAR_EVAL_INJECT_CONTEXT=<chars>   0/unset = off
+ */
+const ENV_INJECT_CONTEXT = Number(process.env.SIDECAR_EVAL_INJECT_CONTEXT ?? '0') || 0;
+
+/**
+ * Filler shaped like retrieved reference code: plausible, same language as the
+ * fixture, and deliberately NOT the file under edit — which is the realistic
+ * case, since retrieval missed the gold file 29% of the time on SWE-bench.
+ */
+function referenceContextBlock(chars: number): string {
+  if (chars <= 0) return '';
+  const unit = [
+    'class RecordBatch:',
+    '    """Accumulates rows before a bulk insert."""',
+    '',
+    '    def __init__(self, size=100):',
+    '        self.size = size',
+    '        self.rows = []',
+    '',
+    '    def add(self, row):',
+    '        self.rows.append(row)',
+    '        if len(self.rows) >= self.size:',
+    '            self.flush()',
+    '',
+    '    def flush(self):',
+    '        rows, self.rows = self.rows, []',
+    '        return rows',
+    '',
+  ].join('\n');
+  let body = '';
+  let i = 0;
+  while (body.length < chars) body += unit.replace(/RecordBatch/g, `RecordBatch${i++}`);
+  return `\n\n## Workspace Context (reference files — not your task)\n${body.slice(0, chars)}`;
+}
+
+// Matches the production default (`sidecar.retrieval.cliffGate`). Set
+// SIDECAR_EVAL_CLIFF_GATE=0 to measure the pre-gate behavior — note that doing
+// so changes ragOrientationChars, so promptlab sees it as a distinct arm rather
+// than silently blending it with a gated run.
+const ENV_CLIFF_GATE = process.env.SIDECAR_EVAL_CLIFF_GATE !== '0';
+
+const ENV_RAG_ORIENTATION = (() => {
+  const raw = process.env.SIDECAR_EVAL_RAG_ORIENTATION;
+  if (!raw || raw === '0') return null;
+  const n = Number(raw);
+  // `=1` historically meant "enabled, default topK 6" and the committed
+  // replication runs depend on that reading, so it is preserved. Use
+  // SIDECAR_EVAL_RAG_TOPK to set topK explicitly — including topK=1, which the
+  // `n > 1` guard here cannot express.
+  const explicit = Number(process.env.SIDECAR_EVAL_RAG_TOPK ?? '');
+  if (Number.isFinite(explicit) && explicit >= 1) return { topK: explicit };
+  return { topK: Number.isFinite(n) && n > 1 ? n : 6 };
+})();
+
+const ENV_SYSTEM_PROMPT_MODE = (process.env.SIDECAR_EVAL_SYSTEM_PROMPT ?? 'full') as 'full' | 'minimal' | 'none';
+const ENV_TOOL_TIER = process.env.SIDECAR_EVAL_TOOL_TIER as 'read' | 'full' | undefined;
+
+/**
+ * The smallest system prompt that still states the loop's contract. Not zero:
+ * with no prompt at all the model cannot know edits are applied by tools rather
+ * than proposed as text. Everything beyond this — persona, verification rules,
+ * safety rules, worked examples — is what the ablation puts a price on.
+ */
+const MINIMAL_SYSTEM_PROMPT = [
+  'You are a coding agent working in a real project.',
+  'Use the provided tools to inspect and change files; do not print code and call it done.',
+  'When the task is complete, say so briefly.',
+].join('\n');
+
 const ENV_CONFIG_OVERRIDES = (() => {
   const raw = process.env.SIDECAR_EVAL_CONFIG_OVERRIDES;
   if (!raw) return null;
@@ -284,14 +464,14 @@ export function runConfigForProvenance(): Record<string, unknown> {
  */
 /**
  * Marker on the error `runAgentCase` throws for infra breakage, so a caller can
- * recognise it without matching prose.
+ * recognize it without matching prose.
  *
  * The throw is deliberate: in `agent.eval.ts` every case is its own `it`, so it
  * fails that one test and the suite carries on. The BASELINE recorder runs all
  * cases inside a single `it`, so the same throw killed the entire model run —
  * llama3.2 died at case 16 of 70 on "This operation was aborted" and left a
  * 16-case file where a 69-case one had been. Wrapping strips `err.name`, so
- * `isInfraFailure` cannot recognise the re-thrown error either; hence a marker.
+ * `isInfraFailure` cannot recognize the re-thrown error either; hence a marker.
  */
 export const INFRA_FAILURE_PREFIX = 'Agent run failed (infra, not a regression): ';
 
@@ -315,12 +495,37 @@ export function isInfraFailure(err: Error): boolean {
  * scorer. Non-fatal on write failure: trajectories are telemetry, the
  * case result is the primary output.
  */
+/**
+ * The configuration a run ACTUALLY executed under, computed from the values
+ * used rather than the ones intended.
+ *
+ * Recording only non-empty `configOverrides` meant an arm running shipped
+ * defaults recorded nothing at all, so two arms were indistinguishable in the
+ * accumulated JSONL — and every claim about "which arm was this?" became a
+ * memory exercise. That is how an arm got described as "no RAG" while
+ * project_knowledge_search was in its catalog the whole time.
+ *
+ * Hash the surface, list the tools, name the seed. A claim about a run should
+ * be checkable against the run.
+ */
+export interface EffectiveSurface {
+  systemPromptChars: number;
+  systemPromptHash: string;
+  toolNames: string[];
+  toolCatalogHash: string;
+  ragOrientationChars: number;
+  seed: number | null;
+  temperature: number;
+  numCtx: number | null;
+}
+
 function dumpTrajectory(
   caseId: string,
   model: string,
   backendName: string,
   result: AgentCaseResult,
   configOverrides?: AgentEvalCase['configOverrides'],
+  surface?: EffectiveSurface,
 ): void {
   // Capture by DEFAULT. This used to require SIDECAR_EVAL_TRAJECTORY_DIR to be
   // set, so the question the comment above promises to answer — "do models
@@ -339,9 +544,10 @@ function dumpTrajectory(
       caseId,
       model,
       backend: backendName,
-      // The active config arm — without this, sweep runs across option
-      // variants would be indistinguishable in the accumulated JSONL.
-      ...(Object.keys(mergedOverrides).length > 0 ? { configOverrides: mergedOverrides } : {}),
+      // ALWAYS recorded, even when empty — an arm on shipped defaults still
+      // needs to be identifiable after the fact.
+      configOverrides: mergedOverrides,
+      ...(surface ? { surface } : {}),
       passed: result.passed,
       ...(result.apiUnavailable ? { apiUnavailable: true } : {}),
       durationMs: result.durationMs,
@@ -398,8 +604,17 @@ export async function runAgentCase(
   let iterationsUsed = 0;
 
   const toolRuntime = new ToolRuntime(sandbox.root);
+  // Real RAG: build SideCar's symbol-embedding index over the case workspace and
+  // attach it, so the agent's project_knowledge_search tool works exactly as in
+  // production (and identically to the SWE-bench harness) — one retrieval path,
+  // no divergence. Best-effort: a tiny/unparseable fixture just leaves retrieval
+  // unavailable, which is the same "not available" the tool returned before.
+  try {
+    toolRuntime.symbolEmbeddings = await buildRepoIndex(sandbox.root, { skipTestDirs: false });
+  } catch {
+    /* non-fatal — retrieval simply stays unavailable for this case */
+  }
   const model = modelOverride ?? backend.defaultModel();
-  const client = new SideCarClient(model, backend.baseUrl(), backend.apiKey());
   const promptConfig = { ...getConfig(), ...evalCase.configOverrides, ...ENV_CONFIG_OVERRIDES } as Record<
     string,
     unknown
@@ -418,9 +633,12 @@ export async function runAgentCase(
   if (evalCase.workspace['SIDECAR.md']) {
     systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${evalCase.workspace['SIDECAR.md']}`;
   }
-  client.updateSystemPrompt(systemPrompt);
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  if (ENV_SYSTEM_PROMPT_MODE === 'none') systemPrompt = '';
+  else if (ENV_SYSTEM_PROMPT_MODE === 'minimal') systemPrompt = MINIMAL_SYSTEM_PROMPT;
+  systemPrompt += referenceContextBlock(ENV_INJECT_CONTEXT);
+  systemPrompt += simulatedRetrievalBlock(ENV_RETRIEVAL_SIM, evalCase.workspace, evalCase.expect.files?.equal);
+
+  let clarifyFnCalled = false;
 
   const callbacks: AgentCallbacks = {
     onText: (text) => {
@@ -471,6 +689,7 @@ export async function runAgentCase(
     // supply a specific `clarifyResponse`; the default nudges it to proceed.
     // (The reply surfaces in the trajectory as the ask_user tool_result.)
     clarifyFn: async (question: string, clarifyOptions: string[] = []) => {
+      clarifyFnCalled = true;
       const cr = evalCase.clarifyResponse;
       return typeof cr === 'function'
         ? cr(question, clarifyOptions)
@@ -480,6 +699,7 @@ export async function runAgentCase(
     // controlled temp dir; seatbelt wrapping causes shell init hangs
     // when the ShellSession CWD is /var/folders (not the VS Code workspace).
     config: { ...getConfig(), sandboxEnabled: false, ...evalCase.configOverrides, ...ENV_CONFIG_OVERRIDES },
+    ...(ENV_TOOL_TIER ? { toolTier: ENV_TOOL_TIER } : {}),
   };
 
   // Determine whether this model needs a cold start (no prior context).
@@ -487,10 +707,56 @@ export async function runAgentCase(
   // switches them from tool-use mode to chat-response mode.
   const coldStart = needsColdStart(model);
   const keepSetup = evalCase.setupMessages && (!coldStart || evalCase.setupMessagesRequired);
+  // RAG orientation, when enabled: prepend retrieved symbol bodies to the user
+  // message, matching how the SWE harness seeds turn 0. Best-effort — a fixture
+  // whose index is empty simply contributes nothing, which is the honest
+  // "retrieval found nothing" rather than a failed run.
+  let userMessage = evalCase.userMessage;
+  let orientationChars = 0;
+  if (ENV_RAG_ORIENTATION && toolRuntime.symbolEmbeddings) {
+    try {
+      const { context } = await retrieveContext(
+        toolRuntime.symbolEmbeddings,
+        evalCase.userMessage,
+        sandbox.root,
+        ENV_RAG_ORIENTATION.topK,
+        ENV_CLIFF_GATE,
+      );
+      if (context) {
+        orientationChars = context.length;
+        userMessage = `${context}\n\n${evalCase.userMessage}`;
+      }
+    } catch {
+      /* non-fatal — an unretrievable fixture runs without orientation */
+    }
+  }
+  if (orientationChars > 0) {
+    // Surfaced so a sweep can tell "orientation helped" from "orientation was empty".
+    console.log(`[rag-orientation] ${evalCase.id}: injected ${orientationChars} chars`);
+  }
+
   const initialMessages: ChatMessage[] = [
     ...(keepSetup ? evalCase.setupMessages! : []),
-    { role: 'user', content: evalCase.userMessage },
+    { role: 'user', content: userMessage },
   ];
+
+  // The shared core owns client, system prompt, abort/timeout, surface capture
+  // and trajectory logging — the span swe.eval.ts used to re-implement. See
+  // docs/superpowers/specs/2026-08-20-harness-unification-design.md.
+  const session = createTurnLoopSession({
+    model,
+    baseUrl: backend.baseUrl(),
+    apiKey: backend.apiKey(),
+    systemPrompt,
+    options,
+    callbacks,
+    timeoutMs,
+    caseId: evalCase.id,
+    arm: process.env.SIDECAR_EVAL_ARM || 'default',
+    trial: Number(process.env.SIDECAR_EVAL_TRIAL_INDEX ?? 0),
+    ragOrientationChars: orientationChars,
+  });
+  const surface = session.surface;
 
   // Suppress thinking mode for models where it causes stalling or text-only output.
   if (hasProblematicThinking(model) && options.config) {
@@ -501,11 +767,41 @@ export async function runAgentCase(
 
   let runError: Error | null = null;
   try {
-    await runAgentLoop(client, initialMessages, callbacks, abort.signal, options);
+    await session.run(initialMessages);
+
+    // Cooperative user, text channel: a run that ENDS on a genuine clarifying
+    // question (rather than routing it through ask_user) used to dead-end —
+    // ministral and ornith both identified the ambiguity, named the real
+    // candidates, asked correctly in chat text, and were scored as if they had
+    // done nothing (ask-user-ambiguous-rename, 2026-08-07). A real user would
+    // simply reply. The harness now does the same, once: answer the question
+    // and let the loop continue, so the case measures whether the model USES
+    // the answer — the same bar the ask_user path has always had. Guarded to
+    // question-shaped endings with a clarify signal, so a "shall I proceed?"
+    // permission stall does not earn a free continuation hint.
+    if (!session.signal.aborted && evalCase.clarifyResponse !== undefined && !clarifyFnCalled) {
+      const finalTail = textBuffer.join('').slice(-400);
+      // Interrogative ("Which one…?") or imperative ("please clarify which…")
+      // — ministral asks correctly with no question mark at all.
+      const isClarifyingQuestion =
+        (/\?/.test(finalTail) || /\bplease (clarify|specify|confirm)\b/i.test(finalTail)) &&
+        /\b(which|clarif\w*|specify|did you mean|choose|prefer)\b/i.test(finalTail);
+      if (isClarifyingQuestion) {
+        const cr = evalCase.clarifyResponse;
+        const answer = typeof cr === 'function' ? cr(finalTail, []) : cr;
+        trajectory.push({ type: 'text', text: `\n[cooperative user reply] ${answer}\n` });
+        const continuation: ChatMessage[] = [
+          ...initialMessages,
+          { role: 'assistant', content: textBuffer.join('') },
+          { role: 'user', content: answer },
+        ];
+        await session.run(continuation);
+      }
+    }
   } catch (err) {
     runError = err instanceof Error ? err : new Error(String(err));
   } finally {
-    clearTimeout(timer);
+    session.close(runError ? 'error' : 'natural');
     snapshot = await sandbox.snapshot().catch(() => ({}));
     await sandbox.teardown();
     toolRuntime.dispose();
@@ -545,9 +841,16 @@ export async function runAgentCase(
       durationMs,
       iterationsUsed,
     };
-    dumpTrajectory(evalCase.id, model, backend.name, errorResult, evalCase.configOverrides);
+    dumpTrajectory(evalCase.id, model, backend.name, errorResult, evalCase.configOverrides, surface);
     return errorResult;
   }
+
+  // Fold the loop's own reporting into the trajectory. Compaction, prompt
+  // dedup and the reprompt hooks all announce themselves through state.logger,
+  // which the harness never supplied -- so a case could stop exercising the
+  // scaffolding it was written for and look identical to one that still did.
+  // Two compression fixtures did exactly that.
+  for (const line of session.loopLog) trajectory.push({ type: 'text', text: `[loop] ${line}` });
 
   const scored = scoreAgentCase(evalCase, {
     trajectory,
@@ -557,6 +860,6 @@ export async function runAgentCase(
     iterationsUsed,
   });
   const finalResult = apiUnavailable ? { ...scored, apiUnavailable: true } : scored;
-  dumpTrajectory(evalCase.id, model, backend.name, finalResult, evalCase.configOverrides);
+  dumpTrajectory(evalCase.id, model, backend.name, finalResult, evalCase.configOverrides, surface);
   return finalResult;
 }

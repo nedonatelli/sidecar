@@ -15,17 +15,24 @@ import type { LoopState, NormalizedEntry } from './state.js';
 //      (read + edit + diagnostics + tests typically 4-8) but cuts off
 //      burst-bomb scenarios.
 //
-//   2. **Cycle detection** — two parallel ring buffers, each checked
-//      for length-1..MAX_CYCLE_LEN patterns:
+//   2. **Cycle detection** — three ring buffers:
 //
-//      a. *Exact* buffer: full `name:JSON(input)` signature. Fires on
-//         length-1 after `cycleDetectionMinRepeats + 1` consecutive hits
-//         (one more than the normalized pass — see below), length-2..4 as
-//         soon as two full cycles appear. Higher threshold for length-1
-//         because agents legitimately re-run a tool (verify after edit,
-//         retry tests, refine inputs).
+//      a. *Mutation* buffer: one exact `name:JSON(input)` entry per MUTATION
+//         call. Fires when the identical mutation call appears
+//         MIN_IDENTICAL_MUTATION_CALLS (4) times in the window, consecutive
+//         OR NOT — interleaved reads don't reset it, because they don't
+//         change what the identical edit will do. This is the primary bound
+//         on the read→retry recovery loop when the retry never varies.
 //
-//      b. *Normalized* buffer: `name:primaryResource` — keeps the tool
+//      b. *Exact* buffer: full per-iteration `name:JSON(input)` signature.
+//         Fires on length-1 after MIN_IDENTICAL_CONSECUTIVE (4, fixed —
+//         deliberately NOT scaled by cycleDetectionMinRepeats, see the
+//         constant's doc) consecutive hits; length-2..4 as soon as two full
+//         cycles appear, EXCEPT patterns containing a read of a file under
+//         active mutation (the prescribed recovery shape — exempt, bounded
+//         by pass a).
+//
+//      c. *Normalized* buffer: `name:primaryResource` — keeps the tool
 //         name and the first path/command/query arg but strips secondary
 //         args (edit content, line ranges, flags). Fires at
 //         `sidecar.scaffolding.cycleDetectionMinRepeats` (default 10, was a
@@ -35,10 +42,10 @@ import type { LoopState, NormalizedEntry } from './state.js';
 //         `edit_file(a.ts, search1, replace1)` × N times with different
 //         content each time.
 //
-//      Both buffers' lookback windows scale with the configured threshold
-//      (see REPEAT_WINDOW_MARGIN) so raising it can never make either check
-//      mathematically unable to fire — a config value alone can't silently
-//      disable the safety net.
+//      The normalized buffer's lookback window scales with the configured
+//      threshold (see REPEAT_WINDOW_MARGIN) so raising it can never make the
+//      check mathematically unable to fire — a config value alone can't
+//      silently disable the safety net.
 //
 // Both helpers return `true` when the loop should break. They also
 // emit user-visible text via `callbacks.onText` and log via
@@ -51,12 +58,12 @@ const MAX_CYCLE_LEN = 4;
 // `sidecar.scaffolding.cycleDetectionMinRepeats` (LoopState.config —
 // weaker models sometimes need a few attempts to self-correct from an
 // edit_file hint before genuinely succeeding; see editFailureSignatures in
-// fs.ts). The exact-signature pass fires one repeat later (see
-// identicalRepeatsFor) — it always did, preserving that a stricter/narrower
-// match tolerates one more legitimate re-run before bailing. Both buffers'
-// lookback windows scale with the configured threshold (see
-// REPEAT_WINDOW_MARGIN and windowFor) so raising it can never make either
-// check mathematically unable to fire.
+// fs.ts). Governs VARYING-content repetition only: the consecutive-identical
+// and identical-mutation thresholds are fixed (see MIN_IDENTICAL_CONSECUTIVE)
+// because byte-identical resubmission can never self-correct. The normalized
+// buffer's lookback window scales with this threshold (REPEAT_WINDOW_MARGIN,
+// windowFor) so raising it can never make the check mathematically unable to
+// fire.
 const DEFAULT_MIN_NORMALIZED_REPEATS = 10;
 // Slack added on top of a repeat threshold to size that pass's lookback
 // window, so a few interleaved non-matching calls (e.g. a read_file the
@@ -106,12 +113,34 @@ function normalizedRepeatsFor(state: LoopState): number {
   return state.config?.cycleDetectionMinRepeats ?? DEFAULT_MIN_NORMALIZED_REPEATS;
 }
 
-/** The exact-signature pass fires one repeat later than the normalized pass
- *  — it always did (4 vs 3) — since an exact match is a narrower, stricter
- *  condition that tolerates one more legitimate re-run before bailing. */
-function identicalRepeatsFor(minNormalizedRepeats: number): number {
-  return minNormalizedRepeats + 1;
-}
+/**
+ * Consecutive byte-identical iteration signatures before bailing. FIXED at 4
+ * (the original value), deliberately DECOUPLED from cycleDetectionMinRepeats.
+ *
+ * It used to be `minNormalizedRepeats + 1`, so when the normalized default
+ * was raised 3 → 10 — to give weaker models room to retry with DIFFERENT
+ * content after an edit_file hint — this threshold silently rode along,
+ * 4 → 11. That rationale does not transfer: a byte-identical resubmission
+ * gets the same deterministic response every time and can never self-correct,
+ * so extra tolerance only buys wasted iterations (v0.122 gemma4 resubmitted
+ * one failing edit 5 times and no identical-repeat check ever fired). Two
+ * legitimate re-runs (verify twice, re-run tests) stay comfortably under 4.
+ */
+const MIN_IDENTICAL_CONSECUTIVE = 4;
+
+/**
+ * Identical MUTATION calls (same tool, byte-identical input) within the recent
+ * window before bailing — consecutive or not. The consecutive check above is
+ * defeated by the interleaved read_file the edit_file error messages
+ * themselves prescribe ("read the file, then retry"): gemma4 sent the same
+ * failing edit at positions 10, 14, 15, 17, 18 of a run and the longest
+ * consecutive streak was 2. Reads between attempts don't make the resubmission
+ * productive — the edit's response is deterministic — so identical mutation
+ * calls are counted across interleaves. 4 gives edit_file's own escalation
+ * ladder (looser fuzzy suggestion on the 3rd consecutive failure, fs.ts) one
+ * full attempt to convert the model before the run is declared stuck.
+ */
+const MIN_IDENTICAL_MUTATION_CALLS = 4;
 
 /** Lookback window for a ring buffer checked against `threshold` repeats.
  *  Always at least `threshold + REPEAT_WINDOW_MARGIN` so raising the
@@ -173,24 +202,61 @@ export function detectCycleAndBail(
   callbacks: AgentCallbacks,
 ): boolean {
   const minNormalizedRepeats = normalizedRepeatsFor(state);
-  const minIdenticalRepeats = identicalRepeatsFor(minNormalizedRepeats);
 
-  // --- Exact signature pass ---
+  // Record this iteration into every buffer FIRST, in lockstep — the exact
+  // pattern pass consults the aligned normalized entries for its
+  // recovery-shape exemption, so both must already contain this iteration.
   const callSignature = pendingToolUses.map((tu) => `${tu.name}:${sortedStringify(tu.input)}`).join('|');
   state.recentToolCalls.push(callSignature);
-  const identicalWindow = windowFor(minIdenticalRepeats);
+  // Window must fit both the consecutive-identical check and a full doubled
+  // length-4 pattern (2 × MAX_CYCLE_LEN entries).
+  const identicalWindow = Math.max(windowFor(MIN_IDENTICAL_CONSECUTIVE), MAX_CYCLE_LEN * 2);
   if (state.recentToolCalls.length > identicalWindow) {
     state.recentToolCalls.shift();
   }
 
-  if (state.recentToolCalls.length >= minIdenticalRepeats) {
-    const lastN = state.recentToolCalls.slice(-minIdenticalRepeats);
+  const normalizedWindow = windowFor(minNormalizedRepeats);
+  const normEntry = normalizeEntry(pendingToolUses);
+  state.recentNormalizedCalls.push(normEntry);
+  if (state.recentNormalizedCalls.length > normalizedWindow) {
+    state.recentNormalizedCalls.shift();
+  }
+
+  const mutationSigs = pendingToolUses
+    .filter((tu) => MUTATION_TOOLS.has(tu.name))
+    .map((tu) => `${tu.name}:${sortedStringify(tu.input)}`);
+  const mutationWindow = windowFor(MIN_IDENTICAL_MUTATION_CALLS);
+  for (const sig of mutationSigs) {
+    state.recentMutationCalls.push(sig);
+    if (state.recentMutationCalls.length > mutationWindow) {
+      state.recentMutationCalls.shift();
+    }
+  }
+
+  // --- Identical-mutation resubmission pass (consecutive or not) ---
+  // The same mutation call, byte-identical, MIN_IDENTICAL_MUTATION_CALLS times
+  // within the window — interleaved reads don't reset it, because they don't
+  // change what the identical edit will do.
+  for (const sig of new Set(mutationSigs)) {
+    const count = state.recentMutationCalls.filter((v) => v === sig).length;
+    if (count >= MIN_IDENTICAL_MUTATION_CALLS) {
+      state.logger?.warn(
+        `Agent loop identical-mutation resubmission detected (${count} identical calls, interleaves ignored) — ${sig.slice(0, 100)}`,
+      );
+      callbacks.onText(`\n\n⚠️ Agent stopped: the exact same ${sig.slice(0, 80)} call was submitted ${count} times.\n`);
+      return true;
+    }
+  }
+
+  // --- Exact signature pass ---
+  if (state.recentToolCalls.length >= MIN_IDENTICAL_CONSECUTIVE) {
+    const lastN = state.recentToolCalls.slice(-MIN_IDENTICAL_CONSECUTIVE);
     if (lastN.every((v) => v === lastN[0])) {
       state.logger?.warn(
-        `Agent loop cycle detected (${minIdenticalRepeats} identical calls) — ${callSignature.slice(0, 100)}`,
+        `Agent loop cycle detected (${MIN_IDENTICAL_CONSECUTIVE} identical calls) — ${callSignature.slice(0, 100)}`,
       );
       callbacks.onText(
-        `\n\n⚠️ Agent stopped: ${callSignature.slice(0, 80)} repeated ${minIdenticalRepeats} times in a row.\n`,
+        `\n\n⚠️ Agent stopped: ${callSignature.slice(0, 80)} repeated ${MIN_IDENTICAL_CONSECUTIVE} times in a row.\n`,
       );
       return true;
     }
@@ -200,6 +266,17 @@ export function detectCycleAndBail(
     const tail = state.recentToolCalls.slice(-len);
     const prev = state.recentToolCalls.slice(-2 * len, -len);
     if (tail.length === prev.length && tail.every((v, i) => v === prev[i])) {
+      // Recovery-shape exemption: a pattern that includes READING a file the
+      // model is actively trying to mutate is the read→retry loop the edit
+      // errors themselves prescribe ("call read_file, then use the exact
+      // text"), possibly with progressively different understanding each
+      // round — that's work, not thrash. Bailing here at 2 cycles also
+      // preempted edit_file's 3rd-failure escalation tier, the mechanism
+      // built to convert exactly this situation. A truly stuck recovery loop
+      // still bails via the identical-mutation pass above (its edit must
+      // repeat byte-identically for the pattern to match at all).
+      const normTail = state.recentNormalizedCalls.slice(-len);
+      if (normTail.some((e) => entryHasReadOfActiveMutationTarget(e, state))) continue;
       state.logger?.warn(`Agent loop cycle detected (length ${len}) — ${callSignature.slice(0, 100)}`);
       callbacks.onText(`\n\n⚠️ Agent stopped: detected repeating tool call pattern of length ${len}.\n`);
       return true;
@@ -207,12 +284,6 @@ export function detectCycleAndBail(
   }
 
   // --- Normalized signature pass ---
-  const normalizedWindow = windowFor(minNormalizedRepeats);
-  const normEntry = normalizeEntry(pendingToolUses);
-  state.recentNormalizedCalls.push(normEntry);
-  if (state.recentNormalizedCalls.length > normalizedWindow) {
-    state.recentNormalizedCalls.shift();
-  }
 
   if (state.recentNormalizedCalls.length >= minNormalizedRepeats) {
     const lastN = state.recentNormalizedCalls.slice(-minNormalizedRepeats);
@@ -295,9 +366,12 @@ export function detectCycleAndBail(
     const contentRepeats = tail.every((v, i) => v.secondaryHash === prev[i].secondaryHash);
     const allReadOnly = tail.every((e) => READ_ONLY_TOOLS.has(e.sig.split(':')[0] ?? ''));
     const gateExempt = tail.every((e) => sigTargetsOnlyGateFiles(e.sig, state));
-    // Exempt an all-read pattern when any read targets a file being actively
-    // edited — it's verifying edits between writes, not scanning in circles.
-    const editVerifyExempt = allReadOnly && tail.some((e) => sigTargetsRecentlyMutatedFile(e.sig, state));
+    // Exempt any pattern containing a READ of a file under active mutation —
+    // whether an all-read verify loop between writes, or the read→retry
+    // recovery shape the edit errors themselves prescribe. A truly stuck
+    // recovery loop still bails via the identical-mutation pass (its edit
+    // repeats byte-identically whenever the pattern's content repeats).
+    const editVerifyExempt = tail.some((e) => entryHasReadOfActiveMutationTarget(e, state));
     if ((contentRepeats || allReadOnly) && !gateExempt && !editVerifyExempt) {
       state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
       const patternSigs = tail.map((e) => e.sig.slice(0, 40)).join(' → ');
@@ -433,6 +507,33 @@ function sigTargetsOnlyGateFiles(sig: string, state: LoopState): boolean {
     const resource = idx === -1 ? '' : p.slice(idx + 1);
     return resource !== '' && isUnderActiveFix(resource, state);
   });
+}
+
+/**
+ * True when a normalized entry contains a READ-ONLY call targeting a file that
+ * recent iterations have been trying to mutate. This is the recovery shape:
+ * the edit_file error messages instruct "call read_file to get the exact
+ * text, then retry", so a read of the file under active mutation inside a
+ * repeating pattern means the model is following the prescribed path (perhaps
+ * reading a larger slice each round), not spinning. Patterns containing it are
+ * exempt from the 2-cycle pattern bails; the identical-mutation pass bounds
+ * the truly-stuck variant. `recentWriteTargets` records ATTEMPTED mutation
+ * calls (executed or guard-blocked), which is what "actively trying" means.
+ */
+function entryHasReadOfActiveMutationTarget(entry: NormalizedEntry, state: LoopState): boolean {
+  for (const part of entry.sig.split('|')) {
+    const i = part.indexOf(':');
+    if (i === -1) continue;
+    const tool = part.slice(0, i);
+    const resource = part.slice(i + 1);
+    if (!READ_ONLY_TOOLS.has(tool) || !resource) continue;
+    for (const targets of state.recentWriteTargets) {
+      for (const t of targets) {
+        if (basenameMatch(resource, t)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**

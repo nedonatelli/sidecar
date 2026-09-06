@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// SWE-bench Verified — data model (external benchmark Phase 2).
+// SWE-bench Lite — data model (external benchmark Phase 2).
 //
 // A SYSTEM-LEVEL benchmark: it scores the whole agent (SideCar's loop + a model
 // + a real repo), end-to-end, on real GitHub issues. The flagship metric is an
@@ -35,13 +35,12 @@ export interface SweTask {
 
 /**
  * Ablation arms. The core two are `scaffold-on` (full harness) vs `scaffold-off`
- * (bare loop). `gate-only` / `critic-only` decompose the harness to localize
- * *which* scaffold helps or harms (the do-no-harm investigation).
- * `scaffold-on-ratchet` is `scaffold-on` + the keep-best ratchet — isolates
- * what the ratchet's do-no-harm revert changes relative to the established
- * (pre-ratchet) scaffold-on arm.
+ * (bare loop). `gate-only` decomposes the harness to localize *which* scaffold
+ * helps or harms (the do-no-harm investigation). `scaffold-on-ratchet` is
+ * `scaffold-on` + the keep-best ratchet — isolates what the ratchet's do-no-harm
+ * revert changes relative to the established (pre-ratchet) scaffold-on arm.
  */
-export type ArmName = 'scaffold-on' | 'scaffold-off' | 'gate-only' | 'critic-only' | 'scaffold-on-ratchet';
+export type ArmName = 'scaffold-on' | 'scaffold-off' | 'gate-only' | 'scaffold-on-ratchet';
 
 /** A generated prediction for one task on one arm. */
 export interface SwePrediction {
@@ -61,12 +60,66 @@ export interface SwePrediction {
    */
   terminationBucket?: import('../../src/agent/failureTaxonomy.js').FailureBucket | null;
   /**
+   * Number of tool calls the agent issued. Zero + empty patch = the run never
+   * engaged the repo (model-request timeout / stall) — an infrastructure
+   * failure the ablation excludes rather than counting as a capability failure.
+   * Undefined on meta files written before this field existed (treated as
+   * non-infra so old runs are unaffected).
+   *
+   * Too narrow on its own: it only catches runs that never engaged. Failures
+   * observed 2026-08-18 ran 6 and 8 turns before the backend dropped, so they
+   * scored as capability failures. `failureReason` closes that gap.
+   */
+  toolCalls?: number;
+  /**
+   * Thrown error message when the solve did not complete cleanly (null = clean
+   * completion). Distinguishes an infra abort — timeout, fetch failure, stream
+   * close — from a genuine capability failure; both previously serialised to an
+   * indistinguishable empty patch. Classify with `isInfraFailure` from
+   * `failureClassification.ts`. Diagnostic only: never reaches the official
+   * predictions JSONL, which projects instance_id/model_patch only. Undefined
+   * on meta files written before this field existed.
+   */
+  failureReason?: string | null;
+  /**
+   * Did the RAG retrieve a file the gold patch touches within the top-k
+   * (localization recall)? SWE-bench as a retrieval benchmark. Undefined when
+   * the gold patch wasn't available (or on older meta files).
+   */
+  retrievalRecall?: boolean;
+  /**
    * True when the keep-best ratchet reverted scaffold-tail changes in this
    * run (detected from the ♻️ revert marker in the loop's output). Only
    * meaningful on the `scaffold-on-ratchet` arm; undefined on meta files
    * written before this field existed.
    */
   ratchetReverted?: boolean;
+  /**
+   * Peak prompt-token count the backend actually prefilled across the solve's
+   * turns (Ollama's prompt_eval_count via usage.inputTokens) — the ground-truth
+   * context size, for spotting ballooning (a single huge tool output, RAG
+   * over-injection, unbounded history). Undefined on meta files written before
+   * this field existed.
+   */
+  peakInputTokens?: number;
+  /**
+   * Loop iterations the agent ran (model generation passes) — the highest
+   * iteration number the loop reached before terminating. This is the on-vs-off
+   * cost axis: scaffold-on can drive MORE turns (each an extra full model pass)
+   * when a gate re-prompts or an autofix bounces an edit, so a slower on arm is
+   * explained by turns, not just wall-clock. Undefined on meta files written
+   * before this field existed.
+   */
+  turns?: number;
+  /**
+   * How many times the scaffold actually fired this run (gate re-prompts,
+   * autofixes, nudges) — from the loop's onOutcome meta. Zero on scaffold-off.
+   * A high count on scaffold-on with WORSE resolution is the smoking gun for a
+   * harmful scaffold (the mechanism behind the old critic regression); a high
+   * count with BETTER resolution is the scaffold earning its latency. Undefined
+   * on meta files written before this field existed.
+   */
+  scaffoldInterventions?: number;
 }
 
 /** One line of the official `swebench` predictions JSONL. */
@@ -84,10 +137,24 @@ export interface ArmReport {
   resolveRate: number;
   /** Mean agent wall-clock across the arm's tasks. */
   meanDurationMs: number;
+  /** Mean loop iterations (model generation passes) across the arm's tasks —
+   *  the turn-count axis of the on-vs-off cost comparison. 0 on older meta files
+   *  that predate the `turns` field. */
+  meanTurns: number;
+  /** Mean scaffold interventions (gate re-prompts, autofixes, nudges) across the
+   *  arm's tasks. ~0 on scaffold-off; the on-arm value paired with the resolve
+   *  delta says whether the scaffold's firing helped or hurt. */
+  meanScaffoldInterventions: number;
   /** instance_ids the official harness marked resolved. */
   resolvedIds: string[];
   /** Tasks where the agent produced no patch at all. */
   emptyPatches: number;
+  /**
+   * Tasks excluded from this arm as infrastructure failures (zero tool calls +
+   * empty patch — a stall or model-request timeout, not the model failing).
+   * Counted over the full task set, before exclusion, for reporting.
+   */
+  infraFailures: number;
 }
 
 /**
@@ -125,6 +192,14 @@ export interface AblationReport {
   regressedIds: string[];
   /** meanDuration(on) − meanDuration(off): the latency the harness costs. */
   latencyDeltaMs: number;
+  /**
+   * Tasks dropped from the paired comparison because at least one arm was an
+   * infrastructure failure (zero tool calls + empty patch). Excluding them
+   * keeps a stalled/timed-out run from being scored as the model — or the
+   * scaffold — failing the task. The on/off rates and lift are computed over
+   * the surviving tasks only.
+   */
+  infraExcludedIds: string[];
   /** Uncertainty + significance on the paired lift. */
   significance: AblationSignificance;
 }

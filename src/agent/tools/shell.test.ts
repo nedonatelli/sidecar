@@ -133,6 +133,34 @@ describe('shell tool runtime resolution', () => {
   });
 
   describe('runTests', () => {
+    it('names tsc as the available check in a TypeScript-only workspace (no runner anywhere)', async () => {
+      // 2026-08 audit: the unconditional hint suggested npm test / pytest in
+      // workspaces that have neither — ministral ran pytest against
+      // TypeScript, llama burned its whole command budget chasing runners
+      // that cannot exist (replace-todo-body-with-implementation).
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockImplementation(async (pattern: unknown) =>
+        String(pattern) === '**/*.{ts,tsx}' ? [{ fsPath: '/mock/src/clamp.ts' }] : [],
+      );
+      const out = await runTests({}, makeContext(new ShellSessionStub()));
+      expect(out).toContain('npx tsc --noEmit');
+      expect(out).toContain('Do not guess');
+      expect(out).not.toContain('e.g. "npm test", "pytest"');
+    });
+
+    it('names the interpreter for a Python-only workspace with no test files', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockImplementation(async (pattern: unknown) =>
+        String(pattern) === '**/*.py' ? [{ fsPath: '/mock/src/tool.py' }] : [],
+      );
+      const out = await runTests({}, makeContext(new ShellSessionStub()));
+      expect(out).toContain('py_compile');
+    });
+
+    it('says plainly that no automated check exists when the workspace has neither', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockImplementation(async () => []);
+      const out = await runTests({}, makeContext(new ShellSessionStub()));
+      expect(out).toContain('no automated check is available');
+    });
+
     it('uses the per-call ToolRuntime when context.toolRuntime is provided', async () => {
       const injected = new ShellSessionStub();
       // No command, no test-runner config → returns the "could not detect"

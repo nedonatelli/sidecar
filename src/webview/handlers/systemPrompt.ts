@@ -1,4 +1,5 @@
 import { window, workspace } from 'vscode';
+import { resolveWindowsShell } from '../../terminal/shellSession.js';
 import * as path from 'path';
 import * as os from 'os';
 import type { ChatState } from '../chatState.js';
@@ -418,7 +419,14 @@ export async function injectSystemContext(
           }
         : undefined;
       retrievers.push(
-        new SemanticRetriever(state.workspaceIndex, activeFilePath, undefined, undefined, graphExpansion),
+        new SemanticRetriever(
+          state.workspaceIndex,
+          activeFilePath,
+          undefined,
+          undefined,
+          graphExpansion,
+          config.retrievalCliffGateEnabled,
+        ),
       );
     }
     // SIDECAR.md retrieval mode: scoped + low sections are scored
@@ -562,12 +570,18 @@ export async function injectSystemContext(
   // cache, which requires a 1024+ token stable prefix.
   const sessionRoot = getWorkspaceRoot();
   if (sessionRoot) {
+    // Forward-slashed: every tool in the prompt takes a forward-slash relative
+    // path, so handing the model a backslash-separated path here invites it back
+    // in tool arguments, where those backslashes then have to survive JSON escaping.
     const activeFile =
       state.activeFileIncluded && window.activeTextEditor
-        ? path.relative(sessionRoot, window.activeTextEditor.document.uri.fsPath)
+        ? path.relative(sessionRoot, window.activeTextEditor.document.uri.fsPath).split(path.sep).join('/')
         : undefined;
     const platform = os.platform(); // 'win32' | 'darwin' | 'linux' | …
-    const shell = platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : (process.env.SHELL ?? '/bin/bash');
+    // The shell the agent ACTUALLY runs, not COMSPEC. Since the shell layer
+    // prefers Git Bash on Windows when installed, reporting cmd.exe here would
+    // teach the model to write the very syntax that shell cannot run.
+    const shell = platform === 'win32' ? resolveWindowsShell() : (process.env.SHELL ?? '/bin/bash');
     prompt += `\n\n## Session\n- Project root: ${sessionRoot}`;
     prompt += `\n- OS: ${platform}  Shell: ${shell}`;
     if (activeFile) {

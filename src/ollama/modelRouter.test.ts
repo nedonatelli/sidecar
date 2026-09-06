@@ -427,19 +427,17 @@ describe('synthesizeLegacyRules ', () => {
     ).toEqual([]);
   });
 
-  it('translates completionModel / criticModel / delegateTaskWorkerModel into their respective role rules', () => {
+  it('translates completionModel / delegateTaskWorkerModel into their respective role rules', () => {
     const rules = synthesizeLegacyRules({
       modelRoutingEnabled: true,
       modelRoutingRules: [],
       modelRoutingDefaultModel: '',
       model: 'base',
       completionModel: 'ollama/qwen2.5-coder:7b',
-      criticModel: 'claude-haiku-4-5',
       delegateTaskWorkerModel: 'ollama/qwen3-coder:30b',
     });
     expect(rules).toEqual([
       { when: 'completion', model: 'ollama/qwen2.5-coder:7b' },
-      { when: 'critic', model: 'claude-haiku-4-5' },
       { when: 'worker', model: 'ollama/qwen3-coder:30b' },
     ]);
   });
@@ -451,8 +449,7 @@ describe('synthesizeLegacyRules ', () => {
         modelRoutingRules: [],
         modelRoutingDefaultModel: '',
         model: 'base',
-        completionModel: '',
-        criticModel: '   ',
+        completionModel: '   ',
         delegateTaskWorkerModel: '',
       }),
     ).toEqual([]);
@@ -463,19 +460,19 @@ describe('buildRouterFromConfig — legacy migration ', () => {
   it('appends synthesized legacy rules after user-declared ones so user rules win first-match', () => {
     const router = buildRouterFromConfig({
       modelRoutingEnabled: true,
-      modelRoutingRules: [{ when: 'critic', model: 'user-preferred-critic' }],
+      modelRoutingRules: [{ when: 'completion', model: 'user-preferred-completion' }],
       modelRoutingDefaultModel: '',
       model: 'ollama/qwen3-coder:30b',
-      criticModel: 'legacy-critic',
       completionModel: 'legacy-completion',
+      delegateTaskWorkerModel: 'legacy-worker',
     });
     expect(router).not.toBeNull();
 
-    // User's explicit critic rule wins.
-    expect(router!.route({ role: 'critic' }).model).toBe('user-preferred-critic');
+    // User's explicit completion rule wins over the synthesized legacy one.
+    expect(router!.route({ role: 'completion' }).model).toBe('user-preferred-completion');
 
-    // Legacy completion rule still applies — user didn't override it.
-    expect(router!.route({ role: 'completion' }).model).toBe('legacy-completion');
+    // Legacy worker rule still applies — user didn't override it.
+    expect(router!.route({ role: 'worker' }).model).toBe('legacy-worker');
   });
 
   it('routing disabled => null regardless of legacy settings', () => {
@@ -486,7 +483,6 @@ describe('buildRouterFromConfig — legacy migration ', () => {
         modelRoutingDefaultModel: '',
         model: 'base',
         completionModel: 'x',
-        criticModel: 'y',
       }),
     ).toBeNull();
   });
@@ -498,11 +494,9 @@ describe('buildRouterFromConfig — legacy migration ', () => {
       modelRoutingDefaultModel: '',
       model: 'ollama/qwen3-coder:30b',
       completionModel: 'ollama/qwen2.5-coder:7b',
-      criticModel: 'claude-haiku-4-5',
       delegateTaskWorkerModel: 'ollama/qwen3-coder:30b',
     });
     expect(router!.route({ role: 'completion' }).model).toBe('ollama/qwen2.5-coder:7b');
-    expect(router!.route({ role: 'critic' }).model).toBe('claude-haiku-4-5');
     expect(router!.route({ role: 'worker' }).model).toBe('ollama/qwen3-coder:30b');
     expect(router!.route({ role: 'agent-loop' }).model).toBe('ollama/qwen3-coder:30b'); // default
   });

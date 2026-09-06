@@ -39,19 +39,21 @@ type FsModule = typeof import('fs');
 export function buildKickstandTokenFsMock(actual: FsModule, options: KickstandTokenFsMockOptions = {}): FsModule {
   const token = options.token ?? DEFAULT_KICKSTAND_TOKEN;
   const matcher = options.pathMatcher ?? 'kickstand/token';
+  // The path under test is built with path.join, so on Windows it arrives as
+  // ...\kickstand\token and never contained the forward-slash matcher. The stub
+  // silently did not fire and every bearer-header assertion saw undefined.
+  const matches = (p: string): boolean => p.replace(/\\/g, '/').includes(matcher);
   return {
     ...actual,
-    existsSync: ((p: string) => (p.includes(matcher) ? true : actual.existsSync(p))) as typeof actual.existsSync,
+    existsSync: ((p: string) => (matches(p) ? true : actual.existsSync(p))) as typeof actual.existsSync,
     readFileSync: ((p: string, enc?: BufferEncoding) =>
-      p.includes(matcher)
+      matches(p)
         ? token
         : (actual.readFileSync as (p: string, enc?: BufferEncoding) => unknown)(p, enc)) as typeof actual.readFileSync,
     promises: {
       ...actual.promises,
       readFile: ((p: string, enc?: BufferEncoding) =>
-        p.includes(matcher)
-          ? Promise.resolve(token)
-          : actual.promises.readFile(p, enc)) as typeof actual.promises.readFile,
+        matches(p) ? Promise.resolve(token) : actual.promises.readFile(p, enc)) as typeof actual.promises.readFile,
     },
   };
 }

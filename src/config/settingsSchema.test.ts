@@ -137,7 +137,7 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(243);
+    expect(totalKeys).toBe(246);
   });
 
   it('no setting key is duplicated across sections', () => {
@@ -202,11 +202,10 @@ describe('settings keys referenced in source match the declared schema', () => {
     expect(keys).toContain('sidecar.toolPermissions');
   });
 
-  it('Safety & Review category groups the critic + auto-fix + gate + audit + regression guards', () => {
+  it('Safety & Review category groups auto-fix + gate + audit + regression guards', () => {
     const cfg = loadConfiguration();
     const section = cfg.find((s) => s.title === 'SideCar: Safety & Review')!;
     const keys = Object.keys(section.properties);
-    expect(keys).toContain('sidecar.critic.enabled');
     expect(keys).toContain('sidecar.autoFixOnFailure');
     expect(keys).toContain('sidecar.completionGate.enabled');
     expect(keys).toContain('sidecar.audit.autoApproveReads');

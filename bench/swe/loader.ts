@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// SWE-bench Verified loading + deterministic sampling.
+// SWE-bench Lite loading + deterministic sampling.
 //
-// The dataset ships on HuggingFace (princeton-nlp/SWE-bench_Verified). Export it
+// The dataset ships on HuggingFace (SWE-bench/SWE-bench_Lite). Export it
 // to JSON or JSONL and point the loader at it. We normalize the upstream field
 // names (FAIL_TO_PASS / PASS_TO_PASS arrive as JSON-encoded strings) into SweTask.
 // ---------------------------------------------------------------------------

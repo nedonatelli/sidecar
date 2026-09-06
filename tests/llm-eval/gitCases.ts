@@ -20,6 +20,11 @@ const GIT_INIT_CMDS = [
   'git config user.name SideCarEval',
 ];
 
+// Setup commands run through execSync, which uses cmd.exe on Windows, where
+// single quotes are literal characters rather than grouping. `git commit -m
+// 'initial commit'` arrived as two arguments and failed the whole run. Double
+// quotes group in both cmd and POSIX shells.
+
 export const GIT_CASES: AgentEvalCase[] = [
   {
     id: 'git-diff-not-run-command',
@@ -31,7 +36,7 @@ export const GIT_CASES: AgentEvalCase[] = [
     setupCommands: [
       ...GIT_INIT_CMDS,
       'git add .',
-      "git commit -m 'initial commit'",
+      'git commit -m "initial commit"',
       // Modify the file after the initial commit so there is a real diff
       "node -e \"const fs=require('fs'); fs.appendFileSync('src/math.ts', '\\nexport function subtract(a: number, b: number): number {\\n  return a - b;\\n}\\n')\"",
     ],
@@ -62,7 +67,7 @@ export const GIT_CASES: AgentEvalCase[] = [
     setupCommands: [
       ...GIT_INIT_CMDS,
       'git add src/utils.ts',
-      "git commit -m 'add utils'",
+      'git commit -m "add utils"',
       // helper.ts is untracked; modify utils.ts so there is also a modified file
       "node -e \"const fs=require('fs'); fs.writeFileSync('src/utils.ts', 'export const VERSION = \\\"1.0.1\\\";\\n')\"",
     ],
@@ -89,10 +94,10 @@ export const GIT_CASES: AgentEvalCase[] = [
     setupCommands: [
       ...GIT_INIT_CMDS,
       'git add .',
-      "git commit -m 'feat: initial app setup'",
+      'git commit -m "feat: initial app setup"',
       "node -e \"const fs=require('fs'); fs.appendFileSync('src/app.ts', 'export const VERSION = \\\"0.1.0\\\";\\n')\"",
       'git add .',
-      "git commit -m 'feat: add version constant'",
+      'git commit -m "feat: add version constant"',
     ],
     userMessage: 'Show me the recent commit history for this repository.',
     expect: {

@@ -1,5 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
+// Tells the shared lock which kind of run holds it, so the refusal message can
+// say whether a sweep is at risk.
+process.env.SIDECAR_VITEST_KIND = 'eval';
+
 // ---------------------------------------------------------------------------
 // LLM evaluation harness — separate from the main unit suite.
 //
@@ -45,6 +49,7 @@ const vitestTimeout = caseTimeout * trials + 60_000;
 
 export default defineConfig({
   test: {
+    globalSetup: ['./tests/vitestLock.ts'],
     globals: true,
     environment: 'node',
     include: ['tests/llm-eval/**/*.eval.ts', 'bench/**/*.eval.ts'],

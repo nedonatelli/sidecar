@@ -28,7 +28,8 @@ export interface BackendProfile {
     | 'fireworks'
     | 'gemini'
     | 'copilot'
-    | 'bedrock';
+    | 'bedrock'
+    | 'openai-compat';
   /** API base URL to bake into sidecar.baseUrl. */
   baseUrl: string;
   /** Default model to select when switching to this profile. */
@@ -289,7 +290,8 @@ export function detectProvider(
     | 'fireworks'
     | 'gemini'
     | 'copilot'
-    | 'bedrock',
+    | 'bedrock'
+    | 'openai-compat',
 ):
   | 'ollama'
   | 'anthropic'
@@ -300,7 +302,8 @@ export function detectProvider(
   | 'fireworks'
   | 'gemini'
   | 'copilot'
-  | 'bedrock' {
+  | 'bedrock'
+  | 'openai-compat' {
   if (provider !== 'auto') return provider;
   if (isLocalOllama(baseUrl)) return 'ollama';
   if (isAnthropic(baseUrl)) return 'anthropic';
@@ -313,6 +316,22 @@ export function detectProvider(
   return 'openai';
 }
 
+/**
+ * The `/v1` API root for an OpenAI-compatible base URL.
+ *
+ * The chat URL was built as `${baseUrl}/v1/chat/completions` unconditionally, so
+ * a user who pasted the endpoint their provider documents — most of them end in
+ * `/v1`, e.g. `https://bedrock-mantle.us-gov-west-1.api.aws/v1` — silently got
+ * `/v1/v1/chat/completions` and a 404 that looks like the host being wrong.
+ *
+ * Accepts either form and normalizes: a trailing slash and an existing `/v1`
+ * suffix are both absorbed.
+ */
+export function openAiApiRoot(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
+
 /** Map a resolved provider identifier to a user-facing display label. */
 export function providerDisplayLabel(provider: ReturnType<typeof detectProvider>): string {
   switch (provider) {
@@ -322,6 +341,8 @@ export function providerDisplayLabel(provider: ReturnType<typeof detectProvider>
       return 'Anthropic';
     case 'openai':
       return 'OpenAI';
+    case 'openai-compat':
+      return 'OpenAI-compatible';
     case 'kickstand':
       return 'Kickstand';
     case 'openrouter':

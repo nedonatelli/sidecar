@@ -14,7 +14,7 @@ export interface SweEnvelope {
   quantization: string;
   backend: string;
   contextTokens: number;
-  /** "SWE-bench_Verified slice (N)" + any repo filter. */
+  /** "SWE-bench_Lite slice (N)" + any repo filter. */
   dataset: string;
   taskCount: number;
   maxIterations: number;
@@ -33,7 +33,7 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
   const signedPct = (x: number): string => `${x >= 0 ? '+' : ''}${pct(x)}`;
   const ci = (iv: [number, number]): string => `[${signedPct(iv[0])}, ${signedPct(iv[1])}]`;
   const lines: string[] = [];
-  lines.push(`# SWE-bench Verified ablation — ${env.model}`);
+  lines.push(`# SWE-bench Lite ablation — ${env.model}`);
   lines.push('');
   lines.push(
     `## Headline: scaffolding lift = ${signedPct(lift)} (95% CI ${ci(sg.liftCI)}), ` +
@@ -70,16 +70,28 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
   lines.push('');
   lines.push('## Resolve rates');
   lines.push('');
-  lines.push('| Arm | Resolved | Rate (95% CI) | Empty patches | Mean latency |');
-  lines.push('| --- | --- | --- | --- | --- |');
+  lines.push('| Arm | Resolved | Rate (95% CI) | Empty patches | Mean latency | Mean turns | Scaffold fires |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- |');
   const armCI: Record<string, [number, number]> = { [report.on.arm]: sg.onCI, [report.off.arm]: sg.offCI };
   for (const a of [report.on, report.off]) {
     const [lo, hi] = armCI[a.arm];
     lines.push(
-      `| ${a.arm} | ${a.resolved} / ${a.total} | ${pct(a.resolveRate)} [${pct(lo)}, ${pct(hi)}] | ${a.emptyPatches} | ${sec(a.meanDurationMs)} |`,
+      `| ${a.arm} | ${a.resolved} / ${a.total} | ${pct(a.resolveRate)} [${pct(lo)}, ${pct(hi)}] | ${a.emptyPatches} | ` +
+        `${sec(a.meanDurationMs)} | ${a.meanTurns.toFixed(1)} | ${a.meanScaffoldInterventions.toFixed(1)} |`,
     );
   }
   lines.push('');
+  if (report.infraExcludedIds.length || report.on.infraFailures || report.off.infraFailures) {
+    lines.push(
+      `> ℹ️ **${report.infraExcludedIds.length} task(s) excluded as infrastructure failures** ` +
+        `(agent issued zero tool calls + empty patch — a model-request timeout or stall, not a ` +
+        `capability signal): scaffold-on stalled on ${report.on.infraFailures}, scaffold-off on ` +
+        `${report.off.infraFailures}. Rates above are over the ${report.on.total} surviving tasks; ` +
+        `a task counts only if BOTH arms actually engaged the repo. Excluded: ` +
+        `${report.infraExcludedIds.join(', ') || 'none'}.`,
+    );
+    lines.push('');
+  }
   lines.push(
     `Latency cost of the harness: ${report.latencyDeltaMs >= 0 ? '+' : ''}${sec(report.latencyDeltaMs)} per task.`,
   );

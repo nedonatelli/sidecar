@@ -5,7 +5,13 @@ import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { parseTextToolCallsCleaned, stripRepeatedContent, synthesizeFenceWrite } from './textParsing.js';
-import { lastUserMessageText, isMutationRequest, looksLikeDeclinedAction } from './actionReprompt.js';
+import {
+  lastUserMessageText,
+  isMutationRequest,
+  looksLikeDeclinedAction,
+  recentResultsShowWorkAlreadyDone,
+  verifiedMutationSinceUserMessage,
+} from './actionReprompt.js';
 import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/externalPlan.js';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
@@ -293,6 +299,9 @@ export async function streamOneTurn(
           // Input + output because after this turn the model's output
           // becomes part of the next turn's input context.
           state.lastActualInputTokens = event.usage.inputTokens + event.usage.outputTokens;
+          // Anchor the projection: everything after this point is measured as a
+          // delta from here, not re-estimated from scratch.
+          state.charsAtLastMeasurement = state.totalChars;
           callbacks.onUsage?.(event.usage);
           logApiCall(
             {
@@ -435,8 +444,22 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       // ...and not when the model deliberately chose NOT to act. Deciding an
       // edit is unnecessary is a legitimate outcome — rule 7 instructs it — and
       // coercing a write over the top punishes the model for obeying.
+      // ...and not when the latest tool results already said "No change
+      // needed". A final-state fence after that signal is a completion summary,
+      // not an unapplied edit — coercing it to write_file re-entered the very
+      // loop the already-applied response exists to end (v0.122 gemma4).
+      // ...and not when the work is DONE by the evidence: an already-applied
+      // signal, or a mutation followed by a clean verification. A final-state
+      // fence after either is a completion summary, not an unapplied edit.
+      const alreadyDone =
+        isMutationRequest(userText) &&
+        !looksLikeDeclinedAction(fullText) &&
+        (recentResultsShowWorkAlreadyDone(state.messages) || verifiedMutationSinceUserMessage(state.messages));
+      if (alreadyDone) {
+        state.logger?.info('Fence-write coercion suppressed: work already applied or verified done');
+      }
       const synth =
-        isMutationRequest(userText) && !looksLikeDeclinedAction(fullText)
+        isMutationRequest(userText) && !looksLikeDeclinedAction(fullText) && !alreadyDone
           ? synthesizeFenceWrite(fullText, userText, new Set(iterationTools.map((t) => t.name)))
           : null;
       if (synth) {

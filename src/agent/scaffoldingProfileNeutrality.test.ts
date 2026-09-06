@@ -34,7 +34,6 @@ describe('medium tier === the loop’s fallback constants', () => {
       burstCap: MAX_TOOL_CALLS_PER_ITERATION,
       maxActionReprompts: MAX_ACTION_REPROMPTS,
       maxGateInjections: MAX_GATE_INJECTIONS,
-      runLlmCritic: true,
       planModeAskUser: true,
       compressionThreshold: CONTEXT_COMPRESSION_THRESHOLD,
       compactionKeepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
@@ -61,14 +60,6 @@ describe('the tiers that DO differ — the flip’s actual risk surface', () => 
     const weak = resolveScaffoldingProfile('weak');
     expect(weak.maxActionReprompts).toBeGreaterThan(DEFAULT_SCAFFOLDING_PROFILE.maxActionReprompts);
     expect(weak.maxGateInjections).toBeGreaterThan(DEFAULT_SCAFFOLDING_PROFILE.maxGateInjections);
-
-    // `runLlmCritic: false` is NOT a guard removal on a default install: the
-    // critic is opt-in (`sidecar.critic.enabled` defaults false) and criticHook
-    // returns on that check BEFORE it consults the tier. So this only applies to
-    // users who deliberately turned the critic on — and for a weak primary, a
-    // second small model's critique measured out as ≈ noise that often made
-    // things worse. Suppressing it there is protection, not deprivation.
-    expect(weak.runLlmCritic).toBe(false);
 
     // This one IS a real removal, and the only one the flip makes by default.
     // In plan mode ask_user is the ONLY tool in the catalog, and weak models

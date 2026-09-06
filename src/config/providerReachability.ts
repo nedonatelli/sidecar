@@ -1,3 +1,4 @@
+import { openAiApiRoot } from './settings/backends.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -47,7 +48,8 @@ export async function isProviderReachable(
     | 'fireworks'
     | 'gemini'
     | 'copilot'
-    | 'bedrock',
+    | 'bedrock'
+    | 'openai-compat',
   config?: SideCarConfig,
 ): Promise<boolean> {
   // Copilot uses vscode.lm — reachability is determined by whether the extension
@@ -111,7 +113,8 @@ export async function isProviderReachable(
         }
         break;
       case 'openai':
-        checkUrl = `${cfg.baseUrl}/v1/models`;
+      case 'openai-compat':
+        checkUrl = `${openAiApiRoot(cfg.baseUrl)}/models`;
         if (cfg.apiKey && cfg.apiKey !== 'ollama') {
           headers['Authorization'] = `Bearer ${cfg.apiKey}`;
         }

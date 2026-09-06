@@ -6,6 +6,7 @@ import {
   looksLikeDeferredAction,
   hasFakeToolOutput,
   maybeInjectActionReprompt,
+  recentResultsShowWorkAlreadyDone,
 } from './actionReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
@@ -506,5 +507,190 @@ describe('maybeInjectActionReprompt', () => {
     const cb = stubCallbacks();
     // Should still fire because the real user message IS an action request.
     expect(maybeInjectActionReprompt(state, 'I would add pylint to the regex...', cb)).toBe(true);
+  });
+});
+
+describe('recentResultsShowWorkAlreadyDone', () => {
+  // The loop-exit escape. v0.122 gemma4 (fix-wrong-comparison-operator): after
+  // its edit landed, every retry was answered "No change needed … say so and
+  // finish". The model obeyed — narrated completion, text-only — and the action
+  // reprompt fired on exactly that turn, driving 14 wasted iterations. The
+  // tool layer's "already done" signal must disarm the loop's act-now
+  // machinery.
+  const request = { role: 'user' as const, content: 'fix the max function in src/minmax.ts' };
+  const assistantCall = {
+    role: 'assistant' as const,
+    content: [{ type: 'tool_use', id: 't1', name: 'edit_file', input: {} }],
+  };
+  const result = (text: string) => ({
+    role: 'user' as const,
+    content: [{ type: 'tool_result' as const, tool_use_id: 't1', content: text }],
+  });
+  const ALREADY =
+    '<tool_output tool="edit_file">\nNo change needed: src/minmax.ts already contains the result of this edit.\n</tool_output>';
+  const EDITED = '<tool_output tool="edit_file">\nFile edited: src/minmax.ts\n</tool_output>';
+  const READ = '<tool_output tool="read_file">\nexport function max() {}\n</tool_output>';
+
+  it('is true when the latest tool result reports the change already applied', () => {
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(ALREADY)] as never)).toBe(true);
+  });
+
+  it("is true for write_file's identical-content confirmation", () => {
+    const confirm =
+      '<tool_output tool="write_file">\nNo change needed: `src/minmax.ts` already matches this content exactly.\n</tool_output>';
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(confirm)] as never)).toBe(true);
+  });
+
+  it('is false when the latest result is a real mutation — work is progressing', () => {
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(EDITED)] as never)).toBe(false);
+  });
+
+  it('mutation wins inside a mixed batch (edited fileA + no-change fileB)', () => {
+    const mixed = {
+      role: 'user' as const,
+      content: [
+        { type: 'tool_result' as const, tool_use_id: 't1', content: ALREADY },
+        { type: 'tool_result' as const, tool_use_id: 't2', content: EDITED },
+      ],
+    };
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, mixed] as never)).toBe(false);
+  });
+
+  it('keeps walking past read-only batches — re-checking then finishing is the ideal path', () => {
+    const msgs = [request, assistantCall, result(ALREADY), assistantCall, result(READ)];
+    expect(recentResultsShowWorkAlreadyDone(msgs as never)).toBe(true);
+  });
+
+  it('keeps walking past synthetic loop injections', () => {
+    const injection = { role: 'user' as const, content: '[No tools called] Your last response was text only...' };
+    const msgs = [request, assistantCall, result(ALREADY), injection];
+    expect(recentResultsShowWorkAlreadyDone(msgs as never)).toBe(true);
+  });
+
+  it('stops at the real user message — an old no-change does not license skipping new work', () => {
+    const newRequest = { role: 'user' as const, content: 'now rename greet in src/greeter.ts' };
+    const msgs = [request, assistantCall, result(ALREADY), newRequest];
+    expect(recentResultsShowWorkAlreadyDone(msgs as never)).toBe(false);
+  });
+
+  it('is false when no tool has run at all', () => {
+    expect(recentResultsShowWorkAlreadyDone([request] as never)).toBe(false);
+  });
+
+  it('suppresses the action reprompt after an already-applied result', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [request, assistantCall, result(ALREADY)] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    const cb = stubCallbacks();
+    expect(maybeInjectActionReprompt(state, 'The max function has been fixed and verified.', cb)).toBe(false);
+    expect(state.actionRepromptCount).toBe(0);
+  });
+
+  it('still fires the reprompt when the latest results show real progress', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [request, assistantCall, result(EDITED)] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    const cb = stubCallbacks();
+    expect(maybeInjectActionReprompt(state, 'Next, I will update the second caller.', cb)).toBe(true);
+  });
+});
+
+describe('intent-aware reprompt escapes (state over phrasing)', () => {
+  // The trigger (action verb + file path) knows nothing about what already
+  // happened in the run, so it fired on text-only turns that were the
+  // legitimate END of the work: a read request already answered from real
+  // reads, and a mutation that landed and verified clean.
+  const asst = { role: 'assistant' as const, content: [{ type: 'tool_use', id: 't', name: 'x', input: {} }] };
+  const res = (...texts: string[]) => ({
+    role: 'user' as const,
+    content: texts.map((t, i) => ({ type: 'tool_result' as const, tool_use_id: 't' + i, content: t })),
+  });
+  const READ_OK = '<tool_output tool="read_file">\nexport function clamp() {}\n</tool_output>';
+  const EDIT_OK = '<tool_output tool="edit_file">\nFile edited: src/minmax.ts\n</tool_output>';
+  const TSC_CLEAN = '<tool_output tool="run_command">\n(no output)\n</tool_output>';
+  const TSC_RED =
+    '<tool_output tool="run_command">\nsrc/calc.ts(1,10): error TS2305: Module has no exported member.\n(exit code: 1)\n</tool_output>';
+
+  it('does not reprompt a read request that was answered from real reads', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'read_file' }] as never,
+      messages: [
+        { role: 'user', content: 'Read src/utils.ts and tell me what clamp does.' },
+        asst,
+        res(READ_OK),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'clamp bounds a number to [lo, hi].', stubCallbacks())).toBe(false);
+    expect(state.actionRepromptCount).toBe(0);
+  });
+
+  it('still reprompts a read request answered from THIN AIR — no reads happened', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'read_file' }] as never,
+      messages: [{ role: 'user', content: 'Read src/utils.ts and tell me what clamp does.' }] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'clamp bounds a number to [lo, hi].', stubCallbacks())).toBe(true);
+  });
+
+  it('does not reprompt a completion summary after edit + clean verification', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        asst,
+        res(EDIT_OK),
+        asst,
+        res(TSC_CLEAN),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'max is fixed and tsc reports no errors.', stubCallbacks())).toBe(false);
+  });
+
+  it('DOES reprompt when the verification after the edit is RED — no rationalized exits', () => {
+    // v0.122 gemma4 rationalized failing tsc output and quit with a broken
+    // import. A red check must keep the pressure on.
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        asst,
+        res(EDIT_OK),
+        asst,
+        res(TSC_RED),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'Done — the remaining errors are stale.', stubCallbacks())).toBe(true);
+  });
+
+  it('DOES reprompt an unverified mutation — edit landed but nothing checked it', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [{ role: 'user', content: 'fix the max function in src/minmax.ts' }, asst, res(EDIT_OK)] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'The max function has been fixed.', stubCallbacks())).toBe(true);
+  });
+
+  it('deferred-intent text keeps the reprompt even when prior work exists', () => {
+    const state = stubLoopState({
+      tools: [{ name: 'edit_file' }] as never,
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        asst,
+        res(EDIT_OK),
+        asst,
+        res(TSC_CLEAN),
+      ] as never,
+      config: { codeAsTextRecoveryEnabled: true } as never,
+    });
+    expect(maybeInjectActionReprompt(state, 'Next, I will update the second caller.', stubCallbacks())).toBe(true);
   });
 });

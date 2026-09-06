@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE } from './completionGate/pathUtil.js';
+import { isNoChangeNeededResult, isFailingCheckOutput } from './loop/actionReprompt.js';
 
 /**
  * Completion gate — a deterministic verification barrier that fires when the
@@ -67,6 +68,18 @@ export interface GateState {
   lastInjectionWasPrimaryWork?: boolean;
   /** How many times the syntax gate has reprompted this run (bounded). Optional for back-compat with test stubs. */
   syntaxGateInjections?: number;
+  /** Snippet of the most recent FAILING verification output (tsc errors, test
+   * failures, nonzero exit). Set when a verification-shaped command or
+   * run_tests reports failure; cleared by a subsequent CLEAN verification or by
+   * a new mutation (the model is fixing — the gate then demands re-check via
+   * the normal lint/test requirements). While set, the red-check gate refuses
+   * completion: v0.122 gemma4 ran tsc, saw both errors, wrote "this is
+   * expected" and finished with a broken import. Optional for back-compat. */
+  failedCheckOutput?: string;
+  /** How many times the red-check refusal has fired this run (bounded at 2 —
+   * the final wording allows an honest could-not-complete report to exit).
+   * Optional for back-compat with test stubs. */
+  redCheckInjections?: number;
   /**
    * Files the syntax gate is actively driving fixes on (the targets of the
    * most recent parse-failure reprompt). Edits to these are gate-supervised
@@ -141,6 +154,7 @@ export function createGateState(currentUserRequest = ''): GateState {
     unverifiedClaimRepromptFired: false,
     behavioralVerificationInjections: 0,
     syntaxGateInjections: 0,
+    redCheckInjections: 0,
     syntaxGateFixTargets: new Set(),
     mcpUnverifiedMutations: new Map(),
     mcpMutationRepromptFired: false,
@@ -341,7 +355,7 @@ export function recordToolCall(
     // as an edit would reset lintObserved and demand re-verification of work
     // already verified — feeding the very post-success edit loop the
     // already-applied message exists to end (v0.119 dogfood).
-    if (resultText.startsWith('No change needed:') || resultText.includes('already contains the result of this edit')) {
+    if (isNoChangeNeededResult(resultText)) {
       return;
     }
     const raw = (tu.input.path ?? tu.input.file_path) as string | undefined;
@@ -351,13 +365,20 @@ export function recordToolCall(
       state.lintObserved = false;
       // A new edit invalidates an earlier empty-diagnostics observation too.
       state.emptyDiagnosticsObserved = false;
+      // ...and stales an earlier failing check: the model is fixing. The
+      // normal requirements above force a re-run; if THAT fails too, the
+      // red-check flag comes right back.
+      state.failedCheckOutput = undefined;
     }
     return;
   }
 
   // Dedicated test tool.
   if (tu.name === 'run_tests') {
-    const passed = classifyTestResult(resultText) === 'pass';
+    const outcome = classifyTestResult(resultText);
+    if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
+    else if (outcome === 'pass') state.failedCheckOutput = undefined;
+    const passed = outcome === 'pass';
     const file = tu.input.file as string | undefined;
     if (file) {
       const p = normalizePath(file);
@@ -425,7 +446,15 @@ export function recordToolCall(
       // A checker that ran is one that neither errored at the tool layer nor
       // failed to launch. Silent success (tsc prints nothing) still counts —
       // requiring positive output would be the opposite mistake.
-      if (!checkerFailedToRun(resultText)) state.lintObserved = true;
+      if (!checkerFailedToRun(resultText)) {
+        state.lintObserved = true;
+        // "Ran" and "passed" are different facts. A checker whose output
+        // reports errors satisfies the ran-requirement but arms the
+        // red-check refusal — completion is blocked until it passes or the
+        // model reports the failure honestly.
+        if (isFailingCheckOutput(resultText)) state.failedCheckOutput = failingSnippet(resultText);
+        else state.failedCheckOutput = undefined;
+      }
     }
 
     const testMatch = cmd.match(/\b(vitest|jest|pytest|mocha|go\s+test)\b([^|;&]*)/);
@@ -453,6 +482,15 @@ export function recordToolCall(
       if (classifyTestResult(resultText) === 'pass') state.projectTestsPassed = true;
     }
   }
+}
+
+/** Bounded excerpt of a failing check's output for the red-check reprompt —
+ * enough to name the failure, small enough not to dominate the context. */
+function failingSnippet(text: string): string {
+  const lines = text
+    .split('\n')
+    .filter((l) => l.trim() && !l.startsWith('<tool_output') && !l.startsWith('</tool_output'));
+  return lines.slice(0, 6).join('\n').slice(0, 400);
 }
 
 export interface GateFinding {

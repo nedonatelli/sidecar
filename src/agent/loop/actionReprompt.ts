@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../ollama/types.js';
+import type { ChatMessage, ToolResultContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { hasEditShapedCodeBlock } from './unappliedEdit.js';
@@ -117,6 +117,64 @@ export function isActionRequest(text: string): boolean {
 }
 
 /**
+ * A tool result reporting that the requested change is ALREADY in the file:
+ * edit_file's already-applied response and write_file's identical-content
+ * confirmation (both start "No change needed:", but results reach consumers
+ * wrapped in `<tool_output …>`, so match by inclusion). Single-sourced here —
+ * the completion gate and the loop-exit escape below must agree on what
+ * counts as this signal.
+ */
+export function isNoChangeNeededResult(text: string): boolean {
+  return text.includes('No change needed:') || text.includes('already contains the result of this edit');
+}
+
+/**
+ * True when the newest tool evidence says the work is already done: walking
+ * back from the latest message, a "No change needed" result is found before
+ * any successful mutation ("File edited/written") and before the user's real
+ * request. Read-only results (read_file, grep, tsc) and synthetic loop
+ * injections ('['-prefixed) don't break the scan — a model that re-checks and
+ * then finishes is the ideal path.
+ *
+ * Why this exists (v0.122 gemma4, fix-wrong-comparison-operator): after its
+ * fix landed, every retry was correctly answered "No change needed … if the
+ * overall task is complete, say so and finish." The model then did exactly
+ * that — narrated completion with no tool calls — and the action reprompt
+ * fired on the text-only turn, re-prompting it back into the edit loop for 14
+ * wasted iterations. The tool layer's "already done" signal must also disarm
+ * the loop's act-now machinery, or the two fight each other.
+ */
+export function recentResultsShowWorkAlreadyDone(messages: ChatMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const results = blocks.filter((b): b is ToolResultContentBlock => b.type === 'tool_result');
+    if (results.length === 0) {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join(' ');
+      if (text.startsWith('[')) continue; // synthetic loop injection — not a boundary
+      return false; // the user's real request — no completion evidence since then
+    }
+    // Batch-level, mutation wins: an "edited fileA + no-change fileB" batch is
+    // progress, not completion.
+    let sawNoChange = false;
+    for (const r of results) {
+      if (/File (?:edited|written): /.test(r.content)) return false;
+      if (isNoChangeNeededResult(r.content)) sawNoChange = true;
+    }
+    if (sawNoChange) return true;
+    // a batch of reads/checks/errors — keep walking
+  }
+  return false;
+}
+
+/**
  * True when the user asked for the workspace to be CHANGED, not merely read.
  *
  * Strictly narrower than {@link isActionRequest}, and deliberately so. The
@@ -132,6 +190,96 @@ export function isActionRequest(text: string): boolean {
  */
 export function isMutationRequest(text: string): boolean {
   return MUTATION_VERB_RE.test(text) && FILE_PATH_RE.test(text);
+}
+
+/** Successful read-shaped tool results, matched inside the `<tool_output>` wrapper. */
+const READ_RESULT_RE =
+  /<tool_output tool="(?:read_file|grep|search_files|list_directory|get_diagnostics|git_diff|git_log|git_status|find_references)"/;
+/** Verification-shaped tool results — the checks the completion gate cares about. */
+const VERIFY_RESULT_RE = /<tool_output tool="(?:run_command|run_tests|get_diagnostics)"/;
+/** A verification result that reports failure. `run_command` appends
+ *  `(exit code: N)` for nonzero exits; test/compiler output carries its own
+ *  signatures. A red check must NOT license a text-only exit — v0.122 gemma4
+ *  rationalized failing tsc output ("the compiler hasn't picked up the change")
+ *  and quit with a broken import. Exported as {@link isFailingCheckOutput} —
+ *  the completion gate's red-check refusal must agree with the reprompt
+ *  escapes on what "failed" means. */
+const FAILING_CHECK_RE =
+  /\(exit code: [1-9]\d*\)|error TS\d|\bFAILED\b|Traceback \(most recent call last\)|AssertionError/;
+
+export function isFailingCheckOutput(text: string): boolean {
+  return FAILING_CHECK_RE.test(text);
+}
+/** Successful mutation results. */
+const MUTATION_OK_RE = /File (?:edited|written): /;
+
+/**
+ * Intent-aware escapes for the act-now machinery, keyed on what has ACTUALLY
+ * happened since the user's real message — not on how the request was phrased.
+ * The trigger (action verb + file path) knows nothing about run state, so it
+ * fired on text-only turns that were the legitimate END of the work:
+ *
+ *  - a read request whose reads already happened — the text IS the deliverable
+ *    ("read X and tell me Y" → read_file → answer → "No tool calls detected");
+ *  - a mutation that landed and then verified CLEAN — the text is a completion
+ *    summary (edit → tsc no-output → summary → reprompted back into the loop).
+ *
+ * Both walk newest-first, skipping synthetic '['-injections, and stop at the
+ * user's real message. Failing verification results return false — the model
+ * must keep working (or honestly report the failure), never be excused by it.
+ */
+export function answeredFromReadsSinceUserMessage(messages: ChatMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const results = blocks.filter((b): b is ToolResultContentBlock => b.type === 'tool_result');
+    if (results.length === 0) {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join(' ');
+      if (text.startsWith('[')) continue;
+      return false; // reached the user's real request with no reads seen
+    }
+    if (results.some((r) => !r.is_error && READ_RESULT_RE.test(r.content))) return true;
+  }
+  return false;
+}
+
+export function verifiedMutationSinceUserMessage(messages: ChatMessage[]): boolean {
+  let sawCleanVerify = false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const results = blocks.filter((b): b is ToolResultContentBlock => b.type === 'tool_result');
+    if (results.length === 0) {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join(' ');
+      if (text.startsWith('[')) continue;
+      return false;
+    }
+    for (const r of results) {
+      if (VERIFY_RESULT_RE.test(r.content)) {
+        // A failing check newer than the mutation blocks the escape outright.
+        if (r.is_error || FAILING_CHECK_RE.test(r.content)) return false;
+        sawCleanVerify = true;
+      }
+      // Walking newest-first: the mutation must have a clean verify NEWER than
+      // it (already seen) for the work to count as verified-done.
+      if (MUTATION_OK_RE.test(r.content)) return sawCleanVerify;
+    }
+  }
+  return false;
 }
 
 /**
@@ -219,6 +367,36 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   const userText = lastUserMessageText(state.messages);
   const triggered = isActionRequest(userText) || looksLikeDeferredAction(fullText);
   if (!triggered) return false;
+
+  // Loop-exit escape: the latest tool results said the work is already
+  // applied. A text-only turn after that signal is the model obeying "if the
+  // task is complete, say so and finish" — re-prompting it to act is what
+  // kept the post-success edit loop alive. Let the narration stand; the
+  // completion gate still decides whether verification evidence suffices.
+  if (recentResultsShowWorkAlreadyDone(state.messages)) {
+    state.logger?.info('Action-request reprompt suppressed: latest tool results reported the change already applied');
+    return false;
+  }
+
+  // Intent-aware escapes — keyed on run state, not request phrasing. Only for
+  // turns triggered by the REQUEST's shape: text that itself announces
+  // deferred intent ("I will now edit…") is still a stall regardless of what
+  // already happened, so it keeps the reprompt.
+  if (!looksLikeDeferredAction(fullText)) {
+    // A read-only request whose reads already happened: the text-only turn is
+    // the answer, not a failure to act.
+    if (!isMutationRequest(userText) && answeredFromReadsSinceUserMessage(state.messages)) {
+      state.logger?.info('Action-request reprompt suppressed: read request already answered from real reads');
+      return false;
+    }
+    // A mutation that landed and verified clean: the text-only turn is a
+    // completion summary. (A failing check blocks this escape — see
+    // verifiedMutationSinceUserMessage.)
+    if (verifiedMutationSinceUserMessage(state.messages)) {
+      state.logger?.info('Action-request reprompt suppressed: mutation landed and verified clean');
+      return false;
+    }
+  }
 
   state.actionRepromptCount++;
   const shape = codeAsText || fakeOutput ? 'code-as-text' : 'generic';

@@ -56,7 +56,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| Kickstand | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
+            "markdownDescription": "Base URL for the active LLM backend.\n\n| Backend | URL |\n|---|---|\n| Ollama (local) | `http://localhost:11434` |\n| Anthropic | `https://api.anthropic.com` |\n| OpenAI | `https://api.openai.com` |\n| OpenAI-compatible | your endpoint, e.g. `https://host/v1` (trailing `/v1` optional) |\n| Kickstand | `http://localhost:11435` |\n\nSwitch backends the easy way: `SideCar: Switch Backend` in the Command Palette."
           },
           "sidecar.apiKey": {
             "type": "string",
@@ -77,7 +77,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Model to use for chat. **Recommended local default: `gemma4:e4b`** (9 GB, ~10 GB VRAM; the most-dogfooded local model, strongest prompt-following).\n\nExamples:\n\n- Ollama: `gemma4:e4b`, `ministral-3:latest` (6 GB, lighter), `granite4.1:3b` (2 GB low-RAM), `qwen3-coder:8b`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
+            "markdownDescription": "Model to use for chat. **Recommended local default: `gemma4:e4b`** (9 GB, ~10 GB VRAM; the most-dogfooded local model, strongest prompt-following).\n\nExamples:\n\n- Ollama: `gemma4:e4b`, `ministral-3:latest` (6 GB, lighter), `granite4.1:3b` (2 GB low-RAM), `qwen2.5-coder:7b`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
           },
           "sidecar.editorModel": {
             "type": "string",
@@ -126,6 +126,7 @@
               "ollama",
               "anthropic",
               "openai",
+              "openai-compat",
               "openrouter",
               "groq",
               "fireworks",
@@ -139,6 +140,7 @@
               "Local Ollama (http://localhost:11434). Free, private, no key needed.",
               "Anthropic Claude API. Requires an API key stored via `SideCar: Set / Refresh API Key`.",
               "OpenAI-compatible API (OpenAI, LM Studio, vLLM, llama.cpp, together.ai). Requires an API key.",
+              "Any OpenAI-compatible endpoint — self-hosted (vLLM, mlx-lm, llama.cpp) or a gateway. Set sidecar.baseUrl to the endpoint and sidecar.apiKey to its token. A trailing /v1 is optional.",
               "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
               "Groq (https://api.groq.com/openai/v1). LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec. Free tier with rate limits. Requires a Groq API key from console.groq.com.",
               "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",
@@ -214,7 +216,7 @@
           "sidecar.firstTokenTimeout": {
             "type": "number",
             "default": 300,
-            "description": "Timeout in seconds to wait for the first token from the model. Local models (Ollama) can take longer to start when loading from disk or warming up a large context. Set to 0 to disable."
+            "description": "Minimum seconds to wait for the first token from the model, before prompt-size headroom is added. Large contexts (big repos) automatically get proportionally more time so prefill isn't aborted mid-stream; this value is the floor for small prompts. Local models (Ollama) can take longer to start when loading from disk or warming up. Set to 0 to disable."
           },
           "sidecar.dailyBudget": {
             "type": "number",
@@ -444,23 +446,19 @@
           "sidecar.shellTimeout": {
             "type": "number",
             "default": 120,
-            "description": "Default timeout for shell commands in seconds"
+            "description": "Seconds a shell command may run WITHOUT producing output before it is treated as hung and killed. Any output resets the clock, so long-running commands that keep printing (test suites, builds) are not interrupted.",
+            "minimum": 1
           },
           "sidecar.shellMaxOutputMB": {
             "type": "number",
-            "default": 10,
-            "description": "Maximum shell output size in MB before truncation"
+            "default": 0,
+            "description": "Hard ceiling on captured shell output, in MB. 0 (default) auto-bounds capture near the model's context budget — the prompt pruner keeps only ~16KB of any tool result, so capturing megabytes just wastes memory. Set a positive value to force a fixed MB ceiling (e.g. to see more of a long stream in the webview)."
           }
         }
       },
       {
         "title": "SideCar: Safety & Review",
         "properties": {
-          "sidecar.critic.enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Run an adversarial critic LLM call over the run's completed work — once, when the agent believes it is finished, across the cumulative diff of every file it edited. Findings surface as chat annotations; they do not block unless sidecar.critic.blockOnHighSeverity is also enabled. Costs one extra LLM call per run and has not shown a measured benefit — off by default. On a VRAM-bound machine the critic is the SAME model judging its own work, so its lift is bounded; deterministic verification (completion gate, lint, tests, syntax) is the load-bearing layer."
-          },
           "sidecar.adaptiveScaffolding.enabled": {
             "type": "boolean",
             "default": true,
@@ -526,16 +524,6 @@
             "minimum": 2,
             "description": "Consecutive edit_file failures on one file before the steer-to-write reprompt fires (when sidecar.editFile.steerToWrite is on)."
           },
-          "sidecar.critic.model": {
-            "type": "string",
-            "default": "",
-            "description": "Model to use for the adversarial critic call. Empty string (default) means reuse sidecar.model. Set to a cheaper / faster model (e.g. claude-haiku-4-5 when the main model is claude-opus-4-6) to cut cost while keeping the critic enabled."
-          },
-          "sidecar.critic.blockOnHighSeverity": {
-            "type": "boolean",
-            "default": false,
-            "description": "Let the critic BLOCK the agent: a high-severity finding injects a synthetic user message forcing the agent to address it before the turn can finish. Default false — the critic surfaces findings as annotations but cannot redirect the run. A blocking critic acts on a model's opinion, and a false high-severity finding sends the agent chasing a problem that isn't there: the SWE-bench ablation saw the critic-bearing arm terminate ~7.5x faster while producing MORE empty patches. Deterministic checks (lint, tests, syntax) are what block; a model-judges-model verdict advises."
-          },
           "sidecar.autoFixOnFailure": {
             "type": "boolean",
             "default": false,
@@ -550,6 +538,21 @@
             "type": "boolean",
             "default": true,
             "description": "Require the agent to run lint and tests for files it edited before declaring completion. Catches cases where the agent reports a change as done without verifying."
+          },
+          "sidecar.behavioralVerificationGate.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "When the agent edits behavioral code without running a test that actually exercises it, reprompt it to write one. Off by default: on local models this tends to push a correct fix into writing extra, often broken, test files (the same over-edit pattern as the removed critic). Enable to study its effect."
+          },
+          "sidecar.syntaxGate.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Refuse to let the agent finish (and break a cycle-detection bail) while a file it edited fails to parse — runs the language's cheap parse check on edited files. On by default; requires the completion gate. Disable to run the agent loop without deterministic syntax verification."
+          },
+          "sidecar.redCheckGate.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Refuse to let the agent declare the task done while its own last verification (a test/lint/compile it ran) is still failing. On by default; requires the completion gate. This is the verification-forcing lever most likely to rescue a wrong fix — and most likely to cause over-editing — so it is independently toggleable for study."
           },
           "sidecar.steerQueue.coalesceWindowMs": {
             "type": "number",
@@ -1204,6 +1207,25 @@
               "cost"
             ],
             "markdownDescription": "Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this if you need the agent to see full file contents; lower it to reduce cost on heavy exploration tasks."
+          },
+          "sidecar.localToolTrim.enabled": {
+            "type": "boolean",
+            "default": true,
+            "order": 42,
+            "tags": [
+              "sidecar",
+              "cost"
+            ],
+            "markdownDescription": "For **local models** (Ollama/Kickstand), send only the core coding tools (read/edit/search/run/diagnostics) at full schema and compact the rest to one-line stubs the model can expand with `describe_tool`. Cuts ~2.5K tokens of tool schema off every turn and gives small models a clearer 12-tool choice instead of 50+. No effect on cloud backends."
+          },
+          "sidecar.editFile.resultDiffChars": {
+            "type": "number",
+            "default": 800,
+            "order": 43,
+            "tags": [
+              "sidecar"
+            ],
+            "markdownDescription": "After a successful `edit_file`, append a bounded diff of what actually changed to the tool result (capped at this many characters), so the model can see — and self-verify — the outcome instead of only `File edited: <path>`. Helps weak local models catch wrong-but-applied edits. Set to `0` to disable."
           },
           "sidecar.zenMode.enabled": {
             "type": "boolean",
@@ -2176,6 +2198,11 @@
             "type": "boolean",
             "default": true,
             "markdownDescription": "Prompt-injection guard. Scans tool output (file contents, web-search results, fetched URLs, shell/CI logs, tickets) for injection attempts — instruction overrides ('ignore previous instructions'), role hijacks ('you are now…'), fake system turns, permission manipulation, and secret-exfiltration lures — and FENCES any it finds in an explicit untrusted-data boundary before the content reaches the model, so external text is treated as data, not instructions. Non-blocking: it only wraps flagged content and surfaces a 🛡️ notice; clean output is untouched. On by default (small models are markedly more injection-susceptible). This is reasoning-layer defense, distinct from the secret/vulnerability scanners."
+          },
+          "sidecar.retrieval.cliffGate": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Trim workspace retrieval at its similarity cliff. Semantic search returns the top-k symbols by score; when those scores are tightly packed, the extra hits are near-identical siblings of the right answer rather than additional information, and they measurably hurt smaller models — injecting an undifferentiated top-6 took a local model from 90% to 55% on a one-line edit, while the same injection over clearly-distinct symbols cost nothing. With this on, hits below a sharp drop in score are dropped, and a result with no drop at all is reduced to its single best hit. Off restores the full top-k."
           },
           "sidecar.evalHistory.enabled": {
             "type": "boolean",
@@ -3470,7 +3497,7 @@
     "compile": "tsc -p ./",
     "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --external:@lancedb/lancedb --external:esbuild --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --external:@lancedb/lancedb --external:esbuild --format=cjs --platform=node --sourcemap --watch",
-    "copy-grammars": "mkdir -p grammars && cp node_modules/web-tree-sitter/tree-sitter.wasm grammars/ && cp node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm node_modules/tree-sitter-wasms/out/tree-sitter-java.wasm node_modules/tree-sitter-wasms/out/tree-sitter-kotlin.wasm node_modules/tree-sitter-wasms/out/tree-sitter-c_sharp.wasm node_modules/tree-sitter-wasms/out/tree-sitter-ruby.wasm node_modules/tree-sitter-wasms/out/tree-sitter-swift.wasm node_modules/tree-sitter-wasms/out/tree-sitter-c.wasm node_modules/tree-sitter-wasms/out/tree-sitter-cpp.wasm node_modules/tree-sitter-wasms/out/tree-sitter-bash.wasm node_modules/tree-sitter-wasms/out/tree-sitter-php.wasm node_modules/tree-sitter-wasms/out/tree-sitter-lua.wasm node_modules/tree-sitter-wasms/out/tree-sitter-scala.wasm node_modules/tree-sitter-wasms/out/tree-sitter-dart.wasm node_modules/tree-sitter-wasms/out/tree-sitter-vue.wasm grammars/",
+    "copy-grammars": "node scripts/copy-grammars.mjs",
     "build": "npm run compile && npm run bundle && npm run copy-grammars",
     "package": "npm run build && npx @vscode/vsce package",
     "verify:package": "node scripts/verify-package.mjs",
@@ -3480,29 +3507,33 @@
     "test:coverage": "vitest run --coverage",
     "test:integration": "rm -rf out/src/test/integration && npm run compile && npm run bundle && tsc -p src/test/integration/tsconfig.json && { find src -name '*.js' -not -path 'src/test/*' -delete 2>/dev/null || true; } && vscode-test",
     "eval:llm": "vitest run --config vitest.eval.config.ts",
-    "eval:smoke": "SIDECAR_EVAL_TAGS=smoke vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
+    "eval:smoke": "cross-env SIDECAR_EVAL_TAGS=smoke vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
     "eval:agent": "vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
-    "eval:agent:baseline": "SIDECAR_AGENT_SEED=42 vitest run --config vitest.eval.config.ts tests/llm-eval/agentBaseline.eval.ts",
-    "eval:agent:baseline:record": "SIDECAR_RECORD_AGENT_BASELINE=1 SIDECAR_AGENT_SEED=42 vitest run --config vitest.eval.config.ts tests/llm-eval/agentBaseline.eval.ts",
+    "eval:agent:baseline": "cross-env SIDECAR_AGENT_SEED=42 vitest run --config vitest.eval.config.ts tests/llm-eval/agentBaseline.eval.ts",
+    "eval:agent:baseline:record": "cross-env SIDECAR_RECORD_AGENT_BASELINE=1 SIDECAR_AGENT_SEED=42 vitest run --config vitest.eval.config.ts tests/llm-eval/agentBaseline.eval.ts",
     "eval:ablation": "vitest run --config vitest.eval.config.ts tests/llm-eval/ablation.eval.ts",
     "eval:prompt": "vitest run --config vitest.eval.config.ts tests/llm-eval/prompt.eval.ts",
     "eval:case": "vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts tests/llm-eval/prompt.eval.ts",
     "eval:parity": "vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
-    "eval:parity:record": "SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
+    "eval:parity:record": "cross-env SIDECAR_RECORD_PARITY_BASELINE=1 vitest run --config vitest.eval.config.ts tests/llm-eval/embeddingParity.eval.ts",
     "eval:compare": "vitest run --config vitest.eval.config.ts tests/llm-eval/modelComparison.eval.ts",
-    "eval:guardprobe": "SIDECAR_EVAL_TRAJECTORY_DIR=.sidecar/logs/eval-trajectories vitest run --config vitest.eval.config.ts tests/llm-eval/guardProbe.eval.ts",
-    "eval:reliability": "SIDECAR_EVAL_TAGS=smoke SIDECAR_EVAL_TRIALS=3 vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
+    "eval:guardprobe": "cross-env SIDECAR_EVAL_TRAJECTORY_DIR=.sidecar/logs/eval-trajectories vitest run --config vitest.eval.config.ts tests/llm-eval/guardProbe.eval.ts",
+    "eval:reliability": "cross-env SIDECAR_EVAL_TAGS=smoke SIDECAR_EVAL_TRIALS=3 vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",
     "bench:bfcl": "vitest run --config vitest.eval.config.ts bench/bfcl/run.eval.ts",
     "bench:swe:predict": "vitest run --config vitest.eval.config.ts tests/llm-eval/swe.eval.ts",
     "bench:swe:ablate": "vitest run --config vitest.eval.config.ts bench/swe/ablate.eval.ts",
+    "bench:swe:local": "bash bench/swe/local/run_local.sh",
     "compile:bench": "tsc -p tsconfig.bench.json",
     "lint": "eslint src/ media/",
-    "format": "prettier --write 'src/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts'",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "check": "npm run compile && npm run compile:bench && npm run compile:tests && npm run lint && npm run format:check && npm run test",
     "bump": "bash scripts/bump-version.sh",
     "prepare": "husky",
-    "compile:tests": "tsc -p tsconfig.tests.json"
+    "compile:tests": "tsc -p tsconfig.tests.json",
+    "deadcode": "knip --no-progress",
+    "deadcode:fix": "knip --fix --no-progress",
+    "promptlab": "npx --yes tsx bench/promptlab/cli.ts"
   },
   "devDependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
@@ -3521,12 +3552,14 @@
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.1",
     "better-sqlite3": "^12.9.0",
+    "cross-env": "^10.1.0",
     "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.9.0",
     "happy-dom": "^20.10.5",
     "husky": "^9.1.7",
+    "knip": "^6.32.2",
     "lint-staged": "^16.4.0",
     "mysql2": "^3.22.2",
     "pg": "^8.20.0",

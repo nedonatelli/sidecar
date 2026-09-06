@@ -134,8 +134,12 @@ export const THINKING_CASES: AgentEvalCase[] = [
     tags: ['edit', 'reasoning', 'async'],
     workspace: {
       'src/downloader.ts':
+        // "in order" deliberately absent from the doc comment: the case tests
+        // the return-type fix (strings, not Promises), and both the loop-await
+        // and Promise.all shapes are accepted. A sequential-fetch hint would
+        // imply a requirement the checker doesn't enforce.
         '/**\n' +
-        ' * Fetches each URL in order and returns the response bodies.\n' +
+        ' * Fetches each URL and returns the response bodies.\n' +
         ' */\n' +
         'export async function downloadAll(\n' +
         '  urls: string[],\n' +
@@ -156,11 +160,21 @@ export const THINKING_CASES: AgentEvalCase[] = [
       // measures, and whole-file rewrite is a supported strategy.
       toolsCalledAny: ['edit_file', 'write_file'],
       files: {
-        contain: [{ path: 'src/downloader.ts', substrings: ['await fetch(url)'] }],
-        notContain: [
-          // The un-awaited call must be gone.
-          { path: 'src/downloader.ts', substrings: ['results.push(fetch(url))'] },
-        ],
+        // Assert the semantic minimum, not a fix shape. Correct fixes observed
+        // from real models: `results.push(await fetch(url))` in the loop;
+        // `return Promise.all(urls.map(fetch))`; and collect-then-await —
+        // `results.push(fetch(url))` into a Promise<string>[] followed by
+        // `return Promise.all(results)` (gemma4, 2026-08-07, tsc-clean, and
+        // the second shape-bound checker in a row to reject it). Every correct
+        // fix must introduce `await` or `Promise.all`; the buggy original has
+        // neither (`async` does not match \bawait\b). No notContain on the
+        // push line — pushing un-awaited promises is legitimate when they are
+        // later awaited via Promise.all.
+        // No notContain: `return results;` is correct in the loop-await shape,
+        // and `results.push(fetch(url))` is correct in the collect-then-await
+        // shape. The positive regex alone discriminates — the buggy file
+        // contains neither `await` nor `Promise.all`.
+        matchesRegex: [{ path: 'src/downloader.ts', patterns: [/\bawait\b|Promise\.all\s*\(/] }],
       },
     },
     softExpect: {

@@ -441,13 +441,18 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
         contain: [
           {
             path: 'src/ops.ts',
-            substrings: ['return a / b', 'n % 2 === 0', 'function square', 'return n * n'],
+            substrings: ['return a / b', 'function square', 'return n * n'],
           },
         ],
+        // The even check as a regex, not a substring — `(n % 2) === 0` is the
+        // same fix with parentheses, and the literal `n % 2 === 0` rejected it
+        // (gemma4:e4b, seed 42, 2026-08-06: both bugs correctly fixed, case
+        // scored as failed).
+        matchesRegex: [{ path: 'src/ops.ts', patterns: [/\(?\s*n\s*%\s*2\s*\)?\s*===\s*0/] }],
         notContain: [
           {
             path: 'src/ops.ts',
-            substrings: ['return a - b', 'n % 2 !== 0'],
+            substrings: ['return a - b', 'n % 2 !== 0', '(n % 2) !== 0'],
           },
         ],
       },
@@ -491,9 +496,11 @@ export const CODE_QUALITY_CASES: AgentEvalCase[] = [
             ],
           },
         ],
-        // Accept any correct implementation: a > b ? a : b, a < b ? b : a, Math.max, etc.
+        // Accept any correct implementation: a > b ? a : b, a >= b ? a : b,
+        // a < b ? b : a, a <= b ? b : a, Math.max, etc. (>= / <= are correct
+        // for max — on ties either operand is the maximum.)
         matchesRegex: [
-          { path: 'src/minmax.ts', patterns: [/function max[\s\S]*?(a\s*>\s*b|a\s*<\s*b\s*\?\s*b|Math\.max)/] },
+          { path: 'src/minmax.ts', patterns: [/function max[\s\S]*?(a\s*>=?\s*b|a\s*<=?\s*b\s*\?\s*b|Math\.max)/] },
         ],
         notContain: [
           {

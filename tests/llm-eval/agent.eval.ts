@@ -51,6 +51,23 @@ const TAG_FILTER = process.env.SIDECAR_EVAL_TAGS?.split(',').map((s) => s.trim()
 // models "solvable but unreliable" and "broken" need different responses.
 // Default 1 preserves the classic single-shot semantics exactly.
 const TRIALS = Math.max(1, parseInt(process.env.SIDECAR_EVAL_TRIALS ?? '1', 10) || 1);
+/**
+ * Base seed for reproducible-but-varied trials.
+ *
+ * A FIXED seed across trials is worse than none: identical input + identical
+ * seed = identical output, so ten trials measure one sample and report it as
+ * ten. The seed is therefore derived per trial (base + index) — every trial is
+ * a different draw, and re-running the sweep reproduces all of them exactly.
+ *
+ * Unset leaves sampling unseeded, which is what produced 0/3 and 2/3 for the
+ * SAME arm on the same case an hour apart at temperature 0.2.
+ */
+const SEED_BASE = process.env.SIDECAR_AGENT_SEED ? Number(process.env.SIDECAR_AGENT_SEED) : null;
+
+/** How many times a timed-out (zero-output) trial is re-run before being excluded. */
+const TIMEOUT_RETRIES = Math.max(0, parseInt(process.env.SIDECAR_EVAL_TIMEOUT_RETRIES ?? '1', 10) || 0);
+/** Counted so the summary can report retries and exclusions instead of hiding them. */
+let timeoutRetries = 0;
 
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
@@ -97,6 +114,12 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   let consecutiveApiUnavailable = 0;
   const CIRCUIT_BREAKER_THRESHOLD = 3;
 
+  const scheduledCases = ALL_CASES.filter(
+    (c) =>
+      (!CASE_FILTER || CASE_FILTER.some((f) => c.id.includes(f))) &&
+      (!TAG_FILTER || TAG_FILTER.every((t) => c.tags.includes(t))),
+  ).length;
+
   for (const evalCase of ALL_CASES) {
     if (CASE_FILTER && !CASE_FILTER.some((f) => evalCase.id.includes(f))) continue;
     if (TAG_FILTER && !TAG_FILTER.every((t) => evalCase.tags.includes(t))) continue;
@@ -129,15 +152,37 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
           );
         }
 
+        // A timed-out trial is RE-RUN rather than silently dropped.
+        //
+        // `apiUnavailable` trials are excluded from the score, which quietly
+        // shrinks the denominator — and it shrinks it most for the SLOWEST
+        // configuration, because that is the one that hits the timeout. Observed
+        // 2026-08-19: a full-scaffolding arm reported "7 / 8 passed" on a 3-case
+        // x 3-trial run; the missing trial was a timeout on a config whose worst
+        // case took 2,946s. The comparison arm ran all 9. Reporting 7/8 against
+        // 2/9 flattered the arm that could not finish.
+        //
+        // Retry first (a genuine blip deserves another go); if it still cannot
+        // produce output, leave it apiUnavailable so the circuit breaker can
+        // still catch a dead endpoint — but the report names the exclusion
+        // instead of hiding it.
+        // Per-trial seed: reproducible across sweeps, varied within one.
+        if (SEED_BASE !== null) process.env.SIDECAR_AGENT_SEED = String(SEED_BASE + trial);
         let trialResult: AgentCaseResult;
-        try {
-          trialResult = await runAgentCase(evalCase, b);
-        } catch (err) {
-          // Infra errors (daemon down, network blip, timeout) surface
-          // here. Re-throw with a marker so the report clearly
-          // distinguishes infra breakage from case regressions.
-          const msg = err instanceof Error ? err.message : String(err);
-          throw new Error(`Agent case "${evalCase.id}" infra-failed: ${msg}`);
+        let attempt = 0;
+        for (;;) {
+          try {
+            trialResult = await runAgentCase(evalCase, b);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new Error(`Agent case "${evalCase.id}" infra-failed: ${msg}`);
+          }
+          if (!trialResult.apiUnavailable || attempt >= TIMEOUT_RETRIES) break;
+          attempt++;
+          timeoutRetries++;
+          console.log(
+            `[timeout-retry] ${evalCase.id} trial ${trial + 1}: no model output, retrying (${attempt}/${TIMEOUT_RETRIES})`,
+          );
         }
 
         allResults.push(trialResult);
@@ -231,6 +276,22 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   it('summary', () => {
     const passed = allResults.filter((r) => r.passed).length;
     writeSummary(passed, allResults.length);
+    // Denominator integrity, stated rather than left to be noticed. A run that
+    // recorded fewer trials than it requested, or that retried timeouts, is not
+    // directly comparable with one that did neither — and the shortfall lands on
+    // the SLOWEST arm, which is exactly the one a comparison would flatter.
+    const expectedTrials = scheduledCases * TRIALS;
+    const unavailable = allResults.filter((r) => r.apiUnavailable).length;
+    if (timeoutRetries > 0 || allResults.length !== expectedTrials || unavailable > 0) {
+      console.log(
+        `\n[denominator] recorded ${allResults.length} of ${expectedTrials} requested trials` +
+          (timeoutRetries > 0 ? ` | ${timeoutRetries} timeout retr${timeoutRetries === 1 ? 'y' : 'ies'}` : '') +
+          (unavailable > 0 ? ` | ${unavailable} excluded as api-unavailable` : '') +
+          (allResults.length !== expectedTrials
+            ? ' | INCOMPLETE — do not compare this run against a complete one'
+            : ''),
+      );
+    }
     console.log('\n\n' + renderAgentReport(allResults));
     if (reliabilityRows.length > 0) {
       console.log('\n\n' + renderReliabilityReport(reliabilityRows));

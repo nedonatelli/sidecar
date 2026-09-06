@@ -4,6 +4,7 @@ import { Retriever, RetrievalHit } from './retriever';
 import { enrichWithGraphWalk, type GraphWalkOptions, type EnrichedHit } from './graphExpansion';
 import type { SymbolSearchResult } from '../../config/symbolEmbeddingIndex';
 import { neutralizeInjections } from '../injectionGuard';
+import { trimAtSimilarityCliff } from './similarityCliff.js';
 
 /**
  * Retriever adapter for workspace files. Uses WorkspaceIndex's existing
@@ -49,6 +50,12 @@ export class SemanticRetriever implements Retriever {
      * vector hits only).
      */
     private graphExpansion?: GraphWalkOptions,
+    /**
+     * Trim the ranked hits at their similarity cliff before anything downstream
+     * sees them. On by default: injecting an undifferentiated top-6 measured
+     * 90% -> 55% on a small local model. Off restores the pre-v0.124 behavior.
+     */
+    private cliffGate: boolean = true,
   ) {}
 
   isReady(): boolean {
@@ -86,7 +93,25 @@ export class SemanticRetriever implements Retriever {
       return null;
     }
 
-    const directResults: SymbolSearchResult[] = await symEmb.search(query, k);
+    const ranked: SymbolSearchResult[] = await symEmb.search(query, k);
+
+    // Trim BEFORE graph expansion: expanding the callers of five decoys
+    // multiplies the ambiguity rather than adding to it.
+    const trim = this.cliffGate
+      ? trimAtSimilarityCliff(ranked.map((r) => r.similarity))
+      : { keep: ranked.length, reason: 'off' as const, maxDrop: 0 };
+    const directResults = ranked.slice(0, trim.keep);
+    if (trim.keep < ranked.length) {
+      logger.debug(
+        `[retrieval] similarity cliff${kv({
+          reason: trim.reason,
+          kept: trim.keep,
+          dropped: ranked.length - trim.keep,
+          maxDrop: trim.maxDrop.toFixed(4),
+          top: ranked[0]?.similarity?.toFixed(4),
+        })}`,
+      );
+    }
 
     // Graph-walk expansion. Runs only when the
     // retriever was constructed with a non-zero-depth budget AND the

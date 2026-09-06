@@ -18,6 +18,7 @@ import {
 } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
 import { assignOrdinals, makeSymbolId, type SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
+import { symbolInputsFrom } from './symbolExtraction.js';
 import {
   INDEX_EXCLUDE_DIRS,
   INDEX_EXCLUDE_PATTERN,
@@ -124,6 +125,20 @@ export class SymbolIndexer implements Disposable {
   }
 
   /**
+   * Workspace-relative graph key, always forward-slashed.
+   *
+   * path.relative returns backslashes on Windows, but every consumer of these
+   * keys treats them as POSIX. resolveImportPath in particular finds the
+   * importing file's directory with lastIndexOf('/'), which on a backslash key
+   * returns -1 — so the importer looked like it sat at the repo root and every
+   * relative import resolved to the wrong file. The graph was silently wrong on
+   * Windows; CI is ubuntu-only, so nothing caught it.
+   */
+  private relKey(fsPath: string): string {
+    return path.relative(this.rootPath, fsPath).split(path.sep).join('/');
+  }
+
+  /**
    * Build the symbol graph for the workspace.
    * Tries to restore from cache first, then incrementally updates stale files.
    */
@@ -162,7 +177,7 @@ export class SymbolIndexer implements Disposable {
     let parsed = 0;
     await Promise.allSettled(
       codeUris.map(async (uri) => {
-        const relativePath = path.relative(this.rootPath, uri.fsPath);
+        const relativePath = this.relKey(uri.fsPath);
         const stat = await workspace.fs.stat(uri);
         const hash = `${stat.size}:${stat.mtime}`;
         if (restored && this.graph.getFileHash(relativePath) === hash) return;
@@ -188,7 +203,7 @@ export class SymbolIndexer implements Disposable {
 
     // Remove files that no longer exist
     if (restored) {
-      const currentFiles = new Set(codeUris.map((u) => path.relative(this.rootPath, u.fsPath)));
+      const currentFiles = new Set(codeUris.map((u) => this.relKey(u.fsPath)));
       for (const indexed of Object.entries(this.graph.toJSON().fileHashes)) {
         if (!currentFiles.has(indexed[0])) {
           this.graph.removeFile(indexed[0]);
@@ -281,26 +296,20 @@ export class SymbolIndexer implements Disposable {
     // setting so a generated file with 50k declarations can't
     // monopolize the embedder.
     if (this.symbolEmbeddings) {
-      const lines = content.split('\n');
-      const limited = this.cappedSymbols(symbols);
-      const ordinals = assignOrdinals(limited.map((s) => s.qualifiedName));
-      for (const [i, sym] of limited.entries()) {
-        const startIdx = Math.max(0, sym.startLine - 1);
-        const endIdx = Math.min(lines.length, sym.endLine);
-        if (endIdx <= startIdx) continue;
-        const body = lines.slice(startIdx, Math.min(endIdx, startIdx + 400)).join('\n');
-        if (!body.trim()) continue;
-        this.symbolEmbeddings.queueSymbol({
-          filePath: relativePath,
-          qualifiedName: sym.qualifiedName,
-          name: sym.name,
-          kind: sym.type,
-          startLine: sym.startLine,
-          endLine: sym.endLine,
-          body,
-          ordinal: ordinals[i],
-        });
-      }
+      // Shared body/ordinal extraction — the same core the SWE-bench headless RAG
+      // uses (symbolExtraction.ts), so both index symbols identically.
+      const inputs = symbolInputsFrom(
+        relativePath,
+        content,
+        this.cappedSymbols(symbols).map((s) => ({
+          name: s.name,
+          qualifiedName: s.qualifiedName,
+          kind: s.type,
+          startLine: s.startLine,
+          endLine: s.endLine,
+        })),
+      );
+      for (const input of inputs) this.symbolEmbeddings.queueSymbol(input);
     }
   }
 
@@ -389,25 +398,19 @@ export class SymbolIndexer implements Disposable {
           return;
         }
         filesRead++;
-        const limited = this.cappedSymbols(this.graph.getSymbolsInFile(filePath));
-        const ordinals = assignOrdinals(limited.map((s) => s.qualifiedName));
-        const lines = content.split('\n');
-        for (const [i, sym] of limited.entries()) {
-          const startIdx = Math.max(0, sym.startLine - 1);
-          const endIdx = Math.min(lines.length, sym.endLine);
-          if (endIdx <= startIdx) continue;
-          const body = lines.slice(startIdx, Math.min(endIdx, startIdx + 400)).join('\n');
-          if (!body.trim()) continue;
-          embeddings.queueSymbol({
-            filePath,
-            qualifiedName: sym.qualifiedName,
-            name: sym.name,
-            kind: sym.type,
-            startLine: sym.startLine,
-            endLine: sym.endLine,
-            body,
-            ordinal: ordinals[i],
-          });
+        const inputs = symbolInputsFrom(
+          filePath,
+          content,
+          this.cappedSymbols(this.graph.getSymbolsInFile(filePath)).map((s) => ({
+            name: s.name,
+            qualifiedName: s.qualifiedName,
+            kind: s.type,
+            startLine: s.startLine,
+            endLine: s.endLine,
+          })),
+        );
+        for (const input of inputs) {
+          embeddings.queueSymbol(input);
           queued++;
         }
       }),

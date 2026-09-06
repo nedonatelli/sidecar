@@ -8,10 +8,21 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      # Windows is not a second full matrix: one job on the current LTS. The
+      # Windows path shipped four real defects the Linux matrix could not see --
+      # backslash path separators used as cache keys, an entirely untested
+      # Windows shell path, and POSIX quoting handed to cmd.exe -- and 96 suite
+      # failures that only appeared once someone ran it there. One job keeps it
+      # honest without doubling CI minutes.
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         node-version: [20, 24]
+        include:
+          - os: windows-latest
+            node-version: 24
     steps:
       - uses: actions/checkout@v6
 
@@ -49,5 +60,7 @@ jobs:
         run: npm test
 
       - name: Test coverage
-        if: matrix.node-version == 24
+        # Coverage once, on Linux: the Windows job is here to catch
+        # platform-specific breakage, not to re-measure the same lines.
+        if: matrix.node-version == 24 && matrix.os == 'ubuntu-latest'
         run: npm run test:coverage

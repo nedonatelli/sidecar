@@ -1,22 +1,29 @@
 import type { ChatMessage, ToolDefinition, TokenUsage } from '../ollama/types.js';
+import { collapseRepeatedCommandResults } from './loop/commandDedup.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
 import type { ClarifyFn } from './tools.js';
 import type { ToolRuntime } from './tools/runtime.js';
 // getConfig removed — config is now captured once at initLoopState via options.config ?? getConfig()
-import { estimateTokensFromState } from '../config/tokenEstimation.js';
+import { firstTokenTimeoutMsFor } from './loop/firstTokenTimeout.js';
 import { type ApprovalMode, type ConfirmFn, type DiffPreviewFn, type StreamingDiffPreviewFn } from './executor.js';
 import type { AgentLogger } from './logger.js';
 import type { ChangeLog } from './changelog.js';
 import type { MCPManager } from './mcpManager.js';
-import { applyBudgetCompression, maybeCompressPostTool, clearCompressionCache } from './loop/compression.js';
+import {
+  applyBudgetCompression,
+  maybeCompressPostTool,
+  clearCompressionCache,
+  projectedPromptTokens,
+} from './loop/compression.js';
 import { initLoopState } from './loop/state.js';
 import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { isDegenerateText } from './loop/textParsing.js';
 import { MAX_PLAN_STEPS, isPlanOnlyTurn } from './plans/externalPlan.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
 import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
+import { maybeInjectSyntaxGate } from './loop/completionGates/syntaxGate.js';
 import {
   excludeBlockedCircularRewrites,
   resetVerifyCountersForVerifications,
@@ -60,6 +67,30 @@ import { resolveScaffoldingProfile } from './scaffoldingProfile.js';
 /** Returns a signal that fires when either `a` or `b` fires. */
 function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
   return AbortSignal.any([a, b]);
+}
+
+/** Max times a turn's model request is re-issued after a TRANSIENT network
+ *  failure (mid-stream drop, connection reset) before giving up. Guards against
+ *  a flaky remote endpoint zeroing a whole run over one dropped connection. */
+const MAX_TURN_STREAM_RETRIES = 3;
+
+/**
+ * True for a transient network failure worth retrying the turn on — a dropped or
+ * reset connection to the backend (including Node fetch's opaque "fetch failed",
+ * whose real cause hides in `err.cause`). NOT an abort (user stop) and NOT an
+ * HTTP/application error (those surface as StreamEvents, not throws).
+ */
+function isTransientNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error) || err.name === 'AbortError') return false;
+  const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+  const hay = `${err.message} ${cause?.code ?? ''} ${cause?.message ?? ''}`.toLowerCase();
+  // Specific transient-connection signatures only — NOT loose words like
+  // "network"/"terminated", which also appear in ordinary backend error text
+  // that must propagate. undici's mid-stream drop surfaces as "fetch failed"
+  // and/or a cause of "other side closed".
+  return /fetch failed|econnreset|econnrefused|etimedout|enotfound|eai_again|socket hang up|und_err|other side closed/.test(
+    hay,
+  );
 }
 
 export interface AgentCallbacks {
@@ -263,8 +294,8 @@ export interface AgentOptions {
    */
   commandFilter?: (command: string) => boolean;
   /**
-   * Extra policy hooks registered after the eight built-in ones
-   * (auto-fix, stub validator, critic, completion gate). Runs in
+   * Extra policy hooks registered after the built-in ones
+   * (auto-fix, stub validator, action reprompt, completion gate). Runs in
    * registration order inside the same HookBus as the built-ins;
    * later hooks see the mutations earlier hooks made to state.messages.
    *
@@ -406,10 +437,9 @@ export async function runAgentLoop(
       state.logger?.info('Steer queue: interrupt-urgency steer aborted in-flight stream');
     }) ?? (() => {});
 
-  // Build the policy hook bus. Eight built-in hooks ship by default
+  // Build the policy hook bus. The built-in hooks ship by default
   // (see defaultPolicyHooks: autoFix → isolateRewrite → unappliedEdit →
-  // stubValidator → adversarialCritic → actionReprompt → completionGate →
-  // analysisCritic); regression guards defined in `sidecar.regressionGuards`
+  // stubValidator → actionReprompt → completionGate); regression guards defined in `sidecar.regressionGuards`
   // register next if the workspace-trust prompt is accepted; then
   // options.extraPolicyHooks; SDK-registered hooks register last and see
   // every earlier hook's mutations.
@@ -465,8 +495,7 @@ export async function runAgentLoop(
       }
       if (compressionOutcome === 'exhausted') {
         state.termination = 'out-of-resources';
-        const estimatedTokens =
-          state.lastActualInputTokens ?? estimateTokensFromState(state.totalChars, state.messages);
+        const estimatedTokens = projectedPromptTokens(state);
         state.logger?.warn(
           `Token budget exceeded after compaction: ~${estimatedTokens} tokens > ${state.maxTokens} limit`,
         );
@@ -516,17 +545,50 @@ export async function runAgentLoop(
       // resolveTurnContent runs post-stream cleanup (strip repeated
       // paragraphs, parse text tool calls).
       const requestTimeoutMs = state.config.requestTimeout * 1000;
-      const firstTokenTimeoutMs = state.config.firstTokenTimeout * 1000;
+      // Context-adaptive first-token timeout: configured value is a floor; large
+      // contexts add prefill headroom so a real-repo prefill isn't aborted and
+      // mislabeled a capability failure. See firstTokenTimeout.ts.
+      const inputTokens = projectedPromptTokens(state);
+      const firstTokenTimeoutMs = firstTokenTimeoutMsFor(state.config.firstTokenTimeout * 1000, inputTokens);
       let rawTurn;
       try {
-        rawTurn = await streamOneTurn(
-          client,
-          state,
-          turnController.signal,
-          callbacks,
-          requestTimeoutMs,
-          firstTokenTimeoutMs,
-        );
+        // Retry the whole turn on a TRANSIENT network failure (mid-stream drop /
+        // connection reset). streamOneTurn returns the fully-assembled turn and
+        // nothing is committed to loop state until after it succeeds, so
+        // re-issuing is safe — a flaky remote endpoint no longer zeroes the run
+        // over one dropped connection. Aborts and HTTP errors are not retried.
+        let streamAttempt = 0;
+        for (;;) {
+          try {
+            rawTurn = await streamOneTurn(
+              client,
+              state,
+              turnController.signal,
+              callbacks,
+              requestTimeoutMs,
+              firstTokenTimeoutMs,
+            );
+            break;
+          } catch (streamErr) {
+            if (
+              signal.aborted ||
+              turnController.signal.aborted ||
+              streamAttempt >= MAX_TURN_STREAM_RETRIES ||
+              !isTransientNetworkError(streamErr)
+            ) {
+              throw streamErr;
+            }
+            streamAttempt++;
+            const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
+            state.logger?.warn(
+              `Turn request failed transiently (${detail}) — retry ${streamAttempt}/${MAX_TURN_STREAM_RETRIES}`,
+            );
+            callbacks.onText(
+              `\n\n⚠️ Network hiccup — retrying request (${streamAttempt}/${MAX_TURN_STREAM_RETRIES})...\n`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1500 * streamAttempt));
+          }
+        }
       } finally {
         signal.removeEventListener('abort', mirrorAbort);
         // Keep currentTurnController alive through dispatch so a steer
@@ -629,6 +691,32 @@ export async function runAgentLoop(
           break;
         }
 
+        // A turn with NO text and NO tool calls is silence, not an answer.
+        // Three models ended runs this way in the 2026-08 sweep, always right
+        // after a successful read (granite stub-validator-forces-real-impl at
+        // 2 iterations and thinking-aliased-mutation at 4, both runs,
+        // deterministic; ministral fix-missing-await at 2): the run recorded
+        // 'natural' completion with nothing on disk and no reply. One bounded
+        // reprompt; recurring silence still ends the run so a model that
+        // cannot continue is not looped forever.
+        if (!fullText.trim() && state.emptyTurnReprompts < 1) {
+          state.emptyTurnReprompts += 1;
+          state.logger?.info('Empty turn (no text, no tool calls) — injecting continue reprompt');
+          callbacks.onText('\n\n⚙️ Empty model turn — re-prompting to continue...\n');
+          state.messages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'text' as const,
+                text:
+                  '[Empty response] Your last turn contained no answer and no tool call. Continue the task: ' +
+                  'take the next action with a tool call, or state your final answer as plain text.',
+              },
+            ],
+          });
+          continue;
+        }
+
         // ask_user is the only tool available in plan mode. A text-only
         // response — on any iteration — means the model has finished
         // asking questions and is presenting its plan.
@@ -694,7 +782,13 @@ export async function runAgentLoop(
       // Per-iteration burst cap + cycle detection. Each returns
       // `true` when the loop should terminate and is responsible for
       // its own user-visible onText notification.
-      if (exceedsBurstCap(pendingToolUses, state, callbacks)) {
+      //
+      // Diagnostic escape hatch (SIDECAR_DISABLE_CYCLE_DETECTION): for
+      // cataloging runs we want to observe the model's RAW behavior — the full
+      // thrash trajectory — instead of bailing early. The max-iteration cap
+      // still bounds the run, so this never loops forever.
+      const cycleDetectionOff = process.env.SIDECAR_DISABLE_CYCLE_DETECTION === 'true';
+      if (!cycleDetectionOff && exceedsBurstCap(pendingToolUses, state, callbacks)) {
         state.termination = 'stuck';
         break;
       }
@@ -711,10 +805,22 @@ export async function runAgentLoop(
       // zero feedback. Bounded per file.
       const deferForBlockedWrite = shouldDeferBailForBlockedWrite(pendingToolUses, state, callbacks);
       if (
+        !cycleDetectionOff &&
         !deferForBlockedWrite &&
         forCycleDetection.length > 0 &&
         detectCycleAndBail(forCycleDetection, state, callbacks)
       ) {
+        // Last-chance syntax rescue before the bail is final. A stuck loop with
+        // a broken EDITED file on disk (e.g. a shell `sed` or a write the
+        // edit-time guard couldn't cover) gets the concrete parse error as a
+        // directed, cycle-breaking task instead of silently shipping the broken
+        // file — the exact gap the completion gate leaves on the non-clean-finish
+        // path. Bounded by MAX_SYNTAX_GATE_INJECTIONS, so a model that cannot fix
+        // it still terminates. Dropping this turn's (thrashing) tool calls is the
+        // same as a normal bail — no assistant message is pushed here, so there
+        // is no unmatched tool_use; the injected reprompt replaces them.
+        const rescue = await maybeInjectSyntaxGate(state, state.config, signal, callbacks);
+        if (rescue === 'injected') continue;
         state.termination = 'stuck';
         break;
       }
@@ -777,6 +883,13 @@ export async function runAgentLoop(
       // Record files successfully edited via edit_file so write_file blocks a
       // full rewrite that would clobber those targeted fixes.
       recordSuccessfulEdits(pendingToolUses, toolResults, state);
+      // Any successful write invalidates every cached shell result: a command
+      // that was a no-op repeat a moment ago may now produce something new.
+      for (let i = 0; i < pendingToolUses.length; i++) {
+        const name = pendingToolUses[i]?.name;
+        if (name !== 'edit_file' && name !== 'write_file' && name !== 'delete_file') continue;
+        if (!toolResults[i]?.is_error) state.fileMutations++;
+      }
 
       // A deleted file is a clean slate — clear its rewrite-thrash tracking so a
       // delete-then-recreate (the natural "start this file over" move) isn't
@@ -812,9 +925,24 @@ export async function runAgentLoop(
       // (e.g. "grep kickstand") can return hundreds of KB and exhaust
       // the token budget even in a fresh conversation, because the raw
       // size is counted even though the backend truncates it anyway.
+      // run_command is exempt from the pruner's dedup (nondeterministicOutput),
+      // which is correct per-tool but wrong per-invocation: an identical command
+      // with no write since it last ran cannot have new output. Collapse those
+      // to a pointer before capping, so the duplicate never reaches totalChars.
+      const { results: dedupedResults, collapsed } = collapseRepeatedCommandResults(
+        toolResults,
+        pendingToolUses,
+        state.commandRuns,
+        state.fileMutations,
+        state.iteration,
+      );
+      for (const cmd of collapsed) {
+        state.logger?.info(`Collapsed repeated command (no writes since): ${cmd.slice(0, 120)}`);
+      }
+
       const cappedResults = state.config.promptPruningEnabled
-        ? capToolResults(toolResults, pendingToolUses, state.config.promptPruningMaxToolResultTokens)
-        : toolResults;
+        ? capToolResults(dedupedResults, pendingToolUses, state.config.promptPruningMaxToolResultTokens)
+        : dedupedResults;
 
       // Prompt-injection guard (§4): fence tool output that carries injection
       // attempts as untrusted data before it reaches the model. Runs after
@@ -837,10 +965,10 @@ export async function runAgentLoop(
       // iteration doesn't open over budget.
       maybeCompressPostTool(state);
 
-      // afterToolResults phase: the five built-ins implementing it fire in
+      // afterToolResults phase: the built-ins implementing it fire in
       // registration order (autoFix → isolateRewrite → unappliedEdit →
-      // stubValidator → completionGate tool tracking; the critics fire in
-      // onEmptyResponse instead). Any user-supplied extraPolicyHooks and
+      // stubValidator → completionGate tool tracking; the reprompt/gate checks
+      // fire in onEmptyResponse instead). Any user-supplied extraPolicyHooks and
       // SDK hooks run after the built-ins. Each hook may push a synthetic user message asking
       // the agent to do more work before ending the turn — the return
       // value is currently informational only, because the loop

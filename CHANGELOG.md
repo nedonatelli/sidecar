@@ -4,6 +4,99 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+Scaffold 4.0.0 → 5.0.0: five releases in one arc, every mechanism traceable to a
+specific recorded trajectory, every fix validated against the exact failure it
+targets before merging (5 conversions, 0 misfires; frontier ceiling 4/4).
+
+### Changed (scaffold 5.0.0 — checks must PASS, and silence is not an answer)
+
+- **The completion gate now distinguishes "the check ran" from "the check passed."**
+  A failing verification result (nonzero exit, `error TS…`, `FAILED`, traceback)
+  refuses completion — at most twice, with wording that lets an honest
+  could-not-complete report exit; a new mutation stales the flag and the normal
+  re-verification requirements re-arm it. Observed live: gemma4 ran
+  `tsc --noEmit`, saw both errors, wrote "this is expected — the compiler hasn't
+  picked up the change," and finished with a broken import. After the change, the
+  once fleet-universal `rename-propagates-to-cross-file-caller` measures **20/20
+  across the top four local models** (5-trial majority runs). (`src/agent/loop/gate.ts`,
+  `src/agent/completionGate.ts`)
+- **An empty model turn (no text, no tool call) gets one bounded continue-reprompt**
+  instead of ending the run as natural completion. Three models recorded silent
+  deaths right after a successful read — granite twice, deterministically;
+  ministral once. Recurring silence still ends the run. (`src/agent/loop.ts`)
+- **Cycle detection distinguishes hammering from recovery (4.0.3).** The
+  consecutive-identical threshold had silently risen 4 → 11 by riding a config
+  default meant for varying-content retries; it is fixed at 4 and decoupled. A new
+  identical-mutation pass counts byte-identical mutation calls ACROSS interleaved
+  reads (gemma4 resubmitted one failing edit five times with reads between —
+  longest streak two, nothing fired). Length-2..4 pattern bails exempt the
+  read-then-retry recovery shape the edit errors themselves prescribe.
+  (`src/agent/loop/cycleDetection.ts`)
+- **The act-now machinery reads run state, not just request phrasing (4.0.2/4.0.4).**
+  Text-only turns that are the legitimate END of work no longer get "No tool calls
+  detected": a read request already answered from real reads, a mutation followed
+  by a CLEAN verification, or a landed change reported as "No change needed". A
+  red check blocks the completion-summary escape outright. gemma4 had burned 14
+  iterations being re-prompted back into re-fixing a file it fixed on iteration 2.
+  (`src/agent/loop/actionReprompt.ts`, `src/agent/loop/streamTurn.ts`)
+- **Tools tell the truth about state (4.0.1).** edit_file recognizes an
+  operator-only fix that already landed (exact-outcome signal — the token
+  heuristic cannot see `a < b` → `a >= b`) and says "No change needed" instead of
+  "search string not found"; write_file confirms identical content instead of
+  lecturing about clobbering. (`src/agent/tools/fs.ts`)
+
+### Fixed (tool prompt surface)
+
+- **ask_user replies are framed as the user's answer** in the standard
+  `<tool_output>` wrapper — the only bare-string result on the surface was being
+  discounted (north-mini-code asked a perfect disambiguation question, received
+  the answer, and re-asked the same question). (`src/agent/executor.ts`)
+- **search_files teaches names-vs-contents and retries bare terms as name
+  substrings** (in file and directory names) before reporting nothing — two
+  models concluded whole tasks were no-ops after name-searching for content.
+  (`src/agent/tools/search.ts`)
+- **run_tests' no-runner hint is workspace-aware**: `npx tsc --noEmit` for
+  TypeScript sources, the interpreter for Python, an honest "no automated check
+  is available" otherwise — it had suggested pytest in TypeScript-only
+  workspaces, and one model burned its entire command budget chasing runners
+  that could not exist. (`src/agent/tools/shell.ts`)
+- **read_file on a directory names list_directory** instead of leaking a raw
+  `EISDIR` with an absolute path (seen 7× in one run, never converted).
+  (`src/agent/tools/fs.ts`)
+
+### Fixed (eval measurement layer)
+
+- **Three shape-bound case checkers rewritten to semantic minimums** after
+  rejecting correct fixes: `a >= b` as a max implementation, `(n % 2) === 0`
+  with parentheses, and two generations of await-fix shapes (loop-await,
+  `Promise.all(urls.map(…))`, collect-then-await). All frontier-validated.
+  (`tests/llm-eval/codeQualityCases.ts`, `tests/llm-eval/thinkingCases.ts`)
+- **The cooperative eval user now answers text-form clarifying questions** —
+  interrogative or imperative — once, and the loop continues; ask-in-text models
+  are measured on whether they USE the answer, the bar the ask_user path always
+  had. (`tests/llm-eval/agentHarness.ts`)
+- **The record-run budget is the computed worst case, uncapped** — the 12h cap
+  predated the 600s case budget (70 × 600s is 11.7h of legitimate case time) and
+  killed a run at case 55/70 after a host hibernation burned 8h of wall clock;
+  incremental flushing makes a long ceiling safe. (`tests/llm-eval/agentBaseline.eval.ts`)
+- **publish.yml gains `workflow_dispatch`** so a tag push that silently fails to
+  trigger the workflow (observed with v0.123.0 — tag on the remote, no run, stale
+  marketplace listing) can be re-run from the Actions UI instead of via tag
+  surgery. (`.github/workflows/publish.yml`)
+
+### Added (roster)
+
+- **Four models qualified and baselined from scratch** (smoke → 70-case
+  baseline → trajectory audit), scores from the scaffold-5.0.0 re-baseline:
+  **ornith:9b 67/70** at 5.6 GB (best small-footprint agent),
+  **north-mini-code-1.0 67/70** (documented caveat: RLVR-trained, essentially
+  never asks clarifying questions), **laguna-xs-2.1 65/70** (fastest in fleet;
+  rehabilitated from the known-unsafe list), **lfm2.5 56/70** (**not
+  recommended** — reproducibly obeyed a fenced prompt injection on two runs).
+  Incumbent re-baselines under scaffold 5.0.0: gemma4 **70/70** (first perfect
+  baseline, 15/15 flakiness trials), ministral-3 65/70, granite4.1:3b 56/70,
+  qwen2.5-coder:7b 48/70, llama3.2 26/70. (`tests/llm-eval/baselines/`)
+
 ## [0.123.0] - 2026-08-06
 
 Rolls up the v0.122.4 fixes (below, never published to the marketplace) plus the code-graph packaging repair and the eval measurement-layer rebuild.
@@ -951,7 +1044,7 @@ Known-and-accepted (not fixed): the deferral window omits ≤2 iterations from t
 
 - **Comprehensive multi-facet review (O2)** — a "comprehensive / thorough / full" review (or one naming both architecture and security) dispatches the architecture + security reviewers in parallel and merges them into one report via deterministic per-specialist-section concatenation (no LLM merge → no new hallucination surface). (`src/webview/handlers/messageUtils.ts`, `src/agent/facets/facetSynthesis.ts`)
 
-All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now shipped. See `docs/scaffolding-roadmap.md`.
+All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now shipped.
 
 ## [0.114.1] - 2026-06-17
 
@@ -964,7 +1057,7 @@ All nine scaffolding-roadmap initiatives (V1/M1/V2/A1/M2/A2/O1/V3/O2) are now sh
 
 **v0.114.0 — Scaffolding subsystem: grounded reviews, capability-adaptive harness, and ablation measurement.**
 
-A coordinated set of "scaffolding" features (see `docs/scaffolding-roadmap.md`) — the harness machinery that makes weaker local models usable. Most ship gated-off or behavior-neutral; the goal is to verify and tune them via the ablation harness before defaulting on.
+A coordinated set of "scaffolding" features — the harness machinery that makes weaker local models usable. Most ship gated-off or behavior-neutral; the goal is to verify and tune them via the ablation harness before defaulting on.
 
 ### Verify
 

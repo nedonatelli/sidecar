@@ -2,7 +2,7 @@
 // Role-Based Model Routing.
 //
 // Each dispatch in SideCar carries a role tag — agent-loop, chat, completion,
-// summarize, critic, worker, planner, judge, visual, embed — and the router
+// summarize, worker, planner, judge, visual, embed — and the router
 // consults an ordered rule list to pick the right model for the job.
 // First match wins; a rule can also declare `fallbackModel` for
 // budget-aware downgrade (wired in phase 4c).
@@ -31,7 +31,6 @@ export type RoutableRole =
   | 'agent-loop'
   | 'completion'
   | 'summarize'
-  | 'critic'
   | 'worker'
   | 'planner'
   | 'judge'
@@ -43,7 +42,6 @@ export const ROUTABLE_ROLES: readonly RoutableRole[] = [
   'agent-loop',
   'completion',
   'summarize',
-  'critic',
   'worker',
   'planner',
   'judge',
@@ -530,7 +528,7 @@ export class ModelRouter {
  * full `SideCarConfig` so `buildRouterFromConfig` can be unit-tested
  * without dragging in the whole workspace-settings machinery.
  *
- * The legacy per-role fields (`completionModel` / `criticModel` /
+ * The legacy per-role fields (`completionModel` /
  * `delegateTaskWorkerModel`) are read by `synthesizeLegacyRules` and
  * auto-translated into routing rules at router-build time. Users who
  * enable routing without rewriting their settings get sensible defaults
@@ -545,8 +543,6 @@ export interface RouterConfigSlice {
   model: string;
   /** Legacy — translates into a synthesized `completion` rule. */
   completionModel?: string;
-  /** Legacy — translates into a synthesized `critic` rule. */
-  criticModel?: string;
   /** Legacy — translates into a synthesized `worker` rule. */
   delegateTaskWorkerModel?: string;
 }
@@ -570,7 +566,7 @@ export function buildRouterFromConfig(config: RouterConfigSlice): ModelRouter | 
 
 /**
  * Translate non-default per-role settings (`sidecar.completionModel`,
- * `sidecar.critic.model`, `sidecar.delegateTask.workerModel`) into
+ * `sidecar.delegateTask.workerModel`) into
  * `RoutingRule[]` entries. Users upgrading to v0.64 who had these set
  * shouldn't have to re-express them in `sidecar.modelRouting.rules`;
  * enabling routing auto-propagates their existing preferences.
@@ -582,9 +578,6 @@ export function synthesizeLegacyRules(config: RouterConfigSlice): RoutingRule[] 
   const rules: RoutingRule[] = [];
   if (config.completionModel && config.completionModel.trim().length > 0) {
     rules.push({ when: 'completion', model: config.completionModel });
-  }
-  if (config.criticModel && config.criticModel.trim().length > 0) {
-    rules.push({ when: 'critic', model: config.criticModel });
   }
   if (config.delegateTaskWorkerModel && config.delegateTaskWorkerModel.trim().length > 0) {
     rules.push({ when: 'worker', model: config.delegateTaskWorkerModel });

@@ -56,3 +56,6 @@ dogfood-tmp/
 # Agent-skill scaffolding: plugin-coupled label/tracker mappings.
 # Durable repo conventions live in the committed AGENTS.md instead.
 docs/agents/
+# swebench's evaluation harness writes run logs and reports to CWD
+logs/run_evaluation/
+*.sidecar-*.json
