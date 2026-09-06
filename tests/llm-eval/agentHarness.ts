@@ -845,6 +845,13 @@ export async function runAgentCase(
     return errorResult;
   }
 
+  // Fold the loop's own reporting into the trajectory. Compaction, prompt
+  // dedup and the reprompt hooks all announce themselves through state.logger,
+  // which the harness never supplied -- so a case could stop exercising the
+  // scaffolding it was written for and look identical to one that still did.
+  // Two compression fixtures did exactly that.
+  for (const line of session.loopLog) trajectory.push({ type: 'text', text: `[loop] ${line}` });
+
   const scored = scoreAgentCase(evalCase, {
     trajectory,
     finalText: textBuffer.join(''),

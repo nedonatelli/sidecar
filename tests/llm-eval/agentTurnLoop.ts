@@ -4,6 +4,7 @@ import { getToolDefinitionsForTier } from '../../src/agent/tools.js';
 import { hash as surfaceHash } from '../../bench/promptlab/manifest.js';
 import { createTrajectoryLogger, type TrajectoryLogger } from './trajectoryLog.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
+import type { AgentLogger } from '../../src/agent/logger.js';
 import type { EffectiveSurface } from './agentHarness.js';
 
 // ---------------------------------------------------------------------------
@@ -50,9 +51,49 @@ export interface TurnLoopSession {
   readonly surface: EffectiveSurface;
   readonly signal: AbortSignal;
   readonly logger: TrajectoryLogger | null;
+  /** The loop's own info lines (compaction, dedup, nudges) — empty until run(). */
+  readonly loopLog: readonly string[];
   run(messages: ChatMessage[]): Promise<void>;
   /** Clears the timeout and flushes the log. Safe to call more than once. */
   close(termination: string): { durationMs: number; timedOut: boolean };
+}
+
+/**
+ * A stand-in for AgentLogger that records the loop's own info lines.
+ *
+ * The loop reports its scaffolding through `state.logger` -- "Conversation
+ * summarized: N/M turns compressed", "Context compressed: removed N chars",
+ * "Collapsed repeated command". The eval harness never passed a logger, so
+ * `state.logger` was undefined and every one of those lines was discarded. That
+ * is how two compression fixtures ran for a long time without anyone noticing
+ * they had stopped compressing: nothing the loop said about itself was audible.
+ *
+ * AgentLogger is a class wrapping a VS Code output channel, so it cannot be
+ * constructed here. This is a structural stand-in; the Proxy makes any method
+ * the loop might call and this does not implement a silent no-op rather than a
+ * TypeError mid-run.
+ */
+export interface LoopLogCapture {
+  logger: AgentLogger;
+  lines: string[];
+}
+
+export function createLoopLogCapture(): LoopLogCapture {
+  const lines: string[] = [];
+  const record = (level: string) => (message: string) => void lines.push(`[${level}] ${message}`);
+  const base: Record<string, unknown> = {
+    info: record('info'),
+    warn: record('warn'),
+    error: record('error'),
+    debug: record('debug'),
+  };
+  const logger = new Proxy(base, {
+    get(target, prop) {
+      if (prop in target) return target[prop as string];
+      return () => {};
+    },
+  }) as unknown as AgentLogger;
+  return { logger, lines };
 }
 
 export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
@@ -111,6 +152,7 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
         });
 
   const callbacks = logger ? logger.wrap(input.callbacks) : input.callbacks;
+  const loopLog = createLoopLogCapture();
   const loop = input.loopFn ?? runAgentLoop;
   let closed = false;
 
@@ -118,8 +160,10 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
     surface,
     signal: abort.signal,
     logger,
+    loopLog: loopLog.lines,
     async run(messages: ChatMessage[]) {
-      await loop(client, messages, callbacks, abort.signal, input.options);
+      // Give the loop somewhere to report its own scaffolding decisions.
+      await loop(client, messages, callbacks, abort.signal, { ...input.options, logger: loopLog.logger });
     },
     close(termination: string) {
       if (!closed) {
