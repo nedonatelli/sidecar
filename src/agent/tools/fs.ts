@@ -520,17 +520,69 @@ export const writeFileDef: ToolDefinition = {
   },
 };
 
+/**
+ * The `edit_file` description, reworded so the first thing it says about
+ * `replace` is that it must DIFFER.
+ *
+ * The shipped wording (below) instructs the model to repeat text three separate
+ * times — "every line you add to `search` must be repeated verbatim in
+ * `replace`", "put an anchor in `search` and REPEAT that anchor inside
+ * `replace`", and the same again on the `search` field — while "Must differ from
+ * search" appears once, in the `replace` field description, after all three.
+ *
+ * For a small model the degenerate execution of "repeat the anchor verbatim in
+ * `replace`" is `replace = search`, a no-op the tool then rejects. That is the
+ * largest edit_file failure bucket by a wide margin: 130 of 349 failures (37%),
+ * and 43% of runs open with one.
+ *
+ * Why the schema is the suspect rather than grounding:
+ *   - the rate is worst before any feedback exists — 33% of edits in the first
+ *     eight tool calls, 12% by call 24-31 — and early on this text is all the
+ *     model has;
+ *   - reading the file first does not help (43% no-op when the target was read,
+ *     21% when it was not);
+ *   - removing retrieval does not help (45% vs 38%, 153 paired tasks, p>0.3);
+ *   - only 13% of those anchors are ever proven valid by a later successful edit
+ *     reusing them, so the model was not anchoring — it was repeating.
+ *
+ * The anchor guidance still has to exist, because dropping the anchor from
+ * `replace` really does delete it. It is kept, phrased as "the anchor PLUS your
+ * new code", never as a bare instruction to repeat.
+ *
+ * Gated for measurement: SIDECAR_EDIT_FILE_DESC=v2 selects it. The default stays
+ * on the shipped wording until an A/B says otherwise — a wording change with a
+ * plausible story is exactly the kind of thing this repo has been wrong about
+ * before.
+ */
+const EDIT_FILE_DESCRIPTION_V2 =
+  'Edit an existing file by substituting one exact string for a different one. ' +
+  '`search` is the text as it appears in the file NOW; `replace` is what you want that text to become. ' +
+  'THE TWO MUST DIFFER — sending the same text in both changes nothing and is rejected. ' +
+  'Work out what the code should say before calling this: if you know WHERE to change but not WHAT to, call `read_file` and decide first. ' +
+  'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
+  'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
+  '`search` must resolve to ONE location. If it appears several times, pass `within` (a unique line just above the edit, e.g. the enclosing `class`/`def`) rather than growing `search`. To change every occurrence instead, pass `replace_all: true`. ' +
+  'To ADD code rather than change it, `replace` is the anchor PLUS your new code — anything missing from `replace` is deleted, so the anchor has to still be there afterwards. ' +
+  'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
+  'Insert example — a comment added above a function, where the function line appears in both and the comment is the difference: `edit_file(path="src/utils.ts", search="export function greet(", replace="/** Greets someone. */\\nexport function greet(")`.';
+
+function editFileDescription(): string {
+  return process.env.SIDECAR_EDIT_FILE_DESC === 'v2' ? EDIT_FILE_DESCRIPTION_V2 : LEGACY_EDIT_FILE_DESCRIPTION;
+}
+
+const LEGACY_EDIT_FILE_DESCRIPTION =
+  'Edit an existing file by replacing an exact search string with a replacement. ' +
+  'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
+  'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
+  '`search` must resolve to ONE location. If it appears several times, pass `within` (a unique line just above the edit, e.g. the enclosing `class`/`def`) rather than growing `search` — every line you add to `search` must be repeated verbatim in `replace` or it is DELETED. To change every occurrence instead, pass `replace_all: true`. ' +
+  'When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
+  'There is ONE operation: substitution. To ADD text, put an anchor in `search` and REPEAT that anchor inside `replace` alongside the new code — dropping the anchor from `replace` DELETES it. ' +
+  'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
+  'Insert example — add a comment above a function by restating the function line: `edit_file(path="src/utils.ts", search="export function greet(", replace="/** Greets someone. */\\nexport function greet(")`.';
+
 export const editFileDef: ToolDefinition = {
   name: 'edit_file',
-  description:
-    'Edit an existing file by replacing an exact search string with a replacement. ' +
-    'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
-    'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
-    '`search` must resolve to ONE location. If it appears several times, pass `within` (a unique line just above the edit, e.g. the enclosing `class`/`def`) rather than growing `search` — every line you add to `search` must be repeated verbatim in `replace` or it is DELETED. To change every occurrence instead, pass `replace_all: true`. ' +
-    'When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
-    'There is ONE operation: substitution. To ADD text, put an anchor in `search` and REPEAT that anchor inside `replace` alongside the new code — dropping the anchor from `replace` DELETES it. ' +
-    'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
-    'Insert example — add a comment above a function by restating the function line: `edit_file(path="src/utils.ts", search="export function greet(", replace="/** Greets someone. */\\nexport function greet(")`.',
+  description: editFileDescription(),
   input_schema: {
     type: 'object',
     properties: {
