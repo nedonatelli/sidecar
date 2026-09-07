@@ -203,6 +203,53 @@ function sweepStaleClones(now: number = Date.now()): number {
   return removed;
 }
 
+/**
+ * Remove a clone, or failing that, empty it.
+ *
+ * Windows refuses `rmdir` on the clone root with EBUSY while every file inside
+ * it deletes without complaint. Measured, twice, with the tree intact and 28
+ * entries still present after a failed `fs.rmSync(recursive)` -- the removal
+ * aborts on its FIRST operation, so nothing gets cleaned rather than
+ * everything-but-the-root. The root frees the instant the test process exits,
+ * and no child process survives to blame, so a directory handle is being held
+ * somewhere inside this process.
+ *
+ * Two previous fixes for this were root-cause guesses and both did nothing: a
+ * longer retry budget (bc429f3) on the theory that cleanup raced the shell's
+ * force-kill, then killing the whole process tree (97fe8ab) on the theory that
+ * a surviving grandchild held it. Rather than guess a third time, this works
+ * with the behaviour actually measured: the contents are free, so take them.
+ *
+ * A clone left as an empty directory costs a directory entry instead of ~35MB,
+ * and sweepStaleClones() collects it on a later run.
+ */
+function removeCloneDir(dir: string): 'removed' | 'emptied' | 'failed' {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    return 'removed';
+  } catch {
+    // Fall through: the root may be busy while its contents are not.
+  }
+  let complete = true;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      try {
+        fs.rmSync(path.join(dir, name), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      } catch {
+        complete = false;
+      }
+    }
+  } catch {
+    return 'failed';
+  }
+  try {
+    fs.rmdirSync(dir);
+    return 'removed';
+  } catch {
+    return complete ? 'emptied' : 'failed';
+  }
+}
+
 function cleanupRepoClones(): void {
   // Never delete a pre-populated cache — it is reused across runs and (with a
   // per-model copy) across concurrent campaigns.
@@ -240,10 +287,11 @@ function cleanupRepoClones(): void {
       // Residual: one clone per repo per run, which sweepStaleClones() collects
       // on a later run. Down from 167. Losing the directory still costs disk and
       // not correctness.
-      try {
-        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 15, retryDelay: 300 });
-      } catch (err) {
-        console.warn(`[swe] could not remove clone ${dir}: ${(err as Error).message}`);
+      const outcome = removeCloneDir(dir);
+      if (outcome === 'emptied') {
+        console.warn(`[swe] clone root still busy, emptied instead: ${dir}`);
+      } else if (outcome === 'failed') {
+        console.warn(`[swe] could not remove or empty clone: ${dir}`);
       }
     }
   }
