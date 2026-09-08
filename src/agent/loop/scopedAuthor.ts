@@ -54,7 +54,19 @@ const TASK_LIMIT = 1_200;
  */
 export function isNoOpEdit(tu: ToolUseContentBlock, result: ToolResultContentBlock | undefined): boolean {
   if (tu.name !== 'edit_file') return false;
-  if (!result?.is_error) return false;
+  if (!result) return false;
+  // NOT `result.is_error`. Measured on a live run: every tool result reaching
+  // this hook carries `is_error: undefined`, including the failures -- the flag
+  // is set on some paths in executeToolUses and not on the one edit_file
+  // failures take. Requiring it rejected all 11 no-ops in a smoke run while the
+  // hook itself ran fine, which is a silent no-op of exactly the kind this
+  // session keeps finding.
+  //
+  // Success is what is reliably observable: a fulfilled tool result opens with
+  // `<tool_output`. And a search identical to its replace is definitionally a
+  // no-op -- edit_file cannot have applied it -- so the pair is sufficient.
+  const content = typeof result.content === 'string' ? result.content : String(result.content ?? '');
+  if (content.startsWith('<tool_output')) return false;
   const input = tu.input as Record<string, unknown>;
   const search = typeof input.search === 'string' ? input.search : '';
   const replace = typeof input.replace === 'string' ? input.replace : '';

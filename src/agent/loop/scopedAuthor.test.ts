@@ -120,6 +120,19 @@ describe('isNoOpEdit', () => {
     expect(isNoOpEdit(use('1', SAME, 'write_file'), err('1'))).toBe(false);
   });
 
+  it('fires when the result carries no is_error flag at all', () => {
+    // The live shape. Every tool result reaching this hook had is_error
+    // undefined, including failures, so requiring the flag rejected all 11
+    // no-ops in a smoke run while the hook ran normally.
+    const unflagged = {
+      type: 'tool_result',
+      tool_use_id: '1',
+      content: 'Error: edit_file failed — search and replace text are identical; no change would be made.',
+    } as ToolResultContentBlock;
+    expect(unflagged.is_error).toBeUndefined();
+    expect(isNoOpEdit(use('1', SAME), unflagged)).toBe(true);
+  });
+
   it('ignores an empty search', () => {
     expect(isNoOpEdit(use('1', { path: 'a.py', search: '', replace: '' }), err('1'))).toBe(false);
   });
