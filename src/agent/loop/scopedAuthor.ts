@@ -42,13 +42,23 @@ const REGION_LIMIT = 2_000;
 /** How much of the task statement to carry across. */
 const TASK_LIMIT = 1_200;
 
-export function isNoOpEditFailure(result: ToolResultContentBlock | undefined): boolean {
+/**
+ * A no-op edit, detected from the CALL rather than the error text.
+ *
+ * Keying on the message was wrong twice over. edit_file has at least two
+ * wordings for this -- "search and replace text are identical; no change would
+ * be made" and "'search' and 'replace' are identical, so there is no change to
+ * make" -- and a smoke run hit both, so a string match caught half the cases.
+ * The inputs are unambiguous and cannot drift when someone rewords an error, and
+ * they are also how the 130-of-349 figure was measured in the first place.
+ */
+export function isNoOpEdit(tu: ToolUseContentBlock, result: ToolResultContentBlock | undefined): boolean {
+  if (tu.name !== 'edit_file') return false;
   if (!result?.is_error) return false;
-  const text = typeof result.content === 'string' ? result.content : String(result.content ?? '');
-  return (
-    text.includes('search and replace text are identical') ||
-    text.includes('you resubmitted the EXACT SAME search and replace')
-  );
+  const input = tu.input as Record<string, unknown>;
+  const search = typeof input.search === 'string' ? input.search : '';
+  const replace = typeof input.replace === 'string' ? input.replace : '';
+  return search.length > 0 && search === replace;
 }
 
 /**
@@ -130,8 +140,7 @@ export async function applyScopedAuthor(
 
   const byId = new Map(toolResults.map((r) => [r.tool_use_id, r]));
   for (const tu of pendingToolUses) {
-    if (tu.name !== 'edit_file') continue;
-    if (!isNoOpEditFailure(byId.get(tu.id))) continue;
+    if (!isNoOpEdit(tu, byId.get(tu.id))) continue;
 
     const parsed = editInput(tu);
     if (!parsed) continue;
@@ -146,13 +155,20 @@ export async function applyScopedAuthor(
     try {
       client.routeForDispatch({ role: 'summarize' });
       reply = await client.complete(buildAuthorPrompt(task, parsed.path, parsed.search), AUTHOR_MAX_TOKENS);
-    } catch {
-      // A failed side-call must not cost the run its turn.
+    } catch (err) {
+      // A failed side-call must not cost the run its turn -- but it must not be
+      // invisible either. A silent catch here is what made the first smoke run
+      // ambiguous: no draft appeared and there was no way to tell whether the
+      // hook had declined, thrown, or never run.
+      state.logger?.info(`Scoped author call failed for ${parsed.path}: ${(err as Error).message.slice(0, 120)}`);
       return false;
     }
 
     const replacement = extractReplacement(reply, parsed.search);
-    if (!replacement) return false;
+    if (!replacement) {
+      state.logger?.info(`Scoped author draft rejected for ${parsed.path} (${reply.length} chars returned)`);
+      return false;
+    }
 
     callbacks.onText(`\n💡 Drafted a replacement for ${parsed.path.split('/').pop()}\n`);
     state.logger?.info(`Scoped author produced ${replacement.length} chars for ${parsed.path}`);

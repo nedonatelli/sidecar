@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
-import { applyScopedAuthor, buildAuthorPrompt, extractReplacement, isNoOpEditFailure } from './scopedAuthor.js';
+import { applyScopedAuthor, buildAuthorPrompt, extractReplacement, isNoOpEdit } from './scopedAuthor.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { ToolResultContentBlock, ToolUseContentBlock } from '../../ollama/types.js';
@@ -97,15 +97,31 @@ describe('buildAuthorPrompt', () => {
   });
 });
 
-describe('isNoOpEditFailure', () => {
-  it('matches both no-op messages and nothing else', () => {
-    expect(isNoOpEditFailure(err('1'))).toBe(true);
-    expect(
-      isNoOpEditFailure(err('1', 'Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace.')),
-    ).toBe(true);
-    expect(isNoOpEditFailure(err('1', 'Error: edit_file failed — search string not found.'))).toBe(false);
-    expect(isNoOpEditFailure(ok('1'))).toBe(false);
-    expect(isNoOpEditFailure(undefined)).toBe(false);
+describe('isNoOpEdit', () => {
+  // Detected from the CALL, not the error text: edit_file has at least two
+  // wordings for this and a smoke run hit both, so a string match found half.
+  const SAME = { path: 'a.py', search: REGION, replace: REGION };
+  const DIFFERENT = { path: 'a.py', search: REGION, replace: 'return value < self.maximum' };
+
+  it('fires on identical search/replace regardless of the error wording', () => {
+    for (const msg of [
+      IDENTICAL,
+      "Error: edit_file did not apply this edit to a.py — 'search' and 'replace' are identical, so there is no change to make",
+      'Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace.',
+    ]) {
+      expect(isNoOpEdit(use('1', SAME), err('1', msg)), msg.slice(0, 40)).toBe(true);
+    }
+  });
+
+  it('does not fire on a real edit, a success, or another tool', () => {
+    expect(isNoOpEdit(use('1', DIFFERENT), err('1', 'Error: search string not found.'))).toBe(false);
+    expect(isNoOpEdit(use('1', SAME), ok('1'))).toBe(false);
+    expect(isNoOpEdit(use('1', SAME), undefined)).toBe(false);
+    expect(isNoOpEdit(use('1', SAME, 'write_file'), err('1'))).toBe(false);
+  });
+
+  it('ignores an empty search', () => {
+    expect(isNoOpEdit(use('1', { path: 'a.py', search: '', replace: '' }), err('1'))).toBe(false);
   });
 });
 
