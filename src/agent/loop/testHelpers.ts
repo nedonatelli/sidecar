@@ -54,6 +54,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     enforceEditBlocksByFile: new Map(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
+    scopedAuthorByFile: new Map(),
     fenceWriteCoercions: 0,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),

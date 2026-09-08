@@ -276,6 +276,13 @@ export interface LoopState {
   actionRepromptCount: number;
 
   /**
+   * Files for which the scoped author has already drafted a replacement. One per
+   * file: a second draft after the model declined the first is not new
+   * information, it is the same call with the same inputs.
+   */
+  scopedAuthorByFile: Map<string, number>;
+
+  /**
    * How many write_file calls the code-as-text recovery synthesized from a
    * printed code fence this run (synthesizeFenceWrite). Capped at 2 so a
    * model that keeps printing wrong fences can't be driven through endless
@@ -421,6 +428,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     enforceEditBlocksByFile: new Map<string, number>(),
     stubFixRetries: 0,
     actionRepromptCount: 0,
+    scopedAuthorByFile: new Map(),
     fenceWriteCoercions: 0,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),
