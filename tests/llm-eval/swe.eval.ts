@@ -573,6 +573,16 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     try {
       await session.run(messages);
     } finally {
+      // The loop's own reporting — compaction, dedup, scoped drafts, the
+      // reprompt hooks — goes to state.logger, which this harness collects but
+      // never wrote anywhere. A hook that fired and then declined looked
+      // identical to a hook that never ran: a scoped-author smoke run produced
+      // no drafts on four eligible no-op edits, and there was no way to tell
+      // whether it had rejected them or never executed. agentHarness folds these
+      // into its trajectory (ac2bb81); so does this now.
+      for (const line of session.loopLog) {
+        fs.appendFileSync(trajPath, `${JSON.stringify({ t: Date.now() - start, type: 'loop', line })}\n`);
+      }
       const closed = session.close(terminationBucket ?? 'natural');
       // A timeout is a fact about the configuration, not the model. It used to
       // arrive as a bare abort and land in the same bucket as a real failure.
