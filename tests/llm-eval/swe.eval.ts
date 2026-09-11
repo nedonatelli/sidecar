@@ -43,6 +43,12 @@ import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { unloadModelRequest } from '../../bench/swe/modelCache.js';
+import {
+  extractIdentifiers,
+  rankFilesByHits,
+  formatOrientation,
+  orientationRecall,
+} from '../../bench/swe/identOrient.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -346,6 +352,36 @@ const RETRIEVAL_TOPK = parseInt(process.env.SIDECAR_SWE_RETRIEVAL_TOPK ?? '6', 1
 // gate on, so the arm where injection was actually measured to hurt (top-6
 // UNTRIMMED: 55% vs 85% for the leader alone) could not be run here at all.
 const CLIFF_GATE = process.env.SIDECAR_SWE_CLIFF_GATE !== '0';
+// Identifier orientation (experiment): a turn-0 list of the files that mention
+// the issue's own identifiers -- names and match counts only, no code. Aimed at
+// the localization stage, which is where half the canary fails and where
+// gated retrieval's injected BODIES measured harmful (see identOrient.ts).
+// Off by default; the A/B sets it, with retrieval off in both arms.
+const IDENT_ORIENT = process.env.SIDECAR_SWE_IDENT_ORIENT === '1';
+
+/**
+ * Which files mention each identifier, via `git grep -l -F` (~100ms per term).
+ * Exit status 1 means "no match", which execFileSync raises; that is a normal
+ * result here, not an error.
+ */
+function orientationFor(task: SweTask, dir: string): { context: string; recall: boolean | undefined; files: number } {
+  const idents = extractIdentifiers(task.problem_statement);
+  const hits = new Map<string, string[]>();
+  for (const id of idents) {
+    try {
+      const out = git(['grep', '-l', '-F', '-e', id, '--', '*.py'], dir);
+      hits.set(id, out.split('\n').filter(Boolean));
+    } catch {
+      hits.set(id, []);
+    }
+  }
+  const ranked = rankFilesByHits(hits);
+  return {
+    context: formatOrientation(idents, ranked),
+    recall: task.patch ? orientationRecall(ranked, task.patch) : undefined,
+    files: ranked.length,
+  };
+}
 
 // Real RAG: SideCar's symbol-embedding index (local MiniLM, tree-sitter symbols)
 // per repo, memoized (the build is the expensive part). Set on each task's
@@ -413,6 +449,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // Did the RAG retrieve a gold-patch file in the top-k (localization recall)?
   // SWE-bench as a RAG benchmark — undefined when the gold patch isn't known.
   let retrievalRecall: boolean | undefined;
+  // Same question for the identifier-orientation block: did it NAME a gold file?
+  let orientRecall: boolean | undefined;
+  let orientChars = 0;
   // Context-size instrumentation: the backend's ACTUAL prompt-token count per
   // turn (Ollama's prompt_eval_count via usage.inputTokens), so ballooning is
   // measured, not guessed. peak = the largest prompt the model was asked to
@@ -445,6 +484,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     toolRuntime.symbolEmbeddings = repoIndex;
     const retrieval = await retrieveContext(repoIndex, task.problem_statement, dir, RETRIEVAL_TOPK, CLIFF_GATE);
     retrievalRecall = task.patch ? goldFilesInTopK(retrieval.hits, task.patch).recalled : undefined;
+    const orient = IDENT_ORIENT ? orientationFor(task, dir) : { context: '', recall: undefined, files: 0 };
+    orientRecall = orient.recall;
+    orientChars = orient.context.length;
     // API key defaults to 'ollama' (local, authless). Set SIDECAR_SWE_API_KEY to
     // a bearer token to drive a remote OpenAI-compatible endpoint instead — e.g.
     // a Vast box's token-authed /v1 edge (OLLAMA_HOST=http://<host>:<port>), which
@@ -561,7 +603,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // arms' wall clock and leave the agent with no usable test signal.
       extraPolicyHooks: [wholeSuiteGuard()],
     };
-    const userMsg = buildTaskPrompt(task, retrieval.context, taskEnv, dir);
+    // Orientation goes BEFORE retrieval's block when both are on; the A/B runs
+    // retrieval off, so in practice one or neither is present.
+    const injected = [orient.context, retrieval.context].filter(Boolean).join('\n\n');
+    const userMsg = buildTaskPrompt(task, injected, taskEnv, dir);
     const messages: ChatMessage[] = [{ role: 'user', content: userMsg }];
     // Initial-prompt size BEFORE the first model call — logged unconditionally so
     // a first-token timeout (which produces no usage event) still tells us how big
@@ -569,7 +614,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // problem statement) dominates it.
     traj(
       `INIT system=${systemPrompt.length}c user=${userMsg.length}c ` +
-        `(rag_orientation=${retrieval.context.length}c problem=${task.problem_statement.length}c) ` +
+        `(rag_orientation=${retrieval.context.length}c ident_orient=${orientChars}c/${orient.files}files/recall=${orient.recall ?? 'n/a'} ` +
+        `problem=${task.problem_statement.length}c) ` +
         `total≈${systemPrompt.length + userMsg.length}c`,
     );
     // The shared core owns client construction, system-prompt assignment, the
@@ -683,6 +729,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     toolCalls,
     failureReason,
     retrievalRecall,
+    orientRecall,
+    orientChars,
     ratchetReverted,
     peakInputTokens,
     turns,
