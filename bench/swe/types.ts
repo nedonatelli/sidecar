@@ -88,6 +88,14 @@ export interface SwePrediction {
    */
   retrievalRecall?: boolean;
   /**
+   * Identifier-orientation experiment (SIDECAR_SWE_IDENT_ORIENT=1): did the
+   * names-only block name a file the gold patch touches, and how many chars
+   * were injected (0 = the block did not fire, which is how a null is
+   * distinguished from a no-op).
+   */
+  orientRecall?: boolean;
+  orientChars?: number;
+  /**
    * True when the keep-best ratchet reverted scaffold-tail changes in this
    * run (detected from the ♻️ revert marker in the loop's output). Only
    * meaningful on the `scaffold-on-ratchet` arm; undefined on meta files
