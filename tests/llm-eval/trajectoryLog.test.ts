@@ -116,4 +116,43 @@ describe('trajectory logger', () => {
     expect(jsonl.some((e) => e.type === 'tool_result' && e.name === 'read_file')).toBe(true);
     expect(jsonl.at(-1)).toMatchObject({ type: 'termination', termination: 'natural' });
   });
+
+  const events = (l: ReturnType<typeof make>) =>
+    read(l.logPath.replace(/\.log$/, '.jsonl'))
+      .trim()
+      .split('\n')
+      .map((x) => JSON.parse(x));
+
+  it('records a tool result in full, bytes intact, not a 2000-char snippet', () => {
+    // A determinism check once certified two runs' test output as identical
+    // because only the stored 2000-char prefix was compared: run1's ended
+    // "Ran 532 tests in 1.043s", run2's had no summary line, and the model's
+    // divergence on the next turn was unexplainable from the record. The
+    // machine-readable event has to carry the whole thing -- newlines too,
+    // since whitespace-collapsed text cannot be diffed against a real run.
+    const l = make();
+    const long =
+      Array.from({ length: 400 }, (_, i) => `test_case_${i} ... ok`).join('\n') + '\nRan 400 tests in 1.043s\nOK\n';
+    expect(long.length).toBeGreaterThan(2000);
+    l.wrap<CB>({}).onToolResult?.('run_command', long, false, 'id');
+    l.close('natural');
+    const ev = events(l).find((e) => e.type === 'tool_result');
+    expect(ev.result).toBe(long);
+    expect(ev.chars).toBe(long.length);
+    expect(ev).not.toHaveProperty('truncated');
+  });
+
+  it('flags a cut at the safety cap instead of cutting silently', () => {
+    // The cap is far above any real tool result; if it ever trips, the record
+    // must say so and keep the true length, so a reader cannot mistake a cut
+    // result for a complete one.
+    const l = make();
+    const huge = 'y'.repeat(1_000_000 + 10);
+    l.wrap<CB>({}).onToolResult?.('run_command', huge, false, 'id');
+    l.close('natural');
+    const ev = events(l).find((e) => e.type === 'tool_result');
+    expect(ev.truncated).toBe(true);
+    expect(ev.chars).toBe(huge.length);
+    expect(ev.result.length).toBe(1_000_000);
+  });
 });

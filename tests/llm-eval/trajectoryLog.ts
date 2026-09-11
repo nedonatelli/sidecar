@@ -98,6 +98,10 @@ export function createTrajectoryLogger(o: LoggerOptions): TrajectoryLogger {
   }
 
   const snippet = (x: string, n = 400): string => x.replace(/\s+/g, ' ').trim().slice(0, n);
+  // Safety cap on a recorded tool result, ~60x the model-facing cap. Exists so a
+  // pathological result cannot balloon a trajectory file; when it trips, the
+  // event says so (`truncated: true`) and keeps the real length in `chars`.
+  const TOOL_RESULT_RECORD_CAP = 1_000_000;
 
   // onThinking and onText stream TOKEN BY TOKEN. Logging each callback produced
   // 2,383 thinking lines of 3-7 chars for a single run — the tool calls were
@@ -162,7 +166,27 @@ export function createTrajectoryLogger(o: LoggerOptions): TrajectoryLogger {
         }),
         onToolResult: chain('onToolResult', (name: string, result: string, isError: boolean, id: string) => {
           write(`  -> ${name} ${isError ? 'ERROR' : 'ok'} (${result.length}b): ${snippet(result)}`);
-          event('tool_result', { name, isError, chars: result.length, result: snippet(result, 2000), id });
+          // The RECORD carries the whole result, bytes intact -- no whitespace
+          // collapse, no cut. It was `snippet(result, 2000)`, and that let a
+          // determinism check report two runs' test output as "identical" when
+          // only the first 2000 chars matched: run1's ended `Ran 532 tests in
+          // 1.043s`, run2's had no summary line, and the divergence that followed
+          // was unexplainable from the log. A comparison that cannot see the
+          // whole result cannot certify identity. The human-readable line above
+          // keeps its preview; this event is what analyses read.
+          //
+          // One safety cap, far above any real tool result (the model-facing cap
+          // is ~16K chars), and never silent: a cut is flagged and the true
+          // length is kept in `chars`.
+          const cut = result.length > TOOL_RESULT_RECORD_CAP;
+          event('tool_result', {
+            name,
+            isError,
+            chars: result.length,
+            result: cut ? result.slice(0, TOOL_RESULT_RECORD_CAP) : result,
+            ...(cut ? { truncated: true } : {}),
+            id,
+          });
         }),
         onIterationStart: chain(
           'onIterationStart',
