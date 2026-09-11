@@ -41,6 +41,8 @@ import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../be
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
+import { stableCloneDir } from '../../bench/swe/clonePath.js';
+import { unloadModelRequest } from '../../bench/swe/modelCache.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -139,8 +141,18 @@ function prepareRepo(task: SweTask): string {
       if (!fs.existsSync(path.join(cached, '.git'))) throw new Error(`repo cache miss for ${task.repo} at ${cached}`);
       dir = cached;
     } else {
-      dir = fs.mkdtempSync(path.join(os.tmpdir(), `swe-repo-${task.repo.replace(/[/\\]/g, '_')}-`));
-      git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${task.repo}.git`, dir]);
+      // Stable name, not mkdtemp: the directory becomes the agent's `root` and
+      // the base prompt names it, so a random suffix made every run's turn-0
+      // prompt unique and defeated the pinned seed. See bench/swe/clonePath.ts.
+      dir = stableCloneDir(os.tmpdir(), task.repo);
+      // A previous run's cleanup may have left this directory EMPTIED (root was
+      // busy) or half-populated. Only a real .git is reusable; anything else is
+      // cleared so the clone starts from nothing rather than failing on a
+      // non-empty target.
+      if (!fs.existsSync(path.join(dir, '.git'))) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${task.repo}.git`, dir]);
+      }
     }
     repoClones.set(task.repo, dir);
   }
@@ -575,6 +587,30 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       ragOrientationChars: retrieval.context.length,
       logDir: OUT,
     });
+    // Start every task from a COLD prompt cache. Ollama with a pinned seed is
+    // deterministic only for a given cache state: two runs of the same task at
+    // the same seed diverged in the model's own call with every prior tool
+    // result byte-identical, because each task's first turn depended on what
+    // the previous task had left cached. See bench/swe/modelCache.ts for the
+    // measurement. ~5s per task; SIDECAR_SWE_WARM_MODEL=1 skips it.
+    if (process.env.SIDECAR_SWE_WARM_MODEL !== '1') {
+      const host = normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434';
+      const unload = unloadModelRequest(host, MODEL);
+      try {
+        const res = await fetch(unload.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: unload.body,
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok)
+          console.warn(`[swe] model unload for ${task.instance_id} returned ${res.status}; task starts warm`);
+      } catch (err) {
+        // Best-effort, but never silent: a warm start is a reproducibility
+        // loss, and a run must say so rather than look reproducible.
+        console.warn(`[swe] model unload for ${task.instance_id} failed (${(err as Error).message}); task starts warm`);
+      }
+    }
     try {
       await session.run(messages);
     } finally {
