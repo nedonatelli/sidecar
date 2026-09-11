@@ -488,6 +488,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         traj(`TOOL ${name}${arg ? ` ${String(arg).slice(0, 120)}` : ''}`);
       },
       onToolResult: (name, result, isError) => {
+        // A 300-char PREVIEW for the human-readable live log. The full result,
+        // bytes intact, is in the per-task `*.jsonl` written by
+        // trajectoryLog.ts -- that is the record analyses must read. Comparing
+        // previews once certified two runs' test output as identical when only
+        // the first 2000 chars matched.
         const snip = snippet(result);
         traj(`  → ${name} ${isError ? 'ERROR' : 'ok'} (${result.length}b)${snip ? `: ${snip}` : ''}`);
       },
