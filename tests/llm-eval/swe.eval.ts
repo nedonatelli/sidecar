@@ -150,7 +150,14 @@ function prepareRepo(task: SweTask): string {
       // cleared so the clone starts from nothing rather than failing on a
       // non-empty target.
       if (!fs.existsSync(path.join(dir, '.git'))) {
-        fs.rmSync(dir, { recursive: true, force: true });
+        // removeCloneDir, not rmSync on the root. The root can be another
+        // process's cwd -- an orphaned python from a timed-out run_command in a
+        // PREVIOUS cell -- and Windows then refuses to remove it even when
+        // empty. A bare rmSync here threw EPERM before repoClones was set, so
+        // every task on that repo failed the same way with 0 turns: four
+        // matplotlib tasks lost from one A/B cell. `git clone` into an existing
+        // EMPTY directory is fine, so 'emptied' is as good as 'removed'.
+        if (removeCloneDir(dir) === 'failed') throw new Error(`cannot clear clone dir ${dir}`);
         git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${task.repo}.git`, dir]);
       }
     }
