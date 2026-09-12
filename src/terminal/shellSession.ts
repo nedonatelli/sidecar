@@ -425,11 +425,7 @@ export class ShellSession {
         // so ensureProcess() spawns a fresh shell for the next queued command
         // rather than sending to the dying process.
         if (this.proc === proc) this.proc = null;
-        try {
-          proc.kill();
-        } catch {
-          /* process already gone */
-        }
+        this.killShell(proc);
       };
       const idleReason = `${timeout / 1000}s with no output`;
       let timer = setTimeout(() => killTimedOut(idleReason), timeout);
@@ -446,11 +442,7 @@ export class ShellSession {
         notice = '\n\n⚠️ Command aborted';
         finish(-1);
         if (this.proc === proc) this.proc = null;
-        try {
-          proc.kill();
-        } catch {
-          /* process already gone */
-        }
+        this.killShell(proc);
       };
       signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -683,6 +675,33 @@ export class ShellSession {
       this.backgroundCommands.delete(id);
     }
     return { done: entry.done, output: entry.output, exitCode: entry.exitCode };
+  }
+
+  /**
+   * Kill a shell that timed out or was aborted, AND what it started.
+   *
+   * This used to be a bare `proc.kill()`, under a comment saying it was there
+   * "so its subprocess doesn't keep running". On Windows it did the opposite:
+   * TerminateProcess takes the shell and leaves its children as orphans, and
+   * ensureProcess() then spawns a fresh shell, so nothing ever revisits them.
+   * dispose() had already learned this (97fe8ab) -- the timeout path had not.
+   *
+   * Measured on a SWE-bench matrix: three orphan trees (bash -> bash -> python)
+   * from timed-out run_commands -- a `test_slider.py` sitting in a GUI event
+   * loop, a `bug_reproduction.py` from the previous DAY, a wedged pytest --
+   * each holding a clone directory as its cwd. The next cell's `rmSync` on that
+   * root threw EPERM and four tasks were lost with 0 turns before the model was
+   * ever asked. The per-run cleanup comment in the SWE driver guessed a
+   * surviving grandchild was the holder; this is that grandchild, and this is
+   * the path that left it alive.
+   */
+  private killShell(proc: ChildProcess): void {
+    if (killProcessTree(proc.pid, this.isWindows)) return;
+    try {
+      proc.kill();
+    } catch {
+      /* process already gone */
+    }
   }
 
   /**
