@@ -50,6 +50,22 @@ describe('isFailingResult', () => {
   it('does not count a hung command as a demonstration', () => {
     expect(isFailingResult('run_command', 'starting...\n\n⚠️ Command timed out after 120s with no output')).toBe(false);
   });
+  it('only counts a command that runs Python: a grep with no match exits 1 too', () => {
+    // First repro-on cell: 3 of 27 "demonstrations" were `grep`/`rg` exit 1.
+    expect(isFailingResult('run_command', '(exit code: 1)', 'grep -rn "foo" django/')).toBe(false);
+    expect(isFailingResult('run_command', '(exit code: 1)', 'rg parse_http_date')).toBe(false);
+    expect(isFailingResult('run_command', 'AssertionError\n(exit code: 1)', 'python repro.py')).toBe(true);
+    expect(isFailingResult('run_command', '1 failed\n(exit code: 1)', 'python -m pytest tests/test_x.py')).toBe(true);
+    expect(
+      isFailingResult(
+        'run_command',
+        'FAILED (errors=1)\n(exit code: 1)',
+        './tests/runtests.py --settings=test_sqlite utils_tests',
+      ),
+    ).toBe(true);
+    expect(isFailingResult('run_command', '(exit code: 1)', 'cd lib && python3 -c "import x"')).toBe(true);
+  });
+
   it('never accepts run_tests as a demonstration', () => {
     // Hidden from the SWE catalog but still executable when called from
     // memory; in django it runs `npm test` and its `pretest` eslint fails.

@@ -81,12 +81,19 @@ export function isTestPath(p: string): boolean {
  * the completion gate classifies it. A run that executed zero tests is not a
  * demonstration of anything.
  */
-export function isFailingResult(toolName: string, result: string): boolean {
+/** Commands that can execute Python and therefore demonstrate a Python bug. */
+const PYTHON_RUNNER =
+  /(^|[\s;&|])(python[0-9.]*|py|pytest|py\.test|tox|nose2?)\b|runtests\.py|manage\.py|-m\s+unittest/;
+
+export function isFailingResult(toolName: string, result: string, command?: string): boolean {
   // Only run_command can demonstrate. run_tests is hidden from the SWE
   // catalog but still executes when the model calls it from memory; in
   // django it runs `npm test`, whose `pretest` eslint fails -- the second
   // smoke credited that non-zero exit as "bug demonstrated".
   if (toolName !== 'run_command') return false;
+  // And only a command that runs Python. In the first repro-on cell, 3 of 27
+  // "demonstrations" were a `grep`/`rg` exiting 1 for no match.
+  if (command !== undefined && !PYTHON_RUNNER.test(command)) return false;
   if (/⚠️ Command timed out/.test(result)) return false; // hung, not failed
   // A run that collected nothing (pytest exit 5, `Ran 0 tests`, a label the
   // runner rejected) is non-zero and proves nothing. Checked first.
@@ -185,7 +192,7 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
         if (u.name === 'run_command') {
           const cmd = typeof input.command === 'string' ? input.command.trim() : '';
           if (!s.demonstrated) {
-            if (isFailingResult(u.name, text)) {
+            if (isFailingResult(u.name, text, cmd)) {
               s.demonstrated = true;
               s.reproCommand = cmd || u.name;
               say(`🛡️ repro-first: failure demonstrated by \`${s.reproCommand}\``);
