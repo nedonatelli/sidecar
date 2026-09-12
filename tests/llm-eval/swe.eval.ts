@@ -128,6 +128,33 @@ function resetHardWithRetry(dir: string, baseCommit: string, attempts = 3): void
   throw lastErr;
 }
 
+/**
+ * Clone with retries. Every cell re-clones each repo (cleanupRepoClones removes
+ * the clone at the end of a run), so a transient transport failure costs a
+ * task: django-10914 was lost with 0 turns to `RPC failed; curl 56 schannel:
+ * server closed abruptly` in the repro-first A/B. A failed clone can leave a
+ * half-populated directory behind, which the next attempt would refuse, so
+ * the target is cleared between attempts. Synchronous, like the reset retry:
+ * this runs before the agent and blocks nothing else.
+ */
+function cloneWithRetry(repo: string, dir: string, attempts = 3): void {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${repo}.git`, dir]);
+      return;
+    } catch (err) {
+      lastErr = err;
+      console.warn(
+        `[swe] clone of ${repo} failed (attempt ${i + 1}/${attempts}): ${(err as Error).message.split('\n')[0]}`,
+      );
+      removeCloneDir(dir);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5_000 * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
 /** Get the repo checked out cleanly at base_commit (cached clone, hard-reset). */
 function prepareRepo(task: SweTask): string {
   let dir = repoClones.get(task.repo);
@@ -158,7 +185,7 @@ function prepareRepo(task: SweTask): string {
         // matplotlib tasks lost from one A/B cell. `git clone` into an existing
         // EMPTY directory is fine, so 'emptied' is as good as 'removed'.
         if (removeCloneDir(dir) === 'failed') throw new Error(`cannot clear clone dir ${dir}`);
-        git(['clone', '--quiet', '--filter=blob:none', `https://github.com/${task.repo}.git`, dir]);
+        cloneWithRetry(task.repo, dir);
       }
     }
     repoClones.set(task.repo, dir);
