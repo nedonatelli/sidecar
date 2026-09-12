@@ -108,13 +108,26 @@ const NOT_A_DEMO_EXIT0 = (cmd: string): string =>
   `running it as a plain script executes nothing -- run it with \`python -m pytest <file>\` or add ` +
   `\`unittest.main()\`. Then run it again; it must exit non-zero before you change any source file.`;
 
+const NOT_A_DEMO_NOT_RUN = (cmd: string, files: string[]): string =>
+  `🛡️ \`${cmd}\` did not run the test file you wrote (${files.join(', ')}): the runner only collects tests ` +
+  `from its own test modules, and yours is not one of them. Run your file directly -- ` +
+  `\`python -m pytest ${files[0]}\` -- or put the test inside the existing test module for the code you are ` +
+  `changing. It must fail before you change any source file.`;
+
+const NOT_A_DEMO_IMPORT = (cmd: string): string =>
+  `🛡️ \`${cmd}\` failed while IMPORTING your test module (see the traceback above), so no test ran and ` +
+  `nothing was demonstrated. Fix the import error in your test file and run it again; it must fail on an ` +
+  `assertion, not on an import, before you change any source file.`;
+
 const NOT_A_DEMO_NOTESTS = (cmd: string): string =>
   `🛡️ \`${cmd}\` ran ZERO tests, so it did NOT demonstrate the bug. If you wrote a test, make sure the ` +
   `runner can find it (a \`test_*\` function or a TestCase method, in a file the runner collects) or call ` +
   `it directly from a plain script. Run it again; it must fail before you change any source file.`;
 
+// "Undone", not "reverted": the third smoke saw the model answer a "Reverted
+// your edit" message with fifteen git_stage calls in a row. No git vocabulary.
 const REPRO_FIRST_REPROMPT = (path: string, n: number, max: number): string =>
-  `🛡️ Reverted your edit to \`${path}\` (${n}/${max}).\n\n` +
+  `🛡️ Your edit to \`${path}\` was undone; the file is back to its original content (${n}/${max}).\n\n` +
   `You changed source code before demonstrating the bug. Nothing you run afterwards can tell you ` +
   `whether the change worked, because there is no failing signal to compare against.\n\n` +
   `Do this first, in order:\n` +
@@ -148,7 +161,10 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
   // proved nothing; the first smoke showed the model then editing source in the
   // belief it had reproduced the bug, because nothing told it otherwise.
   const written = new Set<string>();
-  const MAX_NUDGES = 2;
+  const writtenPaths: string[] = [];
+  const MAX_NUDGES = 3;
+  const RUNNER = /runtests\.py|\bpytest\b|python3? -m unittest|manage\.py\s+test\b/;
+  const IMPORT_FAIL = /Failed to import test module|ImportError|ModuleNotFoundError/;
   const base = (p: string): string => p.replace(/\\/g, '/').split('/').pop() ?? p;
 
   const say = (t: string): void => opts.onText?.(t);
@@ -173,14 +189,27 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
               s.demonstrated = true;
               s.reproCommand = cmd || u.name;
               say(`🛡️ repro-first: failure demonstrated by \`${s.reproCommand}\``);
-            } else if (s.nudges < MAX_NUDGES && [...written].some((b) => cmd.includes(b))) {
-              // A reproduction attempt that proved nothing. Say why, once or
-              // twice, or the model reads its own exit-0 script as success.
-              s.nudges++;
-              const msg = ranNothing(text) ? NOT_A_DEMO_NOTESTS(cmd) : NOT_A_DEMO_EXIT0(cmd);
-              say(msg);
-              state.messages.push({ role: 'user', content: msg });
-              mutated = true;
+            } else if (s.nudges < MAX_NUDGES) {
+              // A reproduction attempt that proved nothing. Say WHICH way it
+              // proved nothing, a few times at most, or the model reads its
+              // own exit-0 script as success (smoke 1), believes a runner
+              // label executed a file it never collects (smoke 3), or takes
+              // an import error in its own test for a failing test (smoke 3).
+              const refersToWritten = [...written].some((b) => cmd.includes(b));
+              const testsWritten = writtenPaths.filter(isTestPath);
+              const unrun = testsWritten.filter(
+                (p) => !cmd.includes(base(p)) && !cmd.includes(base(p).replace(/\.py$/, '')),
+              );
+              let msg: string | null = null;
+              if (written.size > 0 && IMPORT_FAIL.test(text)) msg = NOT_A_DEMO_IMPORT(cmd);
+              else if (refersToWritten) msg = ranNothing(text) ? NOT_A_DEMO_NOTESTS(cmd) : NOT_A_DEMO_EXIT0(cmd);
+              else if (RUNNER.test(cmd) && unrun.length > 0) msg = NOT_A_DEMO_NOT_RUN(cmd, unrun);
+              if (msg) {
+                s.nudges++;
+                say(msg);
+                state.messages.push({ role: 'user', content: msg });
+                mutated = true;
+              }
             }
           } else if (cmd && cmd === s.reproCommand) {
             staleSinceEdit = false;
@@ -194,6 +223,7 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
           if (!path || !ok) continue;
           if (isTestPath(path) || !opts.isTracked(path)) {
             written.add(base(path)); // reproduction material: always allowed, and remembered
+            if (!writtenPaths.includes(path)) writtenPaths.push(path);
             continue;
           }
           if (s.demonstrated) {

@@ -86,7 +86,8 @@ describe('reproFirstGuard', () => {
     );
     expect(r).toMatchObject({ mutated: true });
     expect(reverted).toEqual(['django/db/models/query.py']);
-    expect(state.messages[0].content).toMatch(/Reverted your edit/);
+    expect(state.messages[0].content).toMatch(/was undone/);
+    expect(state.messages[0].content).not.toMatch(/revert|git|stage|commit/i); // no git vocabulary: see smoke 3
     expect(said.some((t) => t.startsWith('🛡️'))).toBe(true); // recorded in the trajectory
     expect(hook.stats().reverts).toBe(1);
   });
@@ -246,7 +247,52 @@ describe('reproFirstGuard', () => {
     await step([use('write_file', { path: 'repro.py' })], [result('t1', '<tool_output>written')]);
     for (let i = 0; i < 4; i++)
       await step([use('run_command', { command: 'python repro.py' })], [result('t1', 'fine')]);
-    expect(hook.stats().nudges).toBe(2);
-    expect(state.messages).toHaveLength(2);
+    expect(hook.stats().nudges).toBe(3);
+    expect(state.messages).toHaveLength(3);
+  });
+
+  it('tells the model when its new test file was not collected by the runner label it used', async () => {
+    // Smoke 3, django-11848: wrote tests/test_http_date_rollover.py, ran the
+    // `utils_tests` label (which never collects that file), saw green, and
+    // believed its test had passed.
+    const { hook } = harness();
+    const state = makeState();
+    const step = (uses: unknown[], results: unknown[]) =>
+      hook.afterToolResults!(state as never, { pendingToolUses: uses, toolResults: results } as never);
+    await step(
+      [use('write_file', { path: 'tests/test_http_date_rollover.py' })],
+      [result('t1', '<tool_output>written')],
+    );
+    const r = await step(
+      [use('run_command', { command: './tests/runtests.py --settings=test_sqlite utils_tests' })],
+      [result('t1', 'Ran 40 tests in 0.5s\n\nOK')],
+    );
+    expect(r).toMatchObject({ mutated: true });
+    expect(state.messages.at(-1)!.content).toMatch(/did not run the test file you wrote/);
+    expect(state.messages.at(-1)!.content).toContain('python -m pytest tests/test_http_date_rollover.py');
+  });
+
+  it("distinguishes an import error in the model's own test from a failing test", async () => {
+    // Smoke 3, django-11583: the new test module failed to import; exit 1, but
+    // nothing ran. Not a demonstration -- and the model needs to be told why.
+    const { hook } = harness();
+    const state = makeState();
+    const step = (uses: unknown[], results: unknown[]) =>
+      hook.afterToolResults!(state as never, { pendingToolUses: uses, toolResults: results } as never);
+    await step(
+      [use('write_file', { path: 'tests/utils_tests/test_null_byte.py' })],
+      [result('t1', '<tool_output>written')],
+    );
+    await step(
+      [use('run_command', { command: './tests/runtests.py utils_tests' })],
+      [
+        result(
+          't1',
+          'ERROR: test_null_byte (unittest.loader._FailedTest)\nImportError: Failed to import test module: test_null_byte\n(exit code: 1)',
+        ),
+      ],
+    );
+    expect(hook.stats().demonstrated).toBe(false);
+    expect(state.messages.at(-1)!.content).toMatch(/failed while IMPORTING/);
   });
 });
