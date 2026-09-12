@@ -108,6 +108,7 @@ export interface SwePrediction {
     gaveUp: boolean;
     rerunPrompted: boolean;
     sourceEdits: number;
+    nudges: number;
   };
   /**
    * True when the keep-best ratchet reverted scaffold-tail changes in this

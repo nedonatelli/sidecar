@@ -37,6 +37,7 @@
 
 import type { PolicyHook } from '../../src/agent/loop/policyHook.js';
 import { classifyTestResult } from '../../src/agent/completionGate.js';
+import { isBadTestLabelOutput } from './wholeSuiteGuard.js';
 
 export interface ReproFirstOptions {
   /** True when `path` is tracked in the repo at base, i.e. existing source or test. */
@@ -56,6 +57,8 @@ export interface ReproFirstStats {
   gaveUp: boolean;
   rerunPrompted: boolean;
   sourceEdits: number;
+  /** "That did not demonstrate the bug" nudges sent (exit 0 / zero tests), capped. */
+  nudges: number;
 }
 
 export interface ReproFirstHook extends PolicyHook {
@@ -80,11 +83,32 @@ export function isTestPath(p: string): boolean {
  * demonstration of anything.
  */
 export function isFailingResult(toolName: string, result: string): boolean {
-  if (/\(exit code: -?[1-9]\d*\)\s*$/.test(result.trim())) return true;
   if (/⚠️ Command timed out/.test(result)) return false; // hung, not failed
+  // A run that collected nothing (pytest exit 5, `Ran 0 tests`, a label the
+  // runner rejected) is non-zero and proves nothing. Checked first.
+  if (isBadTestLabelOutput(result)) return false;
+  // Not end-anchored: the result arrives wrapped in <tool_output>...</tool_output>,
+  // and the first smoke missed a real `(exit code: 5)` for exactly that reason.
+  if (/\(exit code: -?[1-9]\d*\)/.test(result)) return true;
   if (toolName === 'run_tests') return classifyTestResult(result) === 'fail';
   return false;
 }
+
+/** True when the command ran nothing (pytest exit 5 / `Ran 0 tests` / rejected label). */
+export function ranNothing(result: string): boolean {
+  return isBadTestLabelOutput(result);
+}
+
+const NOT_A_DEMO_EXIT0 = (cmd: string): string =>
+  `🛡️ \`${cmd}\` exited 0, so it did NOT demonstrate the bug -- a script that prints the wrong value ` +
+  `and exits normally proves nothing. Make it FAIL on the current code: assert the behaviour the issue ` +
+  `expects (\`assert actual == expected\`), or raise. Then run it again; it must exit non-zero before you ` +
+  `change any source file.`;
+
+const NOT_A_DEMO_NOTESTS = (cmd: string): string =>
+  `🛡️ \`${cmd}\` ran ZERO tests, so it did NOT demonstrate the bug. If you wrote a test, make sure the ` +
+  `runner can find it (a \`test_*\` function or a TestCase method, in a file the runner collects) or call ` +
+  `it directly from a plain script. Run it again; it must fail before you change any source file.`;
 
 const REPRO_FIRST_REPROMPT = (path: string, n: number, max: number): string =>
   `🛡️ Reverted your edit to \`${path}\` (${n}/${max}).\n\n` +
@@ -111,10 +135,18 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
     gaveUp: false,
     rerunPrompted: false,
     sourceEdits: 0,
+    nudges: 0,
   };
   // True once source was edited after the demonstration and the repro has not
   // been re-run since. Cleared when the repro command runs again.
   let staleSinceEdit = false;
+  // Basenames of files the model created this run (repro scripts, new tests).
+  // A command that runs one of them and exits 0 is a reproduction ATTEMPT that
+  // proved nothing; the first smoke showed the model then editing source in the
+  // belief it had reproduced the bug, because nothing told it otherwise.
+  const written = new Set<string>();
+  const MAX_NUDGES = 2;
+  const base = (p: string): string => p.replace(/\\/g, '/').split('/').pop() ?? p;
 
   const say = (t: string): void => opts.onText?.(t);
 
@@ -138,6 +170,14 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
               s.demonstrated = true;
               s.reproCommand = cmd || u.name;
               say(`🛡️ repro-first: failure demonstrated by \`${s.reproCommand}\``);
+            } else if (s.nudges < MAX_NUDGES && [...written].some((b) => cmd.includes(b))) {
+              // A reproduction attempt that proved nothing. Say why, once or
+              // twice, or the model reads its own exit-0 script as success.
+              s.nudges++;
+              const msg = ranNothing(text) ? NOT_A_DEMO_NOTESTS(cmd) : NOT_A_DEMO_EXIT0(cmd);
+              say(msg);
+              state.messages.push({ role: 'user', content: msg });
+              mutated = true;
             }
           } else if (cmd && cmd === s.reproCommand) {
             staleSinceEdit = false;
@@ -149,7 +189,10 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
           const path = typeof input.path === 'string' ? input.path : '';
           const ok = text.startsWith('<tool_output');
           if (!path || !ok) continue;
-          if (isTestPath(path) || !opts.isTracked(path)) continue; // reproduction material: always allowed
+          if (isTestPath(path) || !opts.isTracked(path)) {
+            written.add(base(path)); // reproduction material: always allowed, and remembered
+            continue;
+          }
           if (s.demonstrated) {
             s.sourceEdits++;
             staleSinceEdit = true;

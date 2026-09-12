@@ -27,6 +27,26 @@ describe('isFailingResult', () => {
     expect(isFailingResult('run_command', 'Traceback ...\nAssertionError\n(exit code: 1)')).toBe(true);
     expect(isFailingResult('run_command', 'all good')).toBe(false); // no status line = exit 0
   });
+  it('finds the exit code inside the <tool_output> wrapper the loop adds', () => {
+    // The first smoke missed a real `(exit code: 5)` because the regex was
+    // anchored to the end of the text and the text ends with </tool_output>.
+    expect(
+      isFailingResult(
+        'run_command',
+        '<tool_output tool="run_command">\nAssertionError\n(exit code: 1)\n</tool_output>',
+      ),
+    ).toBe(true);
+  });
+  it('does not count a run that executed zero tests, whatever its exit code', () => {
+    // pytest exits 5 when nothing was collected; `Ran 0 tests` is Django's form.
+    expect(
+      isFailingResult(
+        'run_command',
+        '<tool_output tool="run_command">\nRan 0 tests in 0.000s\n\nNO TESTS RAN\n(exit code: 5)\n</tool_output>',
+      ),
+    ).toBe(false);
+    expect(isFailingResult('run_command', 'no tests ran in 0.01s\n(exit code: 5)')).toBe(false);
+  });
   it('does not count a hung command as a demonstration', () => {
     expect(isFailingResult('run_command', 'starting...\n\n⚠️ Command timed out after 120s with no output')).toBe(false);
   });
@@ -178,5 +198,55 @@ describe('reproFirstGuard', () => {
     await step([use('run_command', { command: 'python repro.py' })], [result('t1', 'ok')]);
     expect(await hook.onEmptyResponse!(state as never, {} as never)).toBeUndefined();
     expect(state.messages).toHaveLength(0);
+  });
+
+  it('tells the model when its own repro script exited 0, and why that proved nothing', async () => {
+    // Smoke, django-11583: the script "simulated" the bug, caught everything,
+    // printed, exited 0; the guard said nothing; the model edited source
+    // believing it had reproduced the bug, and was reverted for it.
+    const { hook, said } = harness();
+    const state = makeState();
+    const step = (uses: unknown[], results: unknown[]) =>
+      hook.afterToolResults!(state as never, { pendingToolUses: uses, toolResults: results } as never);
+    await step([use('write_file', { path: 'repro.py' })], [result('t1', '<tool_output>written')]);
+    const r = await step(
+      [use('run_command', { command: 'python repro.py' })],
+      [result('t1', '<tool_output tool="run_command">\nScript finished.\n</tool_output>')],
+    );
+    expect(r).toMatchObject({ mutated: true });
+    expect(state.messages.at(-1)!.content).toMatch(/exited 0.*did NOT demonstrate/s);
+    expect(said.at(-1)).toMatch(/assert/);
+    expect(hook.stats()).toMatchObject({ demonstrated: false, nudges: 1 });
+  });
+
+  it('distinguishes "ran zero tests" from "exited 0"', async () => {
+    const { hook } = harness();
+    const state = makeState();
+    const step = (uses: unknown[], results: unknown[]) =>
+      hook.afterToolResults!(state as never, { pendingToolUses: uses, toolResults: results } as never);
+    await step([use('write_file', { path: 'tests/test_repro.py' })], [result('t1', '<tool_output>written')]);
+    await step(
+      [use('run_command', { command: 'python3 tests/test_repro.py' })],
+      [result('t1', 'Ran 0 tests in 0.000s\n\nNO TESTS RAN\n(exit code: 5)')],
+    );
+    expect(state.messages.at(-1)!.content).toMatch(/ZERO tests/);
+    expect(hook.stats().demonstrated).toBe(false);
+  });
+
+  it('caps the nudges and never nudges for commands that do not run a file the model wrote', async () => {
+    const { hook } = harness();
+    const state = makeState();
+    const step = (uses: unknown[], results: unknown[]) =>
+      hook.afterToolResults!(state as never, { pendingToolUses: uses, toolResults: results } as never);
+    await step(
+      [use('run_command', { command: './tests/runtests.py utils_tests' })],
+      [result('t1', 'Ran 40 tests\n\nOK')],
+    );
+    expect(hook.stats().nudges).toBe(0); // an existing-suite run is not a repro attempt
+    await step([use('write_file', { path: 'repro.py' })], [result('t1', '<tool_output>written')]);
+    for (let i = 0; i < 4; i++)
+      await step([use('run_command', { command: 'python repro.py' })], [result('t1', 'fine')]);
+    expect(hook.stats().nudges).toBe(2);
+    expect(state.messages).toHaveLength(2);
   });
 });
