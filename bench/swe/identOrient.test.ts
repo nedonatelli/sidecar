@@ -38,6 +38,18 @@ describe('extractIdentifiers', () => {
     expect(ids).not.toContain('Enter');
   });
 
+  it('drops exception names: they name the symptom, never the fix site (v2)', () => {
+    // `TypeError` hit 297 files in sympy and `AttributeError` 46 in matplotlib;
+    // in v1 they outranked the one-file identifier that named the gold file.
+    const ids = extractIdentifiers(
+      'Calling `Poly.as_expr()` raises `TypeError`; see also `PolynomialError` and `DeprecationWarning`.',
+    );
+    expect(ids).toContain('Poly.as_expr');
+    expect(ids).not.toContain('TypeError');
+    expect(ids).not.toContain('PolynomialError');
+    expect(ids).not.toContain('DeprecationWarning');
+  });
+
   it('caps the count so the block stays an orientation, not an index', () => {
     const many = Array.from({ length: 40 }, (_, i) => `\`some_identifier_${i}\``).join(' ');
     expect(extractIdentifiers(many)).toHaveLength(MAX_IDENTIFIERS);
@@ -60,7 +72,7 @@ describe('rankFilesByHits', () => {
     ['UsernameValidator', ['django/contrib/auth/validators.py', 'django/contrib/auth/models.py']],
   ]);
 
-  it('ranks by DISTINCT identifiers matched, source files before tests at a tie', () => {
+  it('ranks by distinct identifiers matched (equal rarity), source files before tests at a tie', () => {
     const r = rankFilesByHits(hits);
     expect(r.map((x) => x.path)).toEqual([
       'django/contrib/auth/validators.py', // 3 distinct
@@ -78,6 +90,26 @@ describe('rankFilesByHits', () => {
   it('caps the list', () => {
     const wide = new Map([['x', Array.from({ length: 50 }, (_, i) => `f${i}.py`)]]);
     expect(rankFilesByHits(wide)).toHaveLength(MAX_FILES);
+  });
+
+  it('weights a rare identifier above several ubiquitous ones (v2)', () => {
+    // The v1 miss this reproduces: matplotlib-23562's `_facecolors2d` hits ONE
+    // file -- the gold one -- and lost to `mpl_toolkits.mplot3d` (17 files)
+    // plus `AttributeError` (46) both landing on some other file. Counting
+    // distinct identifiers equally put the gold file at rank 2; rarity puts
+    // it first.
+    const many = (n: number, extra: string[] = []) => [
+      ...Array.from({ length: n }, (_, i) => `noise/f${i}.py`),
+      ...extra,
+    ];
+    const hits = new Map<string, string[]>([
+      ['_facecolors2d', ['lib/mpl_toolkits/mplot3d/art3d.py']],
+      ['mpl_toolkits.mplot3d', many(16, ['lib/mpl_toolkits/mplot3d/axes3d.py'])],
+      ['set_3d_properties', many(45, ['lib/mpl_toolkits/mplot3d/axes3d.py'])],
+    ]);
+    const r = rankFilesByHits(hits);
+    expect(r[0].path).toBe('lib/mpl_toolkits/mplot3d/art3d.py'); // one rare term beats two common ones
+    expect(r[1].path).toBe('lib/mpl_toolkits/mplot3d/axes3d.py');
   });
 });
 

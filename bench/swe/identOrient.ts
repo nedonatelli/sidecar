@@ -20,8 +20,15 @@
 
 /** How many identifiers to search for. More is slower and noisier. */
 export const MAX_IDENTIFIERS = 10;
-/** How many files to name. Past this the block is a list, not an orientation. */
-export const MAX_FILES = 12;
+/**
+ * How many files to name. Was 12 in v1. Recomputed offline over the canary
+ * (swe-runs/orient-blocks-full.json): the gold file is somewhere in the
+ * identifier hits for 44/50 tasks, but a 12-file list named it for 32, a
+ * 20-file list for 37, 30 for 39-40. 20 is the knee; past it the block is a
+ * directory listing. The open question the v2 A/B answers is whether the
+ * longer list anchors worse on the tasks where it still misses.
+ */
+export const MAX_FILES = 20;
 
 const STOP = new Set([
   'self',
@@ -76,6 +83,11 @@ export function extractIdentifiers(problemStatement: string, max = MAX_IDENTIFIE
     if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(t)) return;
     if (STOP.has(t.toLowerCase())) return;
     if (!/[A-Z_.]/.test(t) && !/\d/.test(t) && t.length < 8) return; // plain short lowercase word
+    // Exception names describe the SYMPTOM, never the fix site, and they hit
+    // hundreds of files (TypeError: 297 in sympy, AttributeError: 46 in
+    // matplotlib). In v1 they outranked a one-file identifier that named the
+    // gold file (`_facecolors2d` -> art3d.py). Dropped outright.
+    if (/(Error|Exception|Warning)$/.test(t)) return;
     seen.set(t, Math.max(seen.get(t) ?? 0, weight * 100 + t.length));
   };
   for (const m of problemStatement.matchAll(/`([^`\n]{3,80})`/g)) {
@@ -98,15 +110,23 @@ export interface RankedFile {
 }
 
 /**
- * Rank files by how many distinct identifiers they mention. A file that
- * mentions three of the issue's terms is a better lead than one mentioning
- * one common term in many places -- hence distinct identifiers, not hit
- * counts. Test files sort after source files at equal score: the fix is
- * almost never in a test.
+ * Rank files by the identifiers they mention, weighted by how rare each
+ * identifier is across the repository (v2). v1 counted distinct identifiers
+ * equally, and a file mentioning `django.db` (848 files) and `TypeError`
+ * (297) scored the same as one mentioning `_facecolors2d` (1 file). An
+ * identifier that appears in three files is a lead; one that appears in
+ * five hundred is a word. Weight 1/log(2 + files) per distinct identifier --
+ * recomputed offline on the canary this names the gold file for 34/50 at cap
+ * 12 and 37/50 at cap 20, versus 32 for the equal-weight count.
+ *
+ * Test files sort after source files at equal score: the fix is almost never
+ * in a test. Ties beyond that break on path so the block is deterministic.
  */
 export function rankFilesByHits(hits: ReadonlyMap<string, readonly string[]>, max = MAX_FILES): RankedFile[] {
   const byFile = new Map<string, Set<string>>();
+  const weight = new Map<string, number>();
   for (const [ident, files] of hits) {
+    weight.set(ident, 1 / Math.log(2 + files.length));
     for (const f of files) {
       const p = f.replace(/\\/g, '/');
       if (!byFile.has(p)) byFile.set(p, new Set());
@@ -115,15 +135,14 @@ export function rankFilesByHits(hits: ReadonlyMap<string, readonly string[]>, ma
   }
   const isTest = (p: string): boolean =>
     /(^|\/)tests?\//.test(p) || /(^|\/)test_[^/]*$/.test(p) || /_tests?\.py$/.test(p);
+  const score = (s: Set<string>): number => [...s].reduce((acc, id) => acc + (weight.get(id) ?? 0), 0);
   return [...byFile.entries()]
-    .map(([path, s]) => ({ path, matched: [...s].sort() }))
+    .map(([path, s]) => ({ path, matched: [...s].sort(), score: score(s) }))
     .sort(
-      (a, b) =>
-        b.matched.length - a.matched.length ||
-        Number(isTest(a.path)) - Number(isTest(b.path)) ||
-        a.path.localeCompare(b.path),
+      (a, b) => b.score - a.score || Number(isTest(a.path)) - Number(isTest(b.path)) || a.path.localeCompare(b.path),
     )
-    .slice(0, max);
+    .slice(0, max)
+    .map(({ path, matched }) => ({ path, matched }));
 }
 
 /** The block the model sees. Names and which terms matched; never code. */
