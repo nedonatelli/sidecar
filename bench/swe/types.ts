@@ -96,6 +96,20 @@ export interface SwePrediction {
   orientRecall?: boolean;
   orientChars?: number;
   /**
+   * Repro-first guard experiment (SIDECAR_SWE_REPRO_FIRST=1): whether a
+   * failing command was ever demonstrated, which one, how many source edits
+   * were reverted for coming first, whether the guard gave up at its cap, and
+   * whether the finish-time re-run prompt fired. Undefined when off.
+   */
+  reproFirst?: {
+    demonstrated: boolean;
+    reproCommand: string | null;
+    reverts: number;
+    gaveUp: boolean;
+    rerunPrompted: boolean;
+    sourceEdits: number;
+  };
+  /**
    * True when the keep-best ratchet reverted scaffold-tail changes in this
    * run (detected from the ♻️ revert marker in the loop's output). Only
    * meaningful on the `scaffold-on-ratchet` arm; undefined on meta files

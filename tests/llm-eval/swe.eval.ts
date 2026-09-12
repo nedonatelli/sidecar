@@ -49,6 +49,7 @@ import {
   formatOrientation,
   orientationRecall,
 } from '../../bench/swe/identOrient.js';
+import { reproFirstGuard, type ReproFirstHook } from '../../bench/swe/reproFirstGuard.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -358,6 +359,11 @@ const CLIFF_GATE = process.env.SIDECAR_SWE_CLIFF_GATE !== '0';
 // gated retrieval's injected BODIES measured harmful (see identOrient.ts).
 // Off by default; the A/B sets it, with retrieval off in both arms.
 const IDENT_ORIENT = process.env.SIDECAR_SWE_IDENT_ORIENT === '1';
+// Repro-first guard (experiment): revert source edits made before any command
+// has failed, and ask for a re-run of the demonstrating command before the
+// model finishes. Targets the second stage, where 7% of runs wrote a repro and
+// 28% finished without running a test (see reproFirstGuard.ts). Off by default.
+const REPRO_FIRST = process.env.SIDECAR_SWE_REPRO_FIRST === '1';
 
 /**
  * Which files mention each identifier, via `git grep -l -F` (~100ms per term).
@@ -452,6 +458,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // Same question for the identifier-orientation block: did it NAME a gold file?
   let orientRecall: boolean | undefined;
   let orientChars = 0;
+  // Repro-first hook for this task (null when the flag is off). Declared here so
+  // onOutcome's closure can read its stats at termination.
+  let reproHook: ReproFirstHook | null = null;
   // Context-size instrumentation: the backend's ACTUAL prompt-token count per
   // turn (Ollama's prompt_eval_count via usage.inputTokens), so ballooning is
   // measured, not guessed. peak = the largest prompt the model was asked to
@@ -572,10 +581,38 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         terminationBucket = bucket;
         if (meta) scaffoldInterventions = meta.scaffoldInterventions;
         traj(`TERMINATION: ${bucket ?? 'natural'} turns=${turns} scaffoldInterventions=${scaffoldInterventions}`);
+        if (reproHook) traj(`REPRO_FIRST ${JSON.stringify(reproHook.stats())}`);
       },
       onDone: () => flushText(),
     };
     const armConfig = { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) };
+    if (REPRO_FIRST) {
+      // "Source" = tracked at base. A new file is reproduction material (a
+      // repro script, a new test) and is never blocked. Paths from the model
+      // may be repo-relative or absolute; compare repo-relative, forward-slash.
+      const root = dir.replace(/\\/g, '/').replace(/\/+$/, '') + '/';
+      const rel = (p: string): string => {
+        const n = p.replace(/\\/g, '/');
+        return n.startsWith(root) ? n.slice(root.length) : n.replace(/^\.\//, '');
+      };
+      const tracked = new Set(
+        git(['ls-files'], dir)
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
+      reproHook = reproFirstGuard({
+        isTracked: (p) => tracked.has(rel(p)),
+        revert: (p) => {
+          try {
+            git(['checkout', '--', rel(p)], dir as string); // narrowed above; lost inside the closure
+          } catch (err) {
+            traj(`REPRO_FIRST revert failed for ${p}: ${(err as Error).message}`);
+          }
+        },
+        onText: (t) => callbacks.onText?.(t),
+      });
+    }
     const options: AgentOptions = {
       approvalMode: 'autonomous',
       maxIterations: MAX_ITERS,
@@ -601,7 +638,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // scaffolding under test. A whole-suite invocation is a harness-cost bug
       // (thousands of tests, truncated output) that would otherwise distort both
       // arms' wall clock and leave the agent with no usable test signal.
-      extraPolicyHooks: [wholeSuiteGuard()],
+      extraPolicyHooks: [wholeSuiteGuard(), ...(reproHook ? [reproHook] : [])],
     };
     // Orientation goes BEFORE retrieval's block when both are on; the A/B runs
     // retrieval off, so in practice one or neither is present.
@@ -731,6 +768,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     retrievalRecall,
     orientRecall,
     orientChars,
+    reproFirst: reproHook?.stats(),
     ratchetReverted,
     peakInputTokens,
     turns,
