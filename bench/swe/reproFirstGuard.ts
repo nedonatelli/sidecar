@@ -36,7 +36,6 @@
 // ---------------------------------------------------------------------------
 
 import type { PolicyHook } from '../../src/agent/loop/policyHook.js';
-import { classifyTestResult } from '../../src/agent/completionGate.js';
 import { isBadTestLabelOutput } from './wholeSuiteGuard.js';
 
 export interface ReproFirstOptions {
@@ -83,15 +82,18 @@ export function isTestPath(p: string): boolean {
  * demonstration of anything.
  */
 export function isFailingResult(toolName: string, result: string): boolean {
+  // Only run_command can demonstrate. run_tests is hidden from the SWE
+  // catalog but still executes when the model calls it from memory; in
+  // django it runs `npm test`, whose `pretest` eslint fails -- the second
+  // smoke credited that non-zero exit as "bug demonstrated".
+  if (toolName !== 'run_command') return false;
   if (/⚠️ Command timed out/.test(result)) return false; // hung, not failed
   // A run that collected nothing (pytest exit 5, `Ran 0 tests`, a label the
   // runner rejected) is non-zero and proves nothing. Checked first.
   if (isBadTestLabelOutput(result)) return false;
   // Not end-anchored: the result arrives wrapped in <tool_output>...</tool_output>,
   // and the first smoke missed a real `(exit code: 5)` for exactly that reason.
-  if (/\(exit code: -?[1-9]\d*\)/.test(result)) return true;
-  if (toolName === 'run_tests') return classifyTestResult(result) === 'fail';
-  return false;
+  return /\(exit code: -?[1-9]\d*\)/.test(result);
 }
 
 /** True when the command ran nothing (pytest exit 5 / `Ran 0 tests` / rejected label). */
@@ -102,8 +104,9 @@ export function ranNothing(result: string): boolean {
 const NOT_A_DEMO_EXIT0 = (cmd: string): string =>
   `🛡️ \`${cmd}\` exited 0, so it did NOT demonstrate the bug -- a script that prints the wrong value ` +
   `and exits normally proves nothing. Make it FAIL on the current code: assert the behaviour the issue ` +
-  `expects (\`assert actual == expected\`), or raise. Then run it again; it must exit non-zero before you ` +
-  `change any source file.`;
+  `expects (\`assert actual == expected\`), or raise. If the file defines test functions or a TestCase, ` +
+  `running it as a plain script executes nothing -- run it with \`python -m pytest <file>\` or add ` +
+  `\`unittest.main()\`. Then run it again; it must exit non-zero before you change any source file.`;
 
 const NOT_A_DEMO_NOTESTS = (cmd: string): string =>
   `🛡️ \`${cmd}\` ran ZERO tests, so it did NOT demonstrate the bug. If you wrote a test, make sure the ` +
@@ -163,7 +166,7 @@ export function reproFirstGuard(opts: ReproFirstOptions): ReproFirstHook {
         const text = res?.content ?? '';
         const input = (u.input ?? {}) as { command?: unknown; path?: unknown };
 
-        if (u.name === 'run_command' || u.name === 'run_tests') {
+        if (u.name === 'run_command') {
           const cmd = typeof input.command === 'string' ? input.command.trim() : '';
           if (!s.demonstrated) {
             if (isFailingResult(u.name, text)) {

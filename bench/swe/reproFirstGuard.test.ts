@@ -50,12 +50,12 @@ describe('isFailingResult', () => {
   it('does not count a hung command as a demonstration', () => {
     expect(isFailingResult('run_command', 'starting...\n\n⚠️ Command timed out after 120s with no output')).toBe(false);
   });
-  it('classifies run_tests output like the completion gate', () => {
-    expect(isFailingResult('run_tests', 'FAILED tests/test_x.py::test_y - AssertionError\n1 failed in 0.2s')).toBe(
-      true,
-    );
-    expect(isFailingResult('run_tests', '3 passed in 0.1s')).toBe(false);
-    expect(isFailingResult('run_tests', 'no tests ran')).toBe(false); // ran nothing: proves nothing
+  it('never accepts run_tests as a demonstration', () => {
+    // Hidden from the SWE catalog but still executable when called from
+    // memory; in django it runs `npm test` and its `pretest` eslint fails.
+    // The second smoke credited that as "bug demonstrated".
+    expect(isFailingResult('run_tests', '> pretest\n> eslint django/\n\n2 problems\n(exit code: 1)')).toBe(false);
+    expect(isFailingResult('run_tests', 'FAILED tests/test_x.py::test_y - AssertionError\n1 failed')).toBe(false);
   });
 });
 
