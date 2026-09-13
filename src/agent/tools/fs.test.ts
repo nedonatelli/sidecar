@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { writeFile, editFile, readFile, applyReadView, editFileDef } from './fs.js';
+import { writeFile, editFile, readFile, applyReadView, editFileDef, fsTools } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
 import { workspace } from 'vscode';
@@ -331,6 +331,59 @@ describe('editFile audit mode', () => {
     // The model is handed exact line numbers or the region itself, plus a route back
     expect(result).toMatch(/line \d+:|Grep for|read_file|closest matching region/);
     expect(result).toContain('eslint'); // the real line is in the recovery text
+  });
+
+  it("says the file CHANGED since the last read when a miss follows the model's own edit", async () => {
+    // 27% of search-not-found edits in a 300-run SWE-bench matrix were on a
+    // file the model had edited after its last read: it quoted the old text.
+    const fileContent = ['def f():', '    return os.path.abspath(str(path))', ''].join('\n');
+    await buf.write('django/utils/autoreload.py', fileContent, async () => undefined);
+    const context = {
+      config: { agentMode: 'audit' } as never,
+      filesReadThisTurn: new Set(['django/utils/autoreload.py']),
+      editedSinceRead: new Set(['django/utils/autoreload.py']),
+    };
+    const result = await editMsg(
+      {
+        path: 'django/utils/autoreload.py',
+        search: '    return path.resolve(strict=True).absolute()',
+        replace: '    return path.resolve()',
+      },
+      context,
+    );
+    expect(result).toMatch(/has CHANGED since you last read it/);
+    expect(result).toMatch(/not found|does not appear/);
+    expect(result).toContain('abspath'); // recovery text is from the CURRENT file
+  });
+
+  it('does not claim a change when the file was not edited since the read', async () => {
+    const fileContent = ['def f():', '    return 1', ''].join('\n');
+    await buf.write('a.py', fileContent, async () => undefined);
+    const context = {
+      config: { agentMode: 'audit' } as never,
+      filesReadThisTurn: new Set(['a.py']),
+      editedSinceRead: new Set<string>(),
+    };
+    const result = await editMsg({ path: 'a.py', search: '    return 2', replace: '    return 3' }, context);
+    expect(result).not.toMatch(/has CHANGED/);
+  });
+
+  it('records a successful edit as "edited since read", and a read clears it', async () => {
+    await buf.write('b.py', 'x = 1\n', async () => undefined);
+    const editedSinceRead = new Set<string>();
+    const context = {
+      config: { agentMode: 'audit' } as never,
+      filesReadThisTurn: new Set(['b.py']),
+      editedSinceRead,
+    } as never;
+    const edit = fsTools.find((t) => t.definition.name === 'edit_file')!;
+    const out = await edit.executor({ path: 'b.py', search: 'x = 1', replace: 'x = 2' }, context);
+    expect(String(out)).toMatch(/File edited/);
+    expect([...editedSinceRead]).toEqual(['b.py']);
+    // b.py is in the audit buffer, so the read is served from there — no disk mock needed.
+    const read = fsTools.find((t) => t.definition.name === 'read_file')!;
+    await read.executor({ path: 'b.py' }, context);
+    expect(editedSinceRead.size).toBe(0);
   });
 
   it('coerces edit_file(path, search) on a nonexistent file into a create (llama3.2 shape 1)', async () => {

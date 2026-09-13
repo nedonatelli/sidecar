@@ -53,6 +53,7 @@ export async function executeMultiFilePlan(
     callbacks,
     signal,
     filesReadThisTurn: state.filesReadThisRun,
+    editedSinceRead: state.editedSinceRead,
   };
 
   // Map each path → the FIRST tool_use targeting that path. Subsequent
