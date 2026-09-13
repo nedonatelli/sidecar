@@ -59,10 +59,15 @@ const REPOS = (process.env.SIDECAR_SWE_REPOS || '')
 // it). Default 1×0 = the whole slice, single process (unchanged behavior).
 const SHARD_INDEX = parseInt(process.env.SIDECAR_SWE_SHARD_INDEX ?? '0', 10);
 const SHARD_COUNT = parseInt(process.env.SIDECAR_SWE_SHARD_COUNT ?? '1', 10);
-// SWE-bench tasks need a generous budget — a small local model spends many
-// iterations just locating the file in a large repo. The fixture-eval default
-// of 8 is far too few; default to 30 here. (Smoke run at 8 → empty patches.)
-const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '30', 10);
+// The SHIPPED ceiling, not a harness-local one. `sidecar.agentMaxIterations`
+// defaults to 50 (raised from 25 in 2de65ea, 2026-08-01, and clamped to 50 in
+// settings.ts); this driver kept its original 30 and every SWE matrix through
+// 2026-09-12 ran under a budget nobody ships. Measured consequence: the
+// control arm hit the cap on 24% of tasks and the repro-first arm on 54%, so
+// "turn budget" showed up as the binding constraint on an intervention while
+// the product had 20 more iterations to give. Override only for a deliberate
+// budget experiment, and say so in the run's manifest.
+const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '50', 10);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
 // Per-(repo,version) solve environments (uv venvs) so run_tests/run_command work
 // against installed deps. Specs from the committed env-specs.json (generated from
