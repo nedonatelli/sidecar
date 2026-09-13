@@ -105,6 +105,11 @@ export async function maybeInjectSyntaxGate(
     // Files now parse — drop the cycle-detector exemption so later, unrelated
     // thrash on the same file is no longer immune.
     gateState.syntaxGateFixTargets?.clear();
+    // Record the clean pass under the base gate's own keys (editedFiles
+    // entries, not the root-joined paths handed to the checker): for Python
+    // this is the static check the base gate accepts in place of a linter.
+    // The recorder clears it on the next edit.
+    gateState.syntaxCleanFiles = new Set(editedList);
     return 'clean';
   } catch (err) {
     // The gate is best-effort: a shell/runtime hiccup must not block the loop.

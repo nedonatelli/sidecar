@@ -144,6 +144,18 @@ function hasRunCommandCall(messages: ChatMessage[]): boolean {
  * mentioned file independently — a tool call for file A does not satisfy
  * the requirement for file B. Returns null when no reprompt is needed.
  */
+/** A mentioned path that cannot be a file in this workspace. */
+export function isForeignPath(file: string): boolean {
+  const n = file.replace(/\\/g, '/');
+  return (
+    /^\//.test(n) || // absolute (a traceback frame, an installed module)
+    /^[A-Za-z]:\//.test(n) || // Windows drive
+    /^~\//.test(n) ||
+    /(^|\/)(home|Users|usr|opt|tmp|var)\//.test(n) ||
+    /(^|\/)(site-packages|dist-packages|miniconda3?|anaconda3?|\.venv|venv|node_modules)\//.test(n)
+  );
+}
+
 export function buildNoReadReprompt(
   messages: ChatMessage[],
   editedFiles?: ReadonlySet<string>,
@@ -160,6 +172,14 @@ export function buildNoReadReprompt(
     // tests it but never reads it. (Dogfooding fired a pointless read+describe
     // cycle on a freshly-written, already-tested file.)
     if (fileWasEdited(file, editedFiles)) continue;
+    // A path that cannot be a workspace file -- absolute, a home directory, an
+    // installed package -- is quoted, not requested: issue tracebacks name
+    // `/home/<user>/workspace/script.py` and
+    // `miniconda3/envs/.../site-packages/IPython/core/formatters.py`. Demanding a
+    // read of those sent the model to a file that does not exist (measured:
+    // one wasted turn per run on 15 of 150 SWE-bench runs, after the prompt's
+    // own example path was removed).
+    if (isForeignPath(file)) continue;
     if (!hasReadToolCallForFile(messages, file)) {
       return (
         `You mentioned \`${file}\` but did not call read_file, grep, or any other file-reading tool before responding. ` +
