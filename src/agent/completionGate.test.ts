@@ -563,6 +563,46 @@ describe('completionGate — checkCompletionGate', () => {
     expect(findings).toEqual([]);
   });
 
+  it('accepts a clean syntax-gate parse as the static check for a Python file', async () => {
+    // The SWE-bench venvs ship no linter and get_diagnostics has no language
+    // server; the lint requirement was unsatisfiable for every .py edit -- two
+    // reprompts per task and 74% of runs ending gate-exhausted.
+    (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
+    const state = createGateState();
+    state.editedFiles.add('django/utils/http.py');
+    state.projectTestsRan = true;
+    state.syntaxCleanFiles = new Set(['django/utils/http.py']);
+    expect(await checkCompletionGate(state)).toEqual([]);
+  });
+
+  it('does NOT accept a clean parse in place of tsc/eslint for a TypeScript file', async () => {
+    (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
+    const state = createGateState();
+    state.editedFiles.add('src/a.ts');
+    state.projectTestsRan = true;
+    state.syntaxCleanFiles = new Set(['src/a.ts']);
+    expect((await checkCompletionGate(state)).some((f) => f.needsLint)).toBe(true);
+  });
+
+  it('a clean parse from before an edit is discarded by the recorder', () => {
+    const state = createGateState();
+    state.syntaxCleanFiles = new Set(['django/utils/http.py']);
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: 'e', name: 'edit_file', input: { path: 'django/utils/http.py' } },
+      { type: 'tool_result', tool_use_id: 'e', content: 'File edited: django/utils/http.py', is_error: false },
+    );
+    expect(state.syntaxCleanFiles.size).toBe(0);
+  });
+
+  it('py_compile / pyflakes count as a lint run (the checks a bare Python env can do)', () => {
+    for (const cmd of ['python -m py_compile django/utils/http.py', 'python -m pyflakes django/utils/http.py']) {
+      const state = createGateState();
+      recordToolCall(state, makeRunCommand(cmd), ok());
+      expect(state.lintObserved, cmd).toBe(true);
+    }
+  });
+
   it('flags an edited source file with no lint run as needsLint', async () => {
     (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
     const state = createGateState();
@@ -782,6 +822,21 @@ describe('completionGate — buildNoReadReprompt', () => {
     expect(result).not.toBeNull();
     expect(result).toContain('greeter.ts');
     expect(result).toContain('read_file');
+  });
+
+  it('does not demand a read of a path that cannot be a workspace file', () => {
+    // Issue tracebacks quote absolute, home and site-packages paths; the gate
+    // sent the model to read them and every one was "not found" (15 of 150
+    // SWE-bench runs, one wasted turn each).
+    for (const text of [
+      'Traceback in /home/philippe/workspace/script.py line 3',
+      'see miniconda3/envs/py39/lib/python3.9/site-packages/IPython/core/formatters.py',
+      'crashes at C:/Users/me/proj/app.py',
+    ]) {
+      expect(buildNoReadReprompt([userMsg(text)]), text).toBeNull();
+    }
+    // A relative workspace path still fires.
+    expect(buildNoReadReprompt([userMsg('Look at django/utils/http.py')])).not.toBeNull();
   });
 
   it('returns null when read_file was called with the mentioned file path', () => {

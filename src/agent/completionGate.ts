@@ -44,6 +44,18 @@ export interface GateState {
    * reprompt must know it happened, or it will keep telling the model to call
    * the tool that just told it nothing. */
   emptyDiagnosticsObserved: boolean;
+  /**
+   * Edited files the syntax gate parse-checked cleanly on the most recent
+   * termination attempt, cleared by the next edit. For Python this is the
+   * static check that is actually available: the SWE-bench venvs ship no
+   * pylint/flake8/ruff, the model ran a linter 3 times in 150 runs, and
+   * `get_diagnostics` has no language server to consult -- so the lint
+   * requirement was unsatisfiable, cost two reprompts per task, and ended 74%
+   * of runs "gate exhausted". A clean parse satisfies it for `.py`; TS/JS keep
+   * tsc/eslint, which are installed wherever a Node project is. Optional for
+   * back-compat with test stubs.
+   */
+  syntaxCleanFiles?: Set<string>;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
@@ -146,6 +158,7 @@ export function createGateState(currentUserRequest = ''): GateState {
     projectTestsPassed: false,
     lintObserved: false,
     emptyDiagnosticsObserved: false,
+    syntaxCleanFiles: new Set(),
     gateInjections: 0,
     noReadRepromptFired: false,
     noShellRepromptFired: false,
@@ -365,6 +378,8 @@ export function recordToolCall(
       state.lintObserved = false;
       // A new edit invalidates an earlier empty-diagnostics observation too.
       state.emptyDiagnosticsObserved = false;
+      // ...and a clean parse from before this edit says nothing about after it.
+      state.syntaxCleanFiles?.clear();
       // ...and stales an earlier failing check: the model is fixing. The
       // normal requirements above force a re-run; if THAT fails too, the
       // red-check flag comes right back.
@@ -434,7 +449,12 @@ export function recordToolCall(
     // "npm run lint" actually calls without parsing package.json, but the
     // naming convention is reliable enough to satisfy the gate.
     if (
-      /\b(eslint|tsc|pylint|flake8|mypy|ruff|black|go\s+vet|golangci-lint|staticcheck)\b/.test(cmd) ||
+      // py_compile / compileall / pyflakes: the checks a bare Python
+      // environment CAN run. Without them the only satisfiable path for a
+      // Python edit was a linter that was not installed.
+      /\b(eslint|tsc|pylint|flake8|mypy|ruff|black|pyflakes|py_compile|compileall|go\s+vet|golangci-lint|staticcheck)\b/.test(
+        cmd,
+      ) ||
       /\b(npm|pnpm|yarn|bun)\s+run\s+(lint|check|compile|build|typecheck|type-check)\b/.test(cmd)
     ) {
       // Same rule as get_diagnostics: the COMMAND STRING is not evidence. This
@@ -557,7 +577,10 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
       }
     }
 
-    if (!state.lintObserved) {
+    // A Python file the syntax gate has just parsed cleanly has had the static
+    // check this environment can give it (see GateState.syntaxCleanFiles).
+    const parsedClean = file.endsWith('.py') && (state.syntaxCleanFiles?.has(file) ?? false);
+    if (!state.lintObserved && !parsedClean) {
       // Lint applies to both source and test files since both are linted.
       // Only carried when true — an absent flag keeps the finding shape it has
       // always had for the ordinary "no check ran at all" case.
