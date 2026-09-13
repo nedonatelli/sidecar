@@ -513,6 +513,94 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
     expect(state.projectTestsRan).toBe(false);
   });
 
+  // Python runners and reproduction scripts. Measured on a 150-run SWE-bench
+  // matrix (2026-09-13): django verifies with `./tests/runtests.py <label>`,
+  // repros with `python repro.py`; neither was recognised, so the base gate
+  // nagged for verification already done (74% of runs ended gate-exhausted)
+  // and the red-check gate fired once while 76 of 92 reproduced runs finished
+  // on a red reproduction.
+  const res = (content: string): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content,
+    is_error: false,
+  });
+
+  it("django's runtests.py label is a project test run, and a red one arms the red-check gate", () => {
+    const state = createGateState();
+    recordToolCall(
+      state,
+      makeRunCommand('./tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1 utils_tests'),
+      res('ERROR: test_x (utils_tests.test_y.T)\nRan 40 tests in 0.5s\n\nFAILED (errors=1)\n(exit code: 1)'),
+    );
+    expect(state.projectTestsRan).toBe(true);
+    expect(state.projectTestsPassed).toBe(false);
+    expect(state.failedCheckOutput).toContain('FAILED');
+  });
+
+  it('a green runtests.py run clears the red-check flag and counts as passing', () => {
+    const state = createGateState();
+    state.failedCheckOutput = 'earlier red';
+    recordToolCall(
+      state,
+      makeRunCommand('./tests/runtests.py --settings=test_sqlite utils_tests'),
+      res('Ran 40 tests in 0.5s\n\nOK'),
+    );
+    expect(state.projectTestsPassed).toBe(true);
+    expect(state.failedCheckOutput).toBeUndefined();
+  });
+
+  it('python -m unittest and manage.py test are runners too', () => {
+    for (const cmd of ['python -m unittest tests.test_x', 'python manage.py test app.tests']) {
+      const state = createGateState();
+      recordToolCall(state, makeRunCommand(cmd), res('FAILED (failures=1)\n(exit code: 1)'));
+      expect(state.projectTestsRan, cmd).toBe(true);
+      expect(state.failedCheckOutput, cmd).toBeDefined();
+    }
+  });
+
+  it('a failing pytest via run_command now arms the red-check gate like run_tests does', () => {
+    const state = createGateState();
+    recordToolCall(
+      state,
+      makeRunCommand('python -m pytest tests/test_x.py'),
+      res('FAILED tests/test_x.py::t - AssertionError\n1 failed in 0.2s\n(exit code: 1)'),
+    );
+    expect(state.failedCheckOutput).toContain('FAILED');
+  });
+
+  it('a reproduction script that fails arms the red-check gate; one that exits 0 clears it; neither is a test run', () => {
+    const state = createGateState();
+    recordToolCall(
+      state,
+      makeRunCommand('python3 repro.py'),
+      res('Traceback (most recent call last):\n  File "repro.py", line 3\nAssertionError\n(exit code: 1)'),
+    );
+    expect(state.failedCheckOutput).toContain('Traceback');
+    expect(state.projectTestsRan).toBe(false);
+    recordToolCall(state, makeRunCommand('python3 repro.py'), res('ok: 2075'));
+    expect(state.failedCheckOutput).toBeUndefined();
+    expect(state.projectTestsRan).toBe(false);
+  });
+
+  it('a hung script proves nothing: the red-check flag is left as it was', () => {
+    const state = createGateState();
+    state.failedCheckOutput = 'earlier red';
+    recordToolCall(
+      state,
+      makeRunCommand('python repro.py'),
+      res('starting...\n\n⚠️ Command timed out after 120s with no output'),
+    );
+    expect(state.failedCheckOutput).toBe('earlier red');
+  });
+
+  it('a non-test python invocation (a module, a one-liner) does not touch the flag', () => {
+    const state = createGateState();
+    state.failedCheckOutput = 'earlier red';
+    recordToolCall(state, makeRunCommand('python -c "print(1)"'), res('1'));
+    expect(state.failedCheckOutput).toBe('earlier red');
+  });
+
   it('is_error short-circuits BEFORE any classification, even for run_tests', () => {
     const state = createGateState();
     recordToolCall(state, makeRunTests('src/foo.test.ts'), err());

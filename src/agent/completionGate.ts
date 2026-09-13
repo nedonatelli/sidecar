@@ -477,9 +477,30 @@ export function recordToolCall(
       }
     }
 
-    const testMatch = cmd.match(/\b(vitest|jest|pytest|mocha|go\s+test)\b([^|;&]*)/);
+    // Test runners. The JS/Go list is the original; the Python forms were
+    // added after a 150-run SWE-bench matrix (2026-09-13) in which every
+    // django task verified with `./tests/runtests.py <label>` and every repro
+    // with `python repro.py`, and NEITHER was recognised here. Two costs,
+    // both measured: the base gate demanded verification of edits that had
+    // been verified (222 "unverified edit(s)" reprompts; 74% of runs ended
+    // with the gate exhausted), and the red-check gate -- the one refusal
+    // built for "your own check failed and you are finishing anyway" --
+    // fired ONCE, while 76 of 92 runs that had reproduced their bug finished
+    // with that reproduction still red, 79% on the same failure they
+    // started with.
+    // Anchored on start-of-token rather than `\b`: `\b` never matches before
+    // the `-` of `-m unittest`, and `./tests/runtests.py` is preceded by `/`.
+    const testMatch = cmd.match(
+      /(?:^|[\s;&|/])(vitest|jest|pytest|py\.test|mocha|go\s+test|tox|nose2?|runtests\.py|manage\.py\s+test|-m\s+unittest)\b([^|;&]*)/,
+    );
     if (testMatch) {
-      const passed = classifyTestResult(resultText) === 'pass';
+      const outcome = classifyTestResult(resultText);
+      const passed = outcome === 'pass';
+      // Same red-check arming run_tests has always had. A failing `pytest` or
+      // `runtests.py` through run_command used to leave failedCheckOutput
+      // untouched, so the model could finish on a red suite unchallenged.
+      if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
+      else if (passed) state.failedCheckOutput = undefined;
       const args = testMatch[2] || '';
       const files = extractTestFiles(args);
       if (files.length > 0) {
@@ -493,6 +514,18 @@ export function recordToolCall(
       } else {
         state.projectTestsRan = true;
         if (passed) state.projectTestsPassed = true;
+      }
+    } else if (/(^|[\s;&|])python[0-9.]*\s+(?:-[A-Za-z]+\s+)*\S+\.py\b/.test(cmd)) {
+      // A plain Python script -- `python repro.py`, `python3 check_fix.py` --
+      // is the reproduction the SWE task asks for and the check the model
+      // relies on. It is NOT credited as a test run (a script exiting 0 proves
+      // less than a suite), but its exit status arms and clears the red-check
+      // flag: a script that fails with a traceback or a non-zero exit is a
+      // failing verification, and a model that finishes on it is finishing
+      // red. A hung command proves nothing either way.
+      if (!/⚠️ Command timed out/.test(resultText)) {
+        if (isFailingCheckOutput(resultText)) state.failedCheckOutput = failingSnippet(resultText);
+        else if (!/\(exit code: /.test(resultText)) state.failedCheckOutput = undefined;
       }
     }
 
