@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubLoopState } from './testHelpers.js';
+import type { LoopState } from './state.js';
+import type { ToolDefinition } from '../tools/shared.js';
 
 // ---------------------------------------------------------------------------
 // Tests for executeToolUses.ts (loop helper hardening).
@@ -55,6 +57,16 @@ function stubCallbacks() {
   return cb as typeof cb & AgentCallbacks;
 }
 
+// Every dispatch test runs against a CATALOG. The loop gates execution on the
+// tools offered this iteration (a tool the model was never shown does not run),
+// so a state with `tools: []` would block everything below.
+const CATALOG_NAMES = ['read_file', 'edit_file', 'update_plan', 'spawn_agent', 'delegate_task', 'a', 'b'];
+const catalog = (names: string[]): ToolDefinition[] =>
+  names.map((name) => ({ name, description: name, input_schema: { type: 'object', properties: {} } }));
+function catalogState(overrides: Partial<LoopState> = {}): LoopState {
+  return stubLoopState({ tools: catalog(CATALOG_NAMES), ...overrides });
+}
+
 function use(name: string, input: Record<string, unknown> = {}): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${name}`, name, input };
 }
@@ -74,7 +86,7 @@ describe('executeToolUses — dispatch routing', () => {
       content: 'file content',
       is_error: false,
     });
-    const state = stubLoopState();
+    const state = catalogState();
     const cb = stubCallbacks();
     const results = await executeToolUses(
       state,
@@ -98,7 +110,7 @@ describe('executeToolUses — dispatch routing', () => {
       success: true,
       charsConsumed: 5000,
     });
-    const state = stubLoopState({ totalChars: 1000 });
+    const state = catalogState({ totalChars: 1000 });
     const cb = stubCallbacks();
     const results = await executeToolUses(
       state,
@@ -123,7 +135,7 @@ describe('executeToolUses — dispatch routing', () => {
       charsConsumed: 100,
     });
     const results = await executeToolUses(
-      stubLoopState(),
+      catalogState(),
       [use('spawn_agent', { task: 'x' })],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -140,7 +152,7 @@ describe('executeToolUses — dispatch routing', () => {
       charsConsumed: 800,
       model: 'ollama/qwen2.5:7b',
     });
-    const state = stubLoopState({ totalChars: 1000 });
+    const state = catalogState({ totalChars: 1000 });
     const cb = stubCallbacks();
     await executeToolUses(
       state,
@@ -160,7 +172,7 @@ describe('executeToolUses — budget check short-circuit', () => {
     vi.mocked(checkToolBudget).mockReturnValueOnce('read_file exceeded per-turn limit (3/3)');
     const cb = stubCallbacks();
     const results = await executeToolUses(
-      stubLoopState(),
+      catalogState(),
       [use('read_file')],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -196,7 +208,7 @@ describe('executeToolUses — parallel execution + error promotion', () => {
       });
 
     const results = await executeToolUses(
-      stubLoopState(),
+      catalogState(),
       [use('a'), use('b')],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -213,7 +225,7 @@ describe('executeToolUses — parallel execution + error promotion', () => {
       .mockRejectedValueOnce(new Error('disk full'))
       .mockResolvedValueOnce({ type: 'tool_result', tool_use_id: 'tu-b', content: 'b', is_error: false });
 
-    const state = stubLoopState();
+    const state = catalogState();
     const cb = stubCallbacks();
     const results = await executeToolUses(
       state,
@@ -250,7 +262,7 @@ describe('executeToolUses — parallel execution + error promotion', () => {
       });
 
     await executeToolUses(
-      stubLoopState(),
+      catalogState(),
       [use('a'), use('b')],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -273,7 +285,7 @@ describe('executeToolUses — memory + chain recording', () => {
     });
     const cb = stubCallbacks();
     await executeToolUses(
-      stubLoopState(),
+      catalogState(),
       [use('read_file', { path: 'a.ts' })],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -293,7 +305,7 @@ describe('executeToolUses — memory + chain recording', () => {
     });
     const cb = stubCallbacks();
     await executeToolUses(
-      stubLoopState(),
+      catalogState(),
       [use('edit_file', { path: 'a.ts' })],
       {} as SideCarClient,
       {} as AgentOptions,
@@ -312,7 +324,7 @@ describe('onPlanUpdate checkpointing hook (S1)', () => {
       state.planRef.plan = { steps: ['a', 'b'], current: 1 };
       return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Plan updated', is_error: false };
     });
-    const state = stubLoopState();
+    const state = catalogState();
     const onPlanUpdate = vi.fn();
     const cb = { ...stubCallbacks(), onPlanUpdate };
     await executeToolUses(
@@ -334,7 +346,7 @@ describe('onPlanUpdate checkpointing hook (S1)', () => {
       content: 'x',
       is_error: false,
     });
-    const state = stubLoopState();
+    const state = catalogState();
     const onPlanUpdate = vi.fn();
     const cb = { ...stubCallbacks(), onPlanUpdate };
     await executeToolUses(
@@ -346,5 +358,73 @@ describe('onPlanUpdate checkpointing hook (S1)', () => {
       new AbortController().signal,
     );
     expect(onPlanUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeToolUses — catalog gate', () => {
+  // The SWE harness hides run_tests from the catalog (django's runner is
+  // `npm test`, whose eslint pretest fails); the model called it from memory
+  // anyway, it EXECUTED, and its non-zero exit was recorded as a demonstrated
+  // bug. What the model can call and what can execute must be one set.
+  const run = (state: LoopState, u: ToolUseContentBlock, opts: Partial<AgentOptions> = {}) =>
+    executeToolUses(
+      state,
+      [u],
+      {} as SideCarClient,
+      opts as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+
+  it('refuses a tool that was not in the catalog offered this turn, without executing it', async () => {
+    const results = await run(catalogState(), use('run_tests'));
+    expect(executeTool).not.toHaveBeenCalled();
+    expect(results[0].is_error).toBe(true);
+    expect(results[0].content).toMatch(/"run_tests" is not available/);
+  });
+
+  it('runs a tool that is in the catalog', async () => {
+    vi.mocked(executeTool).mockResolvedValueOnce({
+      type: 'tool_result',
+      tool_use_id: 'x',
+      content: 'ok',
+      is_error: false,
+    });
+    const results = await run(catalogState(), use('read_file'));
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(results[0].is_error).toBeFalsy();
+  });
+
+  it('honours run-scoped extraTools that are deliberately absent from the visible catalog', async () => {
+    vi.mocked(executeTool).mockResolvedValueOnce({
+      type: 'tool_result',
+      tool_use_id: 'x',
+      content: 'ok',
+      is_error: false,
+    });
+    const extra = [
+      { definition: catalog(['rpc.peer.ping'])[0], executor: async () => 'pong', requiresApproval: false },
+    ];
+    await run(catalogState(), use('rpc.peer.ping'), { extraTools: extra as never });
+    expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it('judges a mangled call-expression name by its salvaged base name', async () => {
+    // `read_file(path="x")` as the tool NAME is what some runtimes emit; the
+    // executor salvages it, so the gate must not reject it first.
+    vi.mocked(executeTool).mockResolvedValueOnce({
+      type: 'tool_result',
+      tool_use_id: 'x',
+      content: 'ok',
+      is_error: false,
+    });
+    await run(catalogState(), use('read_file(path="a.py")'));
+    expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the per-iteration catalog, so the read tier blocks write tools', async () => {
+    const results = await run(catalogState({ tools: catalog(['read_file', 'grep']) }), use('edit_file'));
+    expect(executeTool).not.toHaveBeenCalled();
+    expect(results[0].is_error).toBe(true);
   });
 });
