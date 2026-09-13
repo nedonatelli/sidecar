@@ -660,11 +660,17 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
     // `/var/folders/T/…` paths, so the model was handed a wall of noise instead of
     // `src/utils.ts`. resolveRootUri is the same root `read_file` just read from,
     // so it is correct in every context.
-    const uriPath = (u: { path?: string; fsPath?: string }): string => u.path ?? u.fsPath ?? '';
+    // Compared with separators and the drive prefix normalised: on Windows the
+    // root URI's `.path` is `/C:/Users/...` while a found file can arrive as
+    // `C:\Users\...`, and a byte-wise prefix test fails on both counts. The
+    // fallback then handed the model absolute backslash paths -- 218 read_file
+    // failures in one SWE matrix carried suggestions it could not use.
+    const uriPath = (u: { path?: string; fsPath?: string }): string =>
+      (u.path ?? u.fsPath ?? '').replace(/\\/g, '/').replace(/^\/(?=[A-Za-z]:\/)/, '');
     const rootPath = uriPath(resolveRootUri(context)).replace(/\/$/, '');
     const rel = (u: { path?: string; fsPath?: string }): string => {
       const p = uriPath(u);
-      return rootPath && p.startsWith(rootPath + '/')
+      return rootPath && p.toLowerCase().startsWith(rootPath.toLowerCase() + '/')
         ? p.slice(rootPath.length + 1)
         : workspace.asRelativePath(u as never, false);
     };

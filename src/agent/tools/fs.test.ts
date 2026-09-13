@@ -690,6 +690,31 @@ describe('readFile — file-not-found suggestions', () => {
     expect(err!.message).toContain('src/agent/loop.ts');
   });
 
+  it('keeps suggestions repo-relative on Windows path shapes (backslashes, drive prefix)', async () => {
+    // The root URI's `.path` is `/C:/...` while findFiles hands back
+    // `C:\...`; the old byte-wise prefix test failed on both and fell back to
+    // asRelativePath, which returned the absolute backslash path. One SWE
+    // matrix carried 218 such suggestions the model could not act on.
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(
+      Object.assign(new Error('ENOENT: no such file or directory'), { code: 'FileNotFound' }),
+    );
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      {
+        fsPath: 'C:\\Users\\x\\repo\\django\\utils\\http.py',
+        path: 'C:\\Users\\x\\repo\\django\\utils\\http.py',
+      } as never,
+    ]);
+    let err: Error | undefined;
+    try {
+      await readFile({ path: 'django/http.py' }, { cwd: 'C:\\Users\\x\\repo' } as never);
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err!.message).toContain('- django/utils/http.py');
+    expect(err!.message).not.toMatch(/C:\\/);
+  });
+
   it('throws a list_directory hint when no similarly-named file exists', async () => {
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'FileNotFound' }));
