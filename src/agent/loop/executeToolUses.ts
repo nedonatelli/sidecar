@@ -7,6 +7,8 @@ import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import type { LoopState } from './state.js';
 import { checkToolBudget, recordToolUse } from './toolBudget.js';
+import { resolveIterationTools } from './streamTurn.js';
+import { parseMangledToolName } from './textParsing.js';
 
 // ---------------------------------------------------------------------------
 // Parallel tool execution for runAgentLoop.
@@ -189,6 +191,39 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
   if (state.approvalMode === 'plan' && toolUse.name !== 'ask_user') {
     const msg =
       'Plan mode is active. Tool calls are blocked — output your plan as plain text without calling any tools. Only `ask_user` is permitted in plan mode.';
+    callbacks.onToolResult(toolUse.name, msg, true, toolUse.id);
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: msg,
+      is_error: true,
+    };
+  }
+
+  // Catalog gate: a tool the model was not OFFERED this turn does not run.
+  //
+  // Dispatch resolved names against the global registry, so any registered
+  // tool executed whether or not it was in the catalog sent to the model.
+  // Measured 2026-09-12 in the SWE harness, which hides `run_tests` from the
+  // catalog (django's runner is `npm test`, whose eslint pretest fails): the
+  // model called run_tests from memory anyway, it ran, and its non-zero exit
+  // was recorded as a demonstrated bug. The same hole applies to the read
+  // tier (a write tool called during an explain query) and to any caller
+  // that narrows `toolOverride` for safety. The gate compares against the
+  // per-iteration catalog -- the same list streamTurn sends -- so what the
+  // model can call and what can execute are one set. Run-scoped
+  // `extraTools` are honoured because their callers may deliberately keep
+  // them out of the visible catalog. A mangled call-expression name
+  // (`read_file(path="x")`) is judged by its salvaged base name so the
+  // executor's recovery still applies.
+  const offered = resolveIterationTools(state);
+  const salvagedName = parseMangledToolName(toolUse.name)?.name;
+  const isOffered = (n: string): boolean =>
+    offered.some((t) => t.name === n) || (options.extraTools?.some((t) => t.definition.name === n) ?? false);
+  if (!isOffered(toolUse.name) && !(salvagedName !== undefined && isOffered(salvagedName))) {
+    const msg =
+      `Tool "${toolUse.name}" is not available in this session: it is not in the tool catalog you were given, ` +
+      `so it was not run. Use one of the tools listed in your catalog instead.`;
     callbacks.onToolResult(toolUse.name, msg, true, toolUse.id);
     return {
       type: 'tool_result',
