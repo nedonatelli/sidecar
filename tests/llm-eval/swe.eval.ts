@@ -748,8 +748,12 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
       `You MUST scope every test run to the module for this issue by appending a test label:\n` +
       `  ${runner} <test_label>\n` +
       `The label is the runner's own MODULE notation, not a filesystem path:\n` +
-      `  correct:   \`${runner} some_module\`   or   \`${runner} some_module.test_file\`\n` +
-      `  incorrect: \`${runner} tests/some_module/\`   \`${runner} tests/some_module/tests.py\`\n` +
+      // No literal placeholder PATH in the incorrect examples: the model read
+      // `tests/some_module/tests.py` -- this prompt's own example -- 143 times
+      // in one 300-run matrix (63% of all read_file failures). It cannot tell
+      // an example from an instruction; describe the wrong shapes instead.
+      `  correct:   \`${runner} <module>\`   or   \`${runner} <module>.<test_file>\`\n` +
+      `  incorrect: any filesystem path -- a directory under tests/, or a .py file\n` +
       `Drop any \`tests/\` prefix, trailing slash and \`.py\` suffix; use dots, not slashes. ` +
       `A path-shaped label is rejected by the runner with an import error and runs no tests at all.\n` +
       `A label names a TEST module, NOT the source module you edited — a source path runs zero tests ` +
