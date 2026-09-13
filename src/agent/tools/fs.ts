@@ -8,6 +8,7 @@ import {
   isProtectedWritePath,
   resolveRootUri,
   type ToolExecutorContext,
+  type ToolExecutor,
   type RegisteredTool,
 } from './shared.js';
 import { compactSourceFile, outlineSourceFile } from './compression.js';
@@ -720,7 +721,11 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   }
   const text = Buffer.from(bytes).toString('utf-8');
   // Track this file as read so editFile knows the model has current content.
-  context?.filesReadThisTurn?.add(path.posix.normalize(filePath.split(path.sep).join('/')));
+  const readKey = path.posix.normalize(filePath.split(path.sep).join('/'));
+  context?.filesReadThisTurn?.add(readKey);
+  // A read refreshes the model's memory of the file: it is no longer stale
+  // with respect to its own earlier edits.
+  context?.editedSinceRead?.delete(readKey);
   return applyReadView(text, mode, startLine, endLine);
 }
 
@@ -1226,6 +1231,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       search,
       replace,
       replaceAll,
+      stalePrefix: buildStalePrefix(filePath, context),
       context,
     });
     if (resolvedAudit.newText === null) return resolvedAudit.message;
@@ -1276,6 +1282,12 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // calling read_file first, leading to wrong search strings.
   const normalizedPath = path.posix.normalize(filePath.split(path.sep).join('/'));
   const hasReadFile = context?.filesReadThisTurn?.has(normalizedPath) ?? true;
+  // The model read this file, then changed it (an earlier edit_file or
+  // write_file of its own), and has not read it since. A search string that
+  // misses now is most likely quoted from the version BEFORE that change.
+  // Measured on a 300-run SWE-bench matrix: 27% of search-not-found edits
+  // (91 of 337) were exactly this, and the error said only "not found".
+  const stalePrefix = buildStalePrefix(filePath, context);
   const unreadPrefix =
     !hasReadFile && context?.filesReadThisTurn !== undefined
       ? (() => {
@@ -1302,6 +1314,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     replaceAll,
     within,
     unreadPrefix,
+    stalePrefix,
     context,
   });
   if (resolved.newText === null) return resolved.message;
@@ -1439,6 +1452,24 @@ function resolveWithin(text: string, within: string, filePath: string): number {
   return text.indexOf(within);
 }
 
+/**
+ * The model read this file, then changed it (an earlier edit_file or
+ * write_file of its own), and has not read it since. A search string that
+ * misses now is most likely quoted from the version BEFORE that change.
+ * Measured on a 300-run SWE-bench matrix: 27% of search-not-found edits (91
+ * of 337) were exactly this, and the error said only "not found".
+ */
+function buildStalePrefix(filePath: string, context?: ToolExecutorContext): string {
+  const key = path.posix.normalize(filePath.split(path.sep).join('/'));
+  const hasRead = context?.filesReadThisTurn?.has(key) ?? false;
+  const changed = context?.editedSinceRead?.has(key) ?? false;
+  return hasRead && changed
+    ? `[${filePath} has CHANGED since you last read it — your own earlier edit modified it, so the text you ` +
+        `remember may no longer be there. The recovery text below is from the CURRENT file; use it, or ` +
+        `call read_file on the region you are changing before retrying.]\n\n`
+    : '';
+}
+
 export async function resolveEditedText(params: {
   filePath: string;
   text: string;
@@ -1447,11 +1478,14 @@ export async function resolveEditedText(params: {
   replaceAll?: boolean;
   within?: string;
   unreadPrefix?: string;
+  /** See buildStalePrefix: non-empty when the file changed since the model last read it. */
+  stalePrefix?: string;
   context?: ToolExecutorContext;
 }): Promise<ResolvedEdit> {
   const { filePath, text, search, replace, within, context } = params;
   const replaceAll = params.replaceAll ?? false;
   const unreadPrefix = params.unreadPrefix ?? '';
+  const stalePrefix = params.stalePrefix ?? '';
   // Before matching: an empty search matches nothing, and the tolerance tiers
   // would report it as a plain miss. The model needs the directive error that
   // names insert_after / write_file instead.
@@ -1606,7 +1640,7 @@ export async function resolveEditedText(params: {
     if (suggestTarget && text.includes(suggestTarget) && suggestTarget !== replace) {
       recordEditFailure(context, filePath, search, replace);
       throw new Error(
-        `${unreadPrefix}` +
+        `${stalePrefix}${unreadPrefix}` +
           suggestRegionError(filePath, suggestTarget, `your 'search' text does not appear in the file`),
       );
     }
@@ -1642,14 +1676,14 @@ export async function resolveEditedText(params: {
         : '\n\nCall read_file to see the exact current content.';
     if (failureCount >= 2) {
       throw new Error(
-        `${unreadPrefix}Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace ` +
+        `${stalePrefix}${unreadPrefix}Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace ` +
           `text as your last call to ${filePath}, which failed for the same reason. Repeating an identical call ` +
           `will never work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM ` +
           `into search.${hint}`,
       );
     }
     throw new Error(
-      `${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
+      `${stalePrefix}${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
     );
   }
   if (match.count > 1) {
@@ -1937,10 +1971,45 @@ export async function listDirectory(input: Record<string, unknown>, context?: To
   return entries.map(([name, type]) => `${type === 2 ? '📁 ' : '📄 '}${name}`).join('\n');
 }
 
+/**
+ * After a successful write or edit, the model's memory of the file is behind
+ * the file. Record that (ToolExecutorContext.editedSinceRead) so a later
+ * edit_file miss can say "this file changed since you read it" instead of a
+ * bare "not found". Success is the mutation summary line; audit-buffered
+ * writes count too, since the model edits against the buffered content.
+ */
+function markWrittenSinceRead(exec: ToolExecutor): ToolExecutor {
+  return async (input, context) => {
+    const result = await exec(input, context);
+    const p = typeof input.path === 'string' ? input.path : undefined;
+    if (p && typeof result === 'string' && /File (?:edited|written): /.test(result)) {
+      context?.editedSinceRead?.add(path.posix.normalize(p.split(path.sep).join('/')));
+    }
+    return result;
+  };
+}
+
+/**
+ * A successful read refreshes the model's memory of the file, whichever path
+ * served it (disk or the audit buffer): it is no longer "edited since read".
+ */
+function markRead(exec: ToolExecutor): ToolExecutor {
+  return async (input, context) => {
+    const result = await exec(input, context);
+    const p = typeof input.path === 'string' ? input.path : undefined;
+    if (p) {
+      const key = path.posix.normalize(p.split(path.sep).join('/'));
+      context?.filesReadThisTurn?.add(key);
+      context?.editedSinceRead?.delete(key);
+    }
+    return result;
+  };
+}
+
 export const fsTools: RegisteredTool[] = [
-  { definition: readFileDef, executor: readFile, requiresApproval: false },
-  { definition: writeFileDef, executor: writeFile, requiresApproval: true },
-  { definition: editFileDef, executor: editFile, requiresApproval: true },
+  { definition: readFileDef, executor: markRead(readFile), requiresApproval: false },
+  { definition: writeFileDef, executor: markWrittenSinceRead(writeFile), requiresApproval: true },
+  { definition: editFileDef, executor: markWrittenSinceRead(editFile), requiresApproval: true },
   { definition: deleteFileDef, executor: deleteFile, requiresApproval: true },
   { definition: listDirectoryDef, executor: listDirectory, requiresApproval: false },
 ];

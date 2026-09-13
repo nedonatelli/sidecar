@@ -53,6 +53,7 @@ interface ExecutionContext {
   callbacks: AgentCallbacks;
   signal: AbortSignal;
   filesReadThisTurn: Set<string>;
+  editedSinceRead: Set<string>;
 }
 
 /**
@@ -91,6 +92,7 @@ export async function executeToolUses(
     callbacks,
     signal: batchSignal,
     filesReadThisTurn: state.filesReadThisRun,
+    editedSinceRead: state.editedSinceRead,
   };
 
   // Snapshot the plan object identity so a successful update_plan in this
@@ -281,6 +283,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       mcpManager: state.mcpManager,
       testController: options.testController,
       filesReadThisTurn: ctx.filesReadThisTurn,
+      editedSinceRead: ctx.editedSinceRead,
       workspaceIndex: options.workspaceIndex,
       writeHistoryByFile: state.writeHistoryByFile,
       writesSinceVerifyByFile: state.writesSinceVerifyByFile,

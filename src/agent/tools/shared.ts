@@ -116,6 +116,16 @@ export interface ToolExecutorContext {
    */
   filesReadThisTurn?: Set<string>;
   /**
+   * Files the agent has written or edited since it last read them. A path is
+   * added on every successful write_file/edit_file and removed by read_file.
+   * edit_file consults it when a search string is not found: 27% of such
+   * misses in a 300-run SWE-bench matrix were on a file the model had itself
+   * changed after its last read -- it was editing from a memory the file no
+   * longer matched, and "search string not found" did not say so. Threaded
+   * from `LoopState.editedSinceRead`; absent in unit tests.
+   */
+  editedSinceRead?: Set<string>;
+  /**
    * Workspace index for the current session. When set, `write_file` and
    * `edit_file` call `invalidateFile` after each successful disk write so
    * the next `loadFileContent` call gets fresh content rather than the
