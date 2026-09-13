@@ -199,7 +199,20 @@ function prepareRepo(task: SweTask): string {
   // a 955s stall. An explicit fetch of the commit precedes the last attempt so a
   // retry is not just the same failing lazy fetch again.
   resetHardWithRetry(dir, task.base_commit);
-  git(['clean', '-fdxq'], dir);
+  // Retried: on Windows `git clean` races a python that is still writing .pyc
+  // files as the previous task's test process winds down -- `failed to remove
+  // sympy/sets/handlers/__pycache__/: Directory not empty` cost sympy-21847
+  // with 0 turns. The directory is removable a few seconds later.
+  for (let i = 0; ; i++) {
+    try {
+      git(['clean', '-fdxq'], dir);
+      break;
+    } catch (err) {
+      if (i >= 2) throw err;
+      console.warn(`[swe] git clean in ${dir} failed (attempt ${i + 1}/3): ${(err as Error).message.split('\n')[0]}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3_000 * (i + 1));
+    }
+  }
   const head = git(['rev-parse', 'HEAD'], dir).trim();
   if (head !== task.base_commit)
     throw new Error(`checkout mismatch for ${task.instance_id}: ${head} != ${task.base_commit}`);
