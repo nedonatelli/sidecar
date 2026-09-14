@@ -43,6 +43,7 @@ import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { unloadModelRequest } from '../../bench/swe/modelCache.js';
+import { summarizeDecisions } from '../../src/agent/decisions.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -477,6 +478,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // loop's onOutcome meta. Zero on scaffold-off; a high count paired with worse
   // resolution is the harmful-scaffold signal.
   let scaffoldInterventions = 0;
+  // Per-run decision counts (e.g. completion_gate.finding.needsTestRun: 2),
+  // so a run's own summary answers "did my trigger fire" with no log parsing.
+  let decisionCounts: Record<string, number> = {};
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -682,6 +686,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       for (const line of session.loopLog) {
         fs.appendFileSync(trajPath, `${JSON.stringify({ t: Date.now() - start, type: 'loop', line })}\n`);
       }
+      // The structured half. The `loop` lines above are formatted English, so an
+      // experiment on a new gate finding could not verify its own trigger from
+      // them (PR #70, 2026-09-14) — the line reports a COUNT of unverified edits
+      // and never names the finding. These carry the fields instead.
+      for (const decision of session.loopDecisions) {
+        fs.appendFileSync(trajPath, `${JSON.stringify({ t: Date.now() - start, type: 'decision', ...decision })}\n`);
+      }
+      decisionCounts = summarizeDecisions(session.loopDecisions);
       const closed = session.close(terminationBucket ?? 'natural');
       // A timeout is a fact about the configuration, not the model. It used to
       // arrive as a bare abort and land in the same bucket as a real failure.
@@ -738,6 +750,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     peakInputTokens,
     turns,
     scaffoldInterventions,
+    decisionCounts,
   };
 }
 

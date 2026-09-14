@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { Uri, workspace } from 'vscode';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
+import { recordDecision } from '../decisions.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import {
@@ -179,7 +180,18 @@ export async function captureScaffoldBoundary(state: LoopState, io: SnapshotIo):
   r.boundarySignal = await signalFromGate(state, io);
   const snap = await captureFileSnapshot(state.gateState.editedFiles, io);
   r.boundaryContent = snap.contents;
-  state.logger?.info(
+  recordDecision(
+    state.logger,
+    {
+      kind: 'keep_best_ratchet',
+      action: 'armed',
+      files: [...r.preScaffoldFiles].map((path) => ({ path })),
+      // Carried because it decides which revert arms can ever fire: a ratchet
+      // armed at projectTestsPassed=false cannot regress below red, so only the
+      // over-engineering arm remains live. Measured 2026-09-14: of 29 runs where
+      // the red-check gate armed it, the regression arm fired 0 times.
+      projectTestsPassed: r.boundarySignal.projectTestsPassed,
+    },
     `Keep-best ratchet armed at scaffold boundary — ${r.preScaffoldFiles.size} pre-scaffold file(s), ` +
       `${r.boundarySignal.patchBytes}b, projectTestsPassed=${r.boundarySignal.projectTestsPassed}`,
   );
@@ -202,7 +214,11 @@ export async function evaluateRatchetAtTermination(
     const after = await signalFromGate(state, io);
     const decision = decideRatchet(r.boundarySignal, after, { overEngineerBytes: r.overEngineerBytes });
     if (decision.verdict === 'keep') {
-      state.logger?.info(`Keep-best ratchet: kept — ${decision.reason}`);
+      recordDecision(
+        state.logger,
+        { kind: 'keep_best_ratchet', action: 'kept' },
+        `Keep-best ratchet: kept — ${decision.reason}`,
+      );
       return;
     }
     const targets = selectRevertContents(
@@ -216,8 +232,18 @@ export async function evaluateRatchetAtTermination(
       state.logger?.info(`Keep-best ratchet: ${decision.verdict} but nothing to revert (files already at target)`);
       return;
     }
-    state.logger?.warn(
+    recordDecision(
+      state.logger,
+      {
+        kind: 'keep_best_ratchet',
+        action: 'reverted',
+        // 'revert-regression' | 'revert-overengineering' -> the bare arm name.
+        // Previously distinguishable only by reading the prose of the log line.
+        reason: decision.verdict.replace(/^revert-/, ''),
+        files: reverted.map((path) => ({ path })),
+      },
       `Keep-best ratchet: ${decision.verdict} — reverted ${reverted.length} file(s). ${decision.reason}`,
+      'warn',
     );
     const kind = decision.verdict === 'revert-regression' ? 'a test regression' : 'unproven scaffold-driven growth';
     callbacks.onText(

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../completionGate.js', () => ({
   checkCompletionGate: vi.fn(async () => []),
   buildGateInjection: vi.fn(() => 'Verify your edited files before finishing.'),
+  describeFindingKinds: vi.fn(() => []),
 }));
 
 import { baseCompletionGate as gate } from './baseCompletionGate.js';

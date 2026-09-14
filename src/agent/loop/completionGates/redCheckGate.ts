@@ -1,3 +1,4 @@
+import { recordDecision } from '../../decisions.js';
 import type { CompletionGate } from './types.js';
 
 // Fires at most twice; the wording explicitly allows an honest could-not-complete
@@ -28,7 +29,11 @@ export const redCheckGate: CompletionGate = {
     gateState.redCheckInjections = (gateState.redCheckInjections ?? 0) + 1;
     gateState.lastInjectionWasPrimaryWork = true;
     const attempt = gateState.redCheckInjections;
-    logger?.info(`Red-check gate fired (attempt ${attempt}/${MAX_INJECTIONS}) — last verification FAILED`);
+    recordDecision(
+      logger,
+      { kind: 'red_check_gate', action: 'fired', attempt, max: MAX_INJECTIONS },
+      `Red-check gate fired (attempt ${attempt}/${MAX_INJECTIONS}) — last verification FAILED`,
+    );
     ctx.callbacks.onText(
       '\n\n🔴 The last check FAILED — completion refused until it passes or the failure is reported.\n',
     );
