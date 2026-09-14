@@ -34,7 +34,9 @@ export interface GateState {
    * testsRunForFiles but NOT here, so the behavioral gate isn't satisfied by a
    * test that verified nothing. */
   passingTestFiles: Set<string>;
-  /** True if a whole-suite run PASSED. */
+  /** True if the MOST RECENT whole-suite run passed (a later red run clears
+   * it -- "ever passed" is not a verification signal, and the keep-best
+   * ratchet's regression rule needs to see green turn red). */
   projectTestsPassed: boolean;
   /** True if any eslint / tsc invocation was observed this turn. */
   lintObserved: boolean;
@@ -409,10 +411,17 @@ export function recordToolCall(
       if (p) {
         state.testsRunForFiles.add(p);
         if (passed) state.passingTestFiles.add(p);
+        else state.passingTestFiles.delete(p); // latest run for this file decides
       }
     } else {
       state.projectTestsRan = true;
-      if (passed) state.projectTestsPassed = true;
+      // The MOST RECENT whole-suite run decides, not "ever passed". This used
+      // to latch true, so a green run followed by a red retry still read as
+      // passing -- and the keep-best ratchet, whose regression rule is "was
+      // green, now is not", could never see a retry turn the suite red. Seen
+      // in the first ratcheted red-check smoke: the gate fired on a red
+      // runtests.py while the signal said projectTestsPassed=true.
+      state.projectTestsPassed = passed;
     }
     return;
   }
@@ -522,11 +531,18 @@ export function recordToolCall(
           if (p) {
             state.testsRunForFiles.add(p);
             if (passed) state.passingTestFiles.add(p);
+            else state.passingTestFiles.delete(p); // latest run for this file decides
           }
         }
       } else {
         state.projectTestsRan = true;
-        if (passed) state.projectTestsPassed = true;
+        // The MOST RECENT whole-suite run decides, not "ever passed". This used
+        // to latch true, so a green run followed by a red retry still read as
+        // passing -- and the keep-best ratchet, whose regression rule is "was
+        // green, now is not", could never see a retry turn the suite red. Seen
+        // in the first ratcheted red-check smoke: the gate fired on a red
+        // runtests.py while the signal said projectTestsPassed=true.
+        state.projectTestsPassed = passed;
       }
     } else if (/(^|[\s;&|])python[0-9.]*\s+(?:-[A-Za-z]+\s+)*\S+\.py\b/.test(cmd)) {
       // A plain Python script -- `python repro.py`, `python3 check_fix.py` --
@@ -545,7 +561,7 @@ export function recordToolCall(
     // `npm test` / `yarn test` / `pnpm test` — whole-suite invocation.
     if (/\b(npm|yarn|pnpm|bun)\s+(run\s+)?test\b/.test(cmd)) {
       state.projectTestsRan = true;
-      if (classifyTestResult(resultText) === 'pass') state.projectTestsPassed = true;
+      state.projectTestsPassed = classifyTestResult(resultText) === 'pass'; // latest run decides
     }
   }
 }

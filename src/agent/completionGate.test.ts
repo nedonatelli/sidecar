@@ -513,6 +513,34 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
     expect(state.projectTestsRan).toBe(false);
   });
 
+  // The MOST RECENT run decides the pass signal. It used to latch true on the
+  // first green run, so a later red run could never register as a regression
+  // -- which is the one thing the keep-best ratchet's revert rule looks for.
+  it('a red whole-suite run after a green one clears projectTestsPassed', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npx vitest run'), ok());
+    expect(state.projectTestsPassed).toBe(true);
+    recordToolCall(state, makeRunCommand('npx vitest run'), failing());
+    expect(state.projectTestsPassed).toBe(false);
+    expect(state.projectTestsRan).toBe(true); // it still RAN
+  });
+
+  it('a red per-file run after a green one removes that file from passingTestFiles', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npx vitest run src/foo.test.ts'), ok());
+    expect([...state.passingTestFiles]).toEqual(['src/foo.test.ts']);
+    recordToolCall(state, makeRunCommand('npx vitest run src/foo.test.ts'), failing());
+    expect([...state.passingTestFiles]).toEqual([]);
+    expect([...state.testsRunForFiles]).toEqual(['src/foo.test.ts']);
+  });
+
+  it('scopes are independent: a red per-file run does not clear a green whole-suite signal', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npm test'), ok());
+    recordToolCall(state, makeRunCommand('npx vitest run src/foo.test.ts'), failing());
+    expect(state.projectTestsPassed).toBe(true);
+  });
+
   // Python runners and reproduction scripts. Measured on a 150-run SWE-bench
   // matrix (2026-09-13): django verifies with `./tests/runtests.py <label>`,
   // repros with `python repro.py`; neither was recognised, so the base gate
