@@ -27,8 +27,14 @@ the lift.
 
 `bench/swe/arms.ts` defines them with real `SideCarConfig` keys:
 
-- **scaffold-on** — completion gate + auto-fix + impact/numerical gates + adaptive intensity.
+- **scaffold-on** — completion gate + auto-fix + impact/numerical gates + adaptive
+  intensity + the keep-best ratchet, exactly as the product ships them. (The
+  ratchet has been default-on since v0.118; the arm has carried it explicitly
+  since 2026-09-13 — see _Harness corrections_ below.)
 - **scaffold-off** — bare loop: every verification scaffold disabled.
+- **scaffold-on-noratchet** — scaffold-on with the ratchet off: the ratchet's
+  counterfactual. `scaffold-on-ratchet` still parses but is now an alias of
+  `scaffold-on`.
 
 > The zero-token **deterministic control** (cycle detection, burst cap,
 > write/rewrite-thrash defenses, syntax-gate detection) is not config-gated and
@@ -55,14 +61,19 @@ npm run bench:swe:predict
 # → out/preds.scaffold-on.jsonl  +  out/preds.scaffold-off.jsonl
 ```
 
-For the **three-arm campaign** (adds the keep-best ratchet arm — the v0.118
-do-no-harm + over-engineering measurement), add:
+For the **three-arm campaign** (isolates the keep-best ratchet — the v0.118
+do-no-harm + over-engineering measurement), add the ratchet's counterfactual:
 
 ```bash
-SIDECAR_SWE_ARMS=scaffold-off,scaffold-on,scaffold-on-ratchet
-# → also writes out/preds.scaffold-on-ratchet.jsonl; predictions.meta.jsonl
-#   records ratchetReverted per ratchet-arm run (the ♻️ revert marker)
+SIDECAR_SWE_ARMS=scaffold-off,scaffold-on,scaffold-on-noratchet
+# → also writes out/preds.scaffold-on-noratchet.jsonl; predictions.meta.jsonl
+#   records ratchetReverted per run where the ratchet is on (the ♻️ revert marker)
 ```
+
+Every run defaults to the shipped 50-iteration ceiling
+(`SIDECAR_SWE_MAX_ITERS` overrides) with thinking on. Before any matrix, diff the
+harness defaults against `package.json` — two of the corrections below were
+configs nobody shipped.
 
 **3. Score each arm with the official harness** (Docker; on a Docker-capable
 machine):
@@ -74,7 +85,7 @@ python -m swebench.harness.run_evaluation \
   --predictions_path out/preds.scaffold-on.jsonl \
   --run_id sidecar-on --max_workers 4
 # repeat with preds.scaffold-off.jsonl → run_id sidecar-off
-# (three-arm: also preds.scaffold-on-ratchet.jsonl → run_id sidecar-ratchet)
+# (three-arm: also preds.scaffold-on-noratchet.jsonl → run_id sidecar-noratchet)
 ```
 
 > **Dataset namespace matters.** `swebench` 5.x requires `image`, `eval_script`,
@@ -126,15 +137,35 @@ smoke run (`astropy__astropy-7166`, gemma4:e4b, both arms) cloned the repo at th
 base commit, ran the loop under each arm's config, captured the diff, and wrote
 valid official-format predictions. So the driver works on a non-Docker machine
 (Ollama + git is enough). **Scoring** a single light pure-Python task can also be
-done host-locally by hand (see the worked example below); scoring the **full
-Lite set reproducibly** requires Docker + the `swebench` package — that part
-has not been run.
+done host-locally by hand (see the worked example below). Scoring
+**reproducibly** requires Docker + the `swebench` package: the 50-task canary is
+scored that way routinely (official harness under WSL; per-instance
+`report.json` with the F2P/P2P lists), the full 300-instance Lite split has not
+been.
 
-> **Set a generous iteration budget.** A small local model spends many
-> iterations just _locating_ the file in a large repo. Default is 30; real runs
-> want **30–40+** (`SIDECAR_SWE_MAX_ITERS`). Expect empty/wrong patches often: a
-> bare small model resolves little of Lite absolutely — the headline is the
-> on/off **lift**, not the raw rate.
+> **The iteration budget is the shipped ceiling, 50.** A small local model
+> spends many iterations just _locating_ the file in a large repo, and until
+> 2026-09-13 the harness default was 30 (`SIDECAR_SWE_MAX_ITERS` overrides
+> either way). Expect empty/wrong patches often: a bare small model resolves
+> little of Lite absolutely — the headline is the on/off **lift**, not the raw
+> rate.
+
+### Harness corrections (2026-09-13) — which prior numbers carry an asterisk
+
+Two defaults in the driver measured a configuration the product never shipped.
+Both are fixed on `main`; numbers recorded before the fix are not comparable to
+numbers after it, and are not restated here.
+
+| Correction                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Wrong until         | Runs affected                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Iteration ceiling 30 → 50** (PR #63). The driver's `SIDECAR_SWE_MAX_ITERS` default was 30; the product's `sidecar.agent.maxIterations` ships 50. Localization-bound tasks were cut off at 60% of the budget the user gets.                                                                                                                                                                                                                                           | 2026-09-13          | Every run that did not set `SIDECAR_SWE_MAX_ITERS` — including the worked example below (explicitly 30) and the N=20 slice it cites.                                                                                                                           |
+| **Keep-best ratchet ON in `scaffold-on`** (PR #68). The ratchet shipped default-on in v0.118 (2026-07-09), but `scaffold-on` was defined without it so a separate `scaffold-on-ratchet` arm could isolate it: unset (inheriting the run's config) until 2026-08-06, then explicitly pinned OFF. So "scaffold-on" measured a harness nobody ran, missing the one mechanism (retry without keeping a regression) whose absence explained the harm seen in four matrices. | v0.118 → 2026-09-13 | Every `scaffold-on` number from that window, including the worked example below. The v0.118 150-run campaign stays valid as a ratchet isolation: its `scaffold-on` is today's `scaffold-on-noratchet`, and its `scaffold-on-ratchet` is today's `scaffold-on`. |
+
+Two related traps, recorded so they are not re-learned: gate firings are
+counted from the loop's own lines in `trajectory.*.log` (`Red-check gate
+fired`, `Completion gate fired/exhausted`, `Keep-best ratchet armed/kept/revert`),
+never from the model-facing markers; and an intervention that never fired is a
+null result about the trigger, not about the intervention.
 
 ### Worked example (pass@5, scored host-locally without Docker)
 

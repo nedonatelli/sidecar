@@ -22,9 +22,12 @@ echo "sweep $STAMP -> $DIR"
 echo "models: ${MODELS[*]}"
 
 probe() {
+  # Parsed with node, not python3: node is guaranteed in this repo, while
+  # `python3` on a Windows Git Bash is the Microsoft Store stub (opens the
+  # Store, prints nothing) -- which this probe would read as "backend dead".
   curl -s --max-time 120 http://localhost:11434/api/generate \
     -d "{\"model\":\"$1\",\"prompt\":\"Reply with the single word: ok\",\"stream\":false}" 2>/dev/null \
-    | python3 -c "import sys,json;print((json.load(sys.stdin).get('response') or '').strip()[:20])" 2>/dev/null
+    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(((JSON.parse(s).response||'').trim()).slice(0,20))}catch{}})" 2>/dev/null
 }
 
 for m in "${MODELS[@]}"; do
