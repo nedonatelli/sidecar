@@ -40,7 +40,7 @@ export interface SweTask {
  * `scaffold-on` + the keep-best ratchet — isolates what the ratchet's do-no-harm
  * revert changes relative to the established (pre-ratchet) scaffold-on arm.
  */
-export type ArmName = 'scaffold-on' | 'scaffold-off' | 'gate-only' | 'scaffold-on-ratchet';
+export type ArmName = 'scaffold-on' | 'scaffold-off' | 'gate-only' | 'scaffold-on-ratchet' | 'scaffold-on-noratchet';
 
 /** A generated prediction for one task on one arm. */
 export interface SwePrediction {
