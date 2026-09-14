@@ -705,6 +705,67 @@ describe('completionGate — checkCompletionGate', () => {
     expect(findings).toEqual([]);
   });
 
+  // The test demand for Python. findColocatedTest only knows foo.test.py (no
+  // Python repo has one) and projectTestsRan is never reset, so the gate had
+  // never asked a Python project for tests; the lint demand was doing that job
+  // by accident, and #66 removed it. Measured at one seed on two independent
+  // pairs: Python edits tested after the last edit fell 26->20 and 28->19.
+  const statOnly = (...ok: string[]) =>
+    (mockWorkspace.fs.stat as any).mockImplementation((uri: { fsPath: string }) =>
+      ok.some((suffix) => uri.fsPath.replace(/\\/g, '/').endsWith(suffix))
+        ? Promise.resolve({})
+        : Promise.reject(new Error('not found')),
+    );
+
+  it('demands a test run for a Python source edit with no test run after it, when the repo has tests/', async () => {
+    statOnly('/tests');
+    const state = createGateState();
+    state.editedFiles.add('django/utils/http.py');
+    state.syntaxCleanFiles = new Set(['django/utils/http.py']); // lint satisfied (#66)
+    const findings = await checkCompletionGate(state);
+    expect(findings).toEqual([{ file: 'django/utils/http.py', needsTestRun: true }]);
+    expect(buildGateInjection(findings, 1, 2)).toMatch(/have not run the project tests since/);
+    expect(buildGateInjection(findings, 1, 2)).toContain('django/utils/http.py');
+  });
+
+  it('is satisfied by a runner run AFTER the edit, and re-armed by the next edit', async () => {
+    statOnly('/tests');
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('./tests/runtests.py --settings=test_sqlite utils_tests'), ok());
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: 'e', name: 'edit_file', input: { path: 'django/utils/http.py' } },
+      { type: 'tool_result', tool_use_id: 'e', content: 'File edited: django/utils/http.py', is_error: false },
+    );
+    state.syntaxCleanFiles = new Set(['django/utils/http.py']);
+    expect(state.testsRanSinceLastEdit).toBe(false); // the run BEFORE the edit does not count
+    expect((await checkCompletionGate(state)).some((f) => f.needsTestRun)).toBe(true);
+    recordToolCall(state, makeRunCommand('./tests/runtests.py --settings=test_sqlite utils_tests'), ok());
+    expect(state.testsRanSinceLastEdit).toBe(true);
+    expect(await checkCompletionGate(state)).toEqual([]);
+  });
+
+  it('does not demand a test run when the repo has no tests directory, or for a test-file edit', async () => {
+    statOnly(); // nothing exists
+    const state = createGateState();
+    state.editedFiles.add('django/utils/http.py');
+    state.syntaxCleanFiles = new Set(['django/utils/http.py']);
+    expect(await checkCompletionGate(state)).toEqual([]);
+    statOnly('/tests');
+    const s2 = createGateState();
+    s2.editedFiles.add('tests/utils_tests/test_http.py');
+    s2.syntaxCleanFiles = new Set(['tests/utils_tests/test_http.py']);
+    expect((await checkCompletionGate(s2)).some((f) => f.needsTestRun)).toBe(false);
+  });
+
+  it('leaves the TypeScript path on the colocated-test demand (no needsTestRun for .ts)', async () => {
+    statOnly('/tests');
+    const state = createGateState();
+    state.editedFiles.add('src/a.ts');
+    state.lintObserved = true;
+    expect((await checkCompletionGate(state)).some((f) => f.needsTestRun)).toBe(false);
+  });
+
   it('accepts a clean syntax-gate parse as the static check for a Python file', async () => {
     // The SWE-bench venvs ship no linter and get_diagnostics has no language
     // server; the lint requirement was unsatisfiable for every .py edit -- two

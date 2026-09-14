@@ -66,6 +66,20 @@ export interface GateState {
    * from config. Optional for back-compat with test stubs.
    */
   pythonRedCheck?: boolean;
+  /**
+   * True once a real test runner has run AFTER the most recent edit; cleared
+   * by every successful edit. The gate's test demand used to key on
+   * `projectTestsRan`, which is never reset, so one run before the first edit
+   * satisfied it for the whole task -- and `findColocatedTest` only knows
+   * `foo.test.py`, a layout no Python repo uses, so the gate has never asked a
+   * Python project for tests at all. The lint demand was the only thing that
+   * fired, and its text named run_tests as an acceptable answer; when #66 let
+   * a clean parse satisfy it, the accidental test nudge went with it: at one
+   * seed, Python edits tested after the last edit fell 26->20 and 28->19 on
+   * two independent pairs, and never-tested runs doubled. Optional for
+   * back-compat with test stubs.
+   */
+  testsRanSinceLastEdit?: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
@@ -162,6 +176,7 @@ export function createGateState(currentUserRequest = '', flags: { pythonRedCheck
   return {
     currentUserRequest,
     pythonRedCheck: flags.pythonRedCheck ?? false,
+    testsRanSinceLastEdit: false,
     editedFiles: new Set(),
     testsRunForFiles: new Set(),
     projectTestsRan: false,
@@ -391,6 +406,8 @@ export function recordToolCall(
       state.emptyDiagnosticsObserved = false;
       // ...and a clean parse from before this edit says nothing about after it.
       state.syntaxCleanFiles?.clear();
+      // ...and whatever tests ran before this edit did not test it.
+      state.testsRanSinceLastEdit = false;
       // ...and stales an earlier failing check: the model is fixing. The
       // normal requirements above force a re-run; if THAT fails too, the
       // red-check flag comes right back.
@@ -402,6 +419,7 @@ export function recordToolCall(
   // Dedicated test tool.
   if (tu.name === 'run_tests') {
     const outcome = classifyTestResult(resultText);
+    state.testsRanSinceLastEdit = true;
     if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
     else if (outcome === 'pass') state.failedCheckOutput = undefined;
     const passed = outcome === 'pass';
@@ -513,6 +531,7 @@ export function recordToolCall(
     );
     if (testMatch) {
       const outcome = classifyTestResult(resultText);
+      state.testsRanSinceLastEdit = true;
       const passed = outcome === 'pass';
       // Red-check arming from a run_command test run is EXPERIMENTAL
       // (`sidecar.redCheckGate.pythonRunners`). run_tests has always armed it;
@@ -561,6 +580,7 @@ export function recordToolCall(
     // `npm test` / `yarn test` / `pnpm test` — whole-suite invocation.
     if (/\b(npm|yarn|pnpm|bun)\s+(run\s+)?test\b/.test(cmd)) {
       state.projectTestsRan = true;
+      state.testsRanSinceLastEdit = true;
       state.projectTestsPassed = classifyTestResult(resultText) === 'pass'; // latest run decides
     }
   }
@@ -584,6 +604,8 @@ export interface GateFinding {
   diagnosticsWereEmpty?: boolean;
   /** Co-located test file exists on disk but was not edited this turn. */
   testNotUpdated?: string;
+  /** A Python source edit with no test run after it, in a repo that has tests. */
+  needsTestRun?: boolean;
 }
 
 /**
@@ -615,8 +637,25 @@ export async function findColocatedTest(file: string): Promise<string | null> {
  * Evaluate the gate state against the edited files and return any
  * verification gaps. Empty array means the agent is free to terminate.
  */
+/** True when the workspace has a conventional test directory at its root. */
+export async function hasTestDirectory(): Promise<boolean> {
+  const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return false;
+  for (const dir of ['tests', 'test']) {
+    try {
+      await workspace.fs.stat(Uri.file(path.join(root, dir)));
+      return true;
+    } catch {
+      // not there
+    }
+  }
+  return false;
+}
+
 export async function checkCompletionGate(state: GateState): Promise<GateFinding[]> {
   const findings: GateFinding[] = [];
+  // Resolved once per check, only if a Python source edit needs it.
+  let testDir: boolean | undefined;
 
   for (const file of state.editedFiles) {
     if (!SOURCE_FILE_RE.test(file)) continue;
@@ -637,6 +676,16 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
       if (testFile && state.testsRunForFiles.has(testFile) && !state.editedFiles.has(testFile)) {
         findings.push({ file, testNotUpdated: testFile });
       }
+    }
+
+    // Python: no colocated-test convention exists, so the demand is "run the
+    // project's tests after your edit" -- keyed on testsRanSinceLastEdit, not
+    // on "ever ran". Only when the repo visibly has tests to run. Scoped to
+    // .py because that is where the measured regression is; the TS/JS path
+    // has the colocated-test demand.
+    if (!isTestFile && file.endsWith('.py') && !state.testsRanSinceLastEdit) {
+      testDir ??= await hasTestDirectory();
+      if (testDir) findings.push({ file, needsTestRun: true });
     }
 
     // A Python file the syntax gate has just parsed cleanly has had the static
@@ -675,6 +724,17 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
       'If a check fails, report the failure honestly — do not loop trying to fix it unless the fix is obvious and small.',
   );
   lines.push('');
+
+  const untested = [...new Set(findings.filter((f) => f.needsTestRun).map((f) => f.file))];
+  if (untested.length > 0) {
+    lines.push('You edited source and have not run the project tests since:');
+    for (const f of untested) lines.push(`  - ${f}`);
+    lines.push(
+      'Run the tests for the module you changed with run_command and the project test runner ' +
+        '(the test label for that module, not a file path), then report the actual output.',
+    );
+    lines.push('');
+  }
 
   const lintFiles = [...new Set(findings.filter((f) => f.needsLint).map((f) => f.file))];
   if (lintFiles.length > 0) {
