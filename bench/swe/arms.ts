@@ -30,11 +30,16 @@ const SCAFFOLD_ON: ArmOverrides = {
   adaptiveScaffoldingEnabled: true,
   impactGateEnabled: true,
   numericalContractGateEnabled: true,
-  // Explicitly OFF: keepBest flipped default-on in v0.118, and without this
-  // pin the scaffold-on arm silently inherited the ratchet from the user's
-  // config — making it indistinguishable from scaffold-on-ratchet. The
-  // separate ratchet arm is what isolates the ratchet's effect.
-  keepBestRatchetEnabled: false,
+  // Explicitly ON, pinned to the SHIPPED default (`sidecar.scaffolding.keepBest`
+  // = true since v0.118). This arm is "the product as shipped"; every number
+  // reported against it must be a measurement of that. It was pinned OFF from
+  // v0.118 to 2026-09-13 so the ratchet could be isolated in a separate arm --
+  // which meant four matrices (identifier orientation x2, repro-first x2, the
+  // red-check gate) measured a configuration nobody ships, on the very
+  // mechanism (retry-without-keeping-a-regression) whose absence explained
+  // their harm. Isolation now lives in `scaffold-on-noratchet`, the
+  // counterfactual, not in the base arm.
+  keepBestRatchetEnabled: true,
 };
 
 const SCAFFOLD_OFF: ArmOverrides = {
@@ -52,10 +57,14 @@ const SCAFFOLD_OFF: ArmOverrides = {
 // Used to localize which scaffold drives a resolve delta (do-no-harm probe).
 const GATE_ONLY: ArmOverrides = { ...SCAFFOLD_OFF, completionGateEnabled: true };
 
-// scaffold-on + the keep-best ratchet (any unproven scaffold-tail growth
-// reverts). Kept OUT of SCAFFOLD_ON deliberately even though the shipped
-// default is now ON (v0.118) — the separate arm is what isolates the
-// ratchet's effect on the established scaffold-on behavior.
+// The ratchet's counterfactual: scaffold-on with the keep-best ratchet OFF.
+// Pair it with `scaffold-on` to isolate what the ratchet does. This is the
+// configuration the pre-2026-09-13 `scaffold-on` arm actually ran.
+const SCAFFOLD_ON_NORATCHET: ArmOverrides = { ...SCAFFOLD_ON, keepBestRatchetEnabled: false };
+
+// Retained for older run scripts and the ablation report's third-arm
+// comparison. Now identical to `scaffold-on` (the ratchet ships on); a
+// ratchet-vs-no-ratchet comparison is `scaffold-on` vs `scaffold-on-noratchet`.
 const SCAFFOLD_ON_RATCHET: ArmOverrides = { ...SCAFFOLD_ON, keepBestRatchetEnabled: true };
 
 export function armConfigOverrides(arm: ArmName): ArmOverrides {
@@ -64,6 +73,8 @@ export function armConfigOverrides(arm: ArmName): ArmOverrides {
       return { ...SCAFFOLD_ON };
     case 'scaffold-on-ratchet':
       return { ...SCAFFOLD_ON_RATCHET };
+    case 'scaffold-on-noratchet':
+      return { ...SCAFFOLD_ON_NORATCHET };
     case 'gate-only':
       return { ...GATE_ONLY };
     default:
@@ -75,9 +86,11 @@ export function armConfigOverrides(arm: ArmName): ArmOverrides {
 export function armDescription(arm: ArmName): string {
   switch (arm) {
     case 'scaffold-on':
-      return 'completion gate + auto-fix + impact/numerical gates + adaptive intensity';
+      return 'completion gate + auto-fix + impact/numerical gates + adaptive intensity + keep-best ratchet (as shipped)';
     case 'scaffold-on-ratchet':
-      return 'scaffold-on + keep-best ratchet (reverts unproven scaffold-tail growth)';
+      return 'alias of scaffold-on (the keep-best ratchet ships on)';
+    case 'scaffold-on-noratchet':
+      return 'scaffold-on with the keep-best ratchet OFF (the ratchet counterfactual)';
     case 'gate-only':
       return 'completion gate only (all other verification scaffolds off)';
     default:

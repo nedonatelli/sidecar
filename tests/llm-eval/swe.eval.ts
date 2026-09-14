@@ -85,7 +85,13 @@ const ENV_CACHE_BASE =
   path.join(os.tmpdir(), 'sidecar-swe-venvs');
 // Arms to run this pass. Default is the core on/off ablation; SIDECAR_SWE_ARMS
 // (comma-separated) selects a decomposed set, e.g. "scaffold-off,gate-only,scaffold-on".
-const VALID_ARMS: readonly ArmName[] = ['scaffold-on', 'scaffold-off', 'gate-only', 'scaffold-on-ratchet'];
+const VALID_ARMS: readonly ArmName[] = [
+  'scaffold-on',
+  'scaffold-off',
+  'gate-only',
+  'scaffold-on-ratchet',
+  'scaffold-on-noratchet',
+];
 const ARMS: ArmName[] = (process.env.SIDECAR_SWE_ARMS || 'scaffold-off,scaffold-on')
   .split(',')
   .map((s) => s.trim())

@@ -10,6 +10,18 @@ describe('armConfigOverrides', () => {
     expect(on.numericalContractGateEnabled).toBe(true);
   });
 
+  it('scaffold-on ships the keep-best ratchet, because the product does (scaffolding.keepBest = true)', () => {
+    // Pinned OFF here from v0.118 to 2026-09-13; four matrices measured a
+    // configuration nobody ships. The base arm IS the shipped configuration.
+    expect(armConfigOverrides('scaffold-on').keepBestRatchetEnabled).toBe(true);
+  });
+
+  it('scaffold-on-noratchet is the ratchet counterfactual: scaffold-on with the ratchet off', () => {
+    const n = armConfigOverrides('scaffold-on-noratchet');
+    expect(n.keepBestRatchetEnabled).toBe(false);
+    expect({ ...n, keepBestRatchetEnabled: true }).toEqual(armConfigOverrides('scaffold-on'));
+  });
+
   it('scaffold-off disables every verification scaffold', () => {
     const off = armConfigOverrides('scaffold-off');
     expect(off.completionGateEnabled).toBe(false);
@@ -42,5 +54,6 @@ describe('armConfigOverrides', () => {
     expect(armDescription('scaffold-on')).toContain('completion gate');
     expect(armDescription('scaffold-off')).toContain('bare loop');
     expect(armDescription('scaffold-on-ratchet')).toContain('ratchet');
+    expect(armDescription('scaffold-on-noratchet')).toContain('OFF');
   });
 });
