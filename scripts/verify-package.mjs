@@ -10,8 +10,14 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { checkPackagePlatforms, GPU_PROVIDER_RE, targetToPlatformDir } from './lib/onnxPlatforms.mjs';
 
 const vsixPath = process.argv[2];
+// Optional vsce target (e.g. linux-x64). With it, the sharp check is for the
+// TARGET's platform (not the host's, so a foreign .vsix can be checked from any
+// machine) and the package must carry ONLY that platform's onnxruntime
+// binaries. Passed by publish.yml; omitted for a local `npm run verify:package`.
+const target = process.argv[3];
 
 /**
  * List the file names inside a .vsix (a ZIP) by reading its central directory
@@ -64,7 +70,7 @@ function listFiles() {
 const files = listFiles();
 const has = (re) => files.some((f) => re.test(f));
 
-const platform = process.platform; // 'darwin' | 'linux' | 'win32'
+const platform = target ? targetToPlatformDir(target).split('/')[0] : process.platform; // 'darwin' | 'linux' | 'win32'
 const hostSharp = new RegExp(`@img[/\\\\]sharp-${platform}-`);
 
 const checks = [
@@ -92,6 +98,11 @@ if (missing.length > 0) {
 // v0.116.0 shipped it because nothing gated on it; this check makes that
 // class of leak fail the release instead of passing the smoke check.
 const forbidden = [
+  // onnxruntime GPU execution providers. SideCar runs embeddings on CPU and never
+  // registers one; the linux/x64 install downloads a 301 MB CUDA provider by
+  // default, which made the v0.124.0 linux-x64 .vsix 3x every other target.
+  // Prevented by ONNXRUNTIME_NODE_INSTALL=skip on the runner; asserted here.
+  ['onnxruntime GPU provider', GPU_PROVIDER_RE],
   ['internal/ private docs', /^internal[/\\]/],
   ['.sidecar/ workspace state', /^\.sidecar[/\\]/],
   ['.env files', /^\.env($|\.)/],
@@ -109,10 +120,27 @@ const leaked = forbidden
 if (leaked.length > 0) {
   console.error('✖ VSIX deny-list check FAILED — private content is packaged:');
   for (const [name, hits] of leaked) {
-    console.error(`    - ${name}: ${hits.slice(0, 5).join(', ')}${hits.length > 5 ? ` (+${hits.length - 5} more)` : ''}`);
+    console.error(
+      `    - ${name}: ${hits.slice(0, 5).join(', ')}${hits.length > 5 ? ` (+${hits.length - 5} more)` : ''}`,
+    );
   }
   console.error('\nAdd the path to .vscodeignore and repackage.');
   process.exit(1);
+}
+
+// Per-target platform check. Each .vsix is built for one target, but
+// onnxruntime-node bundles every platform's binaries and vsce packages what
+// is on disk; scripts/prune-onnxruntime-platforms.mjs removes the others on
+// the runner and this asserts it happened.
+if (target) {
+  const problems = checkPackagePlatforms(files, target);
+  if (problems.length > 0) {
+    console.error(`✖ VSIX platform check FAILED for target ${target}:`);
+    for (const p of problems) console.error(`    - ${p}`);
+    console.error('\nRun scripts/prune-onnxruntime-platforms.mjs <target> before packaging.');
+    process.exit(1);
+  }
+  console.log(`✓ onnxruntime binaries: only ${target}`);
 }
 
 // Size ceiling. The deny-list only catches what someone thought to name, and
@@ -134,7 +162,9 @@ if (files.length > FILE_CEILING) {
     top[seg] = (top[seg] ?? 0) + 1;
   }
   console.error('\n  Largest directories by file count:');
-  for (const [dir, n] of Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+  for (const [dir, n] of Object.entries(top)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)) {
     console.error(`    ${String(n).padStart(5)}  ${dir}`);
   }
   process.exit(1);

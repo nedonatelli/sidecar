@@ -31,7 +31,10 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
+      # Skip onnxruntime-node's 301 MB CUDA-provider download on linux (see publish.yml).
       - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       - name: Type check
         run: npx tsc --noEmit

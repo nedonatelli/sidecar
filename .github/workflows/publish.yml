@@ -44,7 +44,12 @@ jobs:
           node-version: 24
           cache: npm
 
+      # onnxruntime-node's postinstall downloads the CUDA execution provider on
+      # linux/x64 by default (301 MB, never loaded: embeddings run on CPU). It
+      # made the v0.124.0 linux-x64 .vsix 3x every other target.
       - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       - name: Type check
         run: npx tsc --noEmit
@@ -59,11 +64,16 @@ jobs:
         if: matrix.target == 'linux-x64'
         run: npm test
 
+      # onnxruntime-node bundles every platform's binaries; vsce packages what is
+      # on disk. Keep only this target's (~150 MB uncompressed off every .vsix).
+      - name: Keep only this target's onnxruntime binaries
+        run: node scripts/prune-onnxruntime-platforms.mjs ${{ matrix.target }}
+
       - name: Package VSIX (${{ matrix.target }})
         run: npx @vscode/vsce package --target ${{ matrix.target }} -o sidecar-ai-${{ matrix.target }}.vsix
 
       - name: Verify VSIX contains runtime dependencies
-        run: node scripts/verify-package.mjs sidecar-ai-${{ matrix.target }}.vsix
+        run: node scripts/verify-package.mjs sidecar-ai-${{ matrix.target }}.vsix ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v4
         with:
