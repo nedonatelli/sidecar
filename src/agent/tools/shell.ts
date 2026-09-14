@@ -10,6 +10,7 @@ import {
   type RegisteredTool,
 } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
+import { detectTestRunner, manifestFiles } from './testRunnerDetect.js';
 import type { ShellSession } from '../../terminal/shellSession.js';
 import { AgentTerminalExecutor } from '../../terminal/agentExecutor.js';
 import { CompositeShellExecutor } from '../../terminal/shellExecutor.js';
@@ -328,38 +329,36 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
   let command = input.command as string | undefined;
   const file = input.file as string | undefined;
 
+  let detectionNote = '';
   if (!command) {
-    // Auto-detect test runner
+    // Auto-detect the test runner. Ordering matters and is NOT "package.json
+    // first" — see src/agent/tools/testRunnerDetect.ts: that ordering made
+    // run_tests lint JavaScript on Django and report `ok`.
+    let hasNpmTestScript = false;
     try {
       const pkgBytes = await workspace.fs.readFile(Uri.joinPath(getRootUri(), 'package.json'));
       const pkg = JSON.parse(Buffer.from(pkgBytes).toString('utf-8'));
-      if (pkg.scripts?.test) {
-        command = 'npm test';
-      }
+      hasNpmTestScript = Boolean(pkg.scripts?.test);
     } catch {
-      /* no package.json */
+      /* no package.json, or it is unreadable/malformed */
     }
 
-    if (!command) {
-      const checks: [string, string][] = [
-        ['pytest.ini', 'pytest'],
-        ['setup.py', 'pytest'],
-        ['pyproject.toml', 'pytest'],
-        ['Cargo.toml', 'cargo test'],
-        ['go.mod', 'go test ./...'],
-        ['build.gradle', './gradlew test'],
-        ['build.gradle.kts', './gradlew test'],
-      ];
-      for (const [configFile, testCmd] of checks) {
-        try {
-          await workspace.fs.stat(Uri.joinPath(getRootUri(), configFile));
-          command = testCmd;
-          break;
-        } catch {
-          /* not found */
-        }
+    const present: string[] = [];
+    for (const configFile of manifestFiles()) {
+      try {
+        await workspace.fs.stat(Uri.joinPath(getRootUri(), configFile));
+        present.push(configFile);
+      } catch {
+        /* not found */
       }
     }
+
+    const decision = detectTestRunner(present, hasNpmTestScript);
+    command = decision.command ?? undefined;
+    // Say which runner was chosen and why. The defect was not only the wrong
+    // pick but the SILENT wrong pick: the model saw `ok` with no indication
+    // that a JS linter had run instead of the Python suite.
+    if (command) detectionNote = `\n\n(run_tests auto-detected \`${command}\` from ${decision.reason})`;
 
     // Python fallback: no pytest/manifest config, but test files exist
     // (test_*.py / *_test.py). Common for small scripts and from-scratch builds.
@@ -434,7 +433,9 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
   const timeoutMs = (config.shellTimeout || 120) * 1000;
   const output = await executeShell(command, timeoutMs, context);
   context?.testController?.reportRun(command, output);
-  return output;
+  // Append WHICH runner was auto-detected. Without this the model saw a bare
+  // `ok` and could not tell that a JS linter had run instead of the suite.
+  return detectionNote ? output + detectionNote : output;
 }
 
 export const shellTools: RegisteredTool[] = [
