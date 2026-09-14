@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.123.0",
+  "version": "0.124.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -3528,7 +3528,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "check": "npm run compile && npm run compile:bench && npm run compile:tests && npm run lint && npm run format:check && npm run test",
-    "bump": "bash scripts/bump-version.sh",
+    "bump": "node scripts/bump-version.mjs",
     "prepare": "husky",
     "compile:tests": "tsc -p tsconfig.tests.json",
     "deadcode": "knip --no-progress",

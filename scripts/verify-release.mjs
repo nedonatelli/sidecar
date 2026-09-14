@@ -15,7 +15,7 @@
 //
 //   node scripts/verify-release.mjs [--skip-tests]
 
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { deriveTestStats, deriveToolCount, deriveSkillCount, packageVersion } from './lib/releaseStats.mjs';
 
@@ -97,7 +97,9 @@ if (SKIP_TESTS) {
 // indexing fix landed as one commit. Say so rather than reporting nothing:
 // a check that cannot run looks exactly like a check that found nothing.
 try {
-  const bump = execSync(`git log -1 --format=%H -S'"version": "${version}"' -- package.json`, {
+  // Argument array, not a shell string: the single-quoted -S argument is not
+  // quoting under cmd.exe, so this heuristic silently could not run on Windows.
+  const bump = execFileSync('git', ['log', '-1', '--format=%H', `-S"version": "${version}"`, '--', 'package.json'], {
     encoding: 'utf-8',
   }).trim();
   const head = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
