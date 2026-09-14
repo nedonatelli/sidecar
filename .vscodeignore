@@ -25,8 +25,12 @@ node_modules/**
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-common/**
 !node_modules/@huggingface/transformers/node_modules/flatbuffers/**
 # onnxruntime-node: JS loader + native bindings. The npm package bundles all
-# platforms (darwin/linux/win32) in bin/, so re-including the whole bin/ tree
-# keeps the .vsix working on every OS with no per-platform rebuild for this dep.
+# platforms (darwin/linux/win32) in bin/. Re-including the whole bin/ tree
+# keeps a LOCAL `npm run package` working on any OS; the publish workflow
+# builds per target and runs scripts/prune-onnxruntime-platforms.mjs first, so
+# a released .vsix carries one platform. (A later plain exclude cannot undo a
+# negation in vsce 3.9 -- the GPU providers are prevented at install time via
+# ONNXRUNTIME_NODE_INSTALL=skip and asserted by verify-package, not ignored.)
 # Skips onnxruntime-web (browser/WASM, not imported by the node build).
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-node/package.json
 !node_modules/@huggingface/transformers/node_modules/onnxruntime-node/dist/**
