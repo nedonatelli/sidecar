@@ -401,7 +401,10 @@ describeWindows("ShellSession on Windows — output is the command's, and only t
     expect(result.stdout).not.toMatch(/Microsoft Windows \[Version/);
     expect(result.stdout).not.toMatch(/All rights reserved/);
     expect(result.exitCode).toBe(0);
-  });
+    // 30s, not the 5s default: this is the first shell spawn in the file, and on a
+    // cold GitHub windows-latest runner it took >5s once (PR #71 CI, passed on
+    // rerun in ~1s). The other spawn tests in this file already carry 30-60s.
+  }, 30_000);
 
   it('does not prefix output with the cmd.exe prompt', async () => {
     session = new ShellSession(os.tmpdir());
@@ -410,7 +413,7 @@ describeWindows("ShellSession on Windows — output is the command's, and only t
     // ending in '>', which is never legitimate output for `echo hello`.
     expect(result.stdout).not.toMatch(/[A-Za-z]:\\[^\n]*>/);
     expect(result.stdout.trim()).toBe('hello');
-  });
+  }, 30_000);
 
   it('runs the POSIX-shaped commands cmd.exe rejects', async () => {
     // Measured on a 50-task SWE-bench run under cmd.exe: 237 rejections of
