@@ -9,7 +9,8 @@
 // worth detecting.
 
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 
 const sh = (cmd) => execSync(cmd, { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 });
 
@@ -36,19 +37,38 @@ export function deriveTestStats() {
  * `name: '<snake_case>'`, either in a per-module array under src/agent/tools/
  * or inline in tools.ts. Test fixtures contain the same shape, so they are
  * excluded — an earlier `{ definition:` heuristic undercounted by about half.
+ *
+ * Counted in Node, not through the shell: this used to be `find … -exec grep`
+ * and `ls skills/*.md | wc -l` via execSync, which on Windows runs under
+ * cmd.exe — where `find.exe` is a string search that returned a number
+ * without complaint and `ls` does not exist at all. The release check could
+ * not run on the machine that cut the release.
  */
+const TOOL_NAME_RE = /^[ 	]*name: ['"][a-z_]+['"]/gm;
+
+function walk(dir) {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...walk(p));
+    else out.push(p);
+  }
+  return out;
+}
+
 export function deriveToolCount() {
-  const pattern = '^[[:space:]]*name: [\'\\"][a-z_]+[\'\\"]';
-  const inModules = sh(
-    `find src/agent/tools -name '*.ts' ! -name '*.test.ts' -exec grep -hoE "${pattern}" {} + | wc -l`,
-  ).trim();
-  const inline = sh(`grep -hoE "${pattern}" src/agent/tools.ts | wc -l`).trim();
-  return Number(inModules) + Number(inline);
+  const modules = walk('src/agent/tools').filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
+  const count = (file) => (readFileSync(file, 'utf-8').match(TOOL_NAME_RE) ?? []).length;
+  return modules.reduce((n, f) => n + count(f), 0) + count('src/agent/tools.ts');
 }
 
 /** Built-in skill count. */
 export function deriveSkillCount() {
-  return sh('ls skills/*.md 2>/dev/null | wc -l').trim() ? Number(sh('ls skills/*.md | wc -l').trim()) : 0;
+  try {
+    return readdirSync('skills').filter((f) => f.endsWith('.md')).length;
+  } catch {
+    return 0;
+  }
 }
 
 /** The version the working tree currently claims to be. */
