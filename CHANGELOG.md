@@ -4,7 +4,151 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-Scaffold 4.0.0 → 5.0.0: five releases in one arc, every mechanism traceable to a
+## [0.124.0] - 2026-09-14
+
+Two arcs. August: scaffold 4.0.0 → 5.0.0 — checks must pass, and silence is not an
+answer. September: the repo made to work on Windows (and CI made to run there), the
+SWE-bench measurement layer rebuilt until its runs were reproducible and its records
+complete, and a run of agent-loop fixes found by reading those complete records — a
+tool that was never offered but executed anyway, a gate demanding a linter no
+environment had, an edit error that knew the file had changed and did not say so.
+
+### Removed
+
+- **The adversarial critic** (`sidecar.critic.enabled`, `sidecar.critic.model`,
+  `sidecar.critic.blockOnHighSeverity`). Measured net-negative: the critic-bearing
+  SWE-bench arm terminated ~7.5× faster while producing more empty patches, and on a
+  VRAM-bound machine it is the same model judging its own work. Deterministic
+  verification — completion gate, syntax, tests — is the load-bearing layer.
+  Existing `sidecar.critic.*` entries are ignored and can be deleted. (`src/agent/`)
+
+### Added
+
+- **`openai-compat` is a first-class provider** (`sidecar.provider: "openai-compat"`):
+  any OpenAI-compatible endpoint — vLLM, mlx-lm, llama.cpp, a gateway — with
+  `sidecar.baseUrl` pointing at it and `sidecar.apiKey` as its token. A trailing `/v1`
+  is optional and is no longer double-appended. (`src/config/settings/backends.ts`)
+- **Completion gates are individually toggleable.** `sidecar.syntaxGate.enabled`
+  (on), `sidecar.redCheckGate.enabled` (on), `sidecar.behavioralVerificationGate.enabled`
+  (off — on local models it pushes a correct fix into writing extra, often broken, test
+  files). The gates now live in a registry with one flag each.
+  (`src/agent/loop/completionGates/`)
+- **`sidecar.retrieval.cliffGate`** (on): workspace retrieval is trimmed at its
+  similarity cliff — when the top-k scores are tightly packed the extra hits are
+  near-identical siblings of the right answer, and they measurably hurt smaller
+  models. On SWE-bench Lite, ungated retrieval cost most of the resolve rate; gated
+  is indistinguishable from none. (`src/agent/retrieval/similarityCliff.ts`)
+- **`sidecar.localToolTrim.enabled`** (on): local models get the core coding tools at
+  full schema and the rest as one-line stubs expandable with `describe_tool` — ~2.5K
+  tokens of schema off every turn, and a 12-tool choice instead of 50+. No effect on
+  cloud backends. (`src/agent/tools.ts`)
+- **`edit_file` gains `replace_all`**, and appends a bounded diff of what actually
+  changed to its result (`sidecar.editFile.resultDiffChars`, default 800; `0`
+  disables) so a weak model can see a wrong-but-applied edit. (`src/agent/tools/fs.ts`)
+- **A turn is retried on a transient mid-stream connection drop** (fetch failed,
+  ECONNRESET, socket hang up; bounded at 3 with backoff) instead of ending the run.
+  Observed live: ~40% of SWE tasks lost to single blips against a remote edge.
+  (`src/agent/loop/streamTurn.ts`)
+- **Diagnostic env toggles** for measurement runs — `SIDECAR_DISABLE_CIRCUIT_BREAKER`,
+  `SIDECAR_DISABLE_CYCLE_DETECTION`, `SIDECAR_AGENT_SEED`, `SIDECAR_OLLAMA_NUM_CTX`,
+  `SIDECAR_NUM_PREDICT`, `SIDECAR_SHELL`. All inert unless set.
+
+### Changed
+
+- **The shell command timeout is idle-based, not wall-clock.** `sidecar.shellTimeout`
+  is the seconds a command may run *without output* before it is treated as hung;
+  any output resets the clock, so a test suite that keeps printing is not
+  interrupted. The old rule killed django's suite at exactly 120s ten times in one
+  run while it was actively emitting. (`src/terminal/shellSession.ts`)
+- **`sidecar.shellMaxOutputMB` default 10 → 0** (auto-bound near the model's context
+  budget — the prompt pruner keeps ~16KB of any tool result, so capturing megabytes
+  only wasted memory). A positive value forces a fixed ceiling.
+- **The first-token timeout scales with prompt size.** `sidecar.firstTokenTimeout` is
+  now the floor for small prompts; large contexts get proportional headroom so prefill
+  is not aborted mid-stream. (`src/agent/loop/firstTokenTimeout.ts`)
+- **Local and headless runs get the real context window and a 128K token budget**
+  instead of a hardcoded 100K and a 32K floor used as a ceiling; the local backend now
+  prunes its prompt (it never did); identical shell output the model already has is
+  not re-sent. (`src/ollama/ollamaBackend.ts`, `src/agent/loop/commandDedup.ts`)
+- **`edit_file` separates WHERE from WHAT.** A `within` locator disambiguates a
+  repeated search instead of growing `search` (every extra line had to be repeated in
+  `replace` or was deleted); the error text no longer steers models into mass
+  rewrites; shadow-definition edits that would silently no-op are refused; the prompt
+  steers edits to the definition site rather than the symptom site.
+  (`src/agent/tools/fs.ts`, `src/agent/tools/editMatch.ts`)
+- **The syntax gate also runs on the cycle-detection bail path**, so a stuck run does
+  not ship a file that fails to parse; the guard flags a block opener whose body
+  dedents to an outer level. (`src/agent/loop/completionGates/syntaxGate.ts`)
+
+### Fixed (agent loop — found in complete SWE-bench trajectories)
+
+- **A tool the model was not offered no longer executes.** Dispatch resolved names
+  against the global registry, so any registered tool ran whether or not it was in
+  the catalog sent to the model — the read tier, `toolOverride` narrowing for
+  delegated workers, and a hidden `run_tests` were all advisory. Calls are now checked
+  against the per-iteration catalog; an unlisted tool gets an error result the model
+  can read. Run-scoped extra tools and salvaged mangled names still resolve.
+  (`src/agent/loop/executeToolUses.ts`)
+- **A timed-out command's children were left alive on Windows.** The timeout and abort
+  paths killed the shell with a bare `proc.kill()`, which orphans its children. Three
+  orphan trees from earlier runs — a `test_slider.py` in a GUI loop, a
+  `bug_reproduction.py` from the previous day — held a clone directory as their cwd
+  and cost four tasks before the model was asked anything. Both paths now use the
+  process-tree kill `dispose()` already had. (`src/terminal/shellSession.ts`)
+- **The completion gate demanded a linter for Python edits that no environment had.**
+  With no pylint/flake8/ruff installed and no language server behind
+  `get_diagnostics`, every `.py` edit drew two "unverified edit(s)" reprompts and 74%
+  of runs ended gate-exhausted. A clean syntax-gate parse now satisfies the
+  requirement for `.py` (TypeScript keeps tsc/eslint); `py_compile` / `pyflakes`
+  count as lint runs. (`src/agent/completionGate.ts`)
+- **The no-read gate sent the model to read paths quoted in issue tracebacks**
+  (`/home/<user>/…`, `…/site-packages/…`) — one wasted turn and a not-found each.
+  Mentions that cannot be workspace files are skipped.
+  (`src/agent/completionGate/reprompts.ts`)
+- **`edit_file` says when the file changed since the model last read it.** 27% of
+  search-not-found calls in a 300-run matrix were on a file the model had itself
+  edited after its last read — it quoted the pre-edit text and the error said only
+  "not found". The current text follows. (`src/agent/tools/fs.ts`)
+- **`read_file`'s "Did you mean" suggestions were absolute backslash paths on
+  Windows** (`/C:/…` compared byte-wise against `C:\…`); they are repo-relative
+  again. (`src/agent/tools/fs.ts`)
+- **Token accounting mixed real `prompt_eval_count` with a character estimate**
+  measured at −42% to +51% error by content type; the loop now estimates only what
+  changed since the last real measurement. (`src/agent/loop/state.ts`)
+- **Chat-log filenames are unique**, so sessions started in the same millisecond no
+  longer collide. (`src/webview/chatState.ts`)
+
+### Fixed (Windows)
+
+- **The repo works on a Windows workstation, and CI runs there.** Nine defects, four
+  of them shipped bugs the ubuntu-only CI could not see: the code graph was keyed with
+  backslash paths, so **every relative import resolved to the wrong file** (and that
+  graph feeds retrieval); pinned files never matched the workspace index;
+  `writeFileAtomic` raised `EPERM` under concurrency; the prompt handed the model
+  backslash paths while every tool takes forward slashes; `run_command` returned
+  cmd.exe's startup banner as output; cmd.exe cannot run what models emit (237
+  rejections of `./script` per 50 tasks — a POSIX shell is now preferred when
+  installed, `SIDECAR_SHELL` overrides). npm scripts that only ran in a POSIX shell
+  now use Node and `cross-env`. (`.github/workflows/ci.yml`,
+  `src/config/symbolIndexer.ts`, `src/system/atomicWrite.ts`,
+  `src/terminal/shellSession.ts`)
+
+### Fixed (eval measurement layer — SWE-bench Lite)
+
+- **The harness now measures the shipped configuration** — the 50-iteration ceiling
+  (it ran 30), the keep-best ratchet on in the base arm (it was pinned off), thinking
+  on. Runs are reproducible up to the first nondeterministic tool output (stable
+  clone path, cold prompt cache per task); trajectories carry the loop's own log and
+  tool results in full; failed clones and cleans retry; a clone root Windows will not
+  delete is emptied instead of aborting the run; test runs are scoped to a module by
+  a deterministic guard; solve environments are real `uv` venvs; the RAG index is
+  disk-cached per repo@commit; a live eval sweep refuses concurrent vitest runs.
+  Sharded runs on two Ollama instances measured byte-deterministic and 1.45× faster.
+  What the measurements found is recorded in `bench/swe/README.md`, not here — every
+  number carries the seed variance the harness now makes visible.
+  (`tests/llm-eval/swe.eval.ts`, `bench/swe/`)
+
+The August arc — scaffold 4.0.0 → 5.0.0: five releases in one arc, every mechanism traceable to a
 specific recorded trajectory, every fix validated against the exact failure it
 targets before merging (5 conversions, 0 misfires; frontier ceiling 4/4).
 
@@ -96,6 +240,10 @@ targets before merging (5 conversions, 0 misfires; frontier ceiling 4/4).
   Incumbent re-baselines under scaffold 5.0.0: gemma4 **70/70** (first perfect
   baseline, 15/15 flakiness trials), ministral-3 65/70, granite4.1:3b 56/70,
   qwen2.5-coder:7b 48/70, llama3.2 26/70. (`tests/llm-eval/baselines/`)
+
+### Stats
+- 8848 total tests (494 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.123.0] - 2026-08-06
 
