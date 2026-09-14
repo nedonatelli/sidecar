@@ -426,7 +426,9 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     editedSinceRead: new Set<string>(),
     unappliedEditNudged: false,
     toolCallCounts: new Map<string, number>(),
-    gateState: createGateState(lastUserText(copiedMessages)),
+    gateState: createGateState(lastUserText(copiedMessages), {
+      pythonRedCheck: (options.config ?? getConfig()).redCheckPythonRunnersEnabled,
+    }),
     currentEditPlan: null,
     checkpointFired: false,
     // Keep-best ratchet: default-on since v0.118; disabled in audit mode (writes are buffered

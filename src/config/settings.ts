@@ -130,6 +130,22 @@ export interface SideCarConfig {
   behavioralVerificationGateEnabled: boolean;
   syntaxGateEnabled: boolean;
   redCheckGateEnabled: boolean;
+  /**
+   * EXPERIMENT (default off): a failing Python test runner or reproduction
+   * script through run_command (`runtests.py`, `manage.py test`, `-m unittest`,
+   * `pytest`, `python repro.py`) arms the red-check gate, as run_tests always
+   * has. Measured 2026-09-13 with the keep-best ratchet OFF: resolve fell in
+   * the runs where the gate fired (14% -> 4%, 0/5) -- unproven retries made
+   * the patch worse. Kept off until the ratcheted variant below is measured.
+   */
+  redCheckPythonRunnersEnabled: boolean;
+  /**
+   * EXPERIMENT (default off): red-check retries are treated as scaffold-tail
+   * work, so the keep-best ratchet snapshots before them and REVERTS them if
+   * the verification signal did not improve. Off = the shipped behaviour,
+   * where a red-check retry is "primary work" the ratchet never touches.
+   */
+  redCheckRatchetedEnabled: boolean;
   steerQueueCoalesceWindowMs: number;
   steerQueueMaxPending: number;
   multiFileEditsEnabled: boolean;
@@ -522,6 +538,8 @@ function readConfig(): SideCarConfig {
     behavioralVerificationGateEnabled: cfg.get<boolean>('behavioralVerificationGate.enabled', false),
     syntaxGateEnabled: cfg.get<boolean>('syntaxGate.enabled', true),
     redCheckGateEnabled: cfg.get<boolean>('redCheckGate.enabled', true),
+    redCheckPythonRunnersEnabled: cfg.get<boolean>('redCheckGate.pythonRunners', false),
+    redCheckRatchetedEnabled: cfg.get<boolean>('redCheckGate.ratcheted', false),
     steerQueueCoalesceWindowMs: clampMin(cfg.get<number>('steerQueue.coalesceWindowMs', 2000), 0, 10_000),
     steerQueueMaxPending: clampMin(cfg.get<number>('steerQueue.maxPending', 5), 1, 20),
     multiFileEditsEnabled: cfg.get<boolean>('multiFileEdits.enabled', true),

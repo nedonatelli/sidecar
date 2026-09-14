@@ -56,6 +56,14 @@ export interface GateState {
    * back-compat with test stubs.
    */
   syntaxCleanFiles?: Set<string>;
+  /**
+   * EXPERIMENT flag (`sidecar.redCheckGate.pythonRunners`): when true, a
+   * failing Python runner/repro script through run_command arms
+   * `failedCheckOutput`; when false (shipped), run_command test runs never
+   * arm the red-check gate, exactly as before 2026-09-13. Set at loop init
+   * from config. Optional for back-compat with test stubs.
+   */
+  pythonRedCheck?: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
@@ -148,9 +156,10 @@ export interface GateState {
   currentUserRequest?: string;
 }
 
-export function createGateState(currentUserRequest = ''): GateState {
+export function createGateState(currentUserRequest = '', flags: { pythonRedCheck?: boolean } = {}): GateState {
   return {
     currentUserRequest,
+    pythonRedCheck: flags.pythonRedCheck ?? false,
     editedFiles: new Set(),
     testsRunForFiles: new Set(),
     projectTestsRan: false,
@@ -496,11 +505,15 @@ export function recordToolCall(
     if (testMatch) {
       const outcome = classifyTestResult(resultText);
       const passed = outcome === 'pass';
-      // Same red-check arming run_tests has always had. A failing `pytest` or
-      // `runtests.py` through run_command used to leave failedCheckOutput
-      // untouched, so the model could finish on a red suite unchallenged.
-      if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
-      else if (passed) state.failedCheckOutput = undefined;
+      // Red-check arming from a run_command test run is EXPERIMENTAL
+      // (`sidecar.redCheckGate.pythonRunners`). run_tests has always armed it;
+      // run_command never did, and turning it on with the keep-best ratchet
+      // off made patches worse (2026-09-13). The test-run CREDIT below is
+      // unconditional -- a runtests.py run is a test run whatever the flag.
+      if (state.pythonRedCheck) {
+        if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
+        else if (passed) state.failedCheckOutput = undefined;
+      }
       const args = testMatch[2] || '';
       const files = extractTestFiles(args);
       if (files.length > 0) {
@@ -523,7 +536,7 @@ export function recordToolCall(
       // flag: a script that fails with a traceback or a non-zero exit is a
       // failing verification, and a model that finishes on it is finishing
       // red. A hung command proves nothing either way.
-      if (!/⚠️ Command timed out/.test(resultText)) {
+      if (state.pythonRedCheck && !/⚠️ Command timed out/.test(resultText)) {
         if (isFailingCheckOutput(resultText)) state.failedCheckOutput = failingSnippet(resultText);
         else if (!/\(exit code: /.test(resultText)) state.failedCheckOutput = undefined;
       }

@@ -527,7 +527,7 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
   });
 
   it("django's runtests.py label is a project test run, and a red one arms the red-check gate", () => {
-    const state = createGateState();
+    const state = createGateState('', { pythonRedCheck: true });
     recordToolCall(
       state,
       makeRunCommand('./tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1 utils_tests'),
@@ -539,7 +539,7 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
   });
 
   it('a green runtests.py run clears the red-check flag and counts as passing', () => {
-    const state = createGateState();
+    const state = createGateState('', { pythonRedCheck: true });
     state.failedCheckOutput = 'earlier red';
     recordToolCall(
       state,
@@ -552,7 +552,7 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
 
   it('python -m unittest and manage.py test are runners too', () => {
     for (const cmd of ['python -m unittest tests.test_x', 'python manage.py test app.tests']) {
-      const state = createGateState();
+      const state = createGateState('', { pythonRedCheck: true });
       recordToolCall(state, makeRunCommand(cmd), res('FAILED (failures=1)\n(exit code: 1)'));
       expect(state.projectTestsRan, cmd).toBe(true);
       expect(state.failedCheckOutput, cmd).toBeDefined();
@@ -560,7 +560,7 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
   });
 
   it('a failing pytest via run_command now arms the red-check gate like run_tests does', () => {
-    const state = createGateState();
+    const state = createGateState('', { pythonRedCheck: true });
     recordToolCall(
       state,
       makeRunCommand('python -m pytest tests/test_x.py'),
@@ -570,7 +570,7 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
   });
 
   it('a reproduction script that fails arms the red-check gate; one that exits 0 clears it; neither is a test run', () => {
-    const state = createGateState();
+    const state = createGateState('', { pythonRedCheck: true });
     recordToolCall(
       state,
       makeRunCommand('python3 repro.py'),
@@ -584,7 +584,7 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
   });
 
   it('a hung script proves nothing: the red-check flag is left as it was', () => {
-    const state = createGateState();
+    const state = createGateState('', { pythonRedCheck: true });
     state.failedCheckOutput = 'earlier red';
     recordToolCall(
       state,
@@ -595,17 +595,43 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
   });
 
   it('a non-test python invocation (a module, a one-liner) does not touch the flag', () => {
-    const state = createGateState();
+    const state = createGateState('', { pythonRedCheck: true });
     state.failedCheckOutput = 'earlier red';
     recordToolCall(state, makeRunCommand('python -c "print(1)"'), res('1'));
     expect(state.failedCheckOutput).toBe('earlier red');
   });
 
   it('is_error short-circuits BEFORE any classification, even for run_tests', () => {
-    const state = createGateState();
+    const state = createGateState('', { pythonRedCheck: true });
     recordToolCall(state, makeRunTests('src/foo.test.ts'), err());
     expect(state.testsRunForFiles.size).toBe(0);
   });
+});
+
+it('with the flag OFF (shipped), a red runtests.py is a test run but arms nothing', () => {
+  const res = (content: string): ToolResultContentBlock => ({
+    type: 'tool_result',
+    tool_use_id: 'id',
+    content,
+    is_error: false,
+  });
+  // The shipped default: run_command test runs never armed the red-check
+  // gate. The runner CREDIT is unconditional -- only the arming is gated.
+  const state = createGateState();
+  recordToolCall(
+    state,
+    makeRunCommand('./tests/runtests.py --settings=test_sqlite utils_tests'),
+    res('Ran 40 tests in 0.5s\n\nFAILED (errors=1)\n(exit code: 1)'),
+  );
+  expect(state.projectTestsRan).toBe(true);
+  expect(state.failedCheckOutput).toBeUndefined();
+  const s2 = createGateState();
+  recordToolCall(
+    s2,
+    makeRunCommand('python3 repro.py'),
+    res('Traceback (most recent call last):\nAssertionError\n(exit code: 1)'),
+  );
+  expect(s2.failedCheckOutput).toBeUndefined();
 });
 
 describe('completionGate — findColocatedTest', () => {

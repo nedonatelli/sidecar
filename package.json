@@ -554,6 +554,16 @@
             "default": true,
             "description": "Refuse to let the agent declare the task done while its own last verification (a test/lint/compile it ran) is still failing. On by default; requires the completion gate. This is the verification-forcing lever most likely to rescue a wrong fix — and most likely to cause over-editing — so it is independently toggleable for study."
           },
+          "sidecar.redCheckGate.pythonRunners": {
+            "type": "boolean",
+            "default": false,
+            "description": "EXPERIMENTAL. Let a failing Python test runner or reproduction script run through run_command (runtests.py, manage.py test, python -m unittest, pytest, python repro.py) arm the red-check gate, the way run_tests always has. Off by default: measured with the keep-best ratchet off, forcing retries on a red check made the resulting patch worse."
+          },
+          "sidecar.redCheckGate.ratcheted": {
+            "type": "boolean",
+            "default": false,
+            "description": "EXPERIMENTAL. Treat the agent's response to a red-check refusal as scaffold-tail work: the keep-best ratchet snapshots the files before the retry and reverts it if the verification signal did not improve. Off by default (the retry is 'primary work' the ratchet never touches). Requires sidecar.scaffolding.keepBest."
+          },
           "sidecar.steerQueue.coalesceWindowMs": {
             "type": "number",
             "default": 2000,

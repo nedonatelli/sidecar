@@ -39,6 +39,14 @@ describe('redCheckGate.maybeInject', () => {
     expect(JSON.stringify(s.messages[0])).toContain('TSError: 2 errors');
   });
 
+  it('with redCheckGate.ratcheted, the retry is scaffold-tail work so the keep-best ratchet arms on it', async () => {
+    // Shipped: primary work, ratchet never touches the retry. Measured
+    // 2026-09-13 without the ratchet: resolve 14% -> 4% where the gate fired.
+    const s = makeState('FAILED (errors=1)');
+    expect(await redCheckGate.maybeInject(s, ctx({ redCheckRatchetedEnabled: true }))).toBe('injected');
+    expect(s.gateState.lastInjectionWasPrimaryWork).toBe(false);
+  });
+
   it('stands down after the 2-injection budget', async () => {
     const s = makeState('still failing');
     s.gateState.redCheckInjections = 2;
