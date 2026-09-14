@@ -120,13 +120,16 @@ Use the automated bump script to update the version across all files:
 npm run bump 0.40.0 "brief summary of what changed"
 ```
 
-This script:
+This is `scripts/bump-version.mjs` — one Node implementation for every platform
+(`scripts/bump-version.sh` and `scripts/bump-version.bat` only forward to it). It:
 
-1. Runs the test suite and captures pass counts
-2. Counts tools and skills from source code
-3. Updates `package.json`, `CHANGELOG.md`, `README.md`
-4. Updates `docs/index.html` (landing page stats), `docs/agent-mode.md`, `docs/troubleshooting.md`
-5. Prints a summary for review before committing
+1. Validates the version is a legal next step from the latest `vX.Y.Z` tag
+2. Runs the test suite and captures pass counts (`--skip-tests` to leave them for `verify:release`)
+3. Counts tools and skills from source code — the same derivation `verify:release` re-checks
+4. Updates `package.json` + `package-lock.json`, `CHANGELOG.md` (an `[Unreleased]` body becomes the new
+   version's body), `README.md`, `SECURITY.md`, `docs/index.html` (landing page stats and hero
+   version), `docs/agent-mode.md`, `docs/troubleshooting.md`
+5. Prints the changed files for review before committing — `--dry-run` prints without writing
 
 After running the script, review the CHANGELOG entry and expand it with proper sections (Added, Fixed, etc.) before committing.
 

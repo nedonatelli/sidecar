@@ -242,7 +242,7 @@ targets before merging (5 conversions, 0 misfires; frontier ceiling 4/4).
   qwen2.5-coder:7b 48/70, llama3.2 26/70. (`tests/llm-eval/baselines/`)
 
 ### Stats
-- 8850 total tests (495 test files)
+- 8862 total tests (496 test files)
 - 87 built-in tools, 11 skills
 
 ## [0.123.0] - 2026-08-06
