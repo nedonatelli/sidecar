@@ -34,7 +34,9 @@ export interface GateState {
    * testsRunForFiles but NOT here, so the behavioral gate isn't satisfied by a
    * test that verified nothing. */
   passingTestFiles: Set<string>;
-  /** True if a whole-suite run PASSED. */
+  /** True if the MOST RECENT whole-suite run passed (a later red run clears
+   * it -- "ever passed" is not a verification signal, and the keep-best
+   * ratchet's regression rule needs to see green turn red). */
   projectTestsPassed: boolean;
   /** True if any eslint / tsc invocation was observed this turn. */
   lintObserved: boolean;
@@ -56,6 +58,28 @@ export interface GateState {
    * back-compat with test stubs.
    */
   syntaxCleanFiles?: Set<string>;
+  /**
+   * EXPERIMENT flag (`sidecar.redCheckGate.pythonRunners`): when true, a
+   * failing Python runner/repro script through run_command arms
+   * `failedCheckOutput`; when false (shipped), run_command test runs never
+   * arm the red-check gate, exactly as before 2026-09-13. Set at loop init
+   * from config. Optional for back-compat with test stubs.
+   */
+  pythonRedCheck?: boolean;
+  /**
+   * True once a real test runner has run AFTER the most recent edit; cleared
+   * by every successful edit. The gate's test demand used to key on
+   * `projectTestsRan`, which is never reset, so one run before the first edit
+   * satisfied it for the whole task -- and `findColocatedTest` only knows
+   * `foo.test.py`, a layout no Python repo uses, so the gate has never asked a
+   * Python project for tests at all. The lint demand was the only thing that
+   * fired, and its text named run_tests as an acceptable answer; when #66 let
+   * a clean parse satisfy it, the accidental test nudge went with it: at one
+   * seed, Python edits tested after the last edit fell 26->20 and 28->19 on
+   * two independent pairs, and never-tested runs doubled. Optional for
+   * back-compat with test stubs.
+   */
+  testsRanSinceLastEdit?: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
@@ -148,9 +172,11 @@ export interface GateState {
   currentUserRequest?: string;
 }
 
-export function createGateState(currentUserRequest = ''): GateState {
+export function createGateState(currentUserRequest = '', flags: { pythonRedCheck?: boolean } = {}): GateState {
   return {
     currentUserRequest,
+    pythonRedCheck: flags.pythonRedCheck ?? false,
+    testsRanSinceLastEdit: false,
     editedFiles: new Set(),
     testsRunForFiles: new Set(),
     projectTestsRan: false,
@@ -380,6 +406,8 @@ export function recordToolCall(
       state.emptyDiagnosticsObserved = false;
       // ...and a clean parse from before this edit says nothing about after it.
       state.syntaxCleanFiles?.clear();
+      // ...and whatever tests ran before this edit did not test it.
+      state.testsRanSinceLastEdit = false;
       // ...and stales an earlier failing check: the model is fixing. The
       // normal requirements above force a re-run; if THAT fails too, the
       // red-check flag comes right back.
@@ -391,6 +419,7 @@ export function recordToolCall(
   // Dedicated test tool.
   if (tu.name === 'run_tests') {
     const outcome = classifyTestResult(resultText);
+    state.testsRanSinceLastEdit = true;
     if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
     else if (outcome === 'pass') state.failedCheckOutput = undefined;
     const passed = outcome === 'pass';
@@ -400,10 +429,17 @@ export function recordToolCall(
       if (p) {
         state.testsRunForFiles.add(p);
         if (passed) state.passingTestFiles.add(p);
+        else state.passingTestFiles.delete(p); // latest run for this file decides
       }
     } else {
       state.projectTestsRan = true;
-      if (passed) state.projectTestsPassed = true;
+      // The MOST RECENT whole-suite run decides, not "ever passed". This used
+      // to latch true, so a green run followed by a red retry still read as
+      // passing -- and the keep-best ratchet, whose regression rule is "was
+      // green, now is not", could never see a retry turn the suite red. Seen
+      // in the first ratcheted red-check smoke: the gate fired on a red
+      // runtests.py while the signal said projectTestsPassed=true.
+      state.projectTestsPassed = passed;
     }
     return;
   }
@@ -477,9 +513,35 @@ export function recordToolCall(
       }
     }
 
-    const testMatch = cmd.match(/\b(vitest|jest|pytest|mocha|go\s+test)\b([^|;&]*)/);
+    // Test runners. The JS/Go list is the original; the Python forms were
+    // added after a 150-run SWE-bench matrix (2026-09-13) in which every
+    // django task verified with `./tests/runtests.py <label>` and every repro
+    // with `python repro.py`, and NEITHER was recognised here. Two costs,
+    // both measured: the base gate demanded verification of edits that had
+    // been verified (222 "unverified edit(s)" reprompts; 74% of runs ended
+    // with the gate exhausted), and the red-check gate -- the one refusal
+    // built for "your own check failed and you are finishing anyway" --
+    // fired ONCE, while 76 of 92 runs that had reproduced their bug finished
+    // with that reproduction still red, 79% on the same failure they
+    // started with.
+    // Anchored on start-of-token rather than `\b`: `\b` never matches before
+    // the `-` of `-m unittest`, and `./tests/runtests.py` is preceded by `/`.
+    const testMatch = cmd.match(
+      /(?:^|[\s;&|/])(vitest|jest|pytest|py\.test|mocha|go\s+test|tox|nose2?|runtests\.py|manage\.py\s+test|-m\s+unittest)\b([^|;&]*)/,
+    );
     if (testMatch) {
-      const passed = classifyTestResult(resultText) === 'pass';
+      const outcome = classifyTestResult(resultText);
+      state.testsRanSinceLastEdit = true;
+      const passed = outcome === 'pass';
+      // Red-check arming from a run_command test run is EXPERIMENTAL
+      // (`sidecar.redCheckGate.pythonRunners`). run_tests has always armed it;
+      // run_command never did, and turning it on with the keep-best ratchet
+      // off made patches worse (2026-09-13). The test-run CREDIT below is
+      // unconditional -- a runtests.py run is a test run whatever the flag.
+      if (state.pythonRedCheck) {
+        if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
+        else if (passed) state.failedCheckOutput = undefined;
+      }
       const args = testMatch[2] || '';
       const files = extractTestFiles(args);
       if (files.length > 0) {
@@ -488,18 +550,38 @@ export function recordToolCall(
           if (p) {
             state.testsRunForFiles.add(p);
             if (passed) state.passingTestFiles.add(p);
+            else state.passingTestFiles.delete(p); // latest run for this file decides
           }
         }
       } else {
         state.projectTestsRan = true;
-        if (passed) state.projectTestsPassed = true;
+        // The MOST RECENT whole-suite run decides, not "ever passed". This used
+        // to latch true, so a green run followed by a red retry still read as
+        // passing -- and the keep-best ratchet, whose regression rule is "was
+        // green, now is not", could never see a retry turn the suite red. Seen
+        // in the first ratcheted red-check smoke: the gate fired on a red
+        // runtests.py while the signal said projectTestsPassed=true.
+        state.projectTestsPassed = passed;
+      }
+    } else if (/(^|[\s;&|])python[0-9.]*\s+(?:-[A-Za-z]+\s+)*\S+\.py\b/.test(cmd)) {
+      // A plain Python script -- `python repro.py`, `python3 check_fix.py` --
+      // is the reproduction the SWE task asks for and the check the model
+      // relies on. It is NOT credited as a test run (a script exiting 0 proves
+      // less than a suite), but its exit status arms and clears the red-check
+      // flag: a script that fails with a traceback or a non-zero exit is a
+      // failing verification, and a model that finishes on it is finishing
+      // red. A hung command proves nothing either way.
+      if (state.pythonRedCheck && !/⚠️ Command timed out/.test(resultText)) {
+        if (isFailingCheckOutput(resultText)) state.failedCheckOutput = failingSnippet(resultText);
+        else if (!/\(exit code: /.test(resultText)) state.failedCheckOutput = undefined;
       }
     }
 
     // `npm test` / `yarn test` / `pnpm test` — whole-suite invocation.
     if (/\b(npm|yarn|pnpm|bun)\s+(run\s+)?test\b/.test(cmd)) {
       state.projectTestsRan = true;
-      if (classifyTestResult(resultText) === 'pass') state.projectTestsPassed = true;
+      state.testsRanSinceLastEdit = true;
+      state.projectTestsPassed = classifyTestResult(resultText) === 'pass'; // latest run decides
     }
   }
 }
@@ -522,6 +604,8 @@ export interface GateFinding {
   diagnosticsWereEmpty?: boolean;
   /** Co-located test file exists on disk but was not edited this turn. */
   testNotUpdated?: string;
+  /** A Python source edit with no test run after it, in a repo that has tests. */
+  needsTestRun?: boolean;
 }
 
 /**
@@ -573,8 +657,25 @@ export async function findColocatedTest(file: string): Promise<string | null> {
  * Evaluate the gate state against the edited files and return any
  * verification gaps. Empty array means the agent is free to terminate.
  */
+/** True when the workspace has a conventional test directory at its root. */
+export async function hasTestDirectory(): Promise<boolean> {
+  const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return false;
+  for (const dir of ['tests', 'test']) {
+    try {
+      await workspace.fs.stat(Uri.file(path.join(root, dir)));
+      return true;
+    } catch {
+      // not there
+    }
+  }
+  return false;
+}
+
 export async function checkCompletionGate(state: GateState): Promise<GateFinding[]> {
   const findings: GateFinding[] = [];
+  // Resolved once per check, only if a Python source edit needs it.
+  let testDir: boolean | undefined;
 
   for (const file of state.editedFiles) {
     if (!SOURCE_FILE_RE.test(file)) continue;
@@ -595,6 +696,16 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
       if (testFile && state.testsRunForFiles.has(testFile) && !state.editedFiles.has(testFile)) {
         findings.push({ file, testNotUpdated: testFile });
       }
+    }
+
+    // Python: no colocated-test convention exists, so the demand is "run the
+    // project's tests after your edit" -- keyed on testsRanSinceLastEdit, not
+    // on "ever ran". Only when the repo visibly has tests to run. Scoped to
+    // .py because that is where the measured regression is; the TS/JS path
+    // has the colocated-test demand.
+    if (!isTestFile && file.endsWith('.py') && !state.testsRanSinceLastEdit) {
+      testDir ??= await hasTestDirectory();
+      if (testDir) findings.push({ file, needsTestRun: true });
     }
 
     // A Python file the syntax gate has just parsed cleanly has had the static
@@ -633,6 +744,17 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
       'If a check fails, report the failure honestly — do not loop trying to fix it unless the fix is obvious and small.',
   );
   lines.push('');
+
+  const untested = [...new Set(findings.filter((f) => f.needsTestRun).map((f) => f.file))];
+  if (untested.length > 0) {
+    lines.push('You edited source and have not run the project tests since:');
+    for (const f of untested) lines.push(`  - ${f}`);
+    lines.push(
+      'Run the tests for the module you changed with run_command and the project test runner ' +
+        '(the test label for that module, not a file path), then report the actual output.',
+    );
+    lines.push('');
+  }
 
   const lintFiles = [...new Set(findings.filter((f) => f.needsLint).map((f) => f.file))];
   if (lintFiles.length > 0) {

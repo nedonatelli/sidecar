@@ -70,6 +70,8 @@ const SHARD_COUNT = parseInt(process.env.SIDECAR_SWE_SHARD_COUNT ?? '1', 10);
 // budget experiment, and say so in the run's manifest.
 const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '50', 10);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
+// Experiment switch: see the armConfig construction for what it enables.
+const REDCHECK_RATCHETED = process.env.SIDECAR_SWE_REDCHECK_RATCHETED === '1';
 // Per-(repo,version) solve environments (uv venvs) so run_tests/run_command work
 // against installed deps. Specs from the committed env-specs.json (generated from
 // swebench's MAP_REPO_VERSION_TO_SPECS). Venvs cached under the env cache base.
@@ -588,7 +590,18 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       },
       onDone: () => flushText(),
     };
-    const armConfig = { ...getConfig(), sandboxEnabled: false, ...armConfigOverrides(arm) };
+    // Experiment: SIDECAR_SWE_REDCHECK_RATCHETED=1 turns on both experimental
+    // red-check settings -- Python runners/repro scripts arm the gate, and the
+    // gate's retries run under the keep-best ratchet (snapshot before, revert
+    // unless the verification signal improved). Off = the shipped defaults.
+    // Recorded in the manifest and applied on top of the arm so the arm's own
+    // keys (incl. keepBestRatchetEnabled: true on scaffold-on) are untouched.
+    const armConfig = {
+      ...getConfig(),
+      sandboxEnabled: false,
+      ...armConfigOverrides(arm),
+      ...(REDCHECK_RATCHETED ? { redCheckPythonRunnersEnabled: true, redCheckRatchetedEnabled: true } : {}),
+    };
     const options: AgentOptions = {
       approvalMode: 'autonomous',
       maxIterations: MAX_ITERS,
@@ -826,6 +839,7 @@ describe('SWE-bench Lite — prediction generation', () => {
         arms: ARMS,
         maxIterations: MAX_ITERS,
         retrievalTopK: RETRIEVAL_TOPK,
+        redCheckRatcheted: REDCHECK_RATCHETED,
         retrievalCliffGate: CLIFF_GATE,
         // The deterministic control layer. bench/swe/README notes it is not
         // config-gated and runs in BOTH ablation arms, so a scaffold-on/off

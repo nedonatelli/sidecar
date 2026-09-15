@@ -4,8 +4,14 @@ import * as path from 'path';
 /** Source files we care about verifying. Non-matching files are skipped. */
 export const SOURCE_FILE_RE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/;
 
-/** Test file convention — these don't need their own tests. */
-export const TEST_FILE_RE = /\.(test|spec)\.[tj]sx?$/;
+/**
+ * Test file convention — these don't need their own tests. Covers the JS/TS
+ * colocated forms and the Python ones (a tests/ or test/ directory, test_*.py,
+ * *_test.py, conftest.py); until 2026-09-14 only the JS/TS forms were known,
+ * so every Python test file was treated as source by the completion gate.
+ */
+export const TEST_FILE_RE =
+  /\.(test|spec)\.[tj]sx?$|(^|\/)tests?\/|(^|\/)test_[^/]+\.py$|_test\.py$|(^|\/)conftest\.py$/;
 
 /**
  * Normalize a file path to workspace-relative forward-slashed form.

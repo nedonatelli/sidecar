@@ -27,7 +27,13 @@ export const redCheckGate: CompletionGate = {
     if (!gateState.failedCheckOutput || (gateState.redCheckInjections ?? 0) >= MAX_INJECTIONS) return 'skip';
 
     gateState.redCheckInjections = (gateState.redCheckInjections ?? 0) + 1;
-    gateState.lastInjectionWasPrimaryWork = true;
+    // Shipped: the retry is primary work and the keep-best ratchet never arms
+    // on it. EXPERIMENT (`sidecar.redCheckGate.ratcheted`): the retry is
+    // scaffold-tail work -- the ratchet snapshots the files before it and
+    // reverts it at termination unless the verification signal improved.
+    // Measured 2026-09-13 without this: in the runs where the gate fired,
+    // resolve fell 14% -> 4% on retries that made the patch worse.
+    gateState.lastInjectionWasPrimaryWork = !ctx.config.redCheckRatchetedEnabled;
     const attempt = gateState.redCheckInjections;
     recordDecision(
       logger,
