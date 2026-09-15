@@ -301,6 +301,20 @@ export async function tryLiteralEscapeRecovery(
   if (!/\\[nt]/.test(after)) return null;
   const normalized = after.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
   if (normalized === after) return null;
+  // The decode must not UNDO the edit. When an edit's whole purpose is to put a
+  // literal `\n` into source — code that manipulates escape sequences, which is
+  // exactly the code most likely to trip this recovery — decoding turns the new
+  // text back into what was already there. The file then parses (it is the
+  // original), the caller writes it, and the tool reports "File edited" over a
+  // change that did not happen.
+  //
+  // Live, sphinx-doc__sphinx-8474 (2026-09-15): the model sent the same edit
+  // SIX times, each reporting success, because every decode reproduced the
+  // original file and its search text kept matching. The run burned to the
+  // 50-turn cap. edit_file already refuses `search === replace` up front; this
+  // is the same no-op arriving by a path that bypassed that check, so it gets
+  // the same answer — decline, and let the caller surface the real error.
+  if (normalized === before) return null;
   const normCheck = await checkSyntax(filePath, normalized);
   if (!normCheck.checked) return null;
   const beforeCheck = await checkSyntax(filePath, before);
