@@ -1,5 +1,6 @@
 import { MAX_GATE_INJECTIONS } from '../../../config/constants.js';
-import { checkCompletionGate, buildGateInjection } from '../../completionGate.js';
+import { checkCompletionGate, buildGateInjection, describeFindingKinds } from '../../completionGate.js';
+import { recordDecision } from '../../decisions.js';
 import type { CompletionGate } from './types.js';
 
 /**
@@ -21,8 +22,11 @@ export const baseCompletionGate: CompletionGate = {
 
     const maxGateInjections = state.scaffoldingProfile?.maxGateInjections ?? MAX_GATE_INJECTIONS;
     if (gateState.gateInjections >= maxGateInjections) {
-      logger?.warn(
+      recordDecision(
+        logger,
+        { kind: 'completion_gate', action: 'exhausted', max: maxGateInjections },
         `Completion gate exhausted (${maxGateInjections} injections) — allowing termination with unverified edits`,
+        'warn',
       );
       return 'skip';
     }
@@ -32,7 +36,16 @@ export const baseCompletionGate: CompletionGate = {
 
     gateState.gateInjections++;
     const injection = buildGateInjection(findings, gateState.gateInjections, maxGateInjections);
-    logger?.info(
+    recordDecision(
+      logger,
+      {
+        kind: 'completion_gate',
+        action: 'fired',
+        attempt: gateState.gateInjections,
+        max: maxGateInjections,
+        findings: describeFindingKinds(findings),
+        files: [...new Set(findings.map((f) => f.file))],
+      },
       `Completion gate fired (#${gateState.gateInjections}/${maxGateInjections}): ${findings.length} unverified edit(s)`,
     );
     ctx.callbacks.onText('\n\n🔒 Verifying changes before completion...\n');

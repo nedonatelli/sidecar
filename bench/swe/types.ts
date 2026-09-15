@@ -120,6 +120,18 @@ export interface SwePrediction {
    * on meta files written before this field existed.
    */
   scaffoldInterventions?: number;
+  /**
+   * Per-run counts of the loop's STRUCTURED decisions, keyed kind.action and
+   * kind.detail — e.g. `completion_gate.fired`, `completion_gate.finding.
+   * needsTestRun`, `keep_best_ratchet.reason.overengineering`. The
+   * `scaffoldInterventions` count above says only HOW MANY times the scaffold
+   * fired; these say WHICH mechanism fired and why, so an A/B on one finding
+   * can confirm its own trigger from the predictions row instead of parsing
+   * trajectories (or, as in the PR #70 run, inferring it from firing rates
+   * because the log line names neither the finding nor the injected text).
+   * Undefined on meta files written before this field existed.
+   */
+  decisionCounts?: Record<string, number>;
 }
 
 /** One line of the official `swebench` predictions JSONL. */

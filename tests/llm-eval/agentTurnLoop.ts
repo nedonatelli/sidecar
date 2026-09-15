@@ -3,6 +3,7 @@ import { SideCarClient } from '../../src/ollama/client.js';
 import { getToolDefinitionsForTier } from '../../src/agent/tools.js';
 import { hash as surfaceHash } from '../../bench/promptlab/manifest.js';
 import { createTrajectoryLogger, type TrajectoryLogger } from './trajectoryLog.js';
+import type { AgentDecision } from '../../src/agent/decisions.js';
 import type { ChatMessage } from '../../src/ollama/types.js';
 import type { AgentLogger } from '../../src/agent/logger.js';
 import type { EffectiveSurface } from './agentHarness.js';
@@ -53,6 +54,8 @@ export interface TurnLoopSession {
   readonly logger: TrajectoryLogger | null;
   /** The loop's own info lines (compaction, dedup, nudges) — empty until run(). */
   readonly loopLog: readonly string[];
+  /** Structured scaffold decisions — see src/agent/decisions.ts. */
+  readonly loopDecisions: readonly AgentDecision[];
   run(messages: ChatMessage[]): Promise<void>;
   /** Clears the timeout and flushes the log. Safe to call more than once. */
   close(termination: string): { durationMs: number; timedOut: boolean };
@@ -76,16 +79,22 @@ export interface TurnLoopSession {
 export interface LoopLogCapture {
   logger: AgentLogger;
   lines: string[];
+  decisions: AgentDecision[];
 }
 
 export function createLoopLogCapture(): LoopLogCapture {
   const lines: string[] = [];
+  const decisions: AgentDecision[] = [];
   const record = (level: string) => (message: string) => void lines.push(`[${level}] ${message}`);
   const base: Record<string, unknown> = {
     info: record('info'),
     warn: record('warn'),
     error: record('error'),
     debug: record('debug'),
+    // The structured half of every scaffold decision. The `lines` above keep
+    // the human text; these carry the fields analysis needs (which gate finding
+    // fired, which ratchet arm reverted) that the text never contained.
+    logDecision: (d: AgentDecision) => void decisions.push(d),
   };
   const logger = new Proxy(base, {
     get(target, prop) {
@@ -93,7 +102,7 @@ export function createLoopLogCapture(): LoopLogCapture {
       return () => {};
     },
   }) as unknown as AgentLogger;
-  return { logger, lines };
+  return { logger, lines, decisions };
 }
 
 export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
@@ -161,6 +170,7 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
     signal: abort.signal,
     logger,
     loopLog: loopLog.lines,
+    loopDecisions: loopLog.decisions,
     async run(messages: ChatMessage[]) {
       // Give the loop somewhere to report its own scaffolding decisions.
       await loop(client, messages, callbacks, abort.signal, { ...input.options, logger: loopLog.logger });

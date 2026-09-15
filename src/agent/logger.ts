@@ -1,5 +1,6 @@
 import { window, LogOutputChannel } from 'vscode';
 import { redactSecrets } from './securityScanner.js';
+import type { AgentDecision } from './decisions.js';
 
 export class AgentLogger {
   private channel: LogOutputChannel;
@@ -48,6 +49,16 @@ export class AgentLogger {
 
   logDone(iterations: number): void {
     this.channel.info(`Agent loop completed after ${iterations} iteration(s)`);
+  }
+
+  /**
+   * A structured record of a scaffold decision. Emitted ALONGSIDE the human
+   * line (see recordDecision), never instead of it, so the readable log is
+   * unchanged and this is purely additive. Analysis reads these fields instead
+   * of regexing the sentence -- see src/agent/decisions.ts for why.
+   */
+  logDecision(decision: AgentDecision): void {
+    this.channel.debug(`decision ${JSON.stringify(decision)}`);
   }
 
   logToolAudit(runId: string, tool: string, outcome: 'ok' | 'error'): void {

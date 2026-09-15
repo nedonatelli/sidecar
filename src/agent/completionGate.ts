@@ -525,6 +525,26 @@ export interface GateFinding {
 }
 
 /**
+ * The kinds of finding present in a gate firing, e.g. ['needsLint',
+ * 'testNotUpdated'] — for the structured decision record, so an experiment on
+ * a new finding can verify its own trigger. The gate's log line reports only a
+ * COUNT of unverified edits, which is why the PR #70 A/B had to infer its
+ * trigger from firing rates instead of reading it.
+ *
+ * Derived from whichever optional keys are set rather than listed by hand, so
+ * a finding added later is named here with no edit.
+ */
+export function describeFindingKinds(findings: readonly GateFinding[]): string[] {
+  const kinds = new Set<string>();
+  for (const finding of findings) {
+    for (const [key, value] of Object.entries(finding)) {
+      if (key !== 'file' && value !== undefined && value !== false) kinds.add(key);
+    }
+  }
+  return [...kinds].sort();
+}
+
+/**
  * Locate a colocated test file next to `file`. Tries `.test.<ext>` then
  * `.spec.<ext>` in the same directory. Returns workspace-relative path or
  * null if none exists. Async because it hits the filesystem.

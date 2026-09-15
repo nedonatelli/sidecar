@@ -18,6 +18,7 @@ import { stubLoopState, stubCallbacks } from './testHelpers.js';
 vi.mock('../completionGate.js', () => ({
   recordToolCall: vi.fn(),
   checkCompletionGate: vi.fn(async () => []),
+  describeFindingKinds: vi.fn(() => []),
   buildGateInjection: vi.fn(() => 'Please verify your changes before finishing.'),
   buildNoReadReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
   buildNoShellReprompt: vi.fn(() => null), // returns null by default — no reprompt needed
