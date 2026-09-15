@@ -116,3 +116,25 @@ describe('normalizeTestTarget — the label Django actually accepts', () => {
     expect(normalizeTestTarget('python tests/runtests.py', '   ')).toBe('');
   });
 });
+
+describe('detectTestRunner — bin/test needs corroboration', () => {
+  it("uses sympy's bin/test when a Python manifest confirms the ecosystem", () => {
+    expect(detectTestRunner(['bin/test', 'setup.py'], false).command).toBe('python bin/test');
+  });
+
+  it('does NOT run `python bin/test` on a Rails app', () => {
+    // bin/test is also a Rails binstub. Running it through python would be
+    // exactly the cross-language mistake this module exists to prevent.
+    const d = detectTestRunner(['bin/test', 'Gemfile'], false);
+    expect(d.command).not.toBe('python bin/test');
+    expect(d.command).toBeNull();
+  });
+
+  it('does not let bin/test hijack a non-Python ecosystem', () => {
+    expect(detectTestRunner(['bin/test', 'Cargo.toml'], false).command).toBe('cargo test');
+  });
+
+  it('is stat-able — manifestFiles must list it or it can never win', () => {
+    expect(manifestFiles()).toContain('bin/test');
+  });
+});

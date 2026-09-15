@@ -24,18 +24,18 @@
 /**
  * Manifest files that identify an ecosystem, strongest signal first.
  *
- * The first entries are PROJECT-SPECIFIC RUNNER SCRIPTS, which outrank generic
- * manifests because they are the command the project actually documents. Both
- * were learned from what the model types unprompted on these repos: across 150
- * SWE-bench runs it invoked `./tests/runtests.py` 160 times and sympy's
- * `bin/test` 57 times, and never once reached for bare pytest on them. Bare
- * pytest on the Django repo does not work -- its suite needs runtests.py to
- * configure settings -- so detecting `setup.py -> pytest` there would be a
- * loud failure rather than a useful command.
+ * The first entry is a PROJECT-SPECIFIC RUNNER SCRIPT, which outranks the
+ * generic manifests because it is the command the project actually documents,
+ * and its `.py` extension makes the language unambiguous. Learned from what
+ * the model types unprompted: across 150 SWE-bench runs it invoked
+ * `./tests/runtests.py` 160 times and never once reached for bare pytest on
+ * django. Bare pytest on the django repo does not work -- its suite needs
+ * runtests.py to configure settings -- so `setup.py -> pytest` there would be
+ * a loud failure rather than a useful command. Runner scripts whose name does
+ * NOT imply a language live in CORROBORATED_RUNNERS below.
  */
 const MANIFESTS: ReadonlyArray<readonly [file: string, command: string, ecosystem: string]> = [
   ['tests/runtests.py', 'python tests/runtests.py', 'python'],
-  ['bin/test', 'python bin/test', 'python'],
   ['pytest.ini', 'pytest', 'python'],
   ['manage.py', 'python -m pytest', 'python'],
   ['setup.py', 'pytest', 'python'],
@@ -46,6 +46,16 @@ const MANIFESTS: ReadonlyArray<readonly [file: string, command: string, ecosyste
   ['go.mod', 'go test ./...', 'go'],
   ['build.gradle', './gradlew test', 'jvm'],
   ['build.gradle.kts', './gradlew test', 'jvm'],
+];
+
+/**
+ * Runner scripts whose NAME does not identify a language, so they are used only
+ * when a manifest above has already established the ecosystem. `bin/test` is
+ * sympy's runner, but it is also a Rails binstub — `python bin/test` on a Rails
+ * app would be exactly the cross-language mistake this module exists to stop.
+ */
+const CORROBORATED_RUNNERS: ReadonlyArray<readonly [file: string, command: string, ecosystem: string]> = [
+  ['bin/test', 'python bin/test', 'python'],
 ];
 
 export interface RunnerDecision {
@@ -71,7 +81,15 @@ export interface RunnerDecision {
  */
 export function detectTestRunner(present: readonly string[], hasNpmTestScript: boolean): RunnerDecision {
   const set = new Set(present.map((f) => f.trim()).filter(Boolean));
-  const hit = MANIFESTS.find(([file]) => set.has(file));
+  // `manifestFiles()` must include the corroborated runners or the caller never
+  // stats them and they can never win. Kept as an assertion of intent here.
+  const manifestHit = MANIFESTS.find(([file]) => set.has(file));
+  // A corroborated runner outranks the generic command for its ecosystem, but
+  // only once that ecosystem is established by a real manifest.
+  const corroborated = manifestHit
+    ? CORROBORATED_RUNNERS.find(([file, , eco]) => set.has(file) && eco === manifestHit[2])
+    : undefined;
+  const hit = corroborated ?? manifestHit;
 
   if (hit) {
     const [file, command, ecosystem] = hit;
@@ -94,7 +112,7 @@ export function detectTestRunner(present: readonly string[], hasNpmTestScript: b
 
 /** The manifest filenames the caller needs to stat, in priority order. */
 export function manifestFiles(): string[] {
-  return MANIFESTS.map(([file]) => file);
+  return [...MANIFESTS.map(([file]) => file), ...CORROBORATED_RUNNERS.map(([file]) => file)];
 }
 
 /**
