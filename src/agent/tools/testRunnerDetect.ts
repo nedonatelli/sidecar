@@ -21,8 +21,21 @@
 // pytest in a JS repo fails loudly and costs one turn, while running a JS
 // linter in a Python repo reports success and silently invalidates the run.
 
-/** Manifest files that identify an ecosystem, strongest signal first. */
+/**
+ * Manifest files that identify an ecosystem, strongest signal first.
+ *
+ * The first entries are PROJECT-SPECIFIC RUNNER SCRIPTS, which outrank generic
+ * manifests because they are the command the project actually documents. Both
+ * were learned from what the model types unprompted on these repos: across 150
+ * SWE-bench runs it invoked `./tests/runtests.py` 160 times and sympy's
+ * `bin/test` 57 times, and never once reached for bare pytest on them. Bare
+ * pytest on the Django repo does not work -- its suite needs runtests.py to
+ * configure settings -- so detecting `setup.py -> pytest` there would be a
+ * loud failure rather than a useful command.
+ */
 const MANIFESTS: ReadonlyArray<readonly [file: string, command: string, ecosystem: string]> = [
+  ['tests/runtests.py', 'python tests/runtests.py', 'python'],
+  ['bin/test', 'python bin/test', 'python'],
   ['pytest.ini', 'pytest', 'python'],
   ['manage.py', 'python -m pytest', 'python'],
   ['setup.py', 'pytest', 'python'],
@@ -82,4 +95,33 @@ export function detectTestRunner(present: readonly string[], hasNpmTestScript: b
 /** The manifest filenames the caller needs to stat, in priority order. */
 export function manifestFiles(): string[] {
   return MANIFESTS.map(([file]) => file);
+}
+
+/**
+ * Convert a test target into the form the detected runner accepts.
+ *
+ * Django's `runtests.py` takes a DOTTED LABEL relative to `tests/`, not a path.
+ * Observed 2026-08-18: the model scoped correctly in spirit but passed
+ * `tests/file_uploads/`; django derived `file_uploads.tests`, which failed to
+ * import, and it retried the same thing four times for zero tests run. The
+ * prompt was tightened and the model still produced paths, so the conversion
+ * belongs at the tool boundary where it is deterministic — the same principle
+ * that removed run_tests from the eval catalog rather than asking the model to
+ * avoid it.
+ *
+ * Only runtests.py is transformed. pytest genuinely wants paths, and sympy's
+ * `bin/test` accepts either, so both are passed through untouched.
+ */
+export function normalizeTestTarget(command: string, target: string): string {
+  const t = target.trim();
+  if (!t || !/runtests\.py\b/.test(command)) return t;
+  // Already a dotted label (no separators) — nothing to do.
+  if (!/[\\/]/.test(t)) return t;
+  const cleaned = t
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/^tests\//, '')
+    .replace(/\/+$/, '')
+    .replace(/\.py$/, '');
+  return cleaned.split('/').filter(Boolean).join('.');
 }

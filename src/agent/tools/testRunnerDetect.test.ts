@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectTestRunner, manifestFiles } from './testRunnerDetect.js';
+import { detectTestRunner, manifestFiles, normalizeTestTarget } from './testRunnerDetect.js';
 
 // The motivating failure is in the module header: on 2026-08-18 `run_tests`
 // linted JavaScript on a Django task and reported `ok`, because detection
@@ -68,5 +68,51 @@ describe('detectTestRunner — priority', () => {
     expect(files).toContain('Cargo.toml');
     // Order is the priority order the decision relies on.
     expect(files.indexOf('pytest.ini')).toBeLessThan(files.indexOf('pyproject.toml'));
+  });
+});
+
+describe('detectTestRunner — project-specific runner scripts', () => {
+  it("uses Django's runtests.py rather than bare pytest", () => {
+    // The Django repo root has setup.py/setup.cfg/tox.ini, which would
+    // otherwise resolve to pytest — and bare pytest cannot run its suite.
+    const d = detectTestRunner(['tests/runtests.py', 'setup.py', 'setup.cfg', 'tox.ini'], true);
+    expect(d.command).toBe('python tests/runtests.py');
+    expect(d.reason).toMatch(/runtests\.py/);
+  });
+
+  it("uses sympy's bin/test rather than bare pytest", () => {
+    expect(detectTestRunner(['bin/test', 'setup.py'], false).command).toBe('python bin/test');
+  });
+
+  it('still falls through to pytest for a plain Python project', () => {
+    expect(detectTestRunner(['pyproject.toml'], false).command).toBe('pytest');
+  });
+});
+
+describe('normalizeTestTarget — the label Django actually accepts', () => {
+  it.each([
+    ['tests/file_uploads/', 'file_uploads'],
+    ['tests/file_uploads', 'file_uploads'],
+    ['./tests/file_uploads/tests.py', 'file_uploads.tests'],
+    ['tests/utils_tests/test_html.py', 'utils_tests.test_html'],
+    ['tests\\file_uploads\\', 'file_uploads'],
+  ])('converts the path %s to the label %s', (input, expected) => {
+    expect(normalizeTestTarget('python tests/runtests.py', input)).toBe(expected);
+  });
+
+  it('leaves an already-dotted label alone', () => {
+    expect(normalizeTestTarget('python tests/runtests.py', 'file_uploads.tests')).toBe('file_uploads.tests');
+  });
+
+  it('does NOT touch targets for runners that want paths', () => {
+    // pytest genuinely takes a path; sympy's bin/test accepts either.
+    expect(normalizeTestTarget('pytest', 'tests/file_uploads/test_x.py')).toBe('tests/file_uploads/test_x.py');
+    expect(normalizeTestTarget('python bin/test', 'sympy/assumptions/tests/test_matrices.py')).toBe(
+      'sympy/assumptions/tests/test_matrices.py',
+    );
+  });
+
+  it('handles an empty target without producing a stray argument', () => {
+    expect(normalizeTestTarget('python tests/runtests.py', '   ')).toBe('');
   });
 });

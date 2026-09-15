@@ -10,7 +10,7 @@ import {
   type RegisteredTool,
 } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
-import { detectTestRunner, manifestFiles } from './testRunnerDetect.js';
+import { detectTestRunner, manifestFiles, normalizeTestTarget } from './testRunnerDetect.js';
 import type { ShellSession } from '../../terminal/shellSession.js';
 import { AgentTerminalExecutor } from '../../terminal/agentExecutor.js';
 import { CompositeShellExecutor } from '../../terminal/shellExecutor.js';
@@ -426,7 +426,17 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
     if (hasShellMetachar(file)) {
       return `Invalid file path for run_tests: "${file}" contains shell metacharacters. Use a plain relative path.`;
     }
-    command += ` ${shellQuote(file)}`;
+    // Convert the target to the form THIS runner accepts. Django's
+    // runtests.py takes a dotted label, not a path: passing
+    // `tests/file_uploads/` made it derive `file_uploads.tests`, which failed
+    // to import, and the model retried it four times for zero tests run.
+    const target = normalizeTestTarget(command, file);
+    if (target) {
+      if (target !== file) {
+        detectionNote += `\n(scoped to \`${target}\` — this runner takes a dotted label, not a path)`;
+      }
+      command += ` ${shellQuote(target)}`;
+    }
   }
 
   const config = context?.config ?? getConfig();
