@@ -37,6 +37,7 @@ vi.mock('vscode', () => ({
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import type { AgentDecision } from './decisions.js';
 
 // findColocatedTest builds its lookup with path.join, so the stat mock has to
 // compare against the platform form. A POSIX literal never matched on Windows
@@ -2466,5 +2467,43 @@ describe('completionGate — red-check recording (scaffold 5.0.0)', () => {
     expect(state.failedCheckOutput).toContain('FAILED');
     recordToolCall(state, rt, result('3 passed (3)'));
     expect(state.failedCheckOutput).toBeUndefined();
+  });
+});
+
+describe('recordToolCall — verification_run decisions', () => {
+  it('emits recognized=true with the runner name for a Django test run', () => {
+    const seen: AgentDecision[] = [];
+    const state = createGateState();
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: '1', name: 'run_command', input: { command: './tests/runtests.py utils_tests' } },
+      { type: 'tool_result', tool_use_id: '1', content: 'Ran 12 tests\n\nOK' },
+      undefined,
+      { logDecision: (d) => void seen.push(d) },
+    );
+    const v = seen.find((d) => d.kind === 'verification_run');
+    expect(v).toMatchObject({ kind: 'verification_run', recognized: true, runner: 'runtests.py' });
+  });
+
+  it('emits recognized=false for a shell command that is not verification', () => {
+    const seen: AgentDecision[] = [];
+    recordToolCall(
+      createGateState(),
+      { type: 'tool_use', id: '1', name: 'run_command', input: { command: 'ls -1 django/' } },
+      { type: 'tool_result', tool_use_id: '1', content: 'conf\ndb\n' },
+      undefined,
+      { logDecision: (d) => void seen.push(d) },
+    );
+    expect(seen.find((d) => d.kind === 'verification_run')).toMatchObject({ recognized: false });
+  });
+
+  it('works with no sink — the decision channel is optional', () => {
+    expect(() =>
+      recordToolCall(
+        createGateState(),
+        { type: 'tool_use', id: '1', name: 'run_command', input: { command: 'pytest' } },
+        { type: 'tool_result', tool_use_id: '1', content: 'OK' },
+      ),
+    ).not.toThrow();
   });
 });

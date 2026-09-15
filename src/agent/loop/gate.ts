@@ -51,7 +51,10 @@ export function recordGateToolUses(
   const mcpToolMeta = state.mcpManager ? (name: string) => state.mcpManager!.getToolMeta(name) : undefined;
   for (let idx = 0; idx < pendingToolUses.length; idx++) {
     const tr = toolResults[idx];
-    if (tr) recordGateToolCall(state.gateState, pendingToolUses[idx], tr, mcpToolMeta);
+    // `state.logger` is the decision sink: without it recordToolCall still
+    // works but emits no verification_run records, so the feature would be
+    // silently dead. A test pins that it is passed.
+    if (tr) recordGateToolCall(state.gateState, pendingToolUses[idx], tr, mcpToolMeta, state.logger);
   }
 }
 
