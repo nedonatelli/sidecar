@@ -4,6 +4,19 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **SideCar re-answered earlier prompts inside its new responses.** A text-only turn (the
+  normal end of every Q&A run) ended the agent loop without its answer ever entering
+  history: only turns carrying tool calls were recorded. On the next prompt the model saw
+  the previous question as unanswered, answered it again, then answered the new one. The
+  `stripRepeatedContent` filter could not catch it, because the text it compares against
+  was never stored. Plan-mode output was dropped the same way, so "Revise" asked the model
+  to revise a plan it could not see. The answer is now recorded before plan handling and
+  the empty-response hooks run, which also lets their reprompts ("your last response was
+  text only…") refer to text the model can see. Corrupted-output and empty turns are still
+  discarded. (`src/agent/loop.ts`)
+
 ## [0.124.0] - 2026-09-14
 
 Two arcs. August: scaffold 4.0.0 → 5.0.0 — checks must pass, and silence is not an

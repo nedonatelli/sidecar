@@ -717,6 +717,14 @@ export async function runAgentLoop(
           continue;
         }
 
+        // The text is a real answer — record it. Without this a text-only
+        // turn (the normal end of every Q&A run) never entered history: the
+        // next prompt arrived after an apparently UNANSWERED one, so the
+        // model answered the old question again before the new one. It also
+        // lets reprompts below ("your last response was text only…") and
+        // plan revision refer to text the model can actually see.
+        if (fullText.trim()) pushAssistantMessage(state, fullText, []);
+
         // ask_user is the only tool available in plan mode. A text-only
         // response — on any iteration — means the model has finished
         // asking questions and is presenting its plan.
