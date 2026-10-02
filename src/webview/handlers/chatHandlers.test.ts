@@ -2838,6 +2838,9 @@ describe('handleUserMessage — connection failed', () => {
     );
     expect(errorCall).toBeDefined();
     expect((errorCall![0] as { errorType: string }).errorType).toBe('connection');
+    // The model never saw the prompt — it must not stay in history unanswered,
+    // or a retyped prompt gets answered twice.
+    expect(state.messages).toEqual([]);
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -2978,6 +2981,8 @@ describe('handleUserMessage — budget-blocked path', () => {
 
     // runAgentLoop should NOT have been called (returned early)
     expect(state.client.updateModel).not.toHaveBeenCalled();
+    // ...so the prompt is withdrawn from history rather than left unanswered.
+    expect(state.messages).toEqual([]);
 
     // pendingSteerSnapshot should have been consumed (set to null)
     expect(state.pendingSteerSnapshot).toBeNull();

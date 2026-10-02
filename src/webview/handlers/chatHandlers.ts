@@ -301,12 +301,27 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   const sentinel = text ? parseModelSentinel(text) : { cleaned: text, override: null };
   const turnText = sentinel.cleaned;
 
+  let pushedUserMessage: ChatMessage | null = null;
   if (turnText) {
     const messageText = prepareUserMessageText(state, turnText);
-    state.messages.push({ role: 'user', content: messageText });
+    pushedUserMessage = { role: 'user', content: messageText };
+    state.messages.push(pushedUserMessage);
     void state.logMessage('user', messageText);
     state.saveHistory();
   }
+  // When the run stops before the model ever sees the prompt (backend
+  // unreachable, budget blocked), take the prompt back out of history. Left
+  // in, the user's retyped prompt would follow an unanswered copy and the
+  // model would answer both.
+  const withdrawUnsentUserMessage = () => {
+    if (pushedUserMessage && state.messages[state.messages.length - 1] === pushedUserMessage) {
+      state.messages.pop();
+      state.saveHistory();
+      // Resync the webview's message-index counter, which already counted
+      // the withdrawn prompt's bubble.
+      state.postMessage({ command: 'done', messageCount: state.messages.length });
+    }
+  };
 
   state.pendingPartialAssistant = null;
   state.postMessage({ command: 'setLoading', isLoading: true });
@@ -357,11 +372,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
               errorActionCommand: 'reconnect',
             },
       );
+      withdrawUnsentUserMessage();
       return;
     }
 
     if (checkBudgetLimits(state, config) === 'blocked') {
       state.postMessage({ command: 'setLoading', isLoading: false });
+      withdrawUnsentUserMessage();
       return;
     }
 
@@ -400,6 +417,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // Skills 2.0 — disableModelInvocation: return the skill body directly.
     if (matchedSkill?.disableModelInvocation) {
       state.postMessage({ command: 'assistantMessage', content: matchedSkill.content });
+      // Record the reply: an unanswered prompt in history gets answered again
+      // alongside the next one.
+      state.messages.push({ role: 'assistant', content: matchedSkill.content });
+      state.saveHistory();
       state.postMessage({ command: 'done', messageCount: state.messages.length });
       return;
     }
@@ -529,15 +550,21 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     // Shadow isolation: an explicit /sandbox request or shadowWorkspace.mode
     // 'always' routes through the sandbox wrapper (ephemeral git worktree +
-    // accept/reject at run's end). The loop mutates chatMessages in place, so
-    // the post-loop pipeline reads the same array on both paths.
+    // accept/reject at run's end). The loop works on a COPY of chatMessages,
+    // so both paths must take the run's history from the returned value —
+    // reading chatMessages back dropped every turn of a sandboxed run.
     let updatedMessages: typeof chatMessages;
     if (forceShadow || config.shadowWorkspaceMode === 'always') {
       const { runAgentLoopInSandbox } = await import('../../agent/shadow/sandbox.js');
-      await runAgentLoopInSandbox(state.client, chatMessages, agentCbs, state.abortController.signal, loopOptions, {
-        forceShadow,
-      });
-      updatedMessages = chatMessages;
+      const sandboxResult = await runAgentLoopInSandbox(
+        state.client,
+        chatMessages,
+        agentCbs,
+        state.abortController.signal,
+        loopOptions,
+        { forceShadow },
+      );
+      updatedMessages = sandboxResult.messages ?? chatMessages;
     } else {
       updatedMessages = await runAgentLoop(
         state.client,

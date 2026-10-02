@@ -11,11 +11,25 @@ All notable changes to the SideCar extension will be documented in this file.
   history: only turns carrying tool calls were recorded. On the next prompt the model saw
   the previous question as unanswered, answered it again, then answered the new one. The
   `stripRepeatedContent` filter could not catch it, because the text it compares against
-  was never stored. Plan-mode output was dropped the same way, so "Revise" asked the model
-  to revise a plan it could not see. The answer is now recorded before plan handling and
-  the empty-response hooks run, which also lets their reprompts ("your last response was
-  text only…") refer to text the model can see. Corrupted-output and empty turns are still
-  discarded. (`src/agent/loop.ts`)
+  was never stored. The answer is now recorded before the empty-response hooks run, which
+  also lets their reprompts ("your last response was text only…") refer to text the model
+  can see. Corrupted-output and empty turns are still discarded. (`src/agent/loop.ts`)
+- **Other paths that left a prompt unanswered in history, with the same effect:**
+  - _Sandboxed runs lost every turn._ With `/sandbox` or `shadowWorkspace.mode: 'always'`
+    the chat read back its own message array, but the loop works on a copy, so nothing the
+    run produced reached history. `runAgentLoopInSandbox` now returns the loop's history.
+    (`src/agent/shadow/sandbox.ts`, `src/webview/handlers/chatHandlers.ts`)
+  - _Plan revision could not see the plan._ The plan-mode snapshot came from the caller's
+    array, which never holds the plan, so "Revise" sent feedback on a plan the model had
+    no record of. The plan is now part of the snapshot.
+    (`src/webview/handlers/agentCallbacks.ts`)
+  - _A failed send left its prompt behind._ When the backend is unreachable or the budget
+    blocks the run, the model never sees the prompt, but it stayed in history, so retyping
+    it produced two copies and two answers. The prompt is now withdrawn in those cases. A
+    model error partway through still keeps it, so Retry works.
+    (`src/webview/handlers/chatHandlers.ts`)
+  - _Skills with `disableModelInvocation` showed their reply but never saved it._ The
+    reply is now recorded. (`src/webview/handlers/chatHandlers.ts`)
 
 ## [0.124.0] - 2026-09-14
 

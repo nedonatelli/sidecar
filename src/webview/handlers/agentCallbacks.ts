@@ -185,7 +185,10 @@ export function createAgentCallbacks(
     },
     onPlanGenerated: (plan) => {
       state.pendingPlan = plan;
-      state.pendingPlanMessages = [...chatMessages];
+      // chatMessages is the caller's array; the loop ran on a copy, so the
+      // plan itself has to be added here or Revise asks the model to revise
+      // a plan it cannot see.
+      state.pendingPlanMessages = [...chatMessages, { role: 'assistant', content: plan }];
       state.postMessage({ command: 'planReady', content: plan });
     },
     onMemory: (type, category, content) => {
