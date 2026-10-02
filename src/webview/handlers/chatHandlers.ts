@@ -154,6 +154,39 @@ export function recordRunCost(state: ChatState): void {
 // System prompt assembly for a run
 // ---------------------------------------------------------------------------
 
+/**
+ * Decide the run's context window and the system prompt's size budget.
+ *
+ * - The window: only Ollama lets SideCar choose it, so only there does the
+ *   user's `contextLimit` win and the per-model cap apply. Any other server's
+ *   reported window is the real limit (vLLM rejects requests past
+ *   --max-model-len), with `contextLimit` as the fallback when it reports none.
+ * - The system prompt may take 40% of the window. For a model on this machine
+ *   that is capped at LOCAL_MAX_SYSTEM_CHARS: with a 128K window the uncapped
+ *   budget is ~204K chars (~51K tokens), which overwhelms small models and
+ *   makes them answer in text instead of calling tools, ending the agent loop
+ *   after one iteration.
+ */
+export function resolveContextBudget(p: {
+  isLocal: boolean;
+  ollamaSetsContext: boolean;
+  rawContextLength: number | null;
+  userContextLimit: number;
+  model: string;
+}): { contextLength: number | null; maxSystemChars: number } {
+  let contextLength: number | null;
+  if (p.userContextLimit > 0) {
+    contextLength = p.ollamaSetsContext ? p.userContextLimit : (p.rawContextLength ?? p.userContextLimit);
+  } else {
+    const modelCap = contextCapForModel(p.model);
+    contextLength =
+      p.ollamaSetsContext && p.rawContextLength && p.rawContextLength > modelCap ? modelCap : p.rawContextLength;
+  }
+  const rawMaxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
+  const maxSystemChars = p.isLocal ? Math.min(rawMaxSystemChars, LOCAL_MAX_SYSTEM_CHARS) : rawMaxSystemChars;
+  return { contextLength, maxSystemChars };
+}
+
 async function buildSystemPromptForRun(
   state: ChatState,
   config: ReturnType<typeof getConfig>,
@@ -166,7 +199,13 @@ async function buildSystemPromptForRun(
   contextLength: number | null;
   matchedSkill: import('../../agent/skillLoader.js').Skill | null;
 }> {
-  const isLocal = state.client.isLocalOllama();
+  // Model runs on this machine (local Ollama, or an OpenAI-compatible server on
+  // loopback): apply the prompt-size limits meant for small self-hosted models.
+  const isLocal = state.client.isLocalEndpoint();
+  // Only Ollama lets SideCar choose the context window, so only Ollama's
+  // window follows the user's contextLimit and the per-model cap. Any other
+  // server's reported limit is the real one.
+  const ollamaSetsContext = state.client.isLocalOllama();
   const pkg = state.context.extension?.packageJSON || {};
   const extensionVersion = pkg.version || 'unknown';
   const root = getWorkspaceRoot();
@@ -197,23 +236,13 @@ async function buildSystemPromptForRun(
   const rawContextLength = await state.client.getModelContextLength(signal);
   const modelInfoMs = Date.now() - ctxT0;
   signal?.throwIfAborted();
-  const userContextLimit = getContextLimit();
-  let contextLength: number | null;
-  if (userContextLimit > 0) {
-    contextLength = isLocal ? userContextLimit : (rawContextLength ?? userContextLimit);
-  } else {
-    const modelCap = contextCapForModel(state.client.getModel());
-    contextLength = isLocal && rawContextLength && rawContextLength > modelCap ? modelCap : rawContextLength;
-  }
-  // Allow the system prompt to occupy up to 40% of the context window during
-  // assembly. After injection the actual size is measured and used to set a
-  // tighter message-history budget (see effectiveMaxTokens calculation below).
-  // For local models the 40% rule is capped at LOCAL_MAX_SYSTEM_CHARS: with a
-  // 128K context window the uncapped budget is ~204K chars (~51K tokens), which
-  // overwhelms small models and causes them to produce text-only responses
-  // instead of tool calls, making the agent loop exit after one iteration.
-  const rawMaxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
-  const maxSystemChars = isLocal ? Math.min(rawMaxSystemChars, LOCAL_MAX_SYSTEM_CHARS) : rawMaxSystemChars;
+  const { contextLength, maxSystemChars } = resolveContextBudget({
+    isLocal,
+    ollamaSetsContext,
+    rawContextLength,
+    userContextLimit: getContextLimit(),
+    model: state.client.getModel(),
+  });
 
   const { prompt: injectedPrompt, matchedSkill } = await injectSystemContext(
     systemPrompt,

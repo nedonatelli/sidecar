@@ -368,6 +368,53 @@ export function openAiApiRoot(baseUrl: string): string {
   return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
+/** True when a URL's host is this machine (localhost, 127.x, ::1, 0.0.0.0). */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === 'localhost' ||
+      hostname === '[::1]' ||
+      hostname === '0.0.0.0' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True for an OpenAI-compatible server on this machine — vLLM, LM Studio,
+ * llama.cpp on loopback. Self-hosted models are often small, so these get the
+ * same prompt-size and tool-count limits as local Ollama. A server elsewhere
+ * on the network is not included: locality is the only signal we have, and a
+ * remote box is as likely to serve a large model as a cloud API is.
+ */
+export function isLocalOpenAiCompatible(baseUrl: string, provider: Parameters<typeof detectProvider>[1]): boolean {
+  const p = detectProvider(baseUrl, provider);
+  return (p === 'openai-compat' || p === 'openai') && isLoopbackUrl(baseUrl);
+}
+
+/**
+ * Read a model's context window from an OpenAI-style `/v1/models` response.
+ * The field is not standard: vLLM reports `max_model_len` (the server's real
+ * `--max-model-len` limit), Kickstand / together.ai / OpenRouter report
+ * `context_length`. Returns null when the model or the field is absent.
+ * llama.cpp's `meta.n_ctx_train` is deliberately ignored — it is the training
+ * context, not what the server was started with.
+ */
+export function contextLengthFromModelsList(data: unknown, model: string): number | null {
+  const list = (data as { data?: unknown } | null)?.data;
+  if (!Array.isArray(list)) return null;
+  const entry = list.find((m) => (m as { id?: unknown })?.id === model) as Record<string, unknown> | undefined;
+  if (!entry) return null;
+  for (const key of ['max_model_len', 'context_length', 'context_window']) {
+    const v = entry[key];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+
 /** Map a resolved provider identifier to a user-facing display label. */
 export function providerDisplayLabel(provider: ReturnType<typeof detectProvider>): string {
   switch (provider) {

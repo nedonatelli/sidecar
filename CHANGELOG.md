@@ -14,6 +14,18 @@ All notable changes to the SideCar extension will be documented in this file.
   as active whenever the provider is `openai-compat` at a URL no built-in profile owns.
   (`src/commands/settingsCommands.ts`, `src/config/settings/backends.ts`,
   `src/webview/chatWebview.ts`, `src/webview/chatView.ts`)
+- **OpenAI-compatible servers report their own context window.** For a custom endpoint, or
+  an `openai` provider pointed anywhere but the OpenAI service, SideCar now asks
+  `/v1/models` for the model's window (`max_model_len` on vLLM, `context_length` on
+  together.ai and similar) instead of relying on a lookup table that never knows a
+  HuggingFace-ID model name. Without it the window was unknown and long vLLM runs failed
+  once they exceeded `--max-model-len`. That reported window now also takes precedence over
+  `sidecar.contextLimit`, which only Ollama can honour. (`src/ollama/client.ts`,
+  `src/config/settings/backends.ts`, `src/webview/handlers/chatHandlers.ts`)
+- **An OpenAI-compatible server on this machine is treated as local.** vLLM, LM Studio or
+  llama.cpp on `localhost` now get the system-prompt size cap and tool-catalog trim that
+  local Ollama gets. A server elsewhere on the network is unaffected. (`src/agent/tools.ts`,
+  `src/webview/handlers/chatHandlers.ts`)
 - The vLLM launch example in `docs/backends.md` now includes `--enable-auto-tool-choice`
   and `--tool-call-parser`, without which the agent cannot call tools.
 

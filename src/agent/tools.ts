@@ -2,7 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../ollama/types.js';
 import type { MCPManager } from './mcpManager.js';
-import { getConfig, detectProvider, type SideCarConfig } from '../config/settings.js';
+import { getConfig, detectProvider, isLocalOpenAiCompatible, type SideCarConfig } from '../config/settings.js';
 import { checkWorkspaceConfigTrust } from '../config/workspaceTrust.js';
 import { redactSecrets } from './securityScanner.js';
 
@@ -483,7 +483,7 @@ const LOCAL_CORE_TOOL_NAMES = new Set<string>([
 /** Providers that run locally, where the prompt-size / tool-count cost bites hardest. */
 function isLocalProviderConfig(cfg: SideCarConfig): boolean {
   const p = detectProvider(cfg.baseUrl, cfg.provider);
-  return p === 'ollama' || p === 'kickstand';
+  return p === 'ollama' || p === 'kickstand' || isLocalOpenAiCompatible(cfg.baseUrl, cfg.provider);
 }
 
 /**

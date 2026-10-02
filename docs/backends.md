@@ -335,6 +335,8 @@ The equivalent settings, if you prefer to edit them by hand:
 
 The model name must match the HuggingFace repo ID used at launch (or the `--served-model-name` flag if you set one).
 
+SideCar reads the model's context window from the server (`max_model_len` on `/v1/models`), so history is compressed before a request can exceed `--max-model-len`. When the server is on this machine (`localhost`), SideCar also applies the prompt-size and tool-catalog limits it uses for local Ollama models; a vLLM server elsewhere on the network is treated like a cloud API.
+
 ### Launch example
 
 ```bash

@@ -39,6 +39,8 @@ export {
   isGemini,
   detectProvider,
   providerDisplayLabel,
+  isLocalOpenAiCompatible,
+  contextLengthFromModelsList,
 } from './settings/backends.js';
 
 // ---------------------------------------------------------------------------

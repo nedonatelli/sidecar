@@ -2211,6 +2211,7 @@ describe('handleReconnect', () => {
         // to spawn a child process.
         getProviderType: vi.fn().mockReturnValue(overrides.providerType ?? 'anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(overrides.isLocalOllama ?? false),
+        isLocalEndpoint: vi.fn().mockReturnValue(overrides.isLocalOllama ?? false),
       },
     };
   }
@@ -2464,6 +2465,7 @@ describe('handleRestartOllama', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue(isLocal ? 'ollama' : 'anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(isLocal),
+        isLocalEndpoint: vi.fn().mockReturnValue(isLocal),
       },
     };
   }
@@ -2700,6 +2702,7 @@ describe('handleReconnect — with last user message', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -2752,6 +2755,7 @@ describe('handleReconnect — with last user message', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -2822,6 +2826,7 @@ describe('handleUserMessage — connection failed', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -2899,6 +2904,7 @@ describe('handleUserMessage — abort prior run', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -2963,6 +2969,7 @@ describe('handleUserMessage — budget-blocked path', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -3034,6 +3041,7 @@ describe('handleUserMessage — budget-blocked path', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -3080,6 +3088,7 @@ describe('ensureProviderRunning — kickstand path', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('kickstand'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
       },
     };
 
@@ -3178,6 +3187,7 @@ describe('handleRegenerateResponse — content block array', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -3256,6 +3266,7 @@ describe('handleRegenerateResponse', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         streamChat: vi.fn().mockRejectedValue(new Error('mock')),
       },
     };
@@ -3290,6 +3301,7 @@ describe('handleRegenerateResponse', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -3333,6 +3345,7 @@ describe('handleRegenerateResponse', () => {
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
         setTurnOverride: vi.fn(),
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -3471,6 +3484,7 @@ function makeCatchBlockState(overrides: Record<string, unknown> = {}) {
     client: {
       getProviderType: vi.fn().mockReturnValue('anthropic'),
       isLocalOllama: vi.fn().mockReturnValue(false),
+      isLocalEndpoint: vi.fn().mockReturnValue(false),
       setTurnOverride: vi.fn(),
       updateConnection: vi.fn(),
       updateModel: vi.fn(),
@@ -3612,5 +3626,62 @@ describe('handleUserMessage — steer snapshot stash (lines 517–519)', () => {
     expect(Array.isArray(state.pendingSteerSnapshot) && (state.pendingSteerSnapshot as unknown[]).length).toBe(1);
 
     vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveContextBudget — context window + system-prompt budget
+// ---------------------------------------------------------------------------
+describe('resolveContextBudget', () => {
+  it('local Ollama: the user contextLimit wins, since SideCar sets the window', async () => {
+    const { resolveContextBudget } = await import('./chatHandlers.js');
+    const r = resolveContextBudget({
+      isLocal: true,
+      ollamaSetsContext: true,
+      rawContextLength: 131_072,
+      userContextLimit: 16_384,
+      model: 'qwen3:8b',
+    });
+    expect(r.contextLength).toBe(16_384);
+  });
+
+  it("local vLLM: the server's reported window wins over contextLimit, and the local prompt cap applies", async () => {
+    const { resolveContextBudget } = await import('./chatHandlers.js');
+    const { LOCAL_MAX_SYSTEM_CHARS } = await import('../../config/constants.js');
+    const r = resolveContextBudget({
+      isLocal: true,
+      ollamaSetsContext: false,
+      rawContextLength: 32_768,
+      userContextLimit: 131_072, // larger than --max-model-len: must not be used
+      model: 'Qwen/Qwen2.5-Coder-32B-Instruct',
+    });
+    expect(r.contextLength).toBe(32_768);
+    expect(r.maxSystemChars).toBeLessThanOrEqual(LOCAL_MAX_SYSTEM_CHARS);
+  });
+
+  it('local vLLM: the per-model Ollama cap is not applied to a reported window', async () => {
+    const { resolveContextBudget } = await import('./chatHandlers.js');
+    const r = resolveContextBudget({
+      isLocal: true,
+      ollamaSetsContext: false,
+      rawContextLength: 1_000_000,
+      userContextLimit: 0,
+      model: 'some/model',
+    });
+    expect(r.contextLength).toBe(1_000_000);
+  });
+
+  it('a remote endpoint keeps the uncapped 40% prompt budget', async () => {
+    const { resolveContextBudget } = await import('./chatHandlers.js');
+    const { LOCAL_MAX_SYSTEM_CHARS } = await import('../../config/constants.js');
+    const r = resolveContextBudget({
+      isLocal: false,
+      ollamaSetsContext: false,
+      rawContextLength: 200_000,
+      userContextLimit: 0,
+      model: 'claude-sonnet-4-5',
+    });
+    expect(r.contextLength).toBe(200_000);
+    expect(r.maxSystemChars).toBeGreaterThan(LOCAL_MAX_SYSTEM_CHARS);
   });
 });

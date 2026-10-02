@@ -86,6 +86,28 @@ describe('local-model tool trim', () => {
     }
   });
 
+  it('a custom OpenAI-compatible server on this machine is trimmed like local Ollama; a remote one is not', () => {
+    const fullNames = (c: never) =>
+      getToolDefinitionsForTier('full', undefined, c)
+        .filter((d) => !isStub(d))
+        .map((d) => d.name)
+        .sort();
+    const vllmLocal = cfg({
+      provider: 'openai-compat',
+      baseUrl: 'http://localhost:8000/v1',
+      localToolTrimEnabled: true,
+    });
+    const vllmRemote = cfg({
+      provider: 'openai-compat',
+      baseUrl: 'http://gpu-box:8000/v1',
+      localToolTrimEnabled: true,
+    });
+    expect(fullNames(vllmLocal)).toEqual(fullNames(local));
+    expect(fullSchemaCount(getToolDefinitionsForTier('full', undefined, vllmRemote))).toBeGreaterThan(
+      fullSchemaCount(getToolDefinitionsForTier('full', undefined, vllmLocal)),
+    );
+  });
+
   it('disabling the trim widens a local model back to the full catalog', () => {
     // Same provider (ollama), trim off vs on — isolates the trim from the
     // provider-specific delegate_task difference vs cloud.
