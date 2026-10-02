@@ -5,6 +5,7 @@ import {
   setApiKeySecret,
   setHuggingFaceToken,
   clearHuggingFaceToken,
+  applyCustomEndpoint,
 } from '../config/settings.js';
 
 /** Public skill marketplace — browseable GitHub topic index of `sidecar-skill` repos. */
@@ -89,6 +90,49 @@ export async function promptBedrockRegion(): Promise<string | undefined> {
   await cfg.update('baseUrl', baseUrl, true);
   window.showInformationMessage(`SideCar: Bedrock set to ${region}${fips ? ' (FIPS)' : ''} — ${baseUrl}`);
   return region;
+}
+
+/** Returns an error message for an unusable endpoint URL, or undefined when it is fine. */
+export function validateEndpointUrl(value: string): string | undefined {
+  try {
+    const { protocol } = new URL(value.trim());
+    if (protocol === 'http:' || protocol === 'https:') return undefined;
+  } catch {
+    // fall through
+  }
+  return 'Enter a full http:// or https:// URL, e.g. http://localhost:8000/v1';
+}
+
+/**
+ * Set up a custom OpenAI-compatible endpoint: prompt for its URL, then its API
+ * key, and apply both. An empty key means the server needs none. Cancelling
+ * either prompt changes nothing. Returns the applied URL, or undefined.
+ */
+export async function promptCustomEndpoint(): Promise<string | undefined> {
+  const cfg = getConfig();
+  const typedUrl = await window.showInputBox({
+    title: 'Custom endpoint (1/2): URL',
+    prompt: 'Base URL of an OpenAI-compatible server. A trailing /v1 is optional.',
+    placeHolder: 'http://localhost:8000/v1',
+    value: cfg.provider === 'openai-compat' ? cfg.baseUrl : '',
+    ignoreFocusOut: true,
+    validateInput: validateEndpointUrl,
+  });
+  if (typedUrl === undefined) return undefined;
+  const baseUrl = typedUrl.trim().replace(/\/+$/, '');
+
+  const typedKey = await window.showInputBox({
+    title: 'Custom endpoint (2/2): API key',
+    prompt: `API key for ${baseUrl}. Leave empty if the server does not require one.`,
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (typedKey === undefined) return undefined;
+  const apiKey = typedKey.trim();
+
+  await applyCustomEndpoint(baseUrl, apiKey);
+  window.showInformationMessage(`SideCar: using ${baseUrl} (${apiKey ? 'API key saved' : 'no API key'}).`);
+  return baseUrl;
 }
 
 export interface SettingsCommandDeps {
@@ -203,44 +247,65 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
     }),
     commands.registerCommand('sidecar.bedrock.setRegion', () => promptBedrockRegion()),
     commands.registerCommand('sidecar.switchBackend', async (profileId?: unknown) => {
-      const { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } = await import('../config/settings.js');
-      const requestedId = typeof profileId === 'string' ? profileId : undefined;
-      let profile = requestedId ? BUILT_IN_BACKEND_PROFILES.find((p) => p.id === requestedId) : undefined;
-      if (!profile) {
+      const { BUILT_IN_BACKEND_PROFILES, CUSTOM_ENDPOINT_ENTRY, applyBackendProfile } =
+        await import('../config/settings.js');
+      let selectedId = typeof profileId === 'string' ? profileId : undefined;
+      const isKnownId = (id: string | undefined) =>
+        id === CUSTOM_ENDPOINT_ENTRY.id || BUILT_IN_BACKEND_PROFILES.some((p) => p.id === id);
+      if (!isKnownId(selectedId)) {
         const pick = await window.showQuickPick(
-          BUILT_IN_BACKEND_PROFILES.map((p) => ({
-            label: p.name,
-            description: p.description,
-            detail: p.baseUrl,
-            id: p.id,
-          })),
+          [
+            ...BUILT_IN_BACKEND_PROFILES.map((p) => ({
+              label: p.name,
+              description: p.description,
+              detail: p.baseUrl,
+              id: p.id,
+            })),
+            {
+              label: CUSTOM_ENDPOINT_ENTRY.name,
+              description: CUSTOM_ENDPOINT_ENTRY.description,
+              detail: 'Enter a URL',
+              id: CUSTOM_ENDPOINT_ENTRY.id,
+            },
+          ],
           { title: 'Switch SideCar backend', placeHolder: 'Choose a backend profile' },
         );
         if (!pick) return;
-        profile = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === pick.id);
+        selectedId = pick.id;
       }
-      if (!profile) return;
-      const result = await applyBackendProfile(profile);
-      if (result.status === 'missing-key') {
-        const action = await window.showWarningMessage(result.message, 'Set API Key');
-        if (action === 'Set API Key') {
-          commands.executeCommand('sidecar.setApiKey');
-        }
+
+      // Name of what we switched to, for the no-models hint below.
+      let targetName: string;
+      if (selectedId === CUSTOM_ENDPOINT_ENTRY.id) {
+        const baseUrl = await promptCustomEndpoint();
+        if (!baseUrl) return;
+        targetName = baseUrl;
       } else {
-        window.showInformationMessage(result.message);
-      }
+        const profile = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === selectedId);
+        if (!profile) return;
+        targetName = profile.name;
+        const result = await applyBackendProfile(profile);
+        if (result.status === 'missing-key') {
+          const action = await window.showWarningMessage(result.message, 'Set API Key');
+          if (action === 'Set API Key') {
+            commands.executeCommand('sidecar.setApiKey');
+          }
+        } else {
+          window.showInformationMessage(result.message);
+        }
 
-      if (profile.provider === 'ollama' && isLocalOllama(profile.baseUrl)) {
-        const { ensureOllamaRunning } = await import('../config/providerReachability.js');
-        void window.withProgress({ location: { viewId: 'sidecar.chatView' }, title: 'Starting Ollama...' }, () =>
-          ensureOllamaRunning(profile!.baseUrl),
-        );
-      }
+        if (profile.provider === 'ollama' && isLocalOllama(profile.baseUrl)) {
+          const { ensureOllamaRunning } = await import('../config/providerReachability.js');
+          void window.withProgress({ location: { viewId: 'sidecar.chatView' }, title: 'Starting Ollama...' }, () =>
+            ensureOllamaRunning(profile.baseUrl),
+          );
+        }
 
-      // Bedrock's region isn't part of the profile — offer to pick it right
-      // after switching so the whole flow stays in the chat.
-      if (profile.provider === 'bedrock') {
-        await promptBedrockRegion();
+        // Bedrock's region isn't part of the profile — offer to pick it right
+        // after switching so the whole flow stays in the chat.
+        if (profile.provider === 'bedrock') {
+          await promptBedrockRegion();
+        }
       }
 
       const chatProvider = getChatProvider();
@@ -266,7 +331,7 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
                 : providerType === 'ollama'
                   ? 'Run `ollama pull <model>` from the terminal or paste a model name into the model input.'
                   : 'Enter a model name in the model input to get started.';
-            window.showInformationMessage(`SideCar: No models available on ${profile!.name}. ${hint}`);
+            window.showInformationMessage(`SideCar: No models available on ${targetName}. ${hint}`);
           }
         } catch {
           // Backend unreachable — loadModels will surface a connection error

@@ -182,7 +182,7 @@ Groq offers very fast inference for open-source models via their LPU hardware.
 
 ### Other OpenAI-compatible servers
 
-LM Studio, vLLM, llama.cpp, and other OpenAI-compatible servers work out of the box:
+LM Studio, vLLM, llama.cpp, and other OpenAI-compatible servers work out of the box. Pick **Custom endpoint** in the backend menu and enter the server's URL, then its API key (leave it empty if the server doesn't need one). Or configure it by hand:
 
 1. Set `sidecar.baseUrl` to your server URL (e.g. `http://localhost:1234`)
 2. Set `sidecar.model` to the model name on your server

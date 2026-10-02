@@ -323,9 +323,13 @@ vLLM is a high-throughput inference server designed for multi-user serving and l
 
 ### Configuration
 
+Choose **Custom endpoint** in the backend menu (chat settings → Backend, or `SideCar: Switch Backend`), enter the server URL (e.g. `http://localhost:8000/v1`), then the API key you passed to `vllm serve --api-key` — or leave it empty if you didn't set one. SideCar lists the served models and selects one.
+
+The equivalent settings, if you prefer to edit them by hand:
+
 ```json
 "sidecar.baseUrl": "http://localhost:8000",
-"sidecar.provider": "openai",
+"sidecar.provider": "openai-compat",
 "sidecar.model": "Qwen/Qwen2.5-Coder-32B-Instruct"
 ```
 
@@ -336,8 +340,12 @@ The model name must match the HuggingFace repo ID used at launch (or the `--serv
 ```bash
 vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \
   --max-model-len 32768 \
-  --gpu-memory-utilization 0.9
+  --gpu-memory-utilization 0.9 \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes
 ```
+
+The last two flags turn on tool calling, which SideCar's agent needs to edit files and run commands. The parser depends on the model family (`hermes` for Qwen 2.5; see vLLM's tool-calling docs for others).
 
 ### vLLM vs. Ollama
 

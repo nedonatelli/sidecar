@@ -14,7 +14,13 @@ vi.mock('./secrets.js', () => secrets);
 const settings = vi.hoisted(() => ({ invalidateConfigCache: vi.fn() }));
 vi.mock('../settings.js', () => settings);
 
-import { applyBackendProfile, setProfileApiKey, providerDisplayLabel, type BackendProfile } from './backends.js';
+import {
+  applyBackendProfile,
+  applyCustomEndpoint,
+  setProfileApiKey,
+  providerDisplayLabel,
+  type BackendProfile,
+} from './backends.js';
 
 function makeProfile(over: Partial<BackendProfile> = {}): BackendProfile {
   return {
@@ -159,5 +165,19 @@ describe('setProfileApiKey', () => {
   it('throws when SecretStorage is not initialized', async () => {
     secrets.getSecretContext.mockReturnValue(null);
     await expect(setProfileApiKey(makeProfile(), 'sk-new')).rejects.toThrow('SecretStorage not initialized');
+  });
+});
+
+describe('applyCustomEndpoint', () => {
+  it('writes the openai-compat provider + URL and stores the given key', async () => {
+    await applyCustomEndpoint('http://gpu-box:8000/v1', 'sk-local');
+    expect(updateSpy).toHaveBeenCalledWith('provider', 'openai-compat', true);
+    expect(updateSpy).toHaveBeenCalledWith('baseUrl', 'http://gpu-box:8000/v1', true);
+    expect(secrets.storeActiveApiKey).toHaveBeenCalledWith('sk-local');
+  });
+
+  it('stores the no-key placeholder when the key is empty, so no Authorization header is sent', async () => {
+    await applyCustomEndpoint('http://localhost:8000', '');
+    expect(secrets.storeActiveApiKey).toHaveBeenCalledWith('ollama');
   });
 });

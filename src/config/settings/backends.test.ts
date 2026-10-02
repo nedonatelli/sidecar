@@ -3,6 +3,8 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
   detectActiveProfile,
+  detectActiveProfileId,
+  CUSTOM_ENDPOINT_ENTRY,
   isLocalOllama,
   isAnthropic,
   isKickstand,
@@ -31,6 +33,20 @@ describe('detectActiveProfile', () => {
   it('returns the anthropic profile for the Anthropic base URL', () => {
     const profile = detectActiveProfile('https://api.anthropic.com');
     expect(profile?.provider).toBe('anthropic');
+  });
+});
+
+describe('detectActiveProfileId', () => {
+  it('prefers a built-in profile whose URL matches', () => {
+    expect(detectActiveProfileId('http://localhost:11434', 'auto')).toBe('local-ollama');
+  });
+
+  it('marks the custom-endpoint entry active for an unmatched openai-compat URL', () => {
+    expect(detectActiveProfileId('http://gpu-box:8000/v1', 'openai-compat')).toBe(CUSTOM_ENDPOINT_ENTRY.id);
+  });
+
+  it('returns null for an unmatched URL under any other provider', () => {
+    expect(detectActiveProfileId('http://gpu-box:8000/v1', 'openai')).toBeNull();
   });
 });
 

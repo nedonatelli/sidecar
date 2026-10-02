@@ -25,7 +25,7 @@ import type { PlanCheckpoint } from '../agent/plans/planStore.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import type { BackgroundAgentManager } from '../agent/backgroundAgent.js';
-import { getConfig, detectActiveProfile } from '../config/settings.js';
+import { getConfig, detectActiveProfileId } from '../config/settings.js';
 import { ContextProviderManager } from '../context/contextProviderManager.js';
 import { handleUserMessage } from './handlers/chatHandlers.js';
 import { buildCodeActionPrompt, buildTerminalErrorPrompt } from './codeActions.js';
@@ -275,8 +275,10 @@ export class ChatViewProvider implements WebviewViewProvider {
 
   public pushActiveBackendProfile(): void {
     const cfg = getConfig();
-    const activeProfile = detectActiveProfile(cfg.baseUrl);
-    this.state.postMessage({ command: 'setActiveBackendProfile', activeBackendProfileId: activeProfile?.id ?? null });
+    this.state.postMessage({
+      command: 'setActiveBackendProfile',
+      activeBackendProfileId: detectActiveProfileId(cfg.baseUrl, cfg.provider),
+    });
   }
 
   public reloadModels(): void {

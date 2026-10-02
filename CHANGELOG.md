@@ -4,6 +4,19 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Custom endpoint backend.** A new **Custom endpoint** entry in the backend menu (chat
+  settings → Backend, and `SideCar: Switch Backend`) connects any OpenAI-compatible server —
+  vLLM, LM Studio, llama.cpp, or a gateway — without hand-editing settings. It asks for the
+  server's URL, then its API key; an empty key means the server needs none, and no
+  `Authorization` header is sent. Cancelling either prompt changes nothing. The entry shows
+  as active whenever the provider is `openai-compat` at a URL no built-in profile owns.
+  (`src/commands/settingsCommands.ts`, `src/config/settings/backends.ts`,
+  `src/webview/chatWebview.ts`, `src/webview/chatView.ts`)
+- The vLLM launch example in `docs/backends.md` now includes `--enable-auto-tool-choice`
+  and `--tool-call-parser`, without which the agent cannot call tools.
+
 ### Fixed
 
 - **SideCar re-answered earlier prompts inside its new responses.** A text-only turn (the
