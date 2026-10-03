@@ -25,6 +25,9 @@ export {
   ANTHROPIC_DEFAULT_MODEL,
   BUILT_IN_BACKEND_PROFILES,
   detectActiveProfile,
+  detectActiveProfileId,
+  CUSTOM_ENDPOINT_ENTRY,
+  applyCustomEndpoint,
   applyBackendProfile,
   setProfileApiKey,
   isLocalOllama,
@@ -36,6 +39,8 @@ export {
   isGemini,
   detectProvider,
   providerDisplayLabel,
+  isLocalOpenAiCompatible,
+  contextLengthFromModelsList,
 } from './settings/backends.js';
 
 // ---------------------------------------------------------------------------

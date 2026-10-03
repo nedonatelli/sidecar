@@ -32,6 +32,12 @@ export interface SandboxResult {
   pendingDiff?: string;
   /** The shadow's task ID when mode is 'shadow'. Lets callers correlate logs with .sidecar/shadows/<id>/. */
   shadowId?: string;
+  /**
+   * The run's final message history, as `runAgentLoop` returned it. The loop
+   * works on a copy, so the caller's `messages` array never sees the run —
+   * a caller that keeps a transcript must take it from here.
+   */
+  messages?: ChatMessage[];
 }
 
 /**
@@ -72,8 +78,8 @@ export async function runAgentLoopInSandbox(
     !sandboxOptions.suppressShadow && (cfg.shadowWorkspaceMode === 'always' || sandboxOptions.forceShadow === true);
 
   if (!shouldSandbox) {
-    await runAgentLoop(client, messages, callbacks, signal, options);
-    return { mode: 'direct', applied: true };
+    const finalMessages = await runAgentLoop(client, messages, callbacks, signal, options);
+    return { mode: 'direct', applied: true, messages: finalMessages };
   }
 
   const mainRoot = getRoot();
@@ -81,8 +87,8 @@ export async function runAgentLoopInSandbox(
     // No workspace folder open — the shadow has nothing to branch off of.
     // Fall through to direct execution and log the reason.
     callbacks.onText?.('\n[shadow mode skipped: no workspace folder is open. Agent writes will land directly.]\n');
-    await runAgentLoop(client, messages, callbacks, signal, options);
-    return { mode: 'direct', applied: true };
+    const finalMessages = await runAgentLoop(client, messages, callbacks, signal, options);
+    return { mode: 'direct', applied: true, messages: finalMessages };
   }
 
   const shadow = new ShadowWorkspace({ mainRoot });
@@ -95,7 +101,7 @@ export async function runAgentLoopInSandbox(
     await shadow.create();
     callbacks.onText?.(`\n[shadow workspace ${shadow.id} active at ${shadow.path}]\n`);
 
-    await runAgentLoop(client, messages, callbacks, signal, {
+    const finalMessages = await runAgentLoop(client, messages, callbacks, signal, {
       ...options,
       cwdOverride: shadow.path,
       toolRuntime: shadowRuntime,
@@ -104,7 +110,7 @@ export async function runAgentLoopInSandbox(
     const diff = await shadow.diff();
     if (!diff) {
       callbacks.onText?.('\n[shadow task complete — no changes to apply]\n');
-      return { mode: 'shadow', applied: false, reason: 'empty-diff', shadowId: shadow.id };
+      return { mode: 'shadow', applied: false, reason: 'empty-diff', shadowId: shadow.id, messages: finalMessages };
     }
 
     // deferred prompts for multi-facet batches. Capture
@@ -114,7 +120,14 @@ export async function runAgentLoopInSandbox(
     // we need, not the worktree).
     if (sandboxOptions.deferPrompt === true) {
       callbacks.onText?.(`\n[shadow ${shadow.id} deferred — diff captured for aggregated review]\n`);
-      return { mode: 'shadow', applied: false, reason: 'deferred', pendingDiff: diff, shadowId: shadow.id };
+      return {
+        mode: 'shadow',
+        applied: false,
+        reason: 'deferred',
+        pendingDiff: diff,
+        shadowId: shadow.id,
+        messages: finalMessages,
+      };
     }
 
     const lineCount = diff.split('\n').length;
@@ -143,16 +156,30 @@ export async function runAgentLoopInSandbox(
       try {
         await shadow.applyToMain();
         callbacks.onText?.(`\n[shadow ${shadow.id} applied to main (${fileCount} files, ${lineCount} diff lines)]\n`);
-        return { mode: 'shadow', applied: true, shadowId: shadow.id };
+        return { mode: 'shadow', applied: true, shadowId: shadow.id, messages: finalMessages };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         callbacks.onText?.(`\n[shadow ${shadow.id} apply failed: ${msg}]\n`);
-        return { mode: 'shadow', applied: false, reason: 'apply-failed', rejectedDiff: diff, shadowId: shadow.id };
+        return {
+          mode: 'shadow',
+          applied: false,
+          reason: 'apply-failed',
+          rejectedDiff: diff,
+          shadowId: shadow.id,
+          messages: finalMessages,
+        };
       }
     }
 
     callbacks.onText?.(`\n[shadow ${shadow.id} rejected — main tree unchanged]\n`);
-    return { mode: 'shadow', applied: false, reason: 'rejected', rejectedDiff: diff, shadowId: shadow.id };
+    return {
+      mode: 'shadow',
+      applied: false,
+      reason: 'rejected',
+      rejectedDiff: diff,
+      shadowId: shadow.id,
+      messages: finalMessages,
+    };
   } finally {
     // Tear down the per-run shell child process before the worktree goes away.
     shadowRuntime.dispose();

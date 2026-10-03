@@ -270,13 +270,18 @@ describe('createAgentCallbacks — onIterationStart', () => {
 });
 
 describe('createAgentCallbacks — onPlanGenerated', () => {
-  it('stashes the plan + chatMessages snapshot and emits planReady', () => {
+  it('stashes the plan + a snapshot that ends with the plan, and emits planReady', () => {
     const state = makeState();
     const messages: ChatMessage[] = [{ role: 'user', content: 'do a thing' }];
     const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), messages);
     cb.onPlanGenerated?.('1. step one\n2. step two');
     expect(state.pendingPlan).toBe('1. step one\n2. step two');
-    expect(state.pendingPlanMessages).toEqual(messages);
+    // The plan must be in the snapshot, or Revise asks the model to revise a
+    // plan it cannot see.
+    expect(state.pendingPlanMessages).toEqual([
+      ...messages,
+      { role: 'assistant', content: '1. step one\n2. step two' },
+    ]);
     expect(state.pendingPlanMessages).not.toBe(messages); // defensive copy
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'planReady', content: expect.stringContaining('step one') }),

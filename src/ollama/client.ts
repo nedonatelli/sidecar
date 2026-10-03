@@ -11,7 +11,14 @@ import { FireworksBackend } from './fireworksBackend.js';
 import { GeminiBackend } from './geminiBackend.js';
 import { CopilotBackend } from './copilotBackend.js';
 import { BedrockBackend } from './bedrockBackend.js';
-import { isLocalOllama, detectProvider, getConfig } from '../config/settings.js';
+import {
+  isLocalOllama,
+  isLocalOpenAiCompatible,
+  contextLengthFromModelsList,
+  detectProvider,
+  getConfig,
+} from '../config/settings.js';
+import { openAiApiRoot } from '../config/settings/backends.js';
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
 import { RateLimitStore } from './rateLimitState.js';
 import { spendTracker } from './spendTracker.js';
@@ -722,6 +729,16 @@ export class SideCarClient {
       }
     }
 
+    // Self-hosted / gateway OpenAI-compatible servers (vLLM, LM Studio,
+    // together.ai…) serve models the lookup table cannot know — a vLLM model
+    // is named by its HuggingFace ID. Ask the server: vLLM reports its real
+    // --max-model-len, and a request past that limit is rejected outright.
+    // The OpenAI service itself reports nothing, so it skips the round trip.
+    if (provider === 'openai-compat' || (provider === 'openai' && !this.isOpenAiService())) {
+      const reported = await this.probeOpenAiModelsContextLength(signal);
+      if (reported !== null) return reported;
+    }
+
     // For cloud providers, check the well-known context lengths lookup table.
     // This covers Anthropic, OpenAI, Groq, Fireworks, OpenRouter, etc.
     if (!this.isLocalOllama()) {
@@ -778,8 +795,46 @@ export class SideCarClient {
     }
   }
 
+  /** Context window the server reports for this model on `/v1/models`, or null. */
+  private async probeOpenAiModelsContextLength(signal?: AbortSignal): Promise<number | null> {
+    try {
+      // Same bound as the Ollama probe: this runs before the first iteration,
+      // so it must never be able to hang the run.
+      const timeout = AbortSignal.timeout(10_000);
+      const headers: Record<string, string> = {};
+      if (this.apiKey && this.apiKey !== 'ollama') headers['Authorization'] = `Bearer ${this.apiKey}`;
+      const response = await fetch(`${openAiApiRoot(this.baseUrl)}/models`, {
+        headers,
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+      if (!response.ok) return null;
+      return contextLengthFromModelsList(await response.json(), this.model);
+    } catch {
+      return null;
+    }
+  }
+
+  private isOpenAiService(): boolean {
+    try {
+      return new URL(this.baseUrl).hostname === 'api.openai.com';
+    } catch {
+      return false;
+    }
+  }
+
   isLocalOllama(): boolean {
     return isLocalOllama(this.baseUrl);
+  }
+
+  /**
+   * True when the model runs on this machine: local Ollama, or an
+   * OpenAI-compatible server on loopback (vLLM, LM Studio, llama.cpp). Drives
+   * the prompt-size limits meant for small self-hosted models. Context-length
+   * handling stays on `isLocalOllama()`, because only Ollama lets SideCar set
+   * the window — any other server's reported limit is authoritative.
+   */
+  isLocalEndpoint(): boolean {
+    return this.isLocalOllama() || isLocalOpenAiCompatible(this.baseUrl, getConfig().provider);
   }
 
   isOpenAI(): boolean {

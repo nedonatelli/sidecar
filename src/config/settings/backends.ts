@@ -155,6 +155,42 @@ export function detectActiveProfile(baseUrl: string): BackendProfile | null {
 }
 
 /**
+ * Menu entry for a user-supplied OpenAI-compatible endpoint (vLLM, LM Studio,
+ * llama.cpp, a gateway). Deliberately NOT a `BackendProfile`: it has no fixed
+ * URL, so choosing it runs a prompt flow (URL, then API key) instead of
+ * `applyBackendProfile`.
+ */
+export const CUSTOM_ENDPOINT_ENTRY = {
+  id: 'custom-endpoint',
+  name: 'Custom endpoint',
+  description:
+    'Any OpenAI-compatible server — vLLM, LM Studio, llama.cpp, or a gateway. You will be asked for its URL, then its API key; leave the key empty if the server does not need one.',
+} as const;
+
+/**
+ * Id of the backend-menu entry to mark active: the built-in profile whose URL
+ * matches, else the custom-endpoint entry when the provider is
+ * `openai-compat`, else none.
+ */
+export function detectActiveProfileId(baseUrl: string, provider: string): string | null {
+  const profile = detectActiveProfile(baseUrl);
+  if (profile) return profile.id;
+  return provider === 'openai-compat' ? CUSTOM_ENDPOINT_ENTRY.id : null;
+}
+
+/**
+ * Point SideCar at a custom OpenAI-compatible endpoint. An empty `apiKey` means
+ * the server needs none: the `'ollama'` placeholder is stored, which every
+ * OpenAI-compatible request path treats as "send no Authorization header".
+ */
+export async function applyCustomEndpoint(baseUrl: string, apiKey: string): Promise<void> {
+  const cfg = workspace.getConfiguration('sidecar');
+  await cfg.update('provider', 'openai-compat', true);
+  await cfg.update('baseUrl', baseUrl, true);
+  await storeActiveApiKey(apiKey || 'ollama');
+}
+
+/**
  * Query a Kickstand server for its first loaded model.
  * Used when switching to Kickstand to auto-select a model.
  */
@@ -330,6 +366,53 @@ export function detectProvider(
 export function openAiApiRoot(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, '');
   return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
+
+/** True when a URL's host is this machine (localhost, 127.x, ::1, 0.0.0.0). */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === 'localhost' ||
+      hostname === '[::1]' ||
+      hostname === '0.0.0.0' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True for an OpenAI-compatible server on this machine — vLLM, LM Studio,
+ * llama.cpp on loopback. Self-hosted models are often small, so these get the
+ * same prompt-size and tool-count limits as local Ollama. A server elsewhere
+ * on the network is not included: locality is the only signal we have, and a
+ * remote box is as likely to serve a large model as a cloud API is.
+ */
+export function isLocalOpenAiCompatible(baseUrl: string, provider: Parameters<typeof detectProvider>[1]): boolean {
+  const p = detectProvider(baseUrl, provider);
+  return (p === 'openai-compat' || p === 'openai') && isLoopbackUrl(baseUrl);
+}
+
+/**
+ * Read a model's context window from an OpenAI-style `/v1/models` response.
+ * The field is not standard: vLLM reports `max_model_len` (the server's real
+ * `--max-model-len` limit), Kickstand / together.ai / OpenRouter report
+ * `context_length`. Returns null when the model or the field is absent.
+ * llama.cpp's `meta.n_ctx_train` is deliberately ignored — it is the training
+ * context, not what the server was started with.
+ */
+export function contextLengthFromModelsList(data: unknown, model: string): number | null {
+  const list = (data as { data?: unknown } | null)?.data;
+  if (!Array.isArray(list)) return null;
+  const entry = list.find((m) => (m as { id?: unknown })?.id === model) as Record<string, unknown> | undefined;
+  if (!entry) return null;
+  for (const key of ['max_model_len', 'context_length', 'context_window']) {
+    const v = entry[key];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
 }
 
 /** Map a resolved provider identifier to a user-facing display label. */

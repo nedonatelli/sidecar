@@ -96,6 +96,14 @@ SideCar auto-detects Kickstand by the port number and reads the bearer token fro
 
 SideCar works with any server that exposes the OpenAI `/v1/chat/completions` endpoint — including **LM Studio**, **vLLM**, **llama.cpp**, **text-generation-webui**, and **OpenRouter**.
 
+The quickest way is **Custom endpoint** in the backend menu (chat settings → Backend, or `SideCar: Switch Backend`):
+
+1. Enter the server's URL (e.g. `http://localhost:8000/v1` — a trailing `/v1` is optional)
+2. Enter its API key, or leave it empty if the server doesn't require one
+3. SideCar lists the server's models and selects one
+
+To configure it by hand instead:
+
 1. Set `sidecar.baseUrl` to your server's URL (e.g., `http://localhost:1234`)
 2. Set `sidecar.apiKey` if required (optional for most local servers)
 3. Set `sidecar.model` to the model name your server is running

@@ -449,6 +449,38 @@ describe('SideCarClient', () => {
       const result = await client.getModelContextLength();
       expect(result).toBeNull();
     });
+
+    it("reads vLLM's max_model_len from /v1/models on a self-hosted OpenAI-compatible server", async () => {
+      // A HuggingFace-ID model name is never in the lookup table; without the
+      // probe the window was unknown and runs overran --max-model-len.
+      const client = new SideCarClient('Qwen/Qwen2.5-Coder-32B-Instruct', 'http://localhost:8000/v1', 'sk-local');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ id: 'Qwen/Qwen2.5-Coder-32B-Instruct', max_model_len: 32768 }] }),
+      });
+      expect(await client.getModelContextLength()).toBe(32768);
+      expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:8000/v1/models');
+      expect(mockFetch.mock.calls[0][1].headers).toEqual({ Authorization: 'Bearer sk-local' });
+    });
+
+    it('sends no Authorization header to a key-less server', async () => {
+      const client = new SideCarClient('m', 'http://localhost:8000');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: [{ id: 'm', max_model_len: 8192 }] }) });
+      expect(await client.getModelContextLength()).toBe(8192);
+      expect(mockFetch.mock.calls[0][1].headers).toEqual({});
+    });
+
+    it('falls back to the lookup table when the server reports no window', async () => {
+      const client = new SideCarClient('gpt-4o', 'http://localhost:8000');
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: [{ id: 'gpt-4o' }] }) });
+      expect(await client.getModelContextLength()).toBe(128_000);
+    });
+
+    it('does not probe the OpenAI service itself', async () => {
+      const client = new SideCarClient('gpt-4o', 'https://api.openai.com', 'sk-x');
+      expect(await client.getModelContextLength()).toBe(128_000);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
   });
 
   describe('listInstalledModels', () => {

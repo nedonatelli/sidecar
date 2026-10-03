@@ -570,6 +570,38 @@ describe('runAgentLoop', () => {
 
     vi.restoreAllMocks();
   });
+
+  it('records a text-only answer in the returned history so the next prompt does not re-answer it', async () => {
+    // A text-only final turn used to end the run without ever entering
+    // history. The next prompt then followed an apparently unanswered one,
+    // and the model answered the old question again before the new one.
+    async function* answering(): AsyncGenerator<StreamEvent> {
+      yield { type: 'text', text: 'The answer is 42.' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const result = await runAgentLoop(
+      makeMockClient(answering),
+      [{ role: 'user', content: 'what is the answer?' }],
+      makeCallbacks(),
+      new AbortController().signal,
+    );
+
+    const last = result[result.length - 1];
+    expect(last.role).toBe('assistant');
+    expect(JSON.stringify(last.content)).toContain('The answer is 42.');
+    expect(result.filter((m) => m.role === 'assistant')).toHaveLength(1);
+
+    vi.restoreAllMocks();
+  });
 });
 
 // ---------------------------------------------------------------------------

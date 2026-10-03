@@ -154,6 +154,39 @@ export function recordRunCost(state: ChatState): void {
 // System prompt assembly for a run
 // ---------------------------------------------------------------------------
 
+/**
+ * Decide the run's context window and the system prompt's size budget.
+ *
+ * - The window: only Ollama lets SideCar choose it, so only there does the
+ *   user's `contextLimit` win and the per-model cap apply. Any other server's
+ *   reported window is the real limit (vLLM rejects requests past
+ *   --max-model-len), with `contextLimit` as the fallback when it reports none.
+ * - The system prompt may take 40% of the window. For a model on this machine
+ *   that is capped at LOCAL_MAX_SYSTEM_CHARS: with a 128K window the uncapped
+ *   budget is ~204K chars (~51K tokens), which overwhelms small models and
+ *   makes them answer in text instead of calling tools, ending the agent loop
+ *   after one iteration.
+ */
+export function resolveContextBudget(p: {
+  isLocal: boolean;
+  ollamaSetsContext: boolean;
+  rawContextLength: number | null;
+  userContextLimit: number;
+  model: string;
+}): { contextLength: number | null; maxSystemChars: number } {
+  let contextLength: number | null;
+  if (p.userContextLimit > 0) {
+    contextLength = p.ollamaSetsContext ? p.userContextLimit : (p.rawContextLength ?? p.userContextLimit);
+  } else {
+    const modelCap = contextCapForModel(p.model);
+    contextLength =
+      p.ollamaSetsContext && p.rawContextLength && p.rawContextLength > modelCap ? modelCap : p.rawContextLength;
+  }
+  const rawMaxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
+  const maxSystemChars = p.isLocal ? Math.min(rawMaxSystemChars, LOCAL_MAX_SYSTEM_CHARS) : rawMaxSystemChars;
+  return { contextLength, maxSystemChars };
+}
+
 async function buildSystemPromptForRun(
   state: ChatState,
   config: ReturnType<typeof getConfig>,
@@ -166,7 +199,13 @@ async function buildSystemPromptForRun(
   contextLength: number | null;
   matchedSkill: import('../../agent/skillLoader.js').Skill | null;
 }> {
-  const isLocal = state.client.isLocalOllama();
+  // Model runs on this machine (local Ollama, or an OpenAI-compatible server on
+  // loopback): apply the prompt-size limits meant for small self-hosted models.
+  const isLocal = state.client.isLocalEndpoint();
+  // Only Ollama lets SideCar choose the context window, so only Ollama's
+  // window follows the user's contextLimit and the per-model cap. Any other
+  // server's reported limit is the real one.
+  const ollamaSetsContext = state.client.isLocalOllama();
   const pkg = state.context.extension?.packageJSON || {};
   const extensionVersion = pkg.version || 'unknown';
   const root = getWorkspaceRoot();
@@ -197,23 +236,13 @@ async function buildSystemPromptForRun(
   const rawContextLength = await state.client.getModelContextLength(signal);
   const modelInfoMs = Date.now() - ctxT0;
   signal?.throwIfAborted();
-  const userContextLimit = getContextLimit();
-  let contextLength: number | null;
-  if (userContextLimit > 0) {
-    contextLength = isLocal ? userContextLimit : (rawContextLength ?? userContextLimit);
-  } else {
-    const modelCap = contextCapForModel(state.client.getModel());
-    contextLength = isLocal && rawContextLength && rawContextLength > modelCap ? modelCap : rawContextLength;
-  }
-  // Allow the system prompt to occupy up to 40% of the context window during
-  // assembly. After injection the actual size is measured and used to set a
-  // tighter message-history budget (see effectiveMaxTokens calculation below).
-  // For local models the 40% rule is capped at LOCAL_MAX_SYSTEM_CHARS: with a
-  // 128K context window the uncapped budget is ~204K chars (~51K tokens), which
-  // overwhelms small models and causes them to produce text-only responses
-  // instead of tool calls, making the agent loop exit after one iteration.
-  const rawMaxSystemChars = contextLength ? Math.floor(tokensToChars(contextLength) * 0.4) : DEFAULT_MAX_SYSTEM_CHARS;
-  const maxSystemChars = isLocal ? Math.min(rawMaxSystemChars, LOCAL_MAX_SYSTEM_CHARS) : rawMaxSystemChars;
+  const { contextLength, maxSystemChars } = resolveContextBudget({
+    isLocal,
+    ollamaSetsContext,
+    rawContextLength,
+    userContextLimit: getContextLimit(),
+    model: state.client.getModel(),
+  });
 
   const { prompt: injectedPrompt, matchedSkill } = await injectSystemContext(
     systemPrompt,
@@ -301,12 +330,27 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   const sentinel = text ? parseModelSentinel(text) : { cleaned: text, override: null };
   const turnText = sentinel.cleaned;
 
+  let pushedUserMessage: ChatMessage | null = null;
   if (turnText) {
     const messageText = prepareUserMessageText(state, turnText);
-    state.messages.push({ role: 'user', content: messageText });
+    pushedUserMessage = { role: 'user', content: messageText };
+    state.messages.push(pushedUserMessage);
     void state.logMessage('user', messageText);
     state.saveHistory();
   }
+  // When the run stops before the model ever sees the prompt (backend
+  // unreachable, budget blocked), take the prompt back out of history. Left
+  // in, the user's retyped prompt would follow an unanswered copy and the
+  // model would answer both.
+  const withdrawUnsentUserMessage = () => {
+    if (pushedUserMessage && state.messages[state.messages.length - 1] === pushedUserMessage) {
+      state.messages.pop();
+      state.saveHistory();
+      // Resync the webview's message-index counter, which already counted
+      // the withdrawn prompt's bubble.
+      state.postMessage({ command: 'done', messageCount: state.messages.length });
+    }
+  };
 
   state.pendingPartialAssistant = null;
   state.postMessage({ command: 'setLoading', isLoading: true });
@@ -357,11 +401,13 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
               errorActionCommand: 'reconnect',
             },
       );
+      withdrawUnsentUserMessage();
       return;
     }
 
     if (checkBudgetLimits(state, config) === 'blocked') {
       state.postMessage({ command: 'setLoading', isLoading: false });
+      withdrawUnsentUserMessage();
       return;
     }
 
@@ -400,6 +446,10 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
     // Skills 2.0 — disableModelInvocation: return the skill body directly.
     if (matchedSkill?.disableModelInvocation) {
       state.postMessage({ command: 'assistantMessage', content: matchedSkill.content });
+      // Record the reply: an unanswered prompt in history gets answered again
+      // alongside the next one.
+      state.messages.push({ role: 'assistant', content: matchedSkill.content });
+      state.saveHistory();
       state.postMessage({ command: 'done', messageCount: state.messages.length });
       return;
     }
@@ -529,15 +579,21 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
 
     // Shadow isolation: an explicit /sandbox request or shadowWorkspace.mode
     // 'always' routes through the sandbox wrapper (ephemeral git worktree +
-    // accept/reject at run's end). The loop mutates chatMessages in place, so
-    // the post-loop pipeline reads the same array on both paths.
+    // accept/reject at run's end). The loop works on a COPY of chatMessages,
+    // so both paths must take the run's history from the returned value —
+    // reading chatMessages back dropped every turn of a sandboxed run.
     let updatedMessages: typeof chatMessages;
     if (forceShadow || config.shadowWorkspaceMode === 'always') {
       const { runAgentLoopInSandbox } = await import('../../agent/shadow/sandbox.js');
-      await runAgentLoopInSandbox(state.client, chatMessages, agentCbs, state.abortController.signal, loopOptions, {
-        forceShadow,
-      });
-      updatedMessages = chatMessages;
+      const sandboxResult = await runAgentLoopInSandbox(
+        state.client,
+        chatMessages,
+        agentCbs,
+        state.abortController.signal,
+        loopOptions,
+        { forceShadow },
+      );
+      updatedMessages = sandboxResult.messages ?? chatMessages;
     } else {
       updatedMessages = await runAgentLoop(
         state.client,

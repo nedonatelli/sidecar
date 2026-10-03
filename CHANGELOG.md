@@ -4,6 +4,58 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Custom endpoint backend.** A new **Custom endpoint** entry in the backend menu (chat
+  settings → Backend, and `SideCar: Switch Backend`) connects any OpenAI-compatible server —
+  vLLM, LM Studio, llama.cpp, or a gateway — without hand-editing settings. It asks for the
+  server's URL, then its API key; an empty key means the server needs none, and no
+  `Authorization` header is sent. Cancelling either prompt changes nothing. The entry shows
+  as active whenever the provider is `openai-compat` at a URL no built-in profile owns.
+  (`src/commands/settingsCommands.ts`, `src/config/settings/backends.ts`,
+  `src/webview/chatWebview.ts`, `src/webview/chatView.ts`)
+- **OpenAI-compatible servers report their own context window.** For a custom endpoint, or
+  an `openai` provider pointed anywhere but the OpenAI service, SideCar now asks
+  `/v1/models` for the model's window (`max_model_len` on vLLM, `context_length` on
+  together.ai and similar) instead of relying on a lookup table that never knows a
+  HuggingFace-ID model name. Without it the window was unknown and long vLLM runs failed
+  once they exceeded `--max-model-len`. That reported window now also takes precedence over
+  `sidecar.contextLimit`, which only Ollama can honour. (`src/ollama/client.ts`,
+  `src/config/settings/backends.ts`, `src/webview/handlers/chatHandlers.ts`)
+- **An OpenAI-compatible server on this machine is treated as local.** vLLM, LM Studio or
+  llama.cpp on `localhost` now get the system-prompt size cap and tool-catalog trim that
+  local Ollama gets. A server elsewhere on the network is unaffected. (`src/agent/tools.ts`,
+  `src/webview/handlers/chatHandlers.ts`)
+- The vLLM launch example in `docs/backends.md` now includes `--enable-auto-tool-choice`
+  and `--tool-call-parser`, without which the agent cannot call tools.
+
+### Fixed
+
+- **SideCar re-answered earlier prompts inside its new responses.** A text-only turn (the
+  normal end of every Q&A run) ended the agent loop without its answer ever entering
+  history: only turns carrying tool calls were recorded. On the next prompt the model saw
+  the previous question as unanswered, answered it again, then answered the new one. The
+  `stripRepeatedContent` filter could not catch it, because the text it compares against
+  was never stored. The answer is now recorded before the empty-response hooks run, which
+  also lets their reprompts ("your last response was text only…") refer to text the model
+  can see. Corrupted-output and empty turns are still discarded. (`src/agent/loop.ts`)
+- **Other paths that left a prompt unanswered in history, with the same effect:**
+  - _Sandboxed runs lost every turn._ With `/sandbox` or `shadowWorkspace.mode: 'always'`
+    the chat read back its own message array, but the loop works on a copy, so nothing the
+    run produced reached history. `runAgentLoopInSandbox` now returns the loop's history.
+    (`src/agent/shadow/sandbox.ts`, `src/webview/handlers/chatHandlers.ts`)
+  - _Plan revision could not see the plan._ The plan-mode snapshot came from the caller's
+    array, which never holds the plan, so "Revise" sent feedback on a plan the model had
+    no record of. The plan is now part of the snapshot.
+    (`src/webview/handlers/agentCallbacks.ts`)
+  - _A failed send left its prompt behind._ When the backend is unreachable or the budget
+    blocks the run, the model never sees the prompt, but it stayed in history, so retyping
+    it produced two copies and two answers. The prompt is now withdrawn in those cases. A
+    model error partway through still keeps it, so Retry works.
+    (`src/webview/handlers/chatHandlers.ts`)
+  - _Skills with `disableModelInvocation` showed their reply but never saved it._ The
+    reply is now recorded. (`src/webview/handlers/chatHandlers.ts`)
+
 ## [0.124.0] - 2026-09-14
 
 Two arcs. August: scaffold 4.0.0 → 5.0.0 — checks must pass, and silence is not an

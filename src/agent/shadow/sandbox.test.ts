@@ -54,6 +54,7 @@ describe('runAgentLoopInSandbox', () => {
       expect(shadowMockCtor).not.toHaveBeenCalled();
       expect(result.mode).toBe('direct');
       expect(result.applied).toBe(true);
+      expect(result.messages).toEqual([]);
     });
   });
 
@@ -179,6 +180,27 @@ describe('runAgentLoopInSandbox', () => {
       expect(result.shadowId).toBe(fakeShadow.id);
       expect(quickPickSpy).not.toHaveBeenCalled();
       expect(disposeMock).toHaveBeenCalledOnce();
+    });
+
+    it("returns the loop's final history so the caller can keep the run in its transcript", async () => {
+      // The loop works on a copy of the messages it is given; a caller that
+      // read its own array back lost every turn of a sandboxed run.
+      vi.spyOn(settings, 'getConfig').mockReturnValue({
+        shadowWorkspaceMode: 'always',
+        shadowWorkspaceAutoCleanup: true,
+      } as never);
+      vi.spyOn(shared, 'getRoot').mockReturnValue('/mock-workspace');
+      stubShadow({ diff: '' });
+      const history = [
+        { role: 'user', content: 'q' },
+        { role: 'assistant', content: 'a' },
+      ];
+      vi.spyOn(loopModule, 'runAgentLoop').mockResolvedValue(history as never);
+
+      const result = await runAgentLoopInSandbox({} as never, [], callbacks, new AbortController().signal, {});
+
+      expect(result.mode).toBe('shadow');
+      expect(result.messages).toBe(history);
     });
 
     it('prompts the user on non-empty diff and applies on accept', async () => {

@@ -3,6 +3,11 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
   detectActiveProfile,
+  detectActiveProfileId,
+  CUSTOM_ENDPOINT_ENTRY,
+  isLoopbackUrl,
+  isLocalOpenAiCompatible,
+  contextLengthFromModelsList,
   isLocalOllama,
   isAnthropic,
   isKickstand,
@@ -31,6 +36,74 @@ describe('detectActiveProfile', () => {
   it('returns the anthropic profile for the Anthropic base URL', () => {
     const profile = detectActiveProfile('https://api.anthropic.com');
     expect(profile?.provider).toBe('anthropic');
+  });
+});
+
+describe('detectActiveProfileId', () => {
+  it('prefers a built-in profile whose URL matches', () => {
+    expect(detectActiveProfileId('http://localhost:11434', 'auto')).toBe('local-ollama');
+  });
+
+  it('marks the custom-endpoint entry active for an unmatched openai-compat URL', () => {
+    expect(detectActiveProfileId('http://gpu-box:8000/v1', 'openai-compat')).toBe(CUSTOM_ENDPOINT_ENTRY.id);
+  });
+
+  it('returns null for an unmatched URL under any other provider', () => {
+    expect(detectActiveProfileId('http://gpu-box:8000/v1', 'openai')).toBeNull();
+  });
+});
+
+describe('isLoopbackUrl', () => {
+  it('matches this machine', () => {
+    for (const u of [
+      'http://localhost:8000',
+      'http://127.0.0.1:1234/v1',
+      'http://127.1.2.3',
+      'http://[::1]:8000',
+      'http://0.0.0.0:8000',
+    ])
+      expect(isLoopbackUrl(u), u).toBe(true);
+  });
+  it('rejects other hosts and junk', () => {
+    for (const u of ['http://192.168.1.20:8000', 'https://api.openai.com', 'http://localhost.example.com', 'not a url'])
+      expect(isLoopbackUrl(u), u).toBe(false);
+  });
+});
+
+describe('isLocalOpenAiCompatible', () => {
+  it('is true for an OpenAI-compatible server on loopback, chosen or auto-detected', () => {
+    expect(isLocalOpenAiCompatible('http://localhost:8000/v1', 'openai-compat')).toBe(true);
+    expect(isLocalOpenAiCompatible('http://localhost:8000', 'auto')).toBe(true); // auto → openai
+  });
+  it('is false for a remote server or a non-OpenAI-compatible provider', () => {
+    expect(isLocalOpenAiCompatible('http://192.168.1.20:8000', 'openai-compat')).toBe(false);
+    expect(isLocalOpenAiCompatible('http://localhost:11434', 'auto')).toBe(false); // Ollama has its own path
+    expect(isLocalOpenAiCompatible('http://localhost:8000', 'anthropic')).toBe(false);
+  });
+});
+
+describe('contextLengthFromModelsList', () => {
+  it("reads vLLM's max_model_len, then context_length, then context_window", () => {
+    expect(contextLengthFromModelsList({ data: [{ id: 'm', max_model_len: 32768 }] }, 'm')).toBe(32768);
+    expect(contextLengthFromModelsList({ data: [{ id: 'm', context_length: 8192 }] }, 'm')).toBe(8192);
+    expect(contextLengthFromModelsList({ data: [{ id: 'm', context_window: 4096 }] }, 'm')).toBe(4096);
+  });
+  it('only reads the requested model', () => {
+    const data = {
+      data: [
+        { id: 'a', max_model_len: 1000 },
+        { id: 'b', max_model_len: 2000 },
+      ],
+    };
+    expect(contextLengthFromModelsList(data, 'b')).toBe(2000);
+    expect(contextLengthFromModelsList(data, 'c')).toBeNull();
+  });
+  it("ignores llama.cpp's training context and malformed values", () => {
+    expect(contextLengthFromModelsList({ data: [{ id: 'm', meta: { n_ctx_train: 131072 } }] }, 'm')).toBeNull();
+    expect(contextLengthFromModelsList({ data: [{ id: 'm', max_model_len: 0 }] }, 'm')).toBeNull();
+    expect(contextLengthFromModelsList({ data: [{ id: 'm', max_model_len: '4096' }] }, 'm')).toBeNull();
+    expect(contextLengthFromModelsList(null, 'm')).toBeNull();
+    expect(contextLengthFromModelsList({ object: 'list' }, 'm')).toBeNull();
   });
 });
 
