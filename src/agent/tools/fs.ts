@@ -1518,6 +1518,9 @@ export async function resolveEditedText(params: {
   // then fail to mirror the growth into `replace`, silently deleting the
   // difference. A locator is never echoed into `replace`, so it cannot be lost.
   let anchorAt = 0;
+  // Set when `within` was given but could not be resolved (absent, or not
+  // unique). Deferred rather than thrown so the fallback below can run.
+  let locatorError: Error | null = null;
   if (within !== undefined && within !== '') {
     if (replaceAll) {
       throw new Error(
@@ -1526,10 +1529,22 @@ export async function resolveEditedText(params: {
           `occurrences, or drop 'replace_all' to change only the one near your locator.`,
       );
     }
-    anchorAt = resolveWithin(text, within, filePath);
+    // An unresolvable locator is NOT fatal on its own — see the deferred
+    // re-throw below. Hold the error instead of letting it end the call, so the
+    // whole-file fallback gets the chance it was written for.
+    try {
+      anchorAt = resolveWithin(text, within, filePath);
+    } catch (err) {
+      locatorError = err as Error;
+    }
   }
 
-  let match = within ? findEditMatch(text.slice(anchorAt), search, replace) : findEditMatch(text, search, replace);
+  // With an unresolved locator there is no anchor to slice from, so measure
+  // against the whole file and let the deferred check below decide.
+  let match =
+    within && !locatorError
+      ? findEditMatch(text.slice(anchorAt), search, replace)
+      : findEditMatch(text, search, replace);
 
   /**
    * `within` exists to pick ONE of several candidate locations. When `search`
@@ -1560,14 +1575,64 @@ export async function resolveEditedText(params: {
   };
   if (within && !match) fallBackToWholeFile();
 
+  /**
+   * A locator that could not be resolved gets the SAME treatment as one that
+   * turned out to be redundant, and for the same reason: `within` only decides
+   * anything when `search` is ambiguous. Where the search text occurs exactly
+   * once there is no other region to land in, so a broken locator has nothing
+   * to break.
+   *
+   * This used to be fatal. `resolveWithin` threw, several hundred lines before
+   * `fallBackToWholeFile` existed to rescue precisely this case, so the two
+   * commonest locator problems could never reach it. Measured over 15,152
+   * recorded edit_file calls: a locator that was not unique failed 343 times
+   * and one absent from the file 265 times, against 47 for the distance guard
+   * — the only one that did reach the fallback.
+   *
+   * The cost was real, not theoretical. Taking the same (file, search) tried
+   * BOTH with and without a locator inside one run — 304 such pairs — 96
+   * succeeded only WITHOUT it against 63 only WITH it (McNemar p=0.011), and
+   * 59% of those 96 died here.
+   *
+   * Three outcomes, by what the whole file actually says:
+   *   one match    the locator was decorative; proceed and say so.
+   *   many matches the locator was NEEDED and was unusable; its error is the
+   *                one the model has to fix, so raise it.
+   *   no match     the search text is the problem, not the locator. Fall
+   *                through to the not-found path, whose recovery text quotes
+   *                the real file — strictly more useful than a locator
+   *                complaint about an edit that could not land anyway.
+   */
+  if (locatorError) {
+    if (match && match.count === 1) {
+      // Skips the distance guard and the re-base below, both of which assume a
+      // resolved anchor. `anchorAt` is still 0, so the span is already
+      // whole-file relative.
+      anchorRedundant = true;
+    } else if (match && match.count > 1) {
+      throw new Error(`${unreadPrefix}${locatorError.message}`);
+    }
+  }
+
   // Say plainly that the locator was the problem. Silently ignoring it would
   // teach the model nothing, and it would keep paying for anchors it does not
   // need on the next edit.
+  // Two different things land here, so name the right one. A locator that could
+  // not be resolved at all is a different mistake from one that resolved and
+  // turned out to be unnecessary, and telling the model "it did not contain the
+  // search text" about a locator that is not in the file at all would send it
+  // looking in the wrong place.
   const anchorRedundantNote = () =>
     anchorRedundant
-      ? `[note: your 'within' locator did not contain the search text, but the search matched exactly once in ` +
-        `${filePath}, so the locator was not needed and was ignored. Pass 'within' only when 'search' really ` +
-        `appears more than once.]
+      ? `[note: ${
+          locatorError
+            ? `your 'within' locator could not be used (${locatorError.message
+                .replace(/^Error: edit_file /, '')
+                .replace(/ The file was NOT modified\..*$/, '')
+                .trim()}), but the search`
+            : `your 'within' locator did not contain the search text, but the search`
+        } matched exactly once in ${filePath}, so the locator was not needed and was ignored. ` +
+        `Pass 'within' only when 'search' really appears more than once.]
 `
       : '';
   if (within && match && !anchorRedundant) {

@@ -1894,6 +1894,203 @@ describe('edit_file — search must not double as the locator', () => {
       expect(writeSpy).not.toHaveBeenCalled();
     });
 
+    // An UNRESOLVABLE locator used to be fatal on the spot: `resolveWithin`
+    // threw several hundred lines before the whole-file fallback that exists to
+    // rescue exactly this. The two cases below are what that cost. Measured
+    // over 15,152 recorded edit_file calls, a non-unique locator failed 343
+    // times and an absent one 265, against 47 for the distance guard — the only
+    // locator failure that ever reached the fallback. Pairing the same
+    // (file, search) tried both with and without a locator inside one run, 96
+    // succeeded only WITHOUT it against 63 only WITH it (McNemar p=0.011), and
+    // 59% of those 96 died here.
+    //
+    // Note the search below is UNIQUE, which is the whole difference from the
+    // two locator-error tests above: those use a search that appears twice, so
+    // the locator is load-bearing and its error still stands.
+    it('applies the edit when the locator is ABSENT but the search is unique', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field99."""',
+        search: '        """Bounds check for field12."""',
+        replace: '        """Bounds check for field12 (revised)."""',
+      });
+
+      expect(msg).toContain('File edited');
+      expect(written).toContain('Bounds check for field12 (revised).');
+      // and it is told the locator was unusable, not merely unnecessary
+      expect(msg).toMatch(/could not be used/i);
+      expect(msg).toMatch(/not found|does not appear/i);
+    });
+
+    it('applies the edit when the locator is AMBIGUOUS but the search is unique', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '    def is_within_bounds(self, value):',
+        search: '        """Bounds check for field12."""',
+        replace: '        """Bounds check for field12 (revised)."""',
+      });
+
+      expect(msg).toContain('File edited');
+      expect(written).toContain('Bounds check for field12 (revised).');
+      expect(msg).toMatch(/could not be used/i);
+      expect(msg).toMatch(/2 times|appears/i);
+    });
+
+    it('still raises the locator error when the search is AMBIGUOUS', async () => {
+      // The locator is load-bearing here, so its failure is the thing to fix
+      // and must not be swallowed by the fallback.
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field99."""',
+        search: '        if value > self.maximum:',
+        replace: '        if value >= self.maximum:',
+      });
+
+      expect(msg).toMatch(/within/i);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
+    it('reports the SEARCH problem, not the locator, when neither resolves', async () => {
+      // A bad locator and a search that is nowhere in the file are two faults,
+      // and the not-found path carries the recovery text quoting the real file.
+      // Complaining about the locator would point at the lesser one.
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field99."""',
+        search: '        raise NotImplementedError("absent")',
+        replace: '        raise NotImplementedError("still absent")',
+      });
+
+      // Discriminating on purpose: the OLD locator error also contained the
+      // words "not found in", so matching that alone passed either way and
+      // pinned nothing. What must be true is that the message is about the
+      // SEARCH and never mentions the locator.
+      expect(msg).toMatch(/search string not found/i);
+      expect(msg).not.toMatch(/'within'/);
+      expect(msg).not.toMatch(/locator/i);
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
+    // Adversarial cases for the deferred-locator branch. Making a locator error
+    // non-fatal widens the set of edits that reach the writer, so each of these
+    // asks whether some OTHER guard got bypassed on the way.
+    describe('an unresolvable locator must not bypass the other guards', () => {
+      it('still rejects replace_all, which is checked before the locator', async () => {
+        const msg = await editMsg({
+          path: 'src/validators.py',
+          within: '"""Bounds check for field99."""',
+          search: '        """Bounds check for field12."""',
+          replace: '        """Bounds check for field12 (revised)."""',
+          replace_all: true,
+        });
+
+        expect(msg).toMatch(/replace_all/);
+        expect(writeSpy).not.toHaveBeenCalled();
+      });
+
+      it('still reports a no-op edit rather than claiming success', async () => {
+        const same = '        """Bounds check for field12."""';
+        const msg = await editMsg({
+          path: 'src/validators.py',
+          within: '"""Bounds check for field99."""',
+          search: same,
+          replace: same,
+        });
+
+        expect(msg).not.toContain('File edited');
+        expect(writeSpy).not.toHaveBeenCalled();
+      });
+
+      it('still refuses a replace that drops a definition the search contained', async () => {
+        const msg = await editMsg({
+          path: 'src/validators.py',
+          within: '    def is_within_bounds(self, value):', // ambiguous locator
+          search:
+            '    def is_within_bounds(self, value):\n' +
+            '        """Bounds check for field13."""\n' +
+            '        if value is None:\n' +
+            '            return False\n' +
+            '        if value > self.maximum:',
+          replace: '        if value >= self.maximum:',
+        });
+
+        expect(msg).toMatch(/drop|delete|repeat/i);
+        expect(writeSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('an unresolvable locator writes the RIGHT region', () => {
+      // "File edited" is not enough: a locator branch that picks the wrong span
+      // is the outcome worth preventing, so assert the bytes.
+      it('edits the one occurrence and leaves its sibling untouched', async () => {
+        const msg = await editMsg({
+          path: 'src/validators.py',
+          within: 'NOT IN THIS FILE AT ALL',
+          search: '        """Bounds check for field13."""',
+          replace: '        """Bounds check for field13 (revised)."""',
+        });
+
+        expect(msg).toContain('File edited');
+        expect(written).toBe(module.replace('field13."""', 'field13 (revised)."""'));
+        // the sibling block is byte-identical
+        expect(written).toContain('"""Bounds check for field12."""');
+      });
+
+      it('handles a locator that appears many times, not merely twice', async () => {
+        const msg = await editMsg({
+          path: 'src/validators.py',
+          within: 'return False', // appears 4x
+          search: '        """Bounds check for field12."""',
+          replace: '        """Bounds check for field12 (revised)."""',
+        });
+
+        expect(msg).toContain('File edited');
+        expect(written).toBe(module.replace('field12."""', 'field12 (revised)."""'));
+      });
+
+      it('handles a multi-line locator that is absent', async () => {
+        const msg = await editMsg({
+          path: 'src/validators.py',
+          within: 'class FieldValidator99:\n    def missing(self):',
+          search: '        """Bounds check for field12."""',
+          replace: '        """Bounds check for field12 (revised)."""',
+        });
+
+        expect(msg).toContain('File edited');
+        expect(written).toContain('field12 (revised).');
+      });
+
+      it('applies the same tolerance tiers as the redundant-locator fallback', async () => {
+        // Indentation differs from the file, so this resolves on a tolerance
+        // tier rather than exactly. The branch uses the same findEditMatch and
+        // the same count check as fallBackToWholeFile, so it must behave alike.
+        const msg = await editMsg({
+          path: 'src/validators.py',
+          within: 'NOT IN THIS FILE AT ALL',
+          search: '"""Bounds check for field12."""', // no leading indent
+          replace: '"""Bounds check for field12 (revised)."""',
+        });
+
+        expect(msg).toContain('File edited');
+        expect(written).toContain('field12 (revised).');
+      });
+    });
+
+    it('explains an unusable locator without doubling the error prefix', async () => {
+      const msg = await editMsg({
+        path: 'src/validators.py',
+        within: '"""Bounds check for field99."""',
+        search: '        """Bounds check for field12."""',
+        replace: '        """Bounds check for field12 (revised)."""',
+      });
+
+      expect(msg).toContain('File edited');
+      // the note quotes the locator problem, but the result is NOT an error
+      expect(msg).not.toMatch(/Error: edit_file/);
+      expect(msg).not.toMatch(/The file was NOT modified/);
+      expect(msg).toMatch(/could not be used/i);
+    });
+
     it('rejects `within` together with replace_all as contradictory', async () => {
       const msg = await editMsg({
         path: 'src/validators.py',
