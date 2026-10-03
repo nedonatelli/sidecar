@@ -2256,6 +2256,16 @@ describe('edit_file — structured outcome flags', () => {
     expect(decisions).toHaveLength(0);
   });
 
+  it('does not record applied=true for a write that threw', async () => {
+    // The record says what reached the disk, so it is emitted after the write,
+    // not on the way to it.
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockRejectedValue(new Error('EACCES'));
+    const msg = await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' }, ctx());
+    expect(msg).toContain('EACCES');
+    expect(outcomes().filter((d) => d.applied)).toHaveLength(0);
+  });
+
   it('emits no outcome at all when the edit is REFUSED', async () => {
     const msg = await editMsg({ path: 'm.py', search: 'nowhere in the file', replace: 'x' }, ctx());
     expect(msg).not.toContain('File edited');

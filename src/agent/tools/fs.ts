@@ -1341,7 +1341,6 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     return resolved.message;
   }
   const newText = resolved.newText;
-  reportOutcome(true, resolved.syntax ?? 'unchecked', resolved.tier);
 
   const patch = computeLineDiff(text, newText, filePath);
   if (context?.onOutput && patch) context.onOutput(DIFF_PREFIX + patch);
@@ -1354,6 +1353,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
+  // After the write, so a write that throws is never recorded as applied; and
+  // from the bytes themselves, so no resolver path can report a write that
+  // changed nothing as a change.
+  reportOutcome(newText !== text, resolved.syntax ?? 'unchecked', resolved.tier);
   context?.workspaceIndex?.invalidateFile(filePath);
   // NO unreadPrefix on success. That prefix is corrective guidance for a FAILED
   // edit — "[You have not read this file… use the exact text from above as your
