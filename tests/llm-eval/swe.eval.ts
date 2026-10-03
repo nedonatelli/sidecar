@@ -43,6 +43,7 @@ import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { unloadModelRequest } from '../../bench/swe/modelCache.js';
+import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
@@ -816,10 +817,23 @@ describe('SWE-bench Lite — prediction generation', () => {
       // produced it — model, seed, temperature, slice, arms — so a resolve/lift
       // number is reproducible and attributable, not a floating point estimate.
       const seedEnv = process.env.SIDECAR_AGENT_SEED;
+      // The runtime underneath the run. The model TAG and the seed were already
+      // pinned here; the engine serving them was not. An unrecorded Ollama
+      // upgrade (0.33.3 -> 0.34.0 -> 0.34.2 inside ten days) changed how
+      // thinking tokens count against `num_predict`, which swung one hook's
+      // empty-reply rate from 7% to 35% with the code byte-identical — and
+      // nothing in the run record could rule it in or out. The digest is here
+      // for the same reason: a tag is a mutable pointer, a re-pull swaps the
+      // weights silently. Best-effort; nulls when Ollama cannot be read.
+      const ollamaHost = normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434';
+      const runtime = await fetchRuntimeProvenance(ollamaHost, MODEL);
+      console.info(`[swe] runtime: ${formatRuntimeProvenance(runtime)}`);
+
       const manifest = {
         model: MODEL,
         backend: 'ollama',
-        ollamaHost: normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
+        ollamaHost,
+        ...runtime,
         agentTemperature: getConfig().agentTemperature,
         agentSeed: seedEnv !== undefined && seedEnv !== '' ? Number(seedEnv) : (getConfig().agentSeed ?? null),
         dataset: path.basename(DATA as string),
