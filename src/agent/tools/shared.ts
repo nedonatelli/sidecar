@@ -26,6 +26,12 @@ export type ClarifyFn = (question: string, options: string[], allowCustom?: bool
 
 export interface ToolExecutorContext {
   onOutput?: (chunk: string) => void;
+  /**
+   * Structured outcome sink. Tools report what they DID as data here, in
+   * addition to the human-readable string they return. Absent outside the
+   * agent loop (direct unit calls), so every emit site must be optional.
+   */
+  logDecision?: (decision: import('../decisions.js').AgentDecision) => void;
   signal?: AbortSignal;
   /**
    * Config snapshot injected from the agent loop's `state.config`. When

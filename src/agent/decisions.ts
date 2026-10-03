@@ -64,6 +64,37 @@ export type AgentDecision =
       projectTestsPassed?: boolean;
     }
   | {
+      /**
+       * The outcome of one edit_file call, split into the facts that
+       * `File edited: <path>` collapses into a single word.
+       *
+       * Measured over 3,510 SWE-bench runs: 704 of 5,689 "successful" edits
+       * (12.4%) wrote NOTHING — the file was already in the requested state —
+       * and nothing downstream could tell them from a real write. Every metric
+       * that counted "successful edits", including the ones this repo has been
+       * steering on, counted those.
+       *
+       * `parses` is deliberately three-state. The gate's `refuse: false`
+       * collapses "parses cleanly", "no grammar for this language" and "still
+       * broken, but no worse", and only the first is a guarantee.
+       */
+      kind: 'edit_outcome';
+      path: string;
+      /** Did the bytes on disk actually change. False on the already-applied path. */
+      applied: boolean;
+      /** What the parse gate determined — NOT merely that it declined to refuse. */
+      parses: 'ok' | 'unchecked' | 'not-worse';
+      /**
+       * Writes to this file since the last verification run, INCLUDING this one.
+       * 1 means nothing has been run against it yet. This is the channel the
+       * second-stage diagnosis found structurally empty: a file can be edited
+       * repeatedly, parse fine, and never be executed once.
+       */
+      writesSinceVerify?: number;
+      /** How `search` matched: 'exact', or the tolerance tier that resolved it. */
+      tier?: string;
+    }
+  | {
       kind: 'verification_run';
       /** The command as the model wrote it. */
       command: string;
@@ -113,6 +144,19 @@ export function summarizeDecisions(decisions: readonly AgentDecision[]): Record<
     if (d.kind === 'verification_run') {
       bump('verification_run');
       bump(d.recognized ? 'verification_run.recognized' : 'verification_run.unrecognized');
+      continue;
+    }
+    if (d.kind === 'edit_outcome') {
+      bump('edit_outcome');
+      // The split that matters: a run's "successful edits" count has been
+      // silently including edits that wrote nothing.
+      bump(d.applied ? 'edit_outcome.applied' : 'edit_outcome.no_change');
+      if (d.applied) {
+        bump(`edit_outcome.parses.${d.parses}`);
+        // A file written repeatedly with nothing ever run against it is the
+        // empty verification channel, countable per run for the first time.
+        if ((d.writesSinceVerify ?? 0) > 1) bump('edit_outcome.unverified_rewrite');
+      }
       continue;
     }
     bump(`${d.kind}.${d.action}`);

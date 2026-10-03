@@ -285,6 +285,10 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       filesReadThisTurn: ctx.filesReadThisTurn,
       editedSinceRead: ctx.editedSinceRead,
       workspaceIndex: options.workspaceIndex,
+      // Structured tool outcomes land in the same record stream the scaffold
+      // decisions use, so an experiment can read what an edit actually did
+      // rather than re-deriving it from the result string.
+      logDecision: (decision) => state.logger?.logDecision?.(decision),
       writeHistoryByFile: state.writeHistoryByFile,
       writesSinceVerifyByFile: state.writesSinceVerifyByFile,
       filesEditedViaEditTool: state.filesEditedViaEditTool,

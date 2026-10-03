@@ -228,16 +228,31 @@ export async function checkSyntax(filePath: string, content: string): Promise<Sy
  * Refuse an edit only when it makes a file that PARSED CLEANLY stop parsing.
  * A file that was already broken stays editable — repairs must never be trapped.
  */
+/**
+ * What the parse gate actually determined, as distinct from whether it refused.
+ *
+ *   ok          the result parses cleanly.
+ *   unchecked   no grammar for this language, or no parseable baseline — the
+ *               gate allowed the edit without ever checking it.
+ *   not-worse   the result has parse errors, but no more than the file already
+ *               had, so the gate allowed it.
+ *
+ * `refuse: false` collapses all three, which is right for the gate and wrong
+ * for anything reporting an outcome: "we did not refuse" is not "this parses".
+ */
+export type SyntaxVerdict = 'ok' | 'unchecked' | 'not-worse';
+
 export async function editWouldBreakSyntax(
   filePath: string,
   before: string,
   after: string,
-): Promise<{ refuse: boolean; message?: string }> {
+): Promise<{ refuse: boolean; message?: string; verdict?: SyntaxVerdict }> {
   const afterCheck = await checkSyntax(filePath, after);
-  if (!afterCheck.checked || !afterCheck.broken) return { refuse: false };
+  if (!afterCheck.checked) return { refuse: false, verdict: 'unchecked' };
+  if (!afterCheck.broken) return { refuse: false, verdict: 'ok' };
 
   const beforeCheck = await checkSyntax(filePath, before);
-  if (!beforeCheck.checked) return { refuse: false };
+  if (!beforeCheck.checked) return { refuse: false, verdict: 'unchecked' };
 
   // Compare error COUNTS — do not treat "the file already has an error" as a
   // blank cheque.
@@ -255,7 +270,9 @@ export async function editWouldBreakSyntax(
   // AND after, so it cancels. Only an edit that makes things WORSE is refused,
   // and a model repairing a genuinely broken file (count falling) is still free
   // to work. Grammars will always lag the language; the rule must not.
-  if (afterCheck.errorCount <= beforeCheck.errorCount) return { refuse: false };
+  // Not refused, but NOT clean either: the file parses no worse than it did.
+  // Reporting this as 'ok' would claim a guarantee the gate did not make.
+  if (afterCheck.errorCount <= beforeCheck.errorCount) return { refuse: false, verdict: 'not-worse' };
 
   const introduced = afterCheck.errorCount - beforeCheck.errorCount;
   const where = afterCheck.firstErrorLine ? ` The first parse error is at line ${afterCheck.firstErrorLine}.` : '';
