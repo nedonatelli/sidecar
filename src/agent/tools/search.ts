@@ -251,6 +251,9 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
    * something it could already have said and did not.
    */
   const explainZeroHit = async (): Promise<string> => {
+    // EXPERIMENT SWITCH (exp/grep-zerohit-ab only): the control arm gets the
+    // pre-#81 reply, byte for byte, so the two arms differ by this reply alone.
+    if (process.env.SIDECAR_GREP_ZERO_HIT === 'off') return 'No matches found.';
     const seen = context?.zeroHitPatterns;
     // Keyed on WHERE as well as what: absent from one directory is not absent
     // from the repository, and widening the search is the right next move.

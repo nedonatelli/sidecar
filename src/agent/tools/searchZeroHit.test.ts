@@ -135,6 +135,21 @@ describe('grep — what a zero-hit search reports', () => {
     expect(again).toMatch(/already searched for this exact pattern once/i);
   });
 
+  it('EXPERIMENT SWITCH: SIDECAR_GREP_ZERO_HIT=off restores the bare pre-#81 reply', async () => {
+    const prev = process.env.SIDECAR_GREP_ZERO_HIT;
+    process.env.SIDECAR_GREP_ZERO_HIT = 'off';
+    try {
+      const seen = new Map<string, number>();
+      expect(await grep({ pattern: 'tzkt_import' }, ctx(seen))).toBe('No matches found.');
+      expect(await grep({ pattern: 'class ArticleForm(forms.ModelForm):' }, ctx(seen))).toBe('No matches found.');
+      expect(await grep({ pattern: 'admin_utils/**' }, ctx(seen))).toBe('No matches found.');
+      expect(await grep({ pattern: 'ArticleForm' }, ctx(seen))).toMatch(/app\.py/);
+    } finally {
+      if (prev === undefined) delete process.env.SIDECAR_GREP_ZERO_HIT;
+      else process.env.SIDECAR_GREP_ZERO_HIT = prev;
+    }
+  });
+
   it('works without the tracker, since tools are called outside the loop too', async () => {
     const a = await grep({ pattern: 'tzkt_import' }, ctx(undefined));
     const b = await grep({ pattern: 'tzkt_import' }, ctx(undefined));
