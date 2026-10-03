@@ -180,14 +180,72 @@ describe('grep', () => {
     expect(result).toMatch(/does not appear anywhere/i);
   });
 
-  it('includes stdout detail and hint on other grep failures', async () => {
-    const err = Object.assign(new Error('grep crashed'), { code: 2, stdout: 'partial output' });
+  it('returns the matches when grep exits 2 after finding some (an unreadable file elsewhere in the tree)', async () => {
+    // grep writes errors to STDERR; stdout only ever holds matches. Under -r it
+    // exits 2 if any one file could not be read, even after printing real hits
+    // from the rest -- those hits used to be shown as an "error".
+    const err = Object.assign(new Error('grep: some/file: Permission denied'), {
+      code: 2,
+      stdout: 'src/foo.ts:10:const foo = 1;\n',
+    });
     mockExecFile.mockImplementationOnce((_cmd: unknown, _args: unknown, _opts: unknown, cb: (err: Error) => void) => {
       cb(err);
     });
     const result = await grep({ pattern: 'foo' });
-    expect(result).toContain('partial output');
-    expect(result).toContain('run_command');
+    expect(result).toContain('src/foo.ts');
+    expect(result).not.toMatch(/Grep failed|Perl-style/);
+  });
+
+  describe('a timeout is a timeout, not a regex error and not an absence', () => {
+    // All 18 "Grep failed" results in a 300-run SWE-bench matrix took
+    // 15,012-15,040 ms: execFile's timeout, reported as a regex problem.
+    const timedOut = (stdout = '') =>
+      Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM', code: null, stdout });
+
+    it('says it timed out, and does not blame regex syntax', async () => {
+      mockExecFile.mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+        cb(timedOut());
+      });
+      const result = await grep({ pattern: 'FILE_UPLOAD_PERMISSION' });
+      expect(result).toMatch(/timed out after 15s searching the whole repository/);
+      expect(result).toMatch(/not mean the pattern is absent/);
+      expect(result).toMatch(/Narrow `path`/);
+      expect(result).not.toMatch(/Perl-style|Grep failed|No matches found/);
+    });
+
+    it('returns the matches it found before the timeout, marked partial', async () => {
+      mockExecFile.mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+        cb(timedOut('django/conf/global_settings.py:307:FILE_UPLOAD_PERMISSIONS = None\n'));
+      });
+      const result = await grep({ pattern: 'FILE_UPLOAD_PERMISSION', path: 'django' });
+      expect(result).toContain('global_settings.py');
+      expect(result).toMatch(/Partial results — grep timed out after 15s searching django/);
+    });
+
+    it('does not record a timed-out pattern as proven absent', async () => {
+      const seen = new Map<string, number>();
+      mockExecFile.mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+        cb(timedOut());
+      });
+      await grep({ pattern: 'tzkt_import' }, { zeroHitPatterns: seen } as never);
+      expect(seen.size).toBe(0);
+    });
+
+    it('does not claim a snippet identifier is absent when the RELAXED search timed out', async () => {
+      // First call: the snippet itself, a clean zero-hit (exit 1). Second: the
+      // relaxed identifier search, which times out and therefore proves nothing.
+      mockExecFile
+        .mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+          cb(Object.assign(new Error('no match'), { code: 1, stdout: '' }));
+        })
+        .mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+          cb(timedOut());
+        });
+      const result = await grep({ pattern: 'class ArticleForm(forms.ModelForm):' });
+      expect(result).toMatch(/"ArticleForm" TIMED OUT/);
+      expect(result).toMatch(/unknown/);
+      expect(result).not.toMatch(/not in the repository either/);
+    });
   });
 
   it('returns actionable hint when grep exits with regex error and no stdout/stderr', async () => {

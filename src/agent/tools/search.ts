@@ -227,22 +227,35 @@ export function pathQueryGlob(pattern: string): string {
   return stem ? `**/*${stem}*` : `**/${pattern.replace(/^\/+/, '').replace(/^\*\*\//, '')}`;
 }
 
+const GREP_TIMEOUT_MS = 15_000;
+
+type GrepError = { stdout?: string; stderr?: string; code?: number | string; killed?: boolean; signal?: string | null };
+
+/** execFile reports its own timeout as a kill, not as an exit code. */
+function isTimeout(e: GrepError): boolean {
+  return e.killed === true || e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT';
+}
+
 export async function grep(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const pattern = input.pattern as string;
   const searchPath = (input.path as string) || '.';
   const cwd = resolveRoot(context);
 
-  const runGrep = async (pat: string, where: string): Promise<string | null> => {
+  /** The relaxed search: matches, a proven absence (null), or 'timeout' -- which proves nothing. */
+  const runGrep = async (pat: string, where: string): Promise<string | null | 'timeout'> => {
     try {
       const { stdout } = await execFileAsync('grep', ['-rn', '-E', '--include=*', pat, where], {
         cwd,
-        timeout: 15_000,
+        timeout: GREP_TIMEOUT_MS,
         maxBuffer: 512 * 1024,
       });
       const capped = stdout.split('\n').slice(0, 200).join('\n');
       return capped.trim() ? capped : null;
-    } catch {
-      return null;
+    } catch (err) {
+      const e = err as GrepError;
+      const partial = (e.stdout ?? '').split('\n').slice(0, 200).join('\n');
+      if (partial.trim()) return partial;
+      return isTimeout(e) ? 'timeout' : null;
     }
   };
 
@@ -279,6 +292,16 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     const relaxed = relaxSnippetPattern(pattern);
     if (relaxed) {
       const out = await runGrep(relaxed, searchPath);
+      if (out === 'timeout') {
+        // A search that did not finish proves nothing. Saying the identifier is
+        // "not in the repository" here would send the model away from a term
+        // that may be exactly what it needs.
+        return (
+          `No matches found for "${pattern}" — it looks like a block of code rather than a single term, and grep ` +
+          `matches one line at a time. Searching for its identifier "${relaxed}" TIMED OUT, so whether it is in the ` +
+          `repository is unknown: grep for "${relaxed}" with \`path\` narrowed to the package you expect.`
+        );
+      }
       if (out) {
         return (
           `No matches found for "${pattern}" — it looks like a block of code rather than a single term, and grep ` +
@@ -304,7 +327,7 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     const args = ['-rn', '-E', '--include=*', pattern, searchPath];
     const { stdout } = await execFileAsync('grep', args, {
       cwd,
-      timeout: 15_000,
+      timeout: GREP_TIMEOUT_MS,
       maxBuffer: 512 * 1024,
     });
     // Cap raw lines first, then fold into the grouped/deduped form so
@@ -315,8 +338,24 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     if (!capped.trim()) return await explainZeroHit();
     return compressGrepOutput(capped);
   } catch (err) {
-    const error = err as { stdout?: string; code?: number; stderr?: string };
+    const error = err as GrepError;
     if (error.code === 1) return await explainZeroHit();
+    // Matches found before the failure are real matches. grep exits 2 when ANY
+    // file under -r could not be read, even after printing hits from the rest,
+    // and a timeout can kill it mid-tree; either way, show what it found.
+    const partial = (error.stdout ?? '').split('\n').slice(0, 200).join('\n');
+    if (isTimeout(error)) {
+      // NOT a regex problem and NOT an absence -- the old reply blamed regex
+      // syntax for every one of these. All 18 "Grep failed" results in a
+      // 300-run matrix were this timeout (15,012-15,040 ms), and it is not
+      // recorded in zeroHitPatterns: nothing was proven absent.
+      const where = searchPath === '.' ? 'the whole repository' : searchPath;
+      const note =
+        `grep timed out after ${GREP_TIMEOUT_MS / 1000}s searching ${where}. This is not a regex error, and it does ` +
+        `not mean the pattern is absent. Narrow \`path\` to the directory you expect and search again.`;
+      return partial.trim() ? `${compressGrepOutput(partial)}\n\n[Partial results — ${note}]` : note;
+    }
+    if (partial.trim()) return compressGrepOutput(partial);
     // Non-zero/non-1 exit typically means a regex syntax error. The grep
     // tool supports POSIX ERE (-E) — \s, \d, \w are not ERE syntax.
     // For Perl-style escapes use: run_command("grep -En 'pattern' .") or rg.
