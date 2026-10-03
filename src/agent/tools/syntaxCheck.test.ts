@@ -129,6 +129,30 @@ describe('tryLiteralEscapeRecovery (code-as-text escape contamination)', () => {
     expect(recovered).not.toContain('\\n');
   });
 
+  it('returns null when the decode UNDOES the edit — the sphinx-8474 false success', async () => {
+    // Live 2026-09-15: the edit's purpose was to put a literal \n into source
+    // (sphinx-doc__sphinx-8474 is about newline escaping, so the code under
+    // repair is exactly the code this recovery misreads). Decoding turned the
+    // new text back into the original file, which of course parsed — so the
+    // caller wrote it and reported "File edited" over a change that never
+    // happened. The model re-sent the identical edit SIX times, each one
+    // reporting success, and the run burned to the 50-turn cap.
+    const before = "lines = nl_escape_re.sub('', text).split('\n')\n";
+    // The model asks for the two-character escape; decoding reproduces `before`.
+    const after = "lines = nl_escape_re.sub('', text).split('\\n')\n";
+    expect(await tryLiteralEscapeRecovery('std.py', before, after)).toBeNull();
+  });
+
+  it('still decodes when the result differs from the original file', async () => {
+    // The guard must not disarm the recovery it sits inside: a genuine
+    // escape-contaminated write still decodes.
+    const before = 'x = 1\n';
+    const after = 'x = 1\\ndef f():\\n    return 2\n';
+    const recovered = await tryLiteralEscapeRecovery('a.py', before, after);
+    expect(recovered).not.toBeNull();
+    expect(recovered).not.toBe(before);
+  });
+
   it('returns null when the content has no literal escapes', async () => {
     expect(await tryLiteralEscapeRecovery('a.py', '', 'def broken(:\n    pass\n')).toBeNull();
   });
