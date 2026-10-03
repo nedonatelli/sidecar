@@ -289,6 +289,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       writesSinceVerifyByFile: state.writesSinceVerifyByFile,
       filesEditedViaEditTool: state.filesEditedViaEditTool,
       editFailureSignatures: state.editFailureSignatures,
+      zeroHitPatterns: state.zeroHitPatterns,
       bounceCounts: state.bounceCounts,
       planRef: state.planRef,
     },

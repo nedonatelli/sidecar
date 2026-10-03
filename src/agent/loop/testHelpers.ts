@@ -46,6 +46,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     forceVerifyBeforeBailByFile: new Map(),
     filesEditedViaEditTool: new Set(),
     editFailureSignatures: new Map(),
+    zeroHitPatterns: new Map(),
     bounceCounts: new Map(),
     planRef: { plan: null },
     escalatedRewriteByFile: new Set(),

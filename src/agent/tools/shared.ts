@@ -176,6 +176,11 @@ export interface ToolExecutorContext {
    */
   editFailureSignatures?: Map<string, string>;
   /**
+   * Content-search patterns already proven absent from the repo this run,
+   * from `LoopState.zeroHitPatterns`; absent in unit tests / non-loop calls.
+   */
+  zeroHitPatterns?: Map<string, number>;
+  /**
    * Consecutive dispatch-bounce counts per (tool, kind) — schema errors,
    * malformed JSON, example replays, unknown tools. The executor escalates
    * its bounce message on repeats and clears a tool's counts when it

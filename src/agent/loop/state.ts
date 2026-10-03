@@ -225,6 +225,14 @@ export interface LoopState {
   // showing the same hint again, and clears the entry on a successful edit.
   editFailureSignatures: Map<string, string>;
 
+  // Patterns a content search has already proven ABSENT from this repository,
+  // with how many times they were asked. 44.6% of zero-hit greps in a 300-run
+  // SWE-bench matrix re-asked a pattern the same run had already answered
+  // (`tzkt_import` six times in one run), and the tool's reply was the same
+  // bare "No matches found." every time. search.ts reads this to say that the
+  // question is already answered instead of answering it again.
+  zeroHitPatterns: Map<string, number>;
+
   // Consecutive dispatch-bounce counts per (tool, kind): schema validation,
   // malformed JSON, example replay, unknown tool. The executor escalates its
   // bounce message on identical repeats (2nd: "do not resubmit"; 3rd+:
@@ -413,6 +421,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
     editFailureSignatures: new Map<string, string>(),
+    zeroHitPatterns: new Map<string, number>(),
     bounceCounts: new Map<string, number>(),
     planRef: { plan: options.initialPlan ?? null },
     escalatedRewriteByFile: new Set<string>(),

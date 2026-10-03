@@ -163,7 +163,11 @@ describe('grep', () => {
       },
     );
     const result = await grep({ pattern: 'nonexistent' });
-    expect(result).toBe('No matches found.');
+    // A zero-hit search now explains itself instead of returning a bare string
+    // — see searchZeroHit.test.ts. The lead phrase is still the contract, so a
+    // caller (or a grep of the logs) looking for "No matches found" still works.
+    expect(result).toMatch(/^No matches found\./);
+    expect(result).toMatch(/does not appear anywhere/i);
   });
 
   it('returns No matches found when grep exits with code 1', async () => {
@@ -172,7 +176,8 @@ describe('grep', () => {
       cb(err);
     });
     const result = await grep({ pattern: 'zzz' });
-    expect(result).toBe('No matches found.');
+    expect(result).toMatch(/^No matches found\./);
+    expect(result).toMatch(/does not appear anywhere/i);
   });
 
   it('includes stdout detail and hint on other grep failures', async () => {
