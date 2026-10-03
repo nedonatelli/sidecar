@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.125.0] - 2026-10-03
+
+Two threads. For users: any OpenAI-compatible server is a menu choice away and reports its
+own context window, and the chat no longer re-answers earlier prompts. For the agent: tools
+that reported success while doing nothing now say what actually happened. `run_tests`
+linted JavaScript on Python repos and called it `ok`. An escape decode undid an edit and
+reported "File edited". A decorative locator vetoed an edit it was not needed for. `grep`
+answered its most common outcome with a bare string. Every edit now also leaves a record
+of what it changed.
+
 ### Added
 
 - **Custom endpoint backend.** A new **Custom endpoint** entry in the backend menu (chat
@@ -28,6 +38,28 @@ All notable changes to the SideCar extension will be documented in this file.
   `src/webview/handlers/chatHandlers.ts`)
 - The vLLM launch example in `docs/backends.md` now includes `--enable-auto-tool-choice`
   and `--tool-call-parser`, without which the agent cannot call tools.
+- **Agent decisions are recorded as structured data.** Completion-gate firings, ratchet
+  reverts, shell commands the gate did or did not recognise as verification, and every
+  `edit_file` outcome are emitted as records with fields alongside the existing log line,
+  and summarised per run. Each `edit_file` record separates whether the bytes changed, what
+  the parse gate actually determined (`ok` / `unchecked` / `not-worse`), and how many times
+  the file has been written since anything last ran against it: 12.4% of recorded
+  "successful" edits wrote nothing, and nothing downstream could tell them apart.
+  (`src/agent/decisions.ts`, `src/agent/completionGate.ts`, `src/agent/tools/fs.ts`)
+
+### Changed
+
+- **A `grep` that finds nothing now says why.** It used to return a bare
+  `No matches found.`, its most common outcome. Now it says when the same pattern already
+  found nothing earlier in the run. For a pasted code snippet it searches the snippet's
+  most distinctive identifier and returns those hits, or says the text is probably from
+  the issue report rather than the codebase. A path or glob is redirected to
+  `search_files`. (`src/agent/tools/search.ts`)
+- **Each platform's .vsix carries only its own onnxruntime binaries and no CUDA
+  provider.** SideCar runs embeddings on CPU, so the GPU execution providers and the other
+  platforms' native binaries were dead weight: the v0.124.0 linux-x64 package was 307 MB
+  and the others ~103 MB. (`scripts/prune-onnxruntime-platforms.mjs`,
+  `scripts/verify-package.mjs`, `.github/workflows/publish.yml`)
 
 ### Fixed
 
@@ -55,6 +87,41 @@ All notable changes to the SideCar extension will be documented in this file.
     (`src/webview/handlers/chatHandlers.ts`)
   - _Skills with `disableModelInvocation` showed their reply but never saved it._ The
     reply is now recorded. (`src/webview/handlers/chatHandlers.ts`)
+- **`run_tests` linted JavaScript on a Python repo and reported `ok`.** Auto-detection
+  asked `package.json` first, and Django's `package.json` test script is `eslint`, so
+  `run_tests` returned success while running none of the Python suite. A `package.json`
+  now wins only when no Python, Rust, Go or Gradle manifest is present. Runner scripts the
+  project documents (`tests/runtests.py`; `bin/test` once a Python manifest confirms it is
+  not a Rails binstub) outrank generic `pytest`. A target path is converted to the dotted
+  label `runtests.py` expects. The result names the runner it picked and why.
+  (`src/agent/tools/testRunnerDetect.ts`)
+- **A Python source edit is now followed by a test run.** In v0.124.0 the completion gate
+  never asked a Python project for tests: the colocated-test lookup only knew `foo.test.py`,
+  and one test run before the first edit satisfied it for the whole task. A `.py` source
+  edit with no test run after it, in a repo with a `tests/` directory, now draws a
+  "run the project's runner for the module you changed" finding. Runs that never test
+  resolve at ~3%, against 17–26% for runs that do. (`src/agent/completionGate.ts`)
+- **`edit_file` reported success for an edit that undid itself.** Escape recovery decodes
+  literal `\n` / `\t` in new text and keeps the decode when it parses. When an edit's
+  purpose was to put a literal `\n` into source, decoding reproduced the original file,
+  which parsed, so "File edited" was reported over a change that never happened. The
+  model resent it six times in one observed run. The decode now declines when it would
+  restore the original. (`src/agent/tools/syntaxCheck.ts`)
+- **A `within` locator that could not be resolved blocked edits it was not needed for.**
+  When the locator was not unique or not found, `edit_file` failed even if `search`
+  occurred exactly once in the file and the locator therefore had nothing to
+  disambiguate. Calls with a locator succeeded 20% of the time against 40% without.
+  The whole file now decides:
+  - a unique `search` proceeds, with a note that the locator was not used;
+  - an ambiguous `search` raises the locator error;
+  - a missing `search` gets the not-found diagnosis.
+
+  Replaying 302 recorded locator failures, applied edits went from 8 to 65.
+  (`src/agent/tools/fs.ts`)
+
+### Stats
+- 9022 total tests (501 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.124.0] - 2026-09-14
 
