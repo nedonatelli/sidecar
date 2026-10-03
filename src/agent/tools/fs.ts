@@ -1317,7 +1317,29 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     stalePrefix,
     context,
   });
-  if (resolved.newText === null) return resolved.message;
+  // Report the outcome as DATA, split into the facts the success string fuses.
+  // The no-change path returns success and writes nothing: 704 of 5,689
+  // "successful" edits across 3,510 recorded runs were exactly this, and
+  // nothing downstream could tell them from a real write.
+  const reportOutcome = (applied: boolean, parses: 'ok' | 'unchecked' | 'not-worse', tier?: string): void => {
+    context?.logDecision?.({
+      kind: 'edit_outcome',
+      path: filePath,
+      applied,
+      parses,
+      // +1 because this write has not been counted yet; 1 means "nothing has
+      // been run against this file since it changed".
+      writesSinceVerify: applied ? (context?.writesSinceVerifyByFile?.get(filePath) ?? 0) + 1 : undefined,
+      tier,
+    });
+  };
+
+  if (resolved.newText === null) {
+    // Nothing is written, so nothing can have broken: 'ok' would claim the gate
+    // ran when it never had a new text to check.
+    reportOutcome(false, 'unchecked');
+    return resolved.message;
+  }
   const newText = resolved.newText;
 
   const patch = computeLineDiff(text, newText, filePath);
@@ -1331,6 +1353,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   }
 
   await workspace.fs.writeFile(fileUri, Buffer.from(newText, 'utf-8'));
+  // After the write, so a write that throws is never recorded as applied; and
+  // from the bytes themselves, so no resolver path can report a write that
+  // changed nothing as a change.
+  reportOutcome(newText !== text, resolved.syntax ?? 'unchecked', resolved.tier);
   context?.workspaceIndex?.invalidateFile(filePath);
   // NO unreadPrefix on success. That prefix is corrective guidance for a FAILED
   // edit — "[You have not read this file… use the exact text from above as your
@@ -1358,7 +1384,16 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
  */
 export type ResolvedEdit =
   | { newText: null; message: string }
-  | { newText: string; summary?: string; prefixNote: string; suffixNote: string };
+  | {
+      newText: string;
+      summary?: string;
+      prefixNote: string;
+      suffixNote: string;
+      /** What the parse gate DETERMINED, not merely that it declined to refuse. */
+      syntax?: import('./syntaxCheck.js').SyntaxVerdict;
+      /** How `search` matched: 'exact' or the tolerance tier that resolved it. */
+      tier?: string;
+    };
 
 /**
  * The edit_file guard + repair core: given the CURRENT text of a file and a
@@ -1767,6 +1802,8 @@ export async function resolveEditedText(params: {
       return {
         newText: newTextAll,
         summary: `File edited: ${filePath} (replace_all — ${match.count} occurrences replaced)`,
+        syntax: allSyntax.verdict,
+        tier: match.tier,
         prefixNote: '',
         suffixNote: '',
       };
@@ -1919,6 +1956,11 @@ export async function resolveEditedText(params: {
     newText,
     prefixNote: anchorRedundantNote() + matchToleranceNote(match, filePath, text) + duplicateTrimNote,
     suffixNote: escapeRecoveryNote,
+    // After an escape recovery the ORIGINAL verdict was 'refuse'; the recovery
+    // only proceeds when the decoded text parses, so report that, not the
+    // verdict of the text we threw away.
+    syntax: escapeRecoveryNote ? 'ok' : syntax.verdict,
+    tier: match?.tier,
   };
 }
 

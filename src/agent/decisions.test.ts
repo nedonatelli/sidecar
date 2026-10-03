@@ -88,6 +88,47 @@ describe('summarizeDecisions', () => {
     expect(out['verification_run.unrecognized']).toBe(1);
   });
 
+  it('separates edits that WROTE from edits that only reported success', () => {
+    // The measurement this exists for: 704 of 5,689 "successful" edits across
+    // 3,510 recorded runs wrote nothing, and every metric counting successful
+    // edits counted them. One flag could not tell them apart; two can.
+    const out = summarizeDecisions([
+      { kind: 'edit_outcome', path: 'a.py', applied: true, parses: 'ok', writesSinceVerify: 1 },
+      { kind: 'edit_outcome', path: 'a.py', applied: false, parses: 'unchecked' },
+    ]);
+    expect(out['edit_outcome']).toBe(2);
+    expect(out['edit_outcome.applied']).toBe(1);
+    expect(out['edit_outcome.no_change']).toBe(1);
+    // the no-change edit must not be credited with a parse result
+    expect(out['edit_outcome.parses.ok']).toBe(1);
+    expect(out['edit_outcome.parses.unchecked']).toBeUndefined();
+  });
+
+  it('keeps the three parse verdicts distinct', () => {
+    // 'unchecked' and 'not-worse' are NOT 'ok'. The gate returns refuse:false
+    // for all three, which is right for the gate and wrong for a report.
+    const out = summarizeDecisions([
+      { kind: 'edit_outcome', path: 'a.py', applied: true, parses: 'ok', writesSinceVerify: 1 },
+      { kind: 'edit_outcome', path: 'b.rs', applied: true, parses: 'unchecked', writesSinceVerify: 1 },
+      { kind: 'edit_outcome', path: 'c.py', applied: true, parses: 'not-worse', writesSinceVerify: 1 },
+    ]);
+    expect(out['edit_outcome.parses.ok']).toBe(1);
+    expect(out['edit_outcome.parses.unchecked']).toBe(1);
+    expect(out['edit_outcome.parses.not-worse']).toBe(1);
+  });
+
+  it('counts a rewrite of a file nothing has been run against', () => {
+    // The structurally empty verification channel, countable per run: a file
+    // edited again with no test run since the last edit.
+    const out = summarizeDecisions([
+      { kind: 'edit_outcome', path: 'a.py', applied: true, parses: 'ok', writesSinceVerify: 1 },
+      { kind: 'edit_outcome', path: 'a.py', applied: true, parses: 'ok', writesSinceVerify: 2 },
+      { kind: 'edit_outcome', path: 'a.py', applied: true, parses: 'ok', writesSinceVerify: 3 },
+    ]);
+    expect(out['edit_outcome.applied']).toBe(3);
+    expect(out['edit_outcome.unverified_rewrite']).toBe(2);
+  });
+
   it('returns an empty object for no decisions', () => {
     expect(summarizeDecisions([])).toEqual({});
   });

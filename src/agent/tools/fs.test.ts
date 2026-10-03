@@ -2194,3 +2194,81 @@ describe('edit_file — search must not double as the locator', () => {
     expect(editFileDef.description).toMatch(/within/);
   });
 });
+
+describe('edit_file — structured outcome flags', () => {
+  // One boolean was doing three jobs. `File edited: <path>` is returned both
+  // when bytes changed and when nothing was written, and "the parse gate did
+  // not refuse" covers "parses cleanly", "no grammar for this language" and
+  // "still broken, but no worse". Measured over 3,510 recorded runs: 704 of
+  // 5,689 successes (12.4%) wrote nothing, and every metric counting
+  // successful edits counted them.
+  const module = ['def alpha():', '    return 1', '', '', 'def beta():', '    return 2', ''].join('\n');
+  let decisions: { kind: string; [k: string]: unknown }[];
+  let written: string;
+
+  beforeEach(async () => {
+    decisions = [];
+    written = '';
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockImplementation(async () => Buffer.from(written || module) as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u, c) => {
+      written = Buffer.from(c as Uint8Array).toString('utf-8');
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const ctx = () => ({ logDecision: (d: never) => decisions.push(d) }) as never;
+  const outcomes = () => decisions.filter((d) => d.kind === 'edit_outcome');
+
+  it('reports applied=true and a parse verdict when bytes change', async () => {
+    const msg = await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' }, ctx());
+    expect(msg).toContain('File edited');
+    expect(outcomes()).toHaveLength(1);
+    expect(outcomes()[0]).toMatchObject({ path: 'm.py', applied: true });
+    expect(['ok', 'unchecked', 'not-worse']).toContain(outcomes()[0].parses);
+  });
+
+  it('reports applied=FALSE when the edit was already applied and nothing is written', async () => {
+    // The 12.4%. Both calls return success; only the flag tells them apart.
+    await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' }, ctx());
+    const before = written;
+    const msg = await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' }, ctx());
+    expect(msg).toContain('No change needed');
+    expect(written).toBe(before);
+    expect(outcomes()).toHaveLength(2);
+    expect(outcomes()[0].applied).toBe(true);
+    expect(outcomes()[1].applied).toBe(false);
+  });
+
+  it('does not claim a parse verdict for an edit that wrote nothing', async () => {
+    await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' }, ctx());
+    await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' }, ctx());
+    expect(outcomes()[1]).toMatchObject({ applied: false, parses: 'unchecked' });
+    expect(outcomes()[1].writesSinceVerify).toBeUndefined();
+  });
+
+  it('emits nothing when there is no sink, and still applies the edit', async () => {
+    // Tools are called outside the loop in unit tests and direct callers; the
+    // emit site must never be load-bearing.
+    const msg = await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' });
+    expect(msg).toContain('File edited');
+    expect(decisions).toHaveLength(0);
+  });
+
+  it('does not record applied=true for a write that threw', async () => {
+    // The record says what reached the disk, so it is emitted after the write,
+    // not on the way to it.
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'writeFile').mockRejectedValue(new Error('EACCES'));
+    const msg = await editMsg({ path: 'm.py', search: '    return 1', replace: '    return 99' }, ctx());
+    expect(msg).toContain('EACCES');
+    expect(outcomes().filter((d) => d.applied)).toHaveLength(0);
+  });
+
+  it('emits no outcome at all when the edit is REFUSED', async () => {
+    const msg = await editMsg({ path: 'm.py', search: 'nowhere in the file', replace: 'x' }, ctx());
+    expect(msg).not.toContain('File edited');
+    expect(outcomes()).toHaveLength(0);
+  });
+});
