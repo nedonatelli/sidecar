@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
+import { recordDecision, type DecisionSink } from './decisions.js';
 import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE } from './completionGate/pathUtil.js';
 import { isNoChangeNeededResult, isFailingCheckOutput } from './loop/actionReprompt.js';
 
@@ -339,6 +340,16 @@ export function recordToolCall(
   tu: ToolUseContentBlock,
   result: ToolResultContentBlock,
   mcpToolMeta?: (name: string) => { server: string; readOnly: boolean } | undefined,
+  /**
+   * Optional decision sink. When present, every shell command is recorded with
+   * whether THE PRODUCT recognised it as a verification run. That field is the
+   * point: eight analysis scripts each re-derived this predicate in their own
+   * regex and the copies drifted — the shipped gate once counted only
+   * `vitest|jest|pytest|mocha|go test`, so on a Django corpus it recognised
+   * almost nothing while the scripts reported 59% of runs "ran a test". Both
+   * numbers were defensible and nothing revealed they disagreed.
+   */
+  logger?: DecisionSink,
 ): void {
   if (result.is_error) return;
   const resultText = typeof result.content === 'string' ? result.content : '';
@@ -528,6 +539,20 @@ export function recordToolCall(
     // the `-` of `-m unittest`, and `./tests/runtests.py` is preceded by `/`.
     const testMatch = cmd.match(
       /(?:^|[\s;&|/])(vitest|jest|pytest|py\.test|mocha|go\s+test|tox|nose2?|runtests\.py|manage\.py\s+test|-m\s+unittest)\b([^|;&]*)/,
+    );
+    // Record the verdict for EVERY shell command, recognised or not. That
+    // second case is the valuable one: it is how a drift between the product's
+    // predicate and an analysis script's copy becomes visible instead of
+    // producing two defensible numbers that quietly disagree.
+    recordDecision(
+      logger,
+      {
+        kind: 'verification_run',
+        command: cmd.slice(0, 300),
+        recognized: testMatch !== null,
+        runner: testMatch?.[1],
+      },
+      `Shell command ${testMatch ? `recognised as a test run (${testMatch[1]})` : 'not recognised as verification'}: ${cmd.slice(0, 120)}`,
     );
     if (testMatch) {
       const outcome = classifyTestResult(resultText);

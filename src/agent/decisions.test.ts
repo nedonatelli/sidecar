@@ -92,3 +92,19 @@ describe('summarizeDecisions', () => {
     expect(summarizeDecisions([])).toEqual({});
   });
 });
+
+describe('verification_run — the record that ends the regex duplication', () => {
+  it('summarises recognised and unrecognised shell commands separately', () => {
+    // The Django case: the shipped gate did not recognise ./tests/runtests.py,
+    // while every analysis script did. With this field the disagreement shows
+    // up in the run's own summary instead of needing a regex diff by hand.
+    const out = summarizeDecisions([
+      { kind: 'verification_run', command: './tests/runtests.py utils_tests', recognized: true, runner: 'runtests.py' },
+      { kind: 'verification_run', command: 'ls -1', recognized: false },
+      { kind: 'verification_run', command: 'python -m pytest tests/', recognized: true, runner: 'pytest' },
+    ]);
+    expect(out['verification_run']).toBe(3);
+    expect(out['verification_run.recognized']).toBe(2);
+    expect(out['verification_run.unrecognized']).toBe(1);
+  });
+});
