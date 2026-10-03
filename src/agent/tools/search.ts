@@ -210,6 +210,23 @@ export function looksLikePathQuery(pattern: string): boolean {
   return pattern.includes('/') || pattern.includes('*') || /\.(py|ts|js|tsx|jsx|go|rs|java|rb)$/.test(pattern);
 }
 
+/**
+ * The search_files glob for a path-shaped grep pattern: match on the file or
+ * directory NAME (its last real segment, extension dropped), because that is
+ * what survives a wrong guess about where it lives: `django/contrib/admin/checks.py`
+ * searches for any name containing `checks`. A bare extension glob such as
+ * `*.py` is kept as-is, anchored under any directory.
+ */
+export function pathQueryGlob(pattern: string): string {
+  const segment =
+    pattern
+      .split('/')
+      .filter((s) => s && !/^\*+$/.test(s))
+      .pop() ?? '';
+  const stem = segment.replace(/\*/g, '').replace(/\.[A-Za-z0-9]+$/, '');
+  return stem ? `**/*${stem}*` : `**/${pattern.replace(/^\/+/, '').replace(/^\*\*\//, '')}`;
+}
+
 export async function grep(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const pattern = input.pattern as string;
   const searchPath = (input.path as string) || '.';
@@ -235,8 +252,11 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
    */
   const explainZeroHit = async (): Promise<string> => {
     const seen = context?.zeroHitPatterns;
-    const before = seen?.get(pattern) ?? 0;
-    seen?.set(pattern, before + 1);
+    // Keyed on WHERE as well as what: absent from one directory is not absent
+    // from the repository, and widening the search is the right next move.
+    const key = JSON.stringify([searchPath, pattern]);
+    const before = seen?.get(key) ?? 0;
+    seen?.set(key, before + 1);
 
     if (before > 0) {
       return (
@@ -249,7 +269,7 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     if (looksLikePathQuery(pattern)) {
       return (
         `No matches found. "${pattern}" looks like a file path or glob, and grep searches file CONTENTS, not names. ` +
-        `To find a file by name use search_files(pattern="**/*${pattern.replace(/[*/]/g, '').split('.')[0]}*").`
+        `To find a file by name use search_files(pattern="${pathQueryGlob(pattern)}").`
       );
     }
 

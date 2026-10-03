@@ -100,6 +100,18 @@ describe('grep — what a zero-hit search reports', () => {
     expect(out).toMatch(/CONTENTS, not names/);
   });
 
+  it('suggests a glob on the file NAME, not the slashes squeezed out of a full path', async () => {
+    // Stripping every `/` turned `django/contrib/admin/checks.py` into
+    // `**/*djangocontribadminchecks*`, which matches nothing — the redirect
+    // failed on exactly the patterns it exists for.
+    const full = await grep({ pattern: 'django/contrib/admin/checks.py' }, ctx());
+    expect(full).toContain('search_files(pattern="**/*checks*")');
+    const dir = await grep({ pattern: 'admin_utils/**' }, ctx());
+    expect(dir).toContain('search_files(pattern="**/*admin_utils*")');
+    const ext = await grep({ pattern: '*.py' }, ctx());
+    expect(ext).toContain('search_files(pattern="**/*.py")');
+  });
+
   it('refuses to answer the same dead question twice', async () => {
     // 44.6% of zero-hit greps repeated a pattern the run had already answered.
     const seen = new Map<string, number>();
@@ -108,6 +120,19 @@ describe('grep — what a zero-hit search reports', () => {
     expect(second).toMatch(/already searched for this exact pattern once/i);
     const third = await grep({ pattern: 'tzkt_import' }, ctx(seen));
     expect(third).toMatch(/already searched for this exact pattern 2 times/i);
+  });
+
+  it('does not call a WIDER search a repeat of a narrower one', async () => {
+    // Absent from one directory is not absent from the repository: widening the
+    // search is the right next move, and must not be told it is already answered.
+    fsNode.mkdirSync(pathNode.join(root, 'sub'), { recursive: true });
+    fsNode.writeFileSync(pathNode.join(root, 'sub', 'x.py'), 'pass\n');
+    const seen = new Map<string, number>();
+    await grep({ pattern: 'only_elsewhere', path: 'sub' }, ctx(seen));
+    const wider = await grep({ pattern: 'only_elsewhere' }, ctx(seen));
+    expect(wider).not.toMatch(/already searched/i);
+    const again = await grep({ pattern: 'only_elsewhere' }, ctx(seen));
+    expect(again).toMatch(/already searched for this exact pattern once/i);
   });
 
   it('works without the tracker, since tools are called outside the loop too', async () => {
