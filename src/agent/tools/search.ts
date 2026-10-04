@@ -1,4 +1,5 @@
 import { workspace } from 'vscode';
+import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -236,16 +237,67 @@ function isTimeout(e: GrepError): boolean {
   return e.killed === true || e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT';
 }
 
+/**
+ * grep's argv, exactly as written. Git for Windows' grep glob-expands its
+ * arguments like a shell would, even under execFile: `.*` became `. .. .git
+ * ...`, so a regex PATTERN turned into extra paths and grep searched the
+ * workspace's PARENT (12,874 lines of someone else's files, then a maxBuffer
+ * failure). `MSYS=noglob` turns that off; it is inert on Linux and macOS.
+ * `-e` and `--` keep a pattern or path starting with `-` (django's `-pk`)
+ * from being read as an option.
+ */
+function grepArgs(pattern: string, where: string): string[] {
+  return ['-rn', '-E', '--include=*', '-e', pattern, '--', where];
+}
+const GREP_ENV = { ...process.env, MSYS: [process.env.MSYS, 'noglob'].filter(Boolean).join(' ') };
+
+const PATH_PATTERN_CHARS = /[*?[\]{}()|+^$]/;
+
+/**
+ * `path` is a location inside the workspace, never a pattern. Returns the
+ * reason to refuse, or null when it is fine to search.
+ *
+ * Measured: `path: ".*"` was passed in 6 of the 18 timed-out greps in a
+ * 300-run matrix. Expanded by the grep binary, it searched the parent of the
+ * workspace. A real directory may still have such characters in its name
+ * (`a+b (old)`), so a path is only called a pattern when it does not exist.
+ */
+export function checkGrepPath(searchPath: string, cwd: string): string | null {
+  // The default -- the workspace itself -- has nothing to check.
+  if (searchPath === '.') return null;
+  const resolved = path.resolve(cwd, searchPath);
+  const rel = path.relative(cwd, resolved);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    return (
+      `"${searchPath}" is outside the workspace. grep searches only inside the project: omit \`path\` to search ` +
+      `all of it, or give a directory within it such as "src/".`
+    );
+  }
+  if (fs.existsSync(resolved)) return null;
+  if (PATH_PATTERN_CHARS.test(searchPath)) {
+    const glob = /^\*\*\//.test(searchPath) ? searchPath : `**/${searchPath.replace(/^(\.?\/)+/, '')}`;
+    return (
+      `"${searchPath}" looks like a pattern, but \`path\` must be a directory or a file -- grep already searches ` +
+      `every file under it. To search the whole repository, omit \`path\`. To find files by NAME, use ` +
+      `search_files(pattern="${glob}").`
+    );
+  }
+  return `"${searchPath}" does not exist in the workspace. Omit \`path\` to search everything, or use list_directory to see what is here.`;
+}
+
 export async function grep(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const pattern = input.pattern as string;
   const searchPath = (input.path as string) || '.';
   const cwd = resolveRoot(context);
+  const badPath = checkGrepPath(searchPath, cwd);
+  if (badPath) return badPath;
 
   /** The relaxed search: matches, a proven absence (null), or 'timeout' -- which proves nothing. */
   const runGrep = async (pat: string, where: string): Promise<string | null | 'timeout'> => {
     try {
-      const { stdout } = await execFileAsync('grep', ['-rn', '-E', '--include=*', pat, where], {
+      const { stdout } = await execFileAsync('grep', grepArgs(pat, where), {
         cwd,
+        env: GREP_ENV,
         timeout: GREP_TIMEOUT_MS,
         maxBuffer: 512 * 1024,
       });
@@ -321,9 +373,9 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
   try {
     // -E enables extended regex: +, ?, |, () without backslashes.
     // Use execFile with args array to prevent shell injection.
-    const args = ['-rn', '-E', '--include=*', pattern, searchPath];
-    const { stdout } = await execFileAsync('grep', args, {
+    const { stdout } = await execFileAsync('grep', grepArgs(pattern, searchPath), {
       cwd,
+      env: GREP_ENV,
       timeout: GREP_TIMEOUT_MS,
       maxBuffer: 512 * 1024,
     });
