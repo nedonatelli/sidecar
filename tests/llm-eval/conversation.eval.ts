@@ -145,6 +145,7 @@ describe(`llm-eval :: live conversation (${BACKEND} ${MODEL})`, () => {
       // No backend, no run: a skip, not a failure (the eval-suite convention).
       if (!(await backendUp())) ctx.skip();
       const results: Record<string, unknown>[] = [];
+      const failures: string[] = [];
       const prevSeed = process.env.SIDECAR_AGENT_SEED;
       try {
         for (const seed of SEEDS) {
@@ -202,16 +203,25 @@ describe(`llm-eval :: live conversation (${BACKEND} ${MODEL})`, () => {
               `  reply1: ${reply1.replace(/\s+/g, ' ').slice(0, 220)}\n  reply2: ${reply2.replace(/\s+/g, ' ').slice(0, 160)}`,
           );
 
-          // HARD: history answered turn by turn.
-          expect(prompts).toEqual(["What's the weather today?", 'Count to 10.']);
+          // HARD checks, COLLECTED rather than thrown: an early `expect` ended
+          // the loop at the first failing seed, so seed 33 never ran on the
+          // first live run. Every seed runs; all failures are reported at once.
+          const fail = (what: string) => failures.push(`seed ${seed}: ${what}`);
+          // History answered turn by turn, each prompt stored as the user typed it.
+          if (prompts.length !== 2) fail(`expected 2 prompts in history, got ${prompts.length}`);
+          if (prompts[1] !== 'Count to 10.')
+            fail(`turn 2 was not stored as typed: ${JSON.stringify(prompts[1]).slice(0, 160)}`);
           const lastPromptIdx = firstTurn2Request ? firstTurn2Request.map((m) => m.role).lastIndexOf('user') : -1;
           const before = firstTurn2Request?.slice(0, lastPromptIdx) ?? [];
-          expect(before.some((m) => m.role === 'assistant' && getContentText(m.content).trim())).toBe(true);
-          expect(userPrompts(before)).toHaveLength(1);
-          // HARD: turn 2 does what it was asked and does not re-answer turn 1.
-          expect(r.turn2.countsToTen).toBe(true);
-          expect(r.turn2.mentionsWeather).toBe(false);
+          if (!before.some((m) => m.role === 'assistant' && getContentText(m.content).trim()))
+            fail('turn 2 request did not carry an answer to turn 1');
+          if (userPrompts(before).length !== 1)
+            fail(`turn 2 request carried ${userPrompts(before).length} earlier prompts, not 1`);
+          // Turn 2 does what it was asked and does not re-answer turn 1.
+          if (!r.turn2.countsToTen) fail('reply 2 did not count 1..10');
+          if (r.turn2.mentionsWeather) fail('reply 2 mentions the weather');
         }
+        expect(failures, failures.join('\n')).toEqual([]);
       } finally {
         if (prevSeed === undefined) delete process.env.SIDECAR_AGENT_SEED;
         else process.env.SIDECAR_AGENT_SEED = prevSeed;
