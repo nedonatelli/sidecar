@@ -4,6 +4,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Retry after an error sent your message twice.** When the model failed partway through
+  a reply (server error, timeout, rate limit), the failed message stayed in history so it
+  could be retried, but both Retry buttons sent it again as a new message. History kept an
+  unanswered duplicate, and the model saw the same question twice. Retry now re-runs the
+  message that failed. (`src/webview/handlers/chatHandlers.ts`)
+- **A new message after an error could be answered together with the failed one.** If you
+  moved on instead of retrying, your next message followed the unanswered one, and the model
+  answered both: the same shape as the re-answering bug fixed in v0.125.0. A different
+  message now replaces the failed one; `/resume`, resuming a checkpoint, or typing
+  "continue" still builds on it. (`src/webview/handlers/chatHandlers.ts`,
+  `src/webview/handlers/agentHandlers.ts`, `src/webview/chatView.ts`)
+
 ## [0.125.0] - 2026-10-03
 
 Two threads. For users: any OpenAI-compatible server is a menu choice away and reports its

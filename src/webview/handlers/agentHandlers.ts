@@ -323,7 +323,8 @@ export async function handleResume(state: ChatState): Promise<void> {
   // Consume the partial before dispatching so a second failure doesn't
   // replay against the already-used partial.
   state.pendingPartialAssistant = null;
-  await handleUserMessage(state, hint);
+  // The hint CONTINUES the prompt the failed run left unanswered: keep it.
+  await handleUserMessage(state, hint, { continuesFailedTurn: true });
 }
 
 export async function handleGenerateTests(state: ChatState): Promise<void> {

@@ -155,4 +155,28 @@ describe('trajectory logger', () => {
     expect(ev.chars).toBe(huge.length);
     expect(ev.result.length).toBe(1_000_000);
   });
+
+  it('records each decision in order, tagged with the turn it happened in', () => {
+    // Decisions used to reach an analysis only as per-run COUNTS in the meta row
+    // (decisionCounts): which edit wrote nothing, at what turn, after which tool
+    // call, was gone. They now land in the record stream like every other event.
+    type IterCB = CB & { onIterationStart?: (i: Record<string, unknown>) => void };
+    const l = make();
+    const cb = l.wrap<IterCB>({});
+    cb.onIterationStart?.({ iteration: 3, estimatedTokens: 100, messageCount: 4, atCapacity: false });
+    cb.onToolCall?.('edit_file', { path: 'a.py' }, 'id1');
+    l.decision({ kind: 'edit_outcome', path: 'a.py', applied: false, parses: 'unchecked' });
+    cb.onToolResult?.('edit_file', 'No change needed', false, 'id1');
+    l.close('natural');
+    const ev = events(l);
+    const types = ev.map((e) => e.type);
+    expect(types.indexOf('decision')).toBeGreaterThan(types.indexOf('tool_call'));
+    expect(types.indexOf('decision')).toBeLessThan(types.indexOf('tool_result'));
+    expect(ev.find((e) => e.type === 'decision')).toMatchObject({
+      iteration: 3,
+      kind: 'edit_outcome',
+      decision: { path: 'a.py', applied: false },
+    });
+    expect(read(l.logPath)).toMatch(/DECISION edit_outcome .*"applied":false/);
+  });
 });
