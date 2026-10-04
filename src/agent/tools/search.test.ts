@@ -217,9 +217,9 @@ describe('grep', () => {
       mockExecFile.mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
         cb(timedOut('django/conf/global_settings.py:307:FILE_UPLOAD_PERMISSIONS = None\n'));
       });
-      const result = await grep({ pattern: 'FILE_UPLOAD_PERMISSION', path: 'django' });
+      const result = await grep({ pattern: 'FILE_UPLOAD_PERMISSION' });
       expect(result).toContain('global_settings.py');
-      expect(result).toMatch(/Partial results — grep timed out after 15s searching django/);
+      expect(result).toMatch(/Partial results — grep timed out after 15s searching the whole repository/);
     });
 
     it('does not record a timed-out pattern as proven absent', async () => {
