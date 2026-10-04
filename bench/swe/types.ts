@@ -132,6 +132,8 @@ export interface SwePrediction {
    * Undefined on meta files written before this field existed.
    */
   decisionCounts?: Record<string, number>;
+  /** The backend the client resolved to for this task -- recorded, never assumed. */
+  provider?: string;
 }
 
 /** One line of the official `swebench` predictions JSONL. */

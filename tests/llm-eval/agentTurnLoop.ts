@@ -1,5 +1,5 @@
 import { runAgentLoop, type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
-import { SideCarClient } from '../../src/ollama/client.js';
+import { SideCarClient, type ProviderSetting } from '../../src/ollama/client.js';
 import { getToolDefinitionsForTier } from '../../src/agent/tools.js';
 import { hash as surfaceHash } from '../../bench/promptlab/manifest.js';
 import { createTrajectoryLogger, type TrajectoryLogger } from './trajectoryLog.js';
@@ -33,6 +33,12 @@ export interface TurnLoopInput {
   model: string;
   baseUrl: string;
   apiKey: string;
+  /**
+   * The backend to speak. Omit to let SideCarClient infer it from the URL --
+   * which matches PORTS, so an Ollama server on :11435 became Kickstand (no
+   * seed, max_tokens 4096). Eval callers that know the server pass it.
+   */
+  provider?: ProviderSetting;
   systemPrompt: string;
   options: AgentOptions;
   callbacks: AgentCallbacks;
@@ -50,6 +56,8 @@ export interface TurnLoopInput {
 
 export interface TurnLoopSession {
   readonly surface: EffectiveSurface;
+  /** The backend the client actually resolved to -- record it, never assume it. */
+  readonly provider: string;
   readonly signal: AbortSignal;
   readonly logger: TrajectoryLogger | null;
   /** The loop's own info lines (compaction, dedup, nudges) — empty until run(). */
@@ -107,7 +115,7 @@ export function createLoopLogCapture(): LoopLogCapture {
 
 export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
   const started = Date.now();
-  const client = new SideCarClient(input.model, input.baseUrl, input.apiKey);
+  const client = new SideCarClient(input.model, input.baseUrl, input.apiKey, input.provider);
   client.updateSystemPrompt(input.systemPrompt);
 
   const abort = new AbortController();
@@ -167,6 +175,7 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
 
   return {
     surface,
+    provider: client.getProviderType(),
     signal: abort.signal,
     logger,
     loopLog: loopLog.lines,
