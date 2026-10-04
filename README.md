@@ -172,7 +172,7 @@ SideCar reads the model's context window from the server's `/v1/models` (`max_mo
 
 SideCar is verified against an agent smoke-eval suite (read / edit / write / run / plan / error-recovery tasks) on each supported model. The primary gate is **infrastructure reliability** — the agent loop, tool-call parsing, and completion gates must run cleanly (no crashes, dropped tool calls, or retry thrash) — measured separately from a model's raw task capability.
 
-**Test hardware:** Apple M3 Max, 36 GB unified memory (macOS), Ollama for local models. Model sizes and memory guidance below assume this configuration.
+**Test hardware:** local models were first qualified on an Apple M3 Max laptop with 36 GB of unified memory (macOS); current testing runs on a Windows workstation with an NVIDIA RTX 5090 (32 GB VRAM) and 128 GB of system RAM. Both use Ollama for local models. Memory guidance for each is below.
 
 ### Local models (Ollama)
 
@@ -191,7 +191,11 @@ Every model below runs the agent smoke suite with **zero infrastructure errors**
 
 **Not recommended:** `lfm2.5` — in qualification it reproducibly obeyed a fenced prompt injection.
 
-**Memory guidance (36 GB).** Sub-10 GB models run comfortably alongside VS Code with headroom for the context cache; the ~19–20 GB MoE coders fit with less room to spare. A dense 14B model at a large context window can exceed unified memory and thrash — lower `sidecar.ollama.numCtx`, or prefer a smaller coder. More per-model detail: [Model Compatibility](docs/model-compatibility.md).
+**Memory guidance — Apple Silicon, 36 GB unified memory.** Sub-10 GB models run comfortably alongside VS Code with headroom for the context cache; the ~19–20 GB MoE coders fit with less room to spare. A dense 14B model at a large context window can exceed unified memory and thrash — lower `sidecar.ollama.numCtx`, or prefer a smaller coder.
+
+**Memory guidance — discrete GPU (tested on 32 GB VRAM).** What matters is VRAM, not system RAM: the model's weights _and_ its context cache must fit on the GPU, or Ollama moves layers to the CPU and generation slows sharply. The context cache grows with the window — `gemma4:e4b` at its full 131K context occupies about 9.7 GB of VRAM. If a larger model runs slowly, check `ollama ps` (the `PROCESSOR` column should read 100% GPU) and lower `sidecar.ollama.numCtx` before switching models.
+
+More per-model detail: [Model Compatibility](docs/model-compatibility.md).
 
 ### Cloud models
 
