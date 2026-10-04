@@ -77,6 +77,23 @@ describe('grep — `path` is a location inside the workspace, never a pattern', 
     expect(out).toContain('models.py');
   });
 
+  it('never searches .git or reports binary files', async () => {
+    // `Binary file ./.git/objects/pack/pack-<hash>.pack matches` reached the
+    // model in real runs: noise it cannot act on, and the pack name differs
+    // between clones, which broke 3 of 50 determinism pairs in a baseline.
+    fsNode.mkdirSync(pathNode.join(root, '.git', 'objects'), { recursive: true });
+    fsNode.writeFileSync(
+      pathNode.join(root, '.git', 'objects', 'pack.pack'),
+      Buffer.from([0, 1, 2, ...Buffer.from('NEEDLE')]),
+    );
+    fsNode.writeFileSync(pathNode.join(root, '.git', 'config'), 'NEEDLE\n');
+    fsNode.writeFileSync(pathNode.join(root, 'src', 'blob.bin'), Buffer.from([0, 0, ...Buffer.from('NEEDLE'), 0]));
+    const out = await grep({ pattern: 'NEEDLE' }, ctx);
+    expect(out).toContain('app.py');
+    expect(out).not.toContain('.git');
+    expect(out).not.toMatch(/Binary file/);
+  });
+
   it('searches the whole workspace when `path` is omitted, and nothing outside it', async () => {
     const out = await grep({ pattern: 'NEEDLE' }, ctx);
     expect(out).toContain('app.py');
