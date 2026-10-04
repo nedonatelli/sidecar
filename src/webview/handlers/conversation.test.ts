@@ -5,7 +5,7 @@ import type { Skill } from '../../agent/skillLoader.js';
 import * as settingsMod from '../../config/settings.js';
 import * as providerReachability from '../../config/providerReachability.js';
 import { handleUserMessage, handleRegenerateResponse } from './chatHandlers.js';
-import { handleRevisePlan } from './agentHandlers.js';
+import { handleRevisePlan, handleResume } from './agentHandlers.js';
 
 // ---------------------------------------------------------------------------
 // Conversational tests: several user turns through the REAL chat path.
@@ -202,6 +202,7 @@ function startConversation() {
     regenerate: (...turnReplies: ModelReply[]) => run(() => handleRegenerateResponse(state as never), turnReplies),
     revisePlan: (feedback: string, ...turnReplies: ModelReply[]) =>
       run(() => handleRevisePlan(state as never, feedback), turnReplies),
+    resume: (...turnReplies: ModelReply[]) => run(() => handleResume(state as never), turnReplies),
   };
 }
 
@@ -374,14 +375,12 @@ describe('conversation history: sends that fail', () => {
     expectAnsweredHistory(convo.state.messages, [WEATHER, COUNT]);
   });
 
-  // BUG (open): the error card's Retry button does not regenerate. For a 500,
-  // a timeout, a rate limit or an unclassified error it posts `userMessage`
-  // with the last user bubble's text (media/chat.js, errorActionCommand
-  // 'retry'), so handleUserMessage pushes the prompt AGAIN behind the copy
-  // the failed run kept. The retry request goes out as [weather, count?,
-  // count?] and history keeps the unanswered duplicate for good. Flip to `it`
-  // once Retry re-runs the kept prompt instead of re-sending it.
-  it.fails("the error card's Retry button sends the failed prompt once, not twice", async () => {
+  // The error card's Retry posts `userMessage` with the last user bubble's text
+  // (media/chat.js, errorActionCommand 'retry'). It used to push the prompt
+  // AGAIN behind the copy the failed run kept: [weather, count?, count?], and
+  // the unanswered duplicate stayed in history for good. The same prompt
+  // arriving over a kept, unanswered one is now a retry of it.
+  it("the error card's Retry button sends the failed prompt once, not twice", async () => {
     const convo = await afterWeather();
     await convo.ask(COUNT.prompt, new Error('500 Internal Server Error'));
 
@@ -392,18 +391,44 @@ describe('conversation history: sends that fail', () => {
     expectAnsweredHistory(convo.state.messages, [WEATHER, COUNT]);
   });
 
-  // BUG (open, needs a decision): keeping a failed prompt for Retry means a
-  // user who moves on instead sends their NEW prompt behind an unanswered
-  // one — the v0.124.0 shape exactly, and the model answers both. Keeping it
-  // was deliberate (PR #76), so the fix is a design call — e.g. withdraw the
-  // kept prompt when the next one is a different message — not a one-liner.
-  it.fails('a new prompt after a mid-run failure does not carry the failed prompt unanswered', async () => {
+  // Keeping a failed prompt for Retry meant a user who moved on sent their NEW
+  // prompt behind an unanswered one -- the v0.124.0 shape exactly. A different
+  // message over a kept, unanswered prompt now supersedes it.
+  it('a new prompt after a mid-run failure does not carry the failed prompt unanswered', async () => {
     const convo = await afterWeather();
     await convo.ask(COUNT.prompt, new Error('500 Internal Server Error'));
+    convo.state.pendingPartialAssistant = '1 2 3' as never;
 
     const request = await convo.ask('what is 2 + 2?', answer('4.'));
 
     expectPromptedWith(request, [WEATHER], 'what is 2 + 2?');
+    expectAnsweredHistory(convo.state.messages, [WEATHER, { prompt: 'what is 2 + 2?', answer: '4.' }]);
+    // The dropped prompt's partial answer must not be offered to /resume later.
+    expect(convo.state.pendingPartialAssistant).toBeNull();
+  });
+
+  // ...but NOT when the new message continues the failed one. /resume re-sends a
+  // "continue from here" hint AFTER the kept prompt; dropping the prompt would
+  // leave the model a continuation of nothing.
+  it('/resume after a mid-run failure keeps the failed prompt the hint continues', async () => {
+    const convo = await afterWeather();
+    await convo.ask(COUNT.prompt, new Error('500 Internal Server Error'));
+    convo.state.pendingPartialAssistant = '1 2 3' as never;
+
+    const request = await convo.resume(answer('4 5 6 7 8 9 10'));
+
+    const asked = conversationOf(request!).map((e) => e.prompt);
+    expect(asked[1]).toBe(COUNT.prompt);
+    expect(asked[2]).toMatch(/cut off mid-stream/);
+  });
+
+  it('a typed "continue" after a mid-run failure keeps the failed prompt', async () => {
+    const convo = await afterWeather();
+    await convo.ask(COUNT.prompt, new Error('500 Internal Server Error'));
+
+    const request = await convo.ask('continue', answer(COUNT.answer!));
+
+    expect(conversationOf(request!).map((e) => e.prompt)).toContain(COUNT.prompt);
   });
 });
 
