@@ -93,7 +93,9 @@ import {
   shouldAutoEnablePlanMode,
   resolveToolTier,
   lastUserTextMessage,
+  isContinuationRequest,
 } from './messageUtils.js';
+import { getContentText } from '../../ollama/types.js';
 import { buildBaseSystemPrompt, injectSystemContext, enrichAndPruneMessages } from './systemPrompt.js';
 import { connectWithRetry, ensureProviderRunning } from './connectionHandlers.js';
 import { createAgentCallbacks } from './agentCallbacks.js';
@@ -316,7 +318,35 @@ export async function postLoopProcessing(
 // Main message handler
 // ---------------------------------------------------------------------------
 
-export async function handleUserMessage(state: ChatState, text: string): Promise<void> {
+/**
+ * The prompt a FINISHED run left unanswered, if history ends on one: the model
+ * failed on it mid-run (5xx, timeout, rate limit) or the user stopped it before
+ * any answer. Tool results are a run's work, not a prompt, and do not count.
+ */
+function unansweredTrailingPrompt(messages: ChatMessage[]): ChatMessage | null {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return null;
+  if (Array.isArray(last.content) && last.content.some((b) => b.type === 'tool_result')) return null;
+  return last;
+}
+
+export interface UserMessageOptions {
+  /**
+   * This message continues the turn a failed run left unanswered (/resume,
+   * resuming a checkpoint): keep that prompt ahead of it rather than treating
+   * the new message as the user moving on.
+   */
+  continuesFailedTurn?: boolean;
+}
+
+export async function handleUserMessage(
+  state: ChatState,
+  text: string,
+  options: UserMessageOptions = {},
+): Promise<void> {
+  // Read BEFORE the abort below: a prompt left unanswered by a run that is
+  // still going is that run's to settle, not this one's.
+  const runWasActive = state.abortController !== null;
   if (state.abortController) {
     state.abortController.abort();
     state.abortController = null;
@@ -331,12 +361,37 @@ export async function handleUserMessage(state: ChatState, text: string): Promise
   const turnText = sentinel.cleaned;
 
   let pushedUserMessage: ChatMessage | null = null;
+  let superseded = false;
   if (turnText) {
     const messageText = prepareUserMessageText(state, turnText);
-    pushedUserMessage = { role: 'user', content: messageText };
-    state.messages.push(pushedUserMessage);
-    void state.logMessage('user', messageText);
+    // A prompt the last run failed on stays in history so Retry and /resume can
+    // re-run it (#76). What arrives next decides what that prompt becomes:
+    //   - the same message: a RETRY. Re-use the kept prompt. Both Retry buttons
+    //     re-send the last bubble's text, and pushing it again sent the model
+    //     [.., count?, count?] and kept the unanswered copy for good.
+    //   - a continuation (/resume, a checkpoint, a typed "continue"): keep it;
+    //     the new message builds on it.
+    //   - anything else: the user moved on. Drop it, or the new prompt follows
+    //     an unanswered one and the model answers both -- the v0.124.0 bug.
+    const kept = runWasActive ? null : unansweredTrailingPrompt(state.messages);
+    const keptText = kept ? getContentText(kept.content) : null;
+    if (kept && (keptText === messageText || keptText === turnText)) {
+      pushedUserMessage = kept;
+    } else {
+      if (kept && !options.continuesFailedTurn && !isContinuationRequest(turnText)) {
+        state.messages.pop();
+        // The partial answer /resume would offer belongs to the dropped prompt.
+        state.pendingPartialAssistant = null;
+        superseded = true;
+      }
+      pushedUserMessage = { role: 'user', content: messageText };
+      state.messages.push(pushedUserMessage);
+      void state.logMessage('user', messageText);
+    }
     state.saveHistory();
+    // The webview numbered its bubbles against the old history; re-render so
+    // edit/delete on any bubble targets the right message (as handleDeleteMessage does).
+    if (superseded) state.postMessage({ command: 'init', messages: state.messages });
   }
   // When the run stops before the model ever sees the prompt (backend
   // unreachable, budget blocked), take the prompt back out of history. Left

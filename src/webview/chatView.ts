@@ -307,7 +307,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     if (this.webviewView) this.webviewView.show(true);
     const resumePrompt = '(Resuming previous task. Continue where you left off.)';
     this.postMessage({ command: 'addUserMessage', content: resumePrompt });
-    await handleUserMessage(this.state, resumePrompt);
+    await handleUserMessage(this.state, resumePrompt, { continuesFailedTurn: true });
   }
 
   public async diagnoseTerminalError(event: {
