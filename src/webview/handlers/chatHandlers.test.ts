@@ -2298,6 +2298,33 @@ describe('prepareUserMessageText', () => {
     expect(result).toContain('second option');
   });
 
+  // The wrapper used to fire on ANY reply of 8 words or fewer. Live, after
+  // "What location would you like the weather for?", the user's "Count to 10."
+  // went out as an answer to that question and gemma4 replied "I still need a
+  // location". Only replies that look like answers are wrapped now.
+  it.each(['yes', 'no, keep it as is', 'option 2', '2', 'the second one', 'B', 'Fairfax, VA', 'Boston', 'Python 3.12'])(
+    'wraps an answer-shaped reply: %s',
+    (reply) => {
+      const state = makeMinimalState([], 'Which one should I use?');
+      expect(prepareUserMessageText(state, reply)).toContain('Responding to your question');
+    },
+  );
+
+  it.each([
+    'Count to 10.',
+    'what is 2 + 2?',
+    'write a haiku about rain',
+    'can you count to 5',
+    'please list the files',
+    'Explain recursion.',
+    'now run the tests',
+  ])('passes a NEW request through as typed, even when short: %s', (reply) => {
+    const state = makeMinimalState([], 'What location would you like the weather for?');
+    expect(prepareUserMessageText(state, reply)).toBe(reply);
+    // The question is consumed either way: it is answered or superseded.
+    expect(state.pendingQuestion).toBeNull();
+  });
+
   it('returns long reply verbatim even when there is a pending question', () => {
     const state = makeMinimalState([], 'Which file?');
     const longReply = 'I think we should use the second approach because it is more testable and extensible';

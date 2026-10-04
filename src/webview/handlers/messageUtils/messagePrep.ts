@@ -6,7 +6,7 @@
 
 import type { ChatState } from '../../chatState.js';
 import { getContentText } from '../../../ollama/types.js';
-import { isDeferredAnswer, isContinuationRequest } from './intentClassifiers.js';
+import { isDeferredAnswer, isContinuationRequest, looksLikeAnswer } from './intentClassifiers.js';
 
 /**
  * Parse a bare number reference from a short user message.
@@ -145,8 +145,10 @@ export function prepareUserMessageText(state: ChatState, text: string): string {
         `Use your best judgment and proceed. Do not ask again — make a reasonable choice and continue.`
       );
     }
-    const isShortReply = text.split(/\s+/).length <= 8 && !text.startsWith('/');
-    return isShortReply ? `[Responding to your question: "${question}"]\n\n${text}` : text;
+    // Only a reply that LOOKS like an answer is framed as one. Anything else is
+    // a new request and gets the normal treatment below; the question is still
+    // in history for the model to see.
+    if (looksLikeAnswer(text)) return `[Responding to your question: "${question}"]\n\n${text}`;
   }
   if (hasPriorAssistant) {
     const resolved = resolveNumberedListRef(text, state.messages);
