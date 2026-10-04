@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { EffectiveSurface } from './agentHarness.js';
+import type { AgentDecision } from '../../src/agent/decisions.js';
 
 // ---------------------------------------------------------------------------
 // Live per-trial trajectory logs.
@@ -27,6 +28,12 @@ export interface TrajectoryLogger {
   /** Wrap a callbacks object so every event is recorded as it happens. */
   wrap<T extends object>(callbacks: T): T;
   close(termination: string): void;
+  /**
+   * Record one structured agent decision (src/agent/decisions.ts) in sequence,
+   * tagged with the iteration it happened in. They used to reach analysis only
+   * as per-run counts, so WHICH edit wrote nothing, and when, was lost.
+   */
+  decision(d: AgentDecision): void;
   /** Path of the human-readable log, for error messages. */
   readonly logPath: string;
 }
@@ -134,8 +141,17 @@ export function createTrajectoryLogger(o: LoggerOptions): TrajectoryLogger {
     flushText();
   };
 
+  // The current iteration, so each decision says when it happened.
+  let iteration = 0;
+
   return {
     logPath,
+    decision(d: AgentDecision) {
+      // Flush first so the record keeps true order relative to buffered text.
+      flushAll();
+      write(`DECISION ${d.kind} ${snippet(JSON.stringify(d), 300)}`);
+      event('decision', { iteration, kind: d.kind, decision: d });
+    },
     close(termination: string) {
       flushAll();
       write(`TERMINATION: ${termination}`);
@@ -192,6 +208,7 @@ export function createTrajectoryLogger(o: LoggerOptions): TrajectoryLogger {
           'onIterationStart',
           (info: { iteration: number; estimatedTokens: number; messageCount: number; atCapacity: boolean }) => {
             flushAll();
+            iteration = info.iteration;
             write(
               `ITER ${info.iteration} ctx=${info.estimatedTokens}tok msgs=${info.messageCount}` +
                 (info.atCapacity ? ' AT-CAPACITY' : ''),

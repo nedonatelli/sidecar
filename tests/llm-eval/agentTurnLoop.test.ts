@@ -134,4 +134,33 @@ describe('createTurnLoopSession', () => {
     expect(s.logger).toBeNull();
     expect(() => s.close('natural')).not.toThrow();
   });
+
+  it("writes the loop's decisions into the trajectory record, not only the in-memory list", async () => {
+    // The loop reports decisions through options.logger.logDecision. Before this,
+    // the session kept them in memory and swe.eval summarised them to counts.
+    const s = createTurnLoopSession(
+      mk({
+        loopFn: (async (_c: unknown, _m: unknown, _cb: unknown, _sig: unknown, opts: AgentOptions) => {
+          opts.logger?.logDecision?.({
+            kind: 'verification_run',
+            command: 'pytest -x',
+            recognized: true,
+            runner: 'pytest',
+          });
+        }) as never,
+      }),
+    );
+    await s.run([]);
+    s.close('natural');
+    expect(s.loopDecisions).toHaveLength(1);
+    const jsonl = fs
+      .readFileSync(s.logger!.logPath.replace(/\.log$/, '.jsonl'), 'utf-8')
+      .trim()
+      .split('\n')
+      .map((x) => JSON.parse(x));
+    expect(jsonl.find((e) => e.type === 'decision')).toMatchObject({
+      kind: 'verification_run',
+      decision: { command: 'pytest -x', recognized: true },
+    });
+  });
 });

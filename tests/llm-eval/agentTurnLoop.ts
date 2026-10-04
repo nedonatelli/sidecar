@@ -90,7 +90,8 @@ export interface LoopLogCapture {
   decisions: AgentDecision[];
 }
 
-export function createLoopLogCapture(): LoopLogCapture {
+/** @param onDecision  Also forward each decision here -- the trajectory record. */
+export function createLoopLogCapture(onDecision?: (d: AgentDecision) => void): LoopLogCapture {
   const lines: string[] = [];
   const decisions: AgentDecision[] = [];
   const record = (level: string) => (message: string) => void lines.push(`[${level}] ${message}`);
@@ -102,7 +103,10 @@ export function createLoopLogCapture(): LoopLogCapture {
     // The structured half of every scaffold decision. The `lines` above keep
     // the human text; these carry the fields analysis needs (which gate finding
     // fired, which ratchet arm reverted) that the text never contained.
-    logDecision: (d: AgentDecision) => void decisions.push(d),
+    logDecision: (d: AgentDecision) => {
+      decisions.push(d);
+      onDecision?.(d);
+    },
   };
   const logger = new Proxy(base, {
     get(target, prop) {
@@ -169,7 +173,7 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
         });
 
   const callbacks = logger ? logger.wrap(input.callbacks) : input.callbacks;
-  const loopLog = createLoopLogCapture();
+  const loopLog = createLoopLogCapture((d) => logger?.decision(d));
   const loop = input.loopFn ?? runAgentLoop;
   let closed = false;
 
