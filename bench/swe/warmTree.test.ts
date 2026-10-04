@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { warmWorkingTree, WARM_PATTERN } from './warmTree.js';
+import { grepArgs } from '../../src/agent/tools/grepArgs.js';
 
 describe('warmWorkingTree', () => {
   it("runs the grep tool's own invocation over the whole tree", () => {
@@ -12,7 +13,7 @@ describe('warmWorkingTree', () => {
     warmWorkingTree('/repo', (args, cwd) => {
       calls.push({ args, cwd });
     });
-    expect(calls).toEqual([{ args: ['-rn', '-E', '--include=*', WARM_PATTERN, '.'], cwd: '/repo' }]);
+    expect(calls).toEqual([{ args: grepArgs(WARM_PATTERN, '.'), cwd: '/repo' }]);
   });
 
   it('treats exit 1 (no match) as success -- the expected outcome', () => {

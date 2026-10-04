@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { grepArgs, GREP_ENV } from '../../src/agent/tools/grepArgs.js';
 
 /**
  * Read every file in a freshly checked-out tree once, before the agent runs.
@@ -18,8 +19,8 @@ import { execFileSync } from 'node:child_process';
  * outside the agent's turn budget, makes the first search cost what every later
  * one does in both arms.
  *
- * The invocation mirrors the grep tool's own (`-rn -E --include=*` over `.`), so
- * it touches exactly the files the agent's searches will. The pattern is one
+ * The invocation IS the grep tool's own (grepArgs, src/agent/tools/grepArgs.ts),
+ * so it touches exactly the files the agent's searches will. The pattern is one
  * that cannot occur, so grep exits 1 after reading everything. Best-effort: a
  * failure to warm must never fail the task.
  */
@@ -28,14 +29,14 @@ export const WARM_PATTERN = 'sidecar_warm_tree_9f3c2a7e_never_matches';
 export type GrepRunner = (args: string[], cwd: string) => void;
 
 const defaultRunner: GrepRunner = (args, cwd) => {
-  execFileSync('grep', args, { cwd, stdio: 'ignore', maxBuffer: 1024 * 1024 });
+  execFileSync('grep', args, { cwd, env: GREP_ENV, stdio: 'ignore', maxBuffer: 1024 * 1024 });
 };
 
 /** Returns how long the warm-up took in ms, or null when it could not run. */
 export function warmWorkingTree(dir: string, run: GrepRunner = defaultRunner): number | null {
   const t0 = Date.now();
   try {
-    run(['-rn', '-E', '--include=*', WARM_PATTERN, '.'], dir);
+    run(grepArgs(WARM_PATTERN, '.'), dir);
   } catch (err) {
     // Exit 1 is "no match" -- the expected outcome. Anything else (grep missing,
     // permission errors in a subtree) means some files were not warmed, which

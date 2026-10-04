@@ -7,6 +7,7 @@ import type { ToolDefinition } from '../../ollama/types.js';
 import { getRoot, resolveRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { compressGrepOutput } from './compression.js';
+import { grepArgs, GREP_ENV } from './grepArgs.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -236,20 +237,6 @@ type GrepError = { stdout?: string; stderr?: string; code?: number | string; kil
 function isTimeout(e: GrepError): boolean {
   return e.killed === true || e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT';
 }
-
-/**
- * grep's argv, exactly as written. Git for Windows' grep glob-expands its
- * arguments like a shell would, even under execFile: `.*` became `. .. .git
- * ...`, so a regex PATTERN turned into extra paths and grep searched the
- * workspace's PARENT (12,874 lines of someone else's files, then a maxBuffer
- * failure). `MSYS=noglob` turns that off; it is inert on Linux and macOS.
- * `-e` and `--` keep a pattern or path starting with `-` (django's `-pk`)
- * from being read as an option.
- */
-function grepArgs(pattern: string, where: string): string[] {
-  return ['-rn', '-E', '--include=*', '-e', pattern, '--', where];
-}
-const GREP_ENV = { ...process.env, MSYS: [process.env.MSYS, 'noglob'].filter(Boolean).join(' ') };
 
 const PATH_PATTERN_CHARS = /[*?[\]{}()|+^$]/;
 
