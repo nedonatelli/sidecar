@@ -17,6 +17,12 @@ All notable changes to the SideCar extension will be documented in this file.
   message now replaces the failed one; `/resume`, resuming a checkpoint, or typing
   "continue" still builds on it. (`src/webview/handlers/chatHandlers.ts`,
   `src/webview/handlers/agentHandlers.ts`, `src/webview/chatView.ts`)
+- **A short request after SideCar asked you something was treated as your answer.** When a
+  reply ended with a question, any next message of 8 words or fewer was sent to the model
+  as an answer to it. After "What location would you like the weather for?", "Count to 10."
+  got the reply "I still need a location". Only replies that look like answers (yes/no,
+  picking an option, or a short bare answer such as a place or version) are framed as one
+  now; anything else is sent as typed. (`src/webview/handlers/messageUtils/`)
 
 ## [0.125.0] - 2026-10-03
 

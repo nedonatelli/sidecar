@@ -89,6 +89,41 @@ export function isDeferredAnswer(text: string): boolean {
   return DEFERRED_ANSWER_PATTERNS.some((re) => re.test(trimmed));
 }
 
+// What a reply to the agent's own question looks like. Positive detection on
+// purpose: wrapping a NEW request as an answer is the expensive mistake. Live,
+// "Count to 10." after "What location would you like the weather for?" went out
+// as `[Responding to your question: ...]` and gemma4 replied "I still need a
+// location". Missing an answer costs little -- the question is in history.
+const YES_NO_ANSWER =
+  /^(yes|yeah|yep|yup|sure|ok|okay|no|nope|nah|correct|right|exactly|absolutely|definitely|go ahead|sounds good|please do|do it|don'?t)\b/i;
+const OPTION_ANSWER =
+  /^(option\s+)?(\d{1,2}|[a-e])[.)]?$|^(the\s+)?(first|second|third|fourth|fifth|last|other|former|latter|both|neither|either)\b/i;
+// Words that open a new request, not an answer: imperatives, question words,
+// politeness and sequencing. A short reply starting with one is passed through.
+const REQUEST_OPENERS = new Set(
+  (
+    'count write show tell explain list make create add remove delete fix run open read find search give help ' +
+    'summarize summarise translate generate refactor rename implement build test check update change describe compare ' +
+    'draw plot convert format review install what why how when where who which whose can could would will should ' +
+    'is are do does did please now also next then lets let’s let hey hi hello thanks thank forget ignore stop'
+  ).split(' '),
+);
+
+/**
+ * True when `text` reads as an answer to the question the agent just asked:
+ * yes/no, picking an option, or a short bare answer ("Fairfax, VA", "Python
+ * 3.12"). A reply that asks something or opens like a request is not one.
+ */
+export function looksLikeAnswer(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.startsWith('/') || trimmed.endsWith('?')) return false;
+  const words = trimmed.split(/\s+/);
+  if (words.length > 8) return false;
+  if (YES_NO_ANSWER.test(trimmed) || OPTION_ANSWER.test(trimmed)) return true;
+  const first = words[0].toLowerCase().replace(/[^a-z’']/g, '');
+  return words.length <= 4 && !REQUEST_OPENERS.has(first);
+}
+
 const PLAN_REJECTION_PATTERNS: RegExp[] = [
   /^no\.?$/i,
   /^nope\.?$/i,

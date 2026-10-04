@@ -263,6 +263,19 @@ describe('conversation history: text-only answers', () => {
     await expectAnsweredTurn(convo, COUNT.prompt, answer(COUNT.answer!));
     await expectAnsweredTurn(convo, 'now count backwards from 3', answer('3 2 1'));
   });
+
+  it('a short NEW request after the model asked a question is sent as typed, not as an answer to it', async () => {
+    // The live eval (gemma4, seed 22): asked for a location, the model got
+    // "Count to 10." wrapped as `[Responding to your question: "What location
+    // would you like the weather for?"]` and replied "I still need a location".
+    const convo = startConversation();
+    await expectAnsweredTurn(
+      convo,
+      WEATHER.prompt,
+      answer('I can search for it. What location would you like the weather for?'),
+    );
+    await expectAnsweredTurn(convo, COUNT.prompt, answer(COUNT.answer!));
+  });
 });
 
 describe('conversation history: tool-using turns', () => {
