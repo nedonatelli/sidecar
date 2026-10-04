@@ -39,6 +39,9 @@ export type { InstalledModel, LibraryModel, PullProgress } from './client/modelC
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
+/** A `sidecar.provider` value: a concrete backend, or 'auto' to infer it from the URL. */
+export type ProviderSetting = Parameters<typeof detectProvider>[1];
+
 /** Returns true when a URL targets a local host (Ollama/Kickstand pattern). */
 function isLocalUrl(url: string): boolean {
   try {
@@ -151,19 +154,35 @@ export class SideCarClient {
   private primaryModel: string;
   private static readonly FALLBACK_THRESHOLD = 2;
 
-  constructor(model: string, baseUrl?: string, apiKey?: string) {
+  /**
+   * @param provider  Which backend to speak, overriding `sidecar.provider` and
+   *   URL sniffing. Omit it to keep the configured behaviour. Callers that KNOW
+   *   the server pass it: the URL rules match ports, so an Ollama server on
+   *   :11435 was classified as Kickstand (its default port) and any other
+   *   non-:11434 URL as generic OpenAI -- unseeded, max_tokens 4096 -- which is
+   *   how half of every sharded SWE matrix ran a backend nobody chose.
+   */
+  constructor(model: string, baseUrl?: string, apiKey?: string, provider?: ProviderSetting) {
     this.model = model;
     this.systemPrompt = '';
     this.baseUrl = baseUrl || DEFAULT_BASE_URL;
     this.apiKey = apiKey || 'ollama';
+    this.providerOverride = provider;
     this.primaryBaseUrl = this.baseUrl;
     this.primaryApiKey = this.apiKey;
     this.primaryModel = this.model;
     this.backend = this.createBackend();
   }
 
+  private readonly providerOverride: ProviderSetting | undefined;
+
+  /** The backend this client actually speaks: the override, else config, else the URL rules. */
+  private resolveProvider(): ReturnType<typeof detectProvider> {
+    return detectProvider(this.baseUrl, this.providerOverride ?? getConfig().provider);
+  }
+
   private createBackend(): ApiBackend {
-    const provider = detectProvider(this.baseUrl, getConfig().provider);
+    const provider = this.resolveProvider();
     switch (provider) {
       case 'ollama':
         return new OllamaBackend(this.baseUrl);
@@ -230,7 +249,7 @@ export class SideCarClient {
 
   /** Access the rate-limit store for the currently active provider. */
   getRateLimits(): RateLimitStore {
-    return this.rateLimitsFor(detectProvider(this.baseUrl, getConfig().provider));
+    return this.rateLimitsFor(this.resolveProvider());
   }
 
   private get tagsUrl(): string {
@@ -741,7 +760,10 @@ export class SideCarClient {
 
     // For cloud providers, check the well-known context lengths lookup table.
     // This covers Anthropic, OpenAI, Groq, Fireworks, OpenRouter, etc.
-    if (!this.isLocalOllama()) {
+    // Any Ollama server answers /api/show, wherever it listens; keyed on the
+    // provider, not on the :11434 URL, so an explicitly-Ollama client on another
+    // port or host learns its real window instead of a lookup-table guess.
+    if (this.resolveProvider() !== 'ollama') {
       const known = MODEL_CONTEXT_LENGTHS[this.model];
       if (known === undefined) {
         logger.warn(
@@ -834,12 +856,11 @@ export class SideCarClient {
    * the window — any other server's reported limit is authoritative.
    */
   isLocalEndpoint(): boolean {
-    return this.isLocalOllama() || isLocalOpenAiCompatible(this.baseUrl, getConfig().provider);
+    return this.isLocalOllama() || isLocalOpenAiCompatible(this.baseUrl, this.providerOverride ?? getConfig().provider);
   }
 
   isOpenAI(): boolean {
-    const provider = detectProvider(this.baseUrl, getConfig().provider);
-    return provider === 'openai';
+    return this.resolveProvider() === 'openai';
   }
 
   getProviderType():
@@ -854,7 +875,7 @@ export class SideCarClient {
     | 'copilot'
     | 'bedrock'
     | 'openai-compat' {
-    return detectProvider(this.baseUrl, getConfig().provider);
+    return this.resolveProvider();
   }
 
   async listInstalledModels(): Promise<InstalledModel[]> {

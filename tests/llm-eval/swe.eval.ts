@@ -21,6 +21,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'node:child_process';
 import { normalizeOllamaHost } from '../../src/ollama/hostUrl.js';
+import type { ProviderSetting } from '../../src/ollama/client.js';
+import { detectProvider } from '../../src/config/settings/backends.js';
 import { type AgentCallbacks, type AgentOptions } from '../../src/agent/loop.js';
 import { createTurnLoopSession } from './agentTurnLoop.js';
 import { circuitBreaker } from '../../src/ollama/circuitBreaker.js';
@@ -50,6 +52,14 @@ import { summarizeDecisions } from '../../src/agent/decisions.js';
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
 const MODEL = process.env.SIDECAR_SWE_MODEL || 'gemma4:e4b';
+// Which backend the harness speaks. Never inferred from the URL: SideCarClient
+// sniffs PORTS, so the second Ollama instance of every sharded matrix (:11435)
+// was classified as Kickstand -- no seed, max_tokens 4096 -- and half of each
+// paired design ran unseeded on a path nobody ships (found 2026-10-04 with a
+// logging proxy). An API key means the token-authed /v1 edge, whose URL is
+// meant to be sniffed; otherwise this is Ollama. SIDECAR_SWE_PROVIDER overrides.
+const SWE_PROVIDER = (process.env.SIDECAR_SWE_PROVIDER ||
+  (process.env.SIDECAR_SWE_API_KEY ? 'auto' : 'ollama')) as ProviderSetting;
 const OUT = process.env.SIDECAR_SWE_OUT || path.join(os.tmpdir(), 'sidecar-swe');
 const REPOS = (process.env.SIDECAR_SWE_REPOS || '')
   .split(',')
@@ -489,6 +499,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // Per-run decision counts (e.g. completion_gate.finding.needsTestRun: 2),
   // so a run's own summary answers "did my trigger fire" with no log parsing.
   let decisionCounts: Record<string, number> = {};
+  let provider: string | undefined;
   try {
     dir = prepareRepo(task);
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
@@ -655,6 +666,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       model: MODEL,
       baseUrl: normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434',
       apiKey: process.env.SIDECAR_SWE_API_KEY || 'ollama',
+      provider: SWE_PROVIDER,
       systemPrompt,
       options,
       // This file's own per-task trajectory callbacks are preserved; the session
@@ -713,6 +725,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         fs.appendFileSync(trajPath, `${JSON.stringify({ t: Date.now() - start, type: 'decision', ...decision })}\n`);
       }
       decisionCounts = summarizeDecisions(session.loopDecisions);
+      provider = session.provider;
       const closed = session.close(terminationBucket ?? 'natural');
       // A timeout is a fact about the configuration, not the model. It used to
       // arrive as a bare abort and land in the same bucket as a real failure.
@@ -770,6 +783,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     turns,
     scaffoldInterventions,
     decisionCounts,
+    provider,
   };
 }
 
@@ -836,7 +850,10 @@ describe('SWE-bench Lite — prediction generation', () => {
 
       const manifest = {
         model: MODEL,
-        backend: 'ollama',
+        // Was the literal 'ollama' -- written into every shard-B manifest whose
+        // client was actually speaking Kickstand. Now the resolved value.
+        backend: detectProvider(ollamaHost, SWE_PROVIDER),
+        providerSetting: SWE_PROVIDER,
         ollamaHost,
         ...runtime,
         agentTemperature: getConfig().agentTemperature,

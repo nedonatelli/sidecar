@@ -660,6 +660,47 @@ describe('SideCarClient', () => {
       const client = new SideCarClient('claude', 'https://api.anthropic.com', 'sk-ant');
       expect(client.getProviderType()).toBe('anthropic');
     });
+
+    // URL sniffing matches PORTS. An Ollama server on :11435 -- the second
+    // instance of every sharded SWE matrix -- was classified as Kickstand, its
+    // default port, and any other non-:11434 URL as generic OpenAI: unseeded,
+    // max_tokens 4096. A caller that knows the server says so.
+    it('without an override, :11435 is sniffed as Kickstand and :11500 as OpenAI (the old trap)', () => {
+      expect(new SideCarClient('m', 'http://127.0.0.1:11435', 'ollama').getProviderType()).toBe('kickstand');
+      expect(new SideCarClient('m', 'http://127.0.0.1:11500', 'ollama').getProviderType()).toBe('openai');
+    });
+
+    it('an explicit provider wins over URL sniffing, on any port', () => {
+      expect(new SideCarClient('m', 'http://127.0.0.1:11435', 'ollama', 'ollama').getProviderType()).toBe('ollama');
+      expect(new SideCarClient('m', 'http://10.0.0.5:11500', 'ollama', 'ollama').getProviderType()).toBe('ollama');
+    });
+
+    it("'auto' as the override still sniffs the URL", () => {
+      expect(new SideCarClient('m', 'http://127.0.0.1:11435', 'ollama', 'auto').getProviderType()).toBe('kickstand');
+    });
+  });
+
+  describe('explicit Ollama on a non-default port', () => {
+    it('sends the native /api/chat request with the seed, not /v1 without one', async () => {
+      const prevSeed = process.env.SIDECAR_AGENT_SEED;
+      process.env.SIDECAR_AGENT_SEED = '11';
+      try {
+        const client = new SideCarClient('m', 'http://127.0.0.1:11435', 'ollama', 'ollama');
+        // The agent's path: streamChat. A cold model probes /api/show first.
+        mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          body: { getReader: () => ({ read: async () => ({ done: true, value: undefined }), releaseLock: () => {} }) },
+        });
+        for await (const _ of client.streamChat([{ role: 'user', content: 'hi' }])) void _;
+        const chat = mockFetch.mock.calls.find(([u]) => String(u).endsWith('/chat')) as [string, { body: string }];
+        expect(chat[0]).toBe('http://127.0.0.1:11435/api/chat');
+        expect(JSON.parse(chat[1].body).options.seed).toBe(11);
+      } finally {
+        if (prevSeed === undefined) delete process.env.SIDECAR_AGENT_SEED;
+        else process.env.SIDECAR_AGENT_SEED = prevSeed;
+      }
+    });
   });
 
   describe('completeFIM', () => {
