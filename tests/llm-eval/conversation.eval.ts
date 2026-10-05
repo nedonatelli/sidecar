@@ -234,4 +234,41 @@ describe(`llm-eval :: live conversation (${BACKEND} ${MODEL})`, () => {
     },
     SEEDS.length * 6 * 60_000,
   );
+
+  it(
+    "answers 'what is today's date?' from the Session block, not from its training data",
+    async (ctx) => {
+      if (!(await backendUp())) ctx.skip();
+      // Pinned to a date the model cannot reach from training: only the prompt's
+      // date line can produce it. The Session block is the sole source.
+      const prevDate = process.env.SIDECAR_PROMPT_DATE;
+      const prevSeed = process.env.SIDECAR_AGENT_SEED;
+      process.env.SIDECAR_PROMPT_DATE = '2026-01-15';
+      const failures: string[] = [];
+      try {
+        for (const seed of SEEDS) {
+          process.env.SIDECAR_AGENT_SEED = String(seed);
+          const client = new SideCarClient(
+            MODEL,
+            BASE_URL,
+            API_KEY,
+            (CLOUD ? 'anthropic' : 'ollama') as ProviderSetting,
+          );
+          const state = makeState(client);
+          await handleUserMessage(state as never, "What is today's date?");
+          const reply = lastAssistantText(state.messages);
+          const ok = /January 15,? 2026|2026-01-15|15 January,? 2026|1\/15\/2026/i.test(reply);
+          console.log(`[conv] date seed=${seed} ok=${ok}: ${reply.replace(/\s+/g, ' ').slice(0, 160)}`);
+          if (!ok) failures.push(`seed ${seed}: reply did not give the pinned date: ${reply.slice(0, 160)}`);
+        }
+      } finally {
+        if (prevDate === undefined) delete process.env.SIDECAR_PROMPT_DATE;
+        else process.env.SIDECAR_PROMPT_DATE = prevDate;
+        if (prevSeed === undefined) delete process.env.SIDECAR_AGENT_SEED;
+        else process.env.SIDECAR_AGENT_SEED = prevSeed;
+      }
+      expect(failures, failures.join('\n')).toEqual([]);
+    },
+    SEEDS.length * 3 * 60_000,
+  );
 });

@@ -1324,6 +1324,22 @@ describe('injectSystemContext', () => {
     expect(result).toContain('Project root:');
   });
 
+  it("puts today's date in the Session block -- the uncached suffix -- never before it", async () => {
+    // Without a date the model's "today" and "latest" silently mean its
+    // training cutoff. It belongs in the per-turn Session block: a new day then
+    // costs one cache refresh, and the cached prefix stays byte-stable.
+    process.env.SIDECAR_PROMPT_DATE = '2026-01-15';
+    try {
+      const { prompt: result } = await injectSystemContext('base prompt', 10000, mockState(), mockConfig(), 'q', false);
+      const sessionIdx = result.indexOf('## Session');
+      const dateIdx = result.indexOf("Today's date: Thursday, January 15, 2026 (2026-01-15)");
+      expect(dateIdx).toBeGreaterThan(sessionIdx);
+      expect(sessionIdx).toBeGreaterThan(-1);
+    } finally {
+      delete process.env.SIDECAR_PROMPT_DATE;
+    }
+  });
+
   it('appends user system prompt', async () => {
     const { prompt: result } = await injectSystemContext(
       'base prompt',
