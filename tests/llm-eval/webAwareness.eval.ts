@@ -120,7 +120,7 @@ const finalReply = (ms: ChatMessage[]): string => {
 };
 
 const SAYS_UNAVAILABLE =
-  /offline|no internet|unavailable|not available|can(?:no|')t (access|search|browse|reach)|unable to (access|search|browse|connect)|don'?t have (access|internet)|no (web|internet) access|real[- ]time/i;
+  /offline|no internet|unavailable|not available|can(?:no|')t (access|search|browse|reach)|unable to (access|search|browse|connect|perform|look)|don'?t have (access|internet)|no (web|internet) access|real[- ]time/i;
 // A specific current fact: a version number, a price, or a temperature.
 const STATES_SPECIFIC = /\b\d+\.\d+(\.\d+)?\b|\$\s?\d[\d,]*(\.\d+)?|\d+\s*(°|degrees)\s*[FC]?/i;
 
