@@ -65,6 +65,9 @@ export function checkSearchQueryForSecrets(query: string): string | null {
 
 /** Check if the machine has internet connectivity by pinging a known endpoint. */
 export async function checkInternetConnectivity(): Promise<boolean> {
+  // EXPERIMENT SWITCH (exp/web-search-awareness only): exercise the real
+  // offline path end to end without unplugging the machine.
+  if (process.env.SIDECAR_SIMULATE_OFFLINE === '1') return false;
   try {
     const response = await fetch('https://duckduckgo.com/', {
       method: 'HEAD',

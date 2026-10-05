@@ -529,9 +529,12 @@ export function getToolDefinitionsForTier(
   // models (where prefill cost and tool-choice confusion bite hardest) the core
   // set shrinks to LOCAL_CORE_TOOL_NAMES — the coding loop stays full-schema,
   // everything else stubs down to a describe_tool pointer.
+  // EXPERIMENT SWITCH (exp/web-search-awareness only): extra tools promoted to
+  // full schema for local models, e.g. SIDECAR_LOCAL_CORE_EXTRA=web_search.
+  const localExtra = (process.env.SIDECAR_LOCAL_CORE_EXTRA ?? '').split(',').filter(Boolean);
   const coreNames =
     cfg.localToolTrimEnabled && isLocalProviderConfig(cfg)
-      ? LOCAL_CORE_TOOL_NAMES
+      ? new Set([...LOCAL_CORE_TOOL_NAMES, ...localExtra])
       : new Set([...READ_TIER_TOOL_NAMES, ...CORE_FULL_TIER_TOOL_NAMES]);
   const builtInNames = getBuiltInToolNames();
   const lazyMcpNames = mcpManager?.getLazyToolNames() ?? new Set<string>();
