@@ -6,6 +6,14 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A blocked web search was reported as "no results".** When DuckDuckGo answered with a
+  bot check (it does after heavy use), `web_search` said "No results found… Try
+  rephrasing", and the model rephrased into the block until it gave up. A bot check, or
+  a rate limit from Tavily or Brave, is now reported as blocked, with a note that
+  rephrasing will not help and that `sidecar.webSearch.provider` can be switched. A
+  blocked provider is left alone for 10 minutes instead of being retried.
+  (`src/agent/webSearch.ts`, `src/agent/tools/knowledge.ts`)
+
 - **Retry after an error sent your message twice.** When the model failed partway through
   a reply (server error, timeout, rate limit), the failed message stayed in history so it
   could be retried, but both Retry buttons sent it again as a new message. History kept an

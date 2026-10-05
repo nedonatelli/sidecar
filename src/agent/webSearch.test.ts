@@ -4,6 +4,9 @@ import {
   checkSearchQueryForSecrets,
   searchWeb,
   SearchQueryBlockedError,
+  SearchProviderBlockedError,
+  SEARCH_BLOCK_COOLDOWN_MS,
+  resetSearchBlocks,
   type SearchResult,
 } from './webSearch.js';
 
@@ -139,5 +142,62 @@ describe('searchWeb — provider dispatch', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [] }) }));
     const results = await searchWeb('obscure query', 'tavily', 'tvly-key');
     expect(results).toEqual([]);
+  });
+});
+
+describe('searchWeb — a provider that refuses is BLOCKED, not "no results"', () => {
+  // Observed 2026-10-05 after heavy use: html.duckduckgo.com answered HTTP 202
+  // with a bot check ("Unfortunately, bots use DuckDuckGo too. Select all
+  // squares containing a duck") and no results. 202 is `ok`, so the page was
+  // parsed as an empty result set, web_search said "No results found... Try
+  // rephrasing", and the model rephrased into the block until it gave up.
+  const CHALLENGE =
+    '<html><body><div class="anomaly-modal__box"><div class="anomaly-modal__title">' +
+    'Unfortunately, bots use DuckDuckGo too.</div></div><script src="/anomaly.js"></script></body></html>';
+  const page = (status: number, html: string) => ({ ok: status < 300, status, statusText: '', text: async () => html });
+
+  beforeEach(() => {
+    resetSearchBlocks();
+    vi.useRealTimers();
+  });
+
+  it('a DuckDuckGo bot check (HTTP 202) is reported as blocked', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page(202, CHALLENGE)));
+    const err = await searchWeb('latest typescript version').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SearchProviderBlockedError);
+    expect((err as SearchProviderBlockedError).provider).toBe('duckduckgo');
+  });
+
+  it('the challenge page is recognised even when served with a 200', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page(200, CHALLENGE)));
+    await expect(searchWeb('x')).rejects.toBeInstanceOf(SearchProviderBlockedError);
+  });
+
+  it('an ordinary page with no results is still "no results", not blocked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(page(200, '<html><body><div class="no-results"></div></body></html>')),
+    );
+    await expect(searchWeb('zzqqxx nothing matches this')).resolves.toEqual([]);
+  });
+
+  it('once blocked, the provider is not asked again until the cooldown passes', async () => {
+    // Every retry against a bot check deepens it; fail fast instead.
+    vi.useFakeTimers();
+    const fetch = vi.fn().mockResolvedValue(page(202, CHALLENGE));
+    vi.stubGlobal('fetch', fetch);
+    await expect(searchWeb('a')).rejects.toBeInstanceOf(SearchProviderBlockedError);
+    await expect(searchWeb('b')).rejects.toBeInstanceOf(SearchProviderBlockedError);
+    expect(fetch).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(SEARCH_BLOCK_COOLDOWN_MS + 1);
+    await expect(searchWeb('c')).rejects.toBeInstanceOf(SearchProviderBlockedError);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['tavily', 'brave'] as const)('%s answering 429 is reported as blocked (rate limited)', async (provider) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ...page(429, 'Too Many Requests'), json: async () => ({}) }));
+    const err = await searchWeb('q', provider, 'key').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SearchProviderBlockedError);
+    expect((err as SearchProviderBlockedError).provider).toBe(provider);
   });
 });

@@ -27,6 +27,40 @@ export class SearchQueryBlockedError extends Error {
   }
 }
 
+/**
+ * The search provider refused to answer: a bot check (DuckDuckGo) or a rate
+ * limit (Tavily, Brave). Distinct from "no results" -- rephrasing cannot help,
+ * and every retry against a bot check deepens it.
+ */
+export class SearchProviderBlockedError extends Error {
+  constructor(
+    readonly provider: WebSearchProvider,
+    detail: string,
+  ) {
+    super(detail);
+    this.name = 'SearchProviderBlockedError';
+  }
+}
+
+/** How long a blocked provider is left alone before it is asked again. */
+export const SEARCH_BLOCK_COOLDOWN_MS = 10 * 60_000;
+const blockedUntil = new Map<WebSearchProvider, number>();
+
+/** Test hook: forget every recorded block. */
+export function resetSearchBlocks(): void {
+  blockedUntil.clear();
+}
+
+function block(provider: WebSearchProvider, detail: string): never {
+  blockedUntil.set(provider, Date.now() + SEARCH_BLOCK_COOLDOWN_MS);
+  throw new SearchProviderBlockedError(provider, detail);
+}
+
+// DuckDuckGo's bot check, observed 2026-10-05: HTTP 202 with an "anomaly" modal
+// ("Unfortunately, bots use DuckDuckGo too. Select all squares containing a
+// duck") and no results. Any one marker is enough.
+const DDG_CHALLENGE = /anomaly-modal|anomaly\.js|bots use DuckDuckGo too/i;
+
 const SEARCH_URL = 'https://html.duckduckgo.com/html/';
 const USER_AGENT = 'SideCar-VSCode/1.0 (AI Coding Assistant)';
 const SEARCH_TIMEOUT = 10_000;
@@ -100,6 +134,11 @@ export async function searchWeb(
     );
   }
 
+  const until = blockedUntil.get(provider) ?? 0;
+  if (Date.now() < until) {
+    throw new SearchProviderBlockedError(provider, `${provider} blocked an earlier search; not asking again yet.`);
+  }
+
   if (provider === 'tavily') return searchWebTavily(query, apiKey);
   if (provider === 'brave') return searchWebBrave(query, apiKey);
   return searchWebDuckDuckGo(query);
@@ -118,11 +157,16 @@ async function searchWebDuckDuckGo(query: string): Promise<SearchResult[]> {
     signal: AbortSignal.timeout(SEARCH_TIMEOUT),
   });
 
+  if (response.status === 429) block('duckduckgo', 'DuckDuckGo rate-limited the search (HTTP 429).');
   if (!response.ok) {
     throw new Error(`Search failed: ${response.status} ${response.statusText}`);
   }
 
   const html = await response.text();
+  // 202 is `ok`, so the bot check used to be parsed as an empty result set.
+  if (response.status === 202 || DDG_CHALLENGE.test(html)) {
+    block('duckduckgo', 'DuckDuckGo answered with a bot check instead of results.');
+  }
   return parseSearchResults(html);
 }
 
@@ -136,6 +180,7 @@ async function searchWebTavily(query: string, apiKey: string): Promise<SearchRes
     signal: AbortSignal.timeout(SEARCH_TIMEOUT),
   });
 
+  if (response.status === 429) block('tavily', 'Tavily rate-limited the search (HTTP 429).');
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(`Tavily search failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`);
@@ -159,6 +204,7 @@ async function searchWebBrave(query: string, apiKey: string): Promise<SearchResu
     signal: AbortSignal.timeout(SEARCH_TIMEOUT),
   });
 
+  if (response.status === 429) block('brave', 'Brave rate-limited the search (HTTP 429).');
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(`Brave search failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`);
