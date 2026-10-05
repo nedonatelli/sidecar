@@ -119,6 +119,16 @@
             ],
             "description": "API key for the selected web search provider. Required when sidecar.webSearch.provider is 'tavily' or 'brave'. Stored in settings.json — use a key with minimal permissions."
           },
+          "sidecar.webSearch.connectivityCheckUrl": {
+            "type": "string",
+            "default": "",
+            "order": 6,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "How `web_search` checks it can reach the network before searching. **Empty (default):** probe the selected provider's own host (`duckduckgo.com`, `api.tavily.com` or `api.search.brave.com`). **A URL:** probe that instead — useful on a network that blocks the provider's homepage but allows its API, or that only allows an internal host. **`off`:** skip the check and let the search report its own failure. Any HTTP answer counts as reachable; only a network error or timeout counts as offline."
+          },
           "sidecar.provider": {
             "type": "string",
             "enum": [

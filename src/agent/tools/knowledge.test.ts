@@ -101,3 +101,26 @@ describe('webSearch tool — a blocked provider says so', () => {
     expect(result).not.toMatch(/No results found/);
   });
 });
+
+describe('webSearch tool — the probe follows the user settings', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('passes the configured provider and connectivityCheckUrl to the probe', async () => {
+    const settings = await import('../../config/settings.js');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      ...settings.getConfig(),
+      webSearchProvider: 'tavily',
+      webSearchApiKey: 'k',
+      webSearchConnectivityCheckUrl: 'https://intranet.example.com/health',
+    } as never);
+    const { checkInternetConnectivity, searchWeb } = await import('../webSearch.js');
+    vi.mocked(checkInternetConnectivity).mockResolvedValue(true);
+    vi.mocked(searchWeb).mockResolvedValue([]);
+    const { webSearch } = await import('./knowledge.js');
+
+    await webSearch({ query: 'q' });
+    expect(checkInternetConnectivity).toHaveBeenCalledWith('tavily', 'https://intranet.example.com/health');
+  });
+});

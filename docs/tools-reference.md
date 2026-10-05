@@ -433,7 +433,7 @@ Search the web and return titles, URLs, and snippets.
 | --------- | ------ | -------- | -------------------------------------------------------------------------- |
 | `query`   | string | Yes      | Search query. Queries containing credential-shaped substrings are blocked. |
 
-Configured via `sidecar.webSearch.provider` and `sidecar.webSearch.apiKey`.
+Configured via `sidecar.webSearch.provider` and `sidecar.webSearch.apiKey`. Before the first search it checks the network can be reached by probing the provider's own host, or `sidecar.webSearch.connectivityCheckUrl` (`"off"` skips the check). If the provider answers with a bot check or a rate limit, the tool reports it as blocked rather than as no results.
 
 ---
 
