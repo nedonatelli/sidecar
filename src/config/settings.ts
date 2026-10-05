@@ -88,6 +88,8 @@ export interface SideCarConfig {
   apiKey: string;
   webSearchProvider: 'duckduckgo' | 'tavily' | 'brave';
   webSearchApiKey: string;
+  /** Connectivity probe target for web_search: '' = the provider's host, a URL, or 'off'. */
+  webSearchConnectivityCheckUrl: string;
   includeActiveFile: boolean;
   agentMode: string;
   agentTemperature: number;
@@ -489,6 +491,7 @@ function readConfig(): SideCarConfig {
     editorModel: cfg.get<string>('editorModel', ''),
     webSearchProvider: cfg.get<'duckduckgo' | 'tavily' | 'brave'>('webSearch.provider', 'duckduckgo'),
     webSearchApiKey: cfg.get<string>('webSearch.apiKey', ''),
+    webSearchConnectivityCheckUrl: cfg.get<string>('webSearch.connectivityCheckUrl', ''),
     provider: rawProvider,
     bedrockRegion: cfg.get<string>('bedrock.region', 'us-east-1') || 'us-east-1',
     bedrockFips: cfg.get<boolean>('bedrock.fips', false),

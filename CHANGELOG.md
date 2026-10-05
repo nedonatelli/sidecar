@@ -15,6 +15,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Web search could report "no internet" while your search provider was reachable.** Its
+  connectivity check always contacted duckduckgo.com, whatever `sidecar.webSearch.provider`
+  was set to, and treated any non-2xx answer as offline. On a network that blocks DuckDuckGo,
+  Tavily and Brave users were told they had no internet. The check now contacts the selected
+  provider's own host, and any HTTP answer counts as reachable. The new
+  `sidecar.webSearch.connectivityCheckUrl` setting lets you point it at another URL, or turn
+  it `off`. (`src/agent/webSearch.ts`, `src/agent/tools/knowledge.ts`)
 - **A blocked web search was reported as "no results".** When DuckDuckGo answered with a
   bot check (it does after heavy use), `web_search` said "No results found… Try
   rephrasing", and the model rephrased into the block until it gave up. A bot check, or

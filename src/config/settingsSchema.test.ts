@@ -68,7 +68,7 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     }
   });
 
-  it('exactly 248 settings keys total across all sections', () => {
+  it('exactly 249 settings keys total across all sections', () => {
     // Baseline: v0.62.4 (75) + v0.64 Model Routing (+5:
     // modelRouting.enabled/rules/defaultModel/visibleSwaps/dryRun)
     // + v0.64 Skill Sync (+5: skills.userRegistry/teamRegistries/
@@ -133,11 +133,14 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + recovery.codeAsText, editFile.steerToWrite, editFile.steerToWriteThreshold
     //   (+3: previously read by settings.ts but never declared — invisible in
     //   the Settings UI despite codeAsText being default-on).
+    // + webSearch.connectivityCheckUrl (+1: what web_search probes before
+    //   searching -- the provider's own host by default, a URL, or 'off'; it
+    //   was a hard-coded duckduckgo.com whatever the provider).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(248);
+    expect(totalKeys).toBe(249);
   });
 
   it('no setting key is duplicated across sections', () => {

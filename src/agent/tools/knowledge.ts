@@ -39,16 +39,21 @@ export async function webSearch(input: Record<string, unknown>): Promise<string>
   const query = (input.query as string) || '';
   if (!query) return 'Error: search query is required.';
 
+  // Probe what the search will actually use: the configured provider's host,
+  // or the user's override (sidecar.webSearch.connectivityCheckUrl).
+  const probeCfg = getConfig();
+  const probe = () => checkInternetConnectivity(probeCfg.webSearchProvider, probeCfg.webSearchConnectivityCheckUrl);
+
   // Check internet connectivity once per session
   if (!internetChecked) {
     internetChecked = true;
-    internetAvailable = await checkInternetConnectivity();
+    internetAvailable = await probe();
     if (!internetAvailable) {
       return '⚠️ No internet connection detected. Web search is unavailable. Try resolving the issue using local files, documentation, or project context instead.';
     }
   } else if (!internetAvailable) {
     // Retry connectivity on subsequent calls in case connection was restored
-    internetAvailable = await checkInternetConnectivity();
+    internetAvailable = await probe();
     if (!internetAvailable) {
       return '⚠️ Still offline. Web search is unavailable.';
     }

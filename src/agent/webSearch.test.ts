@@ -7,6 +7,7 @@ import {
   SearchProviderBlockedError,
   SEARCH_BLOCK_COOLDOWN_MS,
   resetSearchBlocks,
+  checkInternetConnectivity,
   type SearchResult,
 } from './webSearch.js';
 
@@ -199,5 +200,50 @@ describe('searchWeb — a provider that refuses is BLOCKED, not "no results"', (
     const err = await searchWeb('q', provider, 'key').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SearchProviderBlockedError);
     expect((err as SearchProviderBlockedError).provider).toBe(provider);
+  });
+});
+
+describe('checkInternetConnectivity — probes what the search will actually use', () => {
+  // It used to HEAD https://duckduckgo.com/ whatever the provider, and called
+  // anything but a 2xx "offline". So a Tavily or Brave user on a network that
+  // blocks DuckDuckGo was told they had no internet, and a server answering a
+  // HEAD with 405 read as a dead connection.
+  const probed = (fetch: ReturnType<typeof vi.fn>) => String(fetch.mock.calls[0]?.[0] ?? '');
+
+  it.each([
+    ['duckduckgo', 'duckduckgo.com'],
+    ['tavily', 'api.tavily.com'],
+    ['brave', 'api.search.brave.com'],
+  ] as const)('with provider %s it probes %s, not another provider', async (provider, host) => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetch);
+    expect(await checkInternetConnectivity(provider)).toBe(true);
+    expect(probed(fetch)).toContain(host);
+  });
+
+  it('probes the URL in sidecar.webSearch.connectivityCheckUrl when set', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetch);
+    expect(await checkInternetConnectivity('tavily', 'https://intranet.example.com/health')).toBe(true);
+    expect(probed(fetch)).toBe('https://intranet.example.com/health');
+  });
+
+  it('"off" skips the probe entirely and assumes online', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    expect(await checkInternetConnectivity('duckduckgo', 'off')).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404, 405, 503])('any HTTP answer (%i) means the network is reachable', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status }));
+    expect(await checkInternetConnectivity('tavily')).toBe(true);
+  });
+
+  it('a network error or timeout means offline', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+    expect(await checkInternetConnectivity('duckduckgo')).toBe(false);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(Object.assign(new Error('timed out'), { name: 'TimeoutError' })));
+    expect(await checkInternetConnectivity('brave')).toBe(false);
   });
 });

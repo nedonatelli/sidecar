@@ -97,14 +97,38 @@ export function checkSearchQueryForSecrets(query: string): string | null {
   return null;
 }
 
-/** Check if the machine has internet connectivity by pinging a known endpoint. */
-export async function checkInternetConnectivity(): Promise<boolean> {
+/** The host each provider's searches actually go to -- what the probe should reach. */
+const PROVIDER_PROBE_URL: Record<WebSearchProvider, string> = {
+  duckduckgo: 'https://duckduckgo.com/',
+  tavily: 'https://api.tavily.com/',
+  brave: 'https://api.search.brave.com/',
+};
+
+/**
+ * Can web_search reach the network it needs?
+ *
+ * It used to HEAD duckduckgo.com whatever the provider and call anything but a
+ * 2xx "offline": a Tavily or Brave user on a network that blocks DuckDuckGo was
+ * told they had no internet, and a server answering HEAD with 405 read as a dead
+ * connection. Now it probes the configured provider's own host, and ANY HTTP
+ * answer means reachable -- only a network error or timeout means offline.
+ *
+ * @param overrideUrl  `sidecar.webSearch.connectivityCheckUrl`: empty = probe the
+ *   provider's host; a URL = probe that instead (e.g. a host a corporate network
+ *   allows); "off" = skip the probe and let the search report its own failure.
+ */
+export async function checkInternetConnectivity(
+  provider: WebSearchProvider = 'duckduckgo',
+  overrideUrl = '',
+): Promise<boolean> {
+  const override = overrideUrl.trim();
+  if (override.toLowerCase() === 'off') return true;
   try {
-    const response = await fetch('https://duckduckgo.com/', {
+    await fetch(override || PROVIDER_PROBE_URL[provider] || PROVIDER_PROBE_URL.duckduckgo, {
       method: 'HEAD',
       signal: AbortSignal.timeout(5000),
     });
-    return response.ok;
+    return true;
   } catch {
     return false;
   }
