@@ -45,6 +45,7 @@ import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree } from '../../bench/swe/warmTree.js';
+import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
 import { unloadModelRequest } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
@@ -631,14 +632,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       cwdOverride: dir,
       confirmFn: async () => 'Allow',
       config: armConfig,
-      // Remove `run_tests` outright rather than telling the model not to use it.
-      // Its runner auto-detection picks npm in any repo that also ships a
-      // package.json, so on django it ran `pretest > eslint django/ js_tests/...`
-      // — linting JavaScript instead of running Python tests, and reporting `ok`.
-      // The prompt DID say "NOT run_tests"; the model used it anyway on the first
-      // task of the first run. Negative instructions do not hold at a 27K
-      // context, so the harness removes the option instead of asking.
-      toolOverride: getToolDefinitionsForTier('full', undefined, armConfig).filter((t) => t.name !== 'run_tests'),
+      // The product's catalog minus the tools the benchmark must not offer --
+      // run_tests (wrong runner, false "ok") and web_search (the fix for a
+      // public upstream bug can be searched for). Reasons: bench/swe/toolCatalog.ts.
+      toolOverride: sweToolCatalog(getToolDefinitionsForTier('full', undefined, armConfig)),
       // Runs in BOTH arms: this is a zero-token deterministic control, like cycle
       // detection and the thrash defenses, not part of the verification
       // scaffolding under test. A whole-suite invocation is a harness-cost bug
