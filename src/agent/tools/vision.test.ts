@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
+import * as net from 'net';
 import * as path from 'path';
 import * as os from 'os';
 import * as zlib from 'zlib';
@@ -14,6 +15,7 @@ import {
   validateScreenshotUrl,
   checkVisionRateLimit,
   resetVisionRateLimits,
+  describeScreenshotFailure,
 } from './vision.js';
 import { resizePngBuffer } from './pngUtils.js';
 
@@ -501,14 +503,23 @@ describe('screenshot_page viewport clamping', () => {
     const { visionTools } = await import('./vision.js');
     const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
     // 4K viewport — should be clamped internally. Result must fail on browser launch, not on viewport.
-    const context = { config: { visualVerifyAllowedDomains: ['localhost'] } as never };
+    // A browser path that does not exist makes that launch fail fast on any machine.
+    const context = {
+      config: {
+        visualVerifyAllowedDomains: ['localhost'],
+        visualVerifyBrowserPath: '/nonexistent/sidecar-test-browser',
+      } as never,
+    };
     const result = await tool.executor(
       { url: 'http://localhost:3000', viewport: { width: 9999, height: 9999 } },
       context,
     );
-    // Must not return a viewport-related error — only browser launch or playwright missing.
+    // Must not return a viewport-related error: it got past validation to the
+    // browser stage. Where a browser launches (an installed Chrome or Edge now
+    // stands in for Playwright's Chromium) that stage ends at the page load --
+    // nothing listens on :3000 -- so either outcome proves the point.
     expect(result).not.toMatch(/viewport/i);
-    expect(result).toMatch(/playwright|browser|launch/i);
+    expect(result).toMatch(/playwright|browser|launch|could not load/i);
     // 30s, not vitest's 5s default: this genuinely attempts a browser launch, and
     // the attempt is what takes the time. Under a loaded machine it exceeded 5s
     // and failed the whole suite while passing in isolation — a false red that
@@ -548,7 +559,14 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
   it('screenshot_page allows localhost when listed in allowedDomains config', async () => {
     const { visionTools } = await import('./vision.js');
     const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
-    const context = { config: { visualVerifyAllowedDomains: ['localhost'] } as never };
+    // These tests are about URL validation, not browsing: a browser path that
+    // does not exist ends the browser stage fast and the same on every machine.
+    const context = {
+      config: {
+        visualVerifyAllowedDomains: ['localhost'],
+        visualVerifyBrowserPath: '/nonexistent/sidecar-test-browser',
+      } as never,
+    };
     const result = await tool.executor({ url: 'http://localhost:3000' }, context);
     // URL blocker must not fire — the result is a later error (browser launch/playwright)
     expect(result).not.toMatch(/loopback URLs are blocked/i);
@@ -565,9 +583,60 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
   it('screenshot_page allows 192.168.x.x when listed in allowedDomains config', async () => {
     const { visionTools } = await import('./vision.js');
     const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
-    const context = { config: { visualVerifyAllowedDomains: ['192.168.1.50'] } as never };
+    const context = {
+      config: {
+        visualVerifyAllowedDomains: ['192.168.1.50'],
+        visualVerifyBrowserPath: '/nonexistent/sidecar-test-browser',
+      } as never,
+    };
     const result = await tool.executor({ url: 'http://192.168.1.50' }, context);
     expect(result).not.toMatch(/private network URLs are blocked/i);
+    expect(result).toMatch(/could not launch a browser/);
+  });
+
+  it.skipIf(!fs.existsSync('C:/Program Files/Google/Chrome/Application/chrome.exe'))(
+    'a page that will not load is reported, not thrown',
+    async () => {
+      // No catch existed: page.goto's network errors escaped the tool. Unnoticed
+      // while the launch always failed (playwright-core ships no browser).
+      //
+      // The failure is MADE here, not borrowed from the network: a server that
+      // accepts and drops every connection fails the same way, in milliseconds,
+      // on every machine. A closed port was refused in 0.6 s locally but hung
+      // until the 30 s page-load timeout on the Windows CI runner.
+      const server = net.createServer((socket) => socket.destroy());
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const port = (server.address() as net.AddressInfo).port;
+      try {
+        const { visionTools } = await import('./vision.js');
+        const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+        const context = {
+          config: { visualVerifyAllowedDomains: ['127.0.0.1'], visualVerifyBrowser: 'chrome' },
+        } as never;
+        const result = await tool.executor({ url: `http://127.0.0.1:${port}` }, context);
+        expect(result).toMatch(/^Error: screenshot_page failed: .*ERR_/);
+      } finally {
+        server.close();
+      }
+    },
+    60_000,
+  );
+
+  it('describes "nothing answered" failures as a dev server that is not running', () => {
+    const refused = new Error('page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log: ...');
+    expect(describeScreenshotFailure('http://localhost:3000', refused)).toBe(
+      'Error: could not load http://localhost:3000: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/. ' +
+        'Nothing answered at that address -- is the dev server running, and on that port?',
+    );
+    expect(
+      describeScreenshotFailure('http://nope.invalid', new Error('page.goto: net::ERR_NAME_NOT_RESOLVED')),
+    ).toMatch(/dev server running/);
+  });
+
+  it('describes any other failure by its first line', () => {
+    expect(describeScreenshotFailure('http://x', new Error('waiting for selector "#app" failed: timeout\nmore'))).toBe(
+      'Error: screenshot_page failed: waiting for selector "#app" failed: timeout',
+    );
   });
 
   it('open_in_browser blocks localhost without allowedDomains config', async () => {

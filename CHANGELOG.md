@@ -15,6 +15,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **`screenshot_page` could not launch a browser on most machines.** It only ever tried
+  Playwright's own Chromium, which `playwright-core` does not include, so unless you had
+  run `npx playwright install chromium` it failed with "Executable doesn't exist". It now
+  falls back to an installed Google Chrome or Microsoft Edge. Two new settings choose:
+  `sidecar.visualVerify.browser` (`auto`, the default, or `chromium`, `chrome`, `msedge`)
+  and `sidecar.visualVerify.browserPath` (any Chromium-based browser's executable). If
+  nothing launches, the error says what was tried and how to fix it.
+  (`src/agent/tools/browserLaunch.ts`)
+- **`screenshot_page` threw when a page would not load** instead of saying so. A dev
+  server that is not running now gets "could not load … is the dev server running, and on
+  that port?". (`src/agent/tools/vision.ts`)
 - **Web search could report "no internet" while your search provider was reachable.** Its
   connectivity check always contacted duckduckgo.com, whatever `sidecar.webSearch.provider`
   was set to, and treated any non-2xx answer as offline. On a network that blocks DuckDuckGo,

@@ -2114,6 +2114,28 @@
             },
             "default": [],
             "markdownDescription": "Domains or hostnames that are permitted for `screenshot_page` even when they resolve to a loopback or private-network address (e.g. `localhost`, `192.168.1.1`). Use this to allow local dev servers."
+          },
+          "sidecar.visualVerify.browser": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "chromium",
+              "chrome",
+              "msedge"
+            ],
+            "enumDescriptions": [
+              "Try Playwright's Chromium, then installed Google Chrome, then Microsoft Edge; use the first that launches.",
+              "Playwright's own Chromium only (needs `npx playwright install chromium`).",
+              "The installed Google Chrome.",
+              "The installed Microsoft Edge."
+            ],
+            "default": "auto",
+            "markdownDescription": "Which browser `screenshot_page` drives. `playwright-core` does not include a browser, so **`auto`** (default) falls back to an installed Chrome or Edge when Playwright's Chromium has not been downloaded. Overridden by `#sidecar.visualVerify.browserPath#`."
+          },
+          "sidecar.visualVerify.browserPath": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Path to a Chromium-based browser executable for `screenshot_page` (e.g. Brave, Chromium, or a portable Chrome). When set, it is used instead of `#sidecar.visualVerify.browser#`."
           }
         }
       },

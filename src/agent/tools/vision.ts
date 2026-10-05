@@ -13,6 +13,7 @@ import * as os from 'os';
 import { commands, Uri, env } from 'vscode';
 import { resizePngBuffer } from './pngUtils.js';
 import { getConfig } from '../../config/settings.js';
+import { launchBrowser } from './browserLaunch.js';
 import { getRoot } from './shared.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
@@ -42,6 +43,19 @@ export * from './visionHelpers.js';
 // ---------------------------------------------------------------------------
 // screenshot_page
 // ---------------------------------------------------------------------------
+
+/**
+ * What to tell the model when a screenshot fails after the browser started.
+ * Nothing listening is the commonest case -- the dev server is not up, or is on
+ * another port -- so it gets a pointed message; anything else, its first line.
+ */
+export function describeScreenshotFailure(url: string, err: unknown): string {
+  const first = (err instanceof Error ? err.message : String(err)).split('\n')[0];
+  if (/ERR_CONNECTION_REFUSED|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE/.test(first)) {
+    return `Error: could not load ${url}: ${first}. Nothing answered at that address -- is the dev server running, and on that port?`;
+  }
+  return `Error: screenshot_page failed: ${first}`;
+}
 
 async function screenshotPage(input: Record<string, unknown>, _context?: ToolExecutorContext): Promise<string> {
   const url = input.url as string | undefined;
@@ -91,9 +105,14 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
 
   try {
     try {
-      browser = await playwright.chromium.launch({ headless: true });
+      // Not just Playwright's own Chromium, which playwright-core does not ship:
+      // 'auto' falls back to an installed Chrome or Edge. See browserLaunch.ts.
+      ({ browser } = await launchBrowser(playwright, {
+        browser: cfg.visualVerifyBrowser ?? 'auto',
+        browserPath: cfg.visualVerifyBrowserPath ?? '',
+      }));
     } catch (launchErr) {
-      return `Error: failed to launch browser: ${launchErr instanceof Error ? launchErr.message : String(launchErr)}. Ensure a Chromium browser is installed and playwright-core is set up correctly.`;
+      return `Error: ${launchErr instanceof Error ? launchErr.message : String(launchErr)}`;
     }
     page = await browser.newPage();
 
@@ -129,6 +148,12 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
     } else {
       await page.screenshot({ path: outputPath, fullPage: false });
     }
+  } catch (err) {
+    // A page that will not load, a selector that never appears, a failed
+    // capture: answer with what happened instead of throwing. This had no catch
+    // at all -- unnoticed while the launch itself always failed, since
+    // playwright-core ships no browser and nothing else was tried.
+    return describeScreenshotFailure(url, err);
   } finally {
     try {
       await page?.close();
