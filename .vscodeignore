@@ -8,6 +8,33 @@ src/**
 out/**
 node_modules/**
 !node_modules/web-tree-sitter/**
+# playwright-core -- externalized from the esbuild bundle and require()d at
+# runtime by the visual-verify tools (screenshot_page). It used to be a
+# devDependency that never shipped, so in every installed SideCar the tool
+# stopped at "playwright-core is not installed". It ships no browser; the tools
+# drive an installed Chrome/Edge (src/agent/tools/browserLaunch.ts).
+# Listed path by path because a later exclude cannot undo a negation in vsce 3.9:
+# left out are types/, index.d.ts, README, bin/, cli.js and lib/vite/ (the trace
+# viewer UI) -- launch + page and element screenshots were verified on Chrome and
+# Edge with exactly this set (412 files). LICENSE/NOTICE ship as Apache-2.0 requires.
+!node_modules/playwright-core/package.json
+!node_modules/playwright-core/index.js
+!node_modules/playwright-core/index.mjs
+!node_modules/playwright-core/browsers.json
+!node_modules/playwright-core/LICENSE
+!node_modules/playwright-core/NOTICE
+!node_modules/playwright-core/ThirdPartyNotices.txt
+!node_modules/playwright-core/lib/*.js
+!node_modules/playwright-core/lib/cli/**
+!node_modules/playwright-core/lib/client/**
+!node_modules/playwright-core/lib/generated/**
+!node_modules/playwright-core/lib/protocol/**
+!node_modules/playwright-core/lib/remote/**
+!node_modules/playwright-core/lib/server/**
+!node_modules/playwright-core/lib/third_party/**
+!node_modules/playwright-core/lib/tools/**
+!node_modules/playwright-core/lib/utils/**
+!node_modules/playwright-core/lib/utilsBundleImpl/**
 # @lancedb (~92 MB) is NOT bundled: the Project Knowledge backend defaults to
 # 'flat', and LanceVectorStore require()s '@lancedb/lancedb' lazily and falls
 # back to flat with a warning when absent (see config/vectorStore.ts,

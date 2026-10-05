@@ -79,6 +79,10 @@ const checks = [
   ['@huggingface/transformers dist', /@huggingface[/\\]transformers[/\\]dist[/\\]/],
   [`host sharp native binary (${platform})`, hostSharp],
   ['onnxruntime native binary', /onnxruntime-node[/\\]bin[/\\]napi-v6[/\\].+\.(node|dylib|so|dll)/],
+  // screenshot_page require()s it at runtime. It was a devDependency and never
+  // shipped, so the tool was dead in every installed SideCar -- unnoticed
+  // because no check asked for it.
+  ['playwright-core runtime', /playwright-core[/\\]lib[/\\]server[/\\]/],
 ];
 
 const missing = checks.filter(([, re]) => !has(re)).map(([name]) => name);
@@ -148,11 +152,13 @@ if (target) {
 // asked whether required things were PRESENT — never whether anything unwanted
 // had joined them. A count this far above the norm means something bulk landed
 // in the tree, whatever it is called.
-const FILE_CEILING = 1200;
+// Raised 1200 -> 1700 for playwright-core (~410 files, deliberate: the
+// visual-verify tools need it at runtime). A normal package is now ~1,470.
+const FILE_CEILING = 1700;
 if (files.length > FILE_CEILING) {
   console.error(
     `✖ VSIX size check FAILED — ${files.length} files, ceiling ${FILE_CEILING}.\n` +
-      `  A normal package is ~600. Something bulk is being included that the deny-list\n` +
+      `  A normal package is ~1,470. Something bulk is being included that the deny-list\n` +
       `  above does not name. Inspect with: npx @vscode/vsce ls --tree\n` +
       `  Then exclude it in .vscodeignore — note that .gitignore does NOT apply here.`,
   );
