@@ -4,6 +4,15 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **SideCar knows today's date.** The system prompt now carries the current date in your
+  local timezone (not the time of day), with a note that the model's training data may be
+  older. "Today", "latest" and "recent" used to mean the model's training cutoff. The date
+  comes from this computer's clock, is refreshed on every message, and sits in the
+  uncached part of the prompt, so a new day costs one prompt-cache refresh.
+  (`src/webview/handlers/promptDate.ts`)
+
 ### Fixed
 
 - **Retry after an error sent your message twice.** When the model failed partway through

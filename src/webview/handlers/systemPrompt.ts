@@ -1,5 +1,6 @@
 import { window, workspace } from 'vscode';
 import { resolveWindowsShell } from '../../terminal/shellSession.js';
+import { promptDateLine } from './promptDate.js';
 import * as path from 'path';
 import * as os from 'os';
 import type { ChatState } from '../chatState.js';
@@ -57,6 +58,12 @@ export async function injectSystemContext(
   // AbortError that handleUserMessage's catch already treats as a clean stop.
   const abortIf = (): void => signal?.throwIfAborted();
   abortIf();
+
+  // The date line is appended last, in the Session block, after every budget
+  // check below has run. Reserve its room up front so the prompt still fits
+  // the cap rather than overshooting by the line's length.
+  const dateLine = promptDateLine();
+  maxSystemChars -= dateLine.length + '\n\n## Session\n'.length;
 
   const INJECTION_BOUNDARY =
     '\n\n---\nThe following sections contain project instructions, user preferences, and skill context. ' +
@@ -587,7 +594,12 @@ export async function injectSystemContext(
     if (activeFile) {
       prompt += `\n- Active file: ${activeFile}`;
     }
+  } else {
+    prompt += `\n\n## Session`;
   }
+  // Today's date, with or without a workspace -- see promptDate.ts. Per turn and
+  // in the uncached suffix, so a new day costs one cache refresh, nothing more.
+  prompt += `\n${dateLine}`;
   sizes['Session'] = prompt.length - prevLen;
 
   // External context providers — GitHub Issues, Linear, Jira.
