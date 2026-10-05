@@ -29,6 +29,16 @@ import { handleRevisePlan, handleResume } from './agentHandlers.js';
 
 // The sandbox wrapper builds a git worktree. Fake only the worktree; the
 // wrapper's own history hand-back and the loop inside it stay real.
+// No test here may touch the real network. The connectivity probe reports
+// OFFLINE, and a search that got past it anyway would fail the test loudly.
+vi.mock('../../agent/webSearch.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../agent/webSearch.js')>()),
+  checkInternetConnectivity: vi.fn(async () => false),
+  searchWeb: vi.fn(async () => {
+    throw new Error('the conversation tests must never reach the network');
+  }),
+}));
+
 const shadowsCreated = vi.hoisted(() => ({ count: 0 }));
 vi.mock('../../agent/shadow/shadowWorkspace.js', () => ({
   ShadowWorkspace: function () {
@@ -442,6 +452,32 @@ describe('conversation history: sends that fail', () => {
     const request = await convo.ask('continue', answer(COUNT.answer!));
 
     expect(conversationOf(request!).map((e) => e.prompt)).toContain(COUNT.prompt);
+  });
+});
+
+describe('conversation history: no internet', () => {
+  it('a web search with no connection gets the offline message, and every turn still ends answered', async () => {
+    // A local model on a machine with no network: it may still try to search.
+    // The tool must answer (not throw), the model must see why, and the
+    // conversation must carry on -- first call and the re-probe on the next.
+    const convo = await afterWeather();
+    await expectAnsweredTurn(
+      convo,
+      'what is the latest TypeScript version?',
+      toolCall('tc-ws-1', 'web_search', { query: 'latest TypeScript version' }),
+      answer('I cannot check right now: there is no internet connection.'),
+    );
+    await expectAnsweredTurn(
+      convo,
+      'and the latest Python version?',
+      toolCall('tc-ws-2', 'web_search', { query: 'latest Python version' }),
+      answer('Still no connection, so I cannot look that up.'),
+    );
+
+    const results = convo.state.messages.filter(isToolResult).map((m) => JSON.stringify(m.content));
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatch(/No internet connection detected/);
+    expect(results[1]).toMatch(/Still offline/);
   });
 });
 
