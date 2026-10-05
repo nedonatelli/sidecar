@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
+import * as net from 'net';
 import * as path from 'path';
 import * as os from 'os';
 import * as zlib from 'zlib';
@@ -14,6 +15,7 @@ import {
   validateScreenshotUrl,
   checkVisionRateLimit,
   resetVisionRateLimits,
+  describeScreenshotFailure,
 } from './vision.js';
 import { resizePngBuffer } from './pngUtils.js';
 
@@ -595,19 +597,47 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
   it.skipIf(!fs.existsSync('C:/Program Files/Google/Chrome/Application/chrome.exe'))(
     'a page that will not load is reported, not thrown',
     async () => {
-      // No catch existed: page.goto's net::ERR_CONNECTION_REFUSED escaped the tool.
-      // Unnoticed while the launch always failed (playwright-core ships no browser).
-      const { visionTools } = await import('./vision.js');
-      const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
-      const context = { config: { visualVerifyAllowedDomains: ['localhost'], visualVerifyBrowser: 'chrome' } as never };
-      // A closed high port: connection refused. (Not :9 -- Chrome refuses
-      // "unsafe" well-known ports with a different error.)
-      const result = await tool.executor({ url: 'http://localhost:59999' }, context);
-      expect(result).toMatch(/could not load http:\/\/localhost:59999/);
-      expect(result).toMatch(/dev server running/);
+      // No catch existed: page.goto's network errors escaped the tool. Unnoticed
+      // while the launch always failed (playwright-core ships no browser).
+      //
+      // The failure is MADE here, not borrowed from the network: a server that
+      // accepts and drops every connection fails the same way, in milliseconds,
+      // on every machine. A closed port was refused in 0.6 s locally but hung
+      // until the 30 s page-load timeout on the Windows CI runner.
+      const server = net.createServer((socket) => socket.destroy());
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const port = (server.address() as net.AddressInfo).port;
+      try {
+        const { visionTools } = await import('./vision.js');
+        const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+        const context = {
+          config: { visualVerifyAllowedDomains: ['127.0.0.1'], visualVerifyBrowser: 'chrome' },
+        } as never;
+        const result = await tool.executor({ url: `http://127.0.0.1:${port}` }, context);
+        expect(result).toMatch(/^Error: screenshot_page failed: .*ERR_/);
+      } finally {
+        server.close();
+      }
     },
-    30_000,
+    60_000,
   );
+
+  it('describes "nothing answered" failures as a dev server that is not running', () => {
+    const refused = new Error('page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log: ...');
+    expect(describeScreenshotFailure('http://localhost:3000', refused)).toBe(
+      'Error: could not load http://localhost:3000: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/. ' +
+        'Nothing answered at that address -- is the dev server running, and on that port?',
+    );
+    expect(
+      describeScreenshotFailure('http://nope.invalid', new Error('page.goto: net::ERR_NAME_NOT_RESOLVED')),
+    ).toMatch(/dev server running/);
+  });
+
+  it('describes any other failure by its first line', () => {
+    expect(describeScreenshotFailure('http://x', new Error('waiting for selector "#app" failed: timeout\nmore'))).toBe(
+      'Error: screenshot_page failed: waiting for selector "#app" failed: timeout',
+    );
+  });
 
   it('open_in_browser blocks localhost without allowedDomains config', async () => {
     const { visionTools } = await import('./vision.js');

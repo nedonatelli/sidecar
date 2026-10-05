@@ -44,6 +44,19 @@ export * from './visionHelpers.js';
 // screenshot_page
 // ---------------------------------------------------------------------------
 
+/**
+ * What to tell the model when a screenshot fails after the browser started.
+ * Nothing listening is the commonest case -- the dev server is not up, or is on
+ * another port -- so it gets a pointed message; anything else, its first line.
+ */
+export function describeScreenshotFailure(url: string, err: unknown): string {
+  const first = (err instanceof Error ? err.message : String(err)).split('\n')[0];
+  if (/ERR_CONNECTION_REFUSED|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE/.test(first)) {
+    return `Error: could not load ${url}: ${first}. Nothing answered at that address -- is the dev server running, and on that port?`;
+  }
+  return `Error: screenshot_page failed: ${first}`;
+}
+
 async function screenshotPage(input: Record<string, unknown>, _context?: ToolExecutorContext): Promise<string> {
   const url = input.url as string | undefined;
   if (!url) return 'Error: url is required';
@@ -140,11 +153,7 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
     // capture: answer with what happened instead of throwing. This had no catch
     // at all -- unnoticed while the launch itself always failed, since
     // playwright-core ships no browser and nothing else was tried.
-    const first = (err instanceof Error ? err.message : String(err)).split('\n')[0];
-    if (/ERR_CONNECTION_REFUSED|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE/.test(first)) {
-      return `Error: could not load ${url}: ${first}. Nothing answered at that address -- is the dev server running, and on that port?`;
-    }
-    return `Error: screenshot_page failed: ${first}`;
+    return describeScreenshotFailure(url, err);
   } finally {
     try {
       await page?.close();
