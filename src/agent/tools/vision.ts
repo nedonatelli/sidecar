@@ -90,7 +90,9 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
   try {
     playwright = require('playwright-core') as unknown;
   } catch {
-    return 'Error: playwright-core is not installed. Run `npm install playwright-core` in your extension host environment, then restart VS Code.';
+    // It ships in the .vsix (scripts/verify-package.mjs requires it), so this
+    // means a damaged install or a dev build without dependencies.
+    return 'Error: playwright-core could not be loaded. It ships with SideCar, so the installation may be damaged — reinstall the SideCar extension (or run `npm install` in a development checkout), then restart VS Code.';
   }
 
   const screenshotsDir = await ensureScreenshotsDir(_context);
