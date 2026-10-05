@@ -361,6 +361,10 @@ export interface SideCarConfig {
   visualVerifyMode: 'strict' | 'warn' | 'advisory';
   visualVerifyCheapChecksOnly: boolean;
   visualVerifyAllowedDomains: string[];
+  /** Which browser screenshot_page drives -- see src/agent/tools/browserLaunch.ts. */
+  visualVerifyBrowser: import('../agent/tools/browserLaunch.js').VisualVerifyBrowser;
+  /** An executable to launch instead; overrides visualVerifyBrowser. */
+  visualVerifyBrowserPath: string;
   /* Doc-to-Test Synthesis Loop */
   docTestsEnabled: boolean;
   docTestsOutputDir: string;
@@ -708,6 +712,11 @@ function readConfig(): SideCarConfig {
     visualVerifyMode: cfg.get<'strict' | 'warn' | 'advisory'>('visualVerify.mode', 'warn'),
     visualVerifyCheapChecksOnly: cfg.get<boolean>('visualVerify.cheapChecksOnly', false),
     visualVerifyAllowedDomains: cfg.get<string[]>('visualVerify.allowedDomains', []),
+    visualVerifyBrowser: cfg.get<import('../agent/tools/browserLaunch.js').VisualVerifyBrowser>(
+      'visualVerify.browser',
+      'auto',
+    ),
+    visualVerifyBrowserPath: cfg.get<string>('visualVerify.browserPath', ''),
     /* Doc-to-Test Synthesis Loop */
     docTestsEnabled: cfg.get<boolean>('docTests.enabled', true),
     docTestsOutputDir: cfg.get<string>('docTests.outputDir', 'tests/from_docs'),
