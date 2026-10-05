@@ -77,3 +77,27 @@ describe('webSearch function (knowledge.ts)', () => {
     expect(result).toContain('Search failed');
   });
 });
+
+describe('webSearch tool — a blocked provider says so', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('tells the model it is BLOCKED, that rephrasing will not help, and what the user can do', async () => {
+    const { checkInternetConnectivity, searchWeb } = await import('../webSearch.js');
+    vi.mocked(checkInternetConnectivity).mockResolvedValue(true);
+    const blocked = Object.assign(new Error('bot check'), {
+      name: 'SearchProviderBlockedError',
+      provider: 'duckduckgo',
+    });
+    vi.mocked(searchWeb).mockRejectedValue(blocked);
+    const { webSearch } = await import('./knowledge.js');
+
+    const result = await webSearch({ query: 'latest typescript version' });
+    expect(result).toMatch(/blocked/i);
+    expect(result).toMatch(/not a lack of results/i);
+    expect(result).toMatch(/rephras/i);
+    expect(result).toMatch(/tavily|brave/i);
+    expect(result).not.toMatch(/No results found/);
+  });
+});

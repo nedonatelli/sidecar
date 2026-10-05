@@ -62,6 +62,22 @@ export async function webSearch(input: Record<string, unknown>): Promise<string>
     }
     return `Web search results for "${query}":\n\n${formatSearchResults(results)}`;
   } catch (err) {
+    // A provider that REFUSED (bot check, rate limit) used to surface as "No
+    // results found... Try rephrasing", and the model rephrased into the block
+    // until it gave up. Matched by name, not instanceof, so it survives the
+    // module being mocked.
+    if (err instanceof Error && err.name === 'SearchProviderBlockedError') {
+      const provider = (err as Error & { provider?: string }).provider ?? 'the search provider';
+      const alternative =
+        provider === 'duckduckgo'
+          ? ' The user can switch `sidecar.webSearch.provider` to tavily or brave (with an API key) to avoid this.'
+          : '';
+      return (
+        `⚠️ Web search is blocked right now: ${err.message} This is NOT a lack of results, and rephrasing ` +
+        `will not help -- do not call web_search again this turn. Answer from what you already know and tell ` +
+        `the user you could not search.${alternative}`
+      );
+    }
     const msg = formatToolError(err);
     if (msg.includes('timeout') || msg.includes('ETIMEDOUT')) {
       return '⚠️ Search timed out. The internet connection may be slow or unavailable.';
