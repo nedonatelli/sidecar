@@ -29,7 +29,7 @@ Tab to accept, Escape to dismiss — same as Copilot.
 
 **Inline edit (`Cmd+I`)** — Same shortcut as Copilot's inline chat. Select code, press `Cmd+I`, describe the change. SideCar streams the result and shows a side-by-side diff with Accept / Dismiss before touching anything.
 
-**@sidecar in Copilot Chat** — If you keep the Copilot panel open, SideCar registers as a native VS Code chat participant. Type `@sidecar` in the Copilot Chat panel to route a message through your configured backend (Ollama, Anthropic, etc.) without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` work from there too.
+**@sidecar in Copilot Chat** — If you keep the Copilot panel open, SideCar registers as a native VS Code chat participant. Type `@sidecar` in the Copilot Chat panel to route a message through your configured backend (Ollama, Anthropic, etc.) without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` work from there too. Agent requests follow your `sidecar.agentMode` and ask before writes and commands in a dialog; `plan` and `review` modes run as `cautious` there, since they need the SideCar panel.
 
 ### What is different
 

@@ -203,7 +203,7 @@ For maximum reliability, the **Anthropic (Claude)**, **Google Gemini**, and **Fi
 
 ## VS Code Copilot Chat & Agents Window
 
-SideCar registers as a native VS Code chat participant — type `@sidecar` in the Copilot Chat panel to talk to your configured backend without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` are available.
+SideCar registers as a native VS Code chat participant — type `@sidecar` in the Copilot Chat panel to talk to your configured backend without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` are available. Agent requests follow your `sidecar.agentMode` and ask before acting in a dialog (Copilot's own tool-approval settings don't apply, because SideCar runs its own tools).
 
 **VS Code Agents Window (Preview):** To use SideCar in the dedicated [Agents Window](https://code.visualstudio.com/docs/copilot/agents/agents-window), add the following to your VS Code `settings.json`:
 

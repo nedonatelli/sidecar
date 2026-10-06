@@ -4,6 +4,51 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+A security release. A review of the whole codebase found ways for content you did not
+write — a cloned repository, a file the agent reads, a web page, or another extension — to
+make SideCar run commands, change or read files, or send your credentials elsewhere without
+asking you first. All of them are fixed here. Details are in security advisory
+[GHSA-6qmf-mrqh-r79m](https://github.com/nedonatelli/sidecar/security/advisories/GHSA-6qmf-mrqh-r79m).
+Update to this version; every earlier version is affected.
+
+### Security
+
+- **Workspace settings that could redirect your API keys or run programs now need your
+  approval.** If a repository's `.vscode/settings.json` sets `baseUrl`, `provider`,
+  `fallbackBaseUrl`, `zotero.baseUrl`, `voice.transcriptionUrl`, `contextProviders`,
+  `visualVerify.browserPath`, `eventHooks`, `shadowWorkspace.gateCommand`, `agentMode`,
+  `sandbox.enabled` or any `mcpServer.*` setting, SideCar asks once and uses your own
+  settings until you allow them. The answer is remembered for that workspace until those
+  values change. A project `.mcp.json` now triggers the MCP trust prompt too.
+- **`@sidecar` in Copilot Chat follows `sidecar.agentMode`.** It ran every request
+  autonomously; it now asks before writes and commands in `cautious` mode, through a
+  dialog. `plan` and `review` need the SideCar panel and run as `cautious` there.
+- **Extensions that register SideCar tools or hooks through the SDK now need your
+  permission**, asked once per extension per session.
+- **Agent tools are stricter about what they touch without asking:**
+  - git commands refuse branch, ref and remote names that start with `-`;
+  - the delegated research worker runs only read-only command shapes (no `;`, `&&`,
+    redirection or `$VARS`; `curl`, `awk`, `sed` and `env` are no longer available to it);
+  - `get_setting` redacts every credential, including tokens inside object settings;
+  - `grep` skips credential files such as `.env` and `*.pem`;
+  - `read_pdf`, `index_pdf`, `extract_constraints` and `ingest_source` read only files
+    inside the workspace — copy or attach a file from elsewhere;
+  - `db_query` runs one read-only statement at a time; anything that might write belongs in
+    `db_execute`, which asks first. DuckDB read-only profiles are now really read-only;
+  - `delegate_to_mcp` asks for approval like every MCP tool;
+  - sub-agents work under the same rules as the agent that started them (shadow workspace,
+    review mode, mode permissions, approval prompts);
+  - writes to SideCar's own state are refused however the path is spelled.
+- **Screenshots and URL fetching cannot reach your own machine or network** unless the
+  host is listed in `sidecar.visualVerify.allowedDomains`; cloud-metadata addresses are
+  always refused, including through redirects.
+- **`.sidecarignore` is now applied everywhere.** It used to reach only newly changed
+  files; ignored files are now kept out of every index. It also accepts globs such as
+  `*.pem` and `secrets/*.json`.
+- **The Arena panel, the local MCP agent server, the status-bar tooltip, the edit-plan
+  Revert button, review mode, the process-cleanup list and the macOS sandbox profile** were
+  hardened; see the advisory.
+
 ## [0.126.0] - 2026-10-06
 
 Things that reported success, or failure, without it being true. SideCar now knows today's

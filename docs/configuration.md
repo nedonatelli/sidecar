@@ -243,20 +243,23 @@ Files deeper than this level are excluded from workspace indexing, reducing nois
 
 ### Ignoring patterns
 
-Create a `.sidecarignore` file in your workspace root (same format as `.gitignore`):
+Create a `.sidecarignore` file in your workspace root to keep files out of SideCar's context: the workspace index, the symbol index and semantic search all skip them.
 
 ```
-# Ignore build artifacts
-dist/
-build/
-.next/
+# A directory or file name, anywhere in the tree
+dist
+secrets
+.env.local
 
-# Ignore dependencies
-node_modules/
-venv/
+# A path from the workspace root (and everything under it)
+config/prod
+
+# Globs: * and ? within one path segment
+*.pem
+notes/*.md
 ```
 
-Patterns from `.sidecarignore` are merged with default excludes (`.git`, `.sidecar`, `node_modules`, etc.).
+One pattern per line; `#` starts a comment, and a trailing `/`, `/*` or `/**` means the directory and everything in it. Matching is case-insensitive. This is a subset of `.gitignore` syntax: negation (`!`) and `**` in the middle of a pattern are not supported. Patterns are merged with the default excludes (`.git`, `.sidecar`, `node_modules`, etc.).
 
 ## Auto-fix
 

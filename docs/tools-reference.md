@@ -893,10 +893,10 @@ Requires `sidecar.docTests.enabled: true`.
 
 Parse a reference document and extract all verifiable constraints into a structured JSON manifest.
 
-| Parameter      | Type   | Required | Description                                                                                                            |
-| -------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `doc_path`     | string | Yes      | Path to the document (absolute or relative to workspace root). Supports `.md`, `.tex`, `.rst`, `.pdf`, and plain text. |
-| `section_hint` | string | No       | Heading or section name to focus extraction on. Useful for large documents.                                            |
+| Parameter      | Type   | Required | Description                                                                                                                                                              |
+| -------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `doc_path`     | string | Yes      | Path to the document, relative to the workspace root. It must be inside the workspace and not a credential file. Supports `.md`, `.tex`, `.rst`, `.pdf`, and plain text. |
+| `section_hint` | string | No       | Heading or section name to focus extraction on. Useful for large documents.                                                                                              |
 
 Each constraint is typed (`mathematical_identity`, `numeric_example`, `boundary_condition`, `complexity_bound`, `invariant`, or `qualitative_claim`) and includes a provenance string quoting the exact source sentence. Returns `{ constraints: Constraint[], docSlug, truncated }`.
 
