@@ -5,6 +5,38 @@ import { getWorkspaceRoot } from '../config/workspace.js';
 import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 import type { MCPManager } from '../agent/mcpManager.js';
+import { getConfig, resolveMode, type SideCarConfig } from '../config/settings.js';
+import type { ApprovalMode, ConfirmFn } from '../agent/executor.js';
+
+/**
+ * How `@sidecar` asks before acting. It runs SideCar's own agent loop, so
+ * VS Code's chat tool-approval UI never sees its tool calls; it used to pass
+ * `approvalMode: 'autonomous'` unconditionally, so a user in cautious mode got
+ * no prompt at all here. It now follows `sidecar.agentMode` like the SideCar
+ * panel does, asking through a modal (a participant's response stream cannot
+ * wait on a click). Two modes need the panel's own UI -- `plan` (the plan
+ * view) and `review` (the pending-edit queue; without one, writes would land
+ * unprompted) -- so they run as `cautious` here.
+ */
+export function participantApprovalOptions(config: Pick<SideCarConfig, 'agentMode' | 'customModes'>): {
+  approvalMode: ApprovalMode;
+  modeToolPermissions: Record<string, 'allow' | 'deny' | 'ask'>;
+  confirmFn: ConfirmFn;
+} {
+  const resolved = resolveMode(config.agentMode, config.customModes);
+  const approvalMode: ApprovalMode =
+    resolved.approvalBehavior === 'plan' || resolved.approvalBehavior === 'review'
+      ? 'cautious'
+      : resolved.approvalBehavior;
+  return {
+    approvalMode,
+    modeToolPermissions: resolved.toolPermissions,
+    confirmFn: async (message, actions) => {
+      const plain = message.replace(/[*_`#>]/g, '').trim();
+      return vscode.window.showWarningMessage(`SideCar (@sidecar): ${plain}`, { modal: true }, ...actions);
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Slash-command dispatch table
@@ -179,8 +211,8 @@ export function buildHistoryFromChatContext(
  * Slash commands (/review, /fix, /explain, /commit-message) run a plain
  * completion with a specialised system prompt — they're Q&A style, not
  * agentic, so the full loop would be overkill. All other requests go
- * through `runAgentLoop` with autonomous tool approval so the agent can
- * read files, run commands, edit code, etc. without a confirm dialog.
+ * through `runAgentLoop` under the user's own approval mode
+ * (`participantApprovalOptions`).
  */
 export function registerSidecarParticipant(
   context: vscode.ExtensionContext,
@@ -249,7 +281,7 @@ export function registerSidecarParticipant(
 
     try {
       await runAgentLoop(client, messages, callbacks, signal, {
-        approvalMode: 'autonomous',
+        ...participantApprovalOptions(getConfig()),
         systemPromptOverride: systemPrompt,
         mcpManager,
       });
