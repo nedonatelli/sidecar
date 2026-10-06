@@ -152,15 +152,22 @@ export class ProcessRegistry implements Disposable {
       return;
     }
 
-    for (const entry of prior.pids || []) {
-      if (await this.isPidAlive(entry.pid, entry.cmdline)) {
+    for (const entry of Array.isArray(prior?.pids) ? prior.pids : []) {
+      // Killing is the one thing this file can make SideCar do, so an entry
+      // must prove itself: a real PID that is not us or our parent, and a
+      // recorded command line that the live process still matches. An entry
+      // with no command line cannot be checked for PID reuse -- skip it.
+      const pid = entry?.pid;
+      if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid || pid === process.ppid) continue;
+      if (typeof entry.cmdline !== 'string' || entry.cmdline.trim() === '') continue;
+      if (await this.isPidAlive(pid, entry.cmdline)) {
         // Process still alive with matching cmdline — kill it to prevent orphans from crashes
         try {
-          process.kill(entry.pid, 'SIGTERM');
+          process.kill(pid, 'SIGTERM');
           // Wait 1s for graceful exit
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          if (await this.isPidAlive(entry.pid)) {
-            process.kill(entry.pid, 'SIGKILL');
+          if (await this.isPidAlive(pid, entry.cmdline)) {
+            process.kill(pid, 'SIGKILL');
           }
         } catch {
           // Process already dead or permission denied
@@ -178,6 +185,9 @@ export class ProcessRegistry implements Disposable {
       // If expectedCmdline is provided, verify the process hasn't been reused
       if (expectedCmdline) {
         const actualCmdline = await this.getProcessCmdline(pid);
+        // Unknown (Windows, or ps failed) is NOT a match: without the live
+        // command line, PID reuse cannot be ruled out.
+        if (actualCmdline === '') return false;
         // Only consider it the same process if cmdline matches (allows partial match since ps/proc output varies)
         return actualCmdline.includes(expectedCmdline.split(' ')[0]); // Check if first token (command name) matches
       }
