@@ -37,8 +37,35 @@ describe('assertReadOnly', () => {
     expect(() => assertReadOnly('Select id from t')).not.toThrow();
   });
 
-  it('allows multiple read-only statements separated by semicolons', () => {
-    expect(() => assertReadOnly('SELECT 1; SELECT 2; SELECT 3')).not.toThrow();
+  // One statement only. Splitting on ";" needs to know what is quoted, and
+  // getting that wrong ran `SELECT '--'; DROP TABLE users` as two statements.
+  it('refuses multiple statements, however they are quoted', () => {
+    expect(() => assertReadOnly('SELECT 1; SELECT 2; SELECT 3')).toThrow(/single statement/);
+    expect(() => assertReadOnly("SELECT '--'; DROP TABLE users;")).toThrow(/single statement/);
+    expect(() => assertReadOnly('SELECT 1 AS "--"; DELETE FROM users;')).toThrow(/single statement/);
+    expect(() => assertReadOnly("SELECT '/*'; DROP TABLE users; SELECT '*/'")).toThrow(/single statement/);
+  });
+
+  it('refuses read statements that write from the inside', () => {
+    for (const sql of [
+      'SELECT * INTO stolen FROM users',
+      "SELECT * FROM users INTO OUTFILE '/tmp/x'",
+      "SELECT 'a\\'b' INTO OUTFILE '/tmp/x'",
+      'EXPLAIN ANALYZE DELETE FROM users',
+      "WITH x AS (SELECT '--') DELETE FROM t",
+      "SELECT set_config('default_transaction_read_only', 'off', false)",
+      "SELECT setval('s', 1)",
+      "SELECT lo_export(1, '/tmp/x')",
+      'PRAGMA writable_schema = 1',
+      'SELECT 1 --x INTO OUTFILE "/tmp/a"',
+    ]) {
+      expect(() => assertReadOnly(sql), sql).toThrow(/Read-only violation/);
+    }
+  });
+
+  it('still allows ordinary reads, including the replace() function', () => {
+    expect(() => assertReadOnly("SELECT replace(name, 'a', 'b') FROM t WHERE status = 'deleted'")).not.toThrow();
+    expect(() => assertReadOnly('-- top 10\nSELECT id, updated_at FROM t LIMIT 10')).not.toThrow();
   });
 
   it('ignores empty statements from trailing semicolons', () => {
@@ -78,13 +105,12 @@ describe('assertReadOnly', () => {
 
   // ── comment stripping ─────────────────────────────────────────────────────
 
-  it('strips single-line comments before checking', () => {
-    // "-- INSERT" in a comment must not trigger a false positive
-    expect(() => assertReadOnly('SELECT 1 -- INSERT INTO t VALUES (1)')).not.toThrow();
-  });
-
-  it('strips block comments before checking', () => {
-    expect(() => assertReadOnly('SELECT /* DELETE FROM t */ 1')).not.toThrow();
+  // Comments are NOT stripped before the write-word scan: what counts as a
+  // comment differs by dialect (MySQL needs "-- " with a space), so stripping
+  // can hide live code. A write word in a comment is a conservative refusal.
+  it('scans comments too rather than trusting a dialect-specific strip', () => {
+    expect(() => assertReadOnly('SELECT 1 -- INSERT INTO t VALUES (1)')).toThrow(/Read-only violation/);
+    expect(() => assertReadOnly('SELECT /* DELETE FROM t */ 1')).toThrow(/Read-only violation/);
   });
 
   it('still catches write statement after comment is stripped', () => {

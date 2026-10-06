@@ -65,7 +65,7 @@ describe('DuckDbProvider — connect / disconnect', () => {
     expect(p.isConnected()).toBe(false);
     await p.connect(makeProfile());
     expect(p.isConnected()).toBe(true);
-    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb');
+    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb', { access_mode: 'READ_ONLY' });
   });
 
   it('defaults to an in-memory database when no filePath is given', async () => {
@@ -73,24 +73,19 @@ describe('DuckDbProvider — connect / disconnect', () => {
     expect(mock.create).toHaveBeenCalledWith(':memory:');
   });
 
-  it('runs SET access_mode = READ_ONLY on a read-only connection', async () => {
+  // Read-only must be set at OPEN: `SET access_mode` on a running database
+  // always throws, and that throw used to be swallowed (verified against the
+  // real @duckdb/node-api: the old path left the file writable).
+  it('opens a read-only file database with access_mode READ_ONLY, and runs no SET', async () => {
     await connected(makeProfile({ readOnly: true }));
-    const ranSet = mock.conn.run.mock.calls.some(([sql]) => (sql as string).includes('access_mode = READ_ONLY'));
-    expect(ranSet).toBe(true);
-  });
-
-  it('swallows a SET access_mode failure (older DuckDB / in-memory)', async () => {
-    mock.conn.run.mockImplementationOnce(async () => {
-      throw new Error('SET not supported');
-    });
-    // Should not reject despite the SET throwing.
-    await expect(connected(makeProfile({ readOnly: true }))).resolves.toBeInstanceOf(DuckDbProvider);
-  });
-
-  it('does not set read-only mode on a writable connection', async () => {
-    await connected(makeProfile({ readOnly: false }));
+    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb', { access_mode: 'READ_ONLY' });
     const ranSet = mock.conn.run.mock.calls.some(([sql]) => (sql as string).includes('access_mode'));
     expect(ranSet).toBe(false);
+  });
+
+  it('opens a writable connection without read-only options', async () => {
+    await connected(makeProfile({ readOnly: false }));
+    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb');
   });
 
   it('disconnect closes the connection and marks disconnected', async () => {
