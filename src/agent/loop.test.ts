@@ -571,6 +571,69 @@ describe('runAgentLoop', () => {
     vi.restoreAllMocks();
   });
 
+  // A turn cut off at the output limit is not an answer. The stop reason was
+  // recorded and never read, so a reasoning model stopped mid-thought ended
+  // the run as if finished.
+  it('continues a turn cut off at the output limit, keeping what was written', async () => {
+    let turn = 0;
+    const seen: ChatMessage[][] = [];
+    async function* replies(msgs: ChatMessage[]): AsyncGenerator<StreamEvent> {
+      seen.push([...msgs]);
+      turn++;
+      if (turn === 1) {
+        yield { type: 'text', text: 'The answer is the sum of' };
+        yield { type: 'stop', stopReason: 'max_tokens' };
+      } else {
+        yield { type: 'text', text: ' 2 and 2, which is 4.' };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      }
+    }
+    const client = {
+      streamChat: (msgs: ChatMessage[]) => replies(msgs),
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+    } as unknown as SideCarClient;
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const cb = makeCallbacks();
+    await runAgentLoop(client, [{ role: 'user', content: 'what is 2+2?' }], cb, new AbortController().signal);
+
+    expect(turn).toBe(2);
+    expect(cb.texts.join('')).toContain('reached the output limit');
+    // The second request carried the partial answer and the continue note.
+    const second = JSON.stringify(seen[1]);
+    expect(second).toContain('The answer is the sum of');
+    expect(second).toContain('[Output limit]');
+    vi.restoreAllMocks();
+  });
+
+  it('continues at most twice when every turn hits the output limit', async () => {
+    let turns = 0;
+    async function* alwaysCut(): AsyncGenerator<StreamEvent> {
+      turns++;
+      yield { type: 'text', text: `part ${turns}` };
+      yield { type: 'stop', stopReason: 'max_tokens' };
+    }
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+    const cb = makeCallbacks();
+    await runAgentLoop(makeMockClient(alwaysCut), [{ role: 'user', content: 'go' }], cb, new AbortController().signal);
+    expect(turns).toBe(3);
+    expect(cb.texts.join('').match(/reached the output limit/g)).toHaveLength(2);
+    vi.restoreAllMocks();
+  });
+
   it('records a text-only answer in the returned history so the next prompt does not re-answer it', async () => {
     // A text-only final turn used to end the run without ever entering
     // history. The next prompt then followed an apparently unanswered one,

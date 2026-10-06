@@ -91,12 +91,32 @@ export const LOCAL_CONTEXT_CAP = 131_072;
  * NOT `sidecar.agentMaxTokens`: that is a conversation budget ("message history
  * only", default 200000). As a per-response cap it is no cap at all.
  *
- * 8192 is deliberately generous. The cost of cutting a turn short is a
- * truncated tool call — malformed JSON, a failed edit — which is worse than a
- * slow turn, and a legitimate `write_file` payload can run past 2000 tokens.
- * This is a backstop against runaway, not a tuning knob for normal work.
+ * The cost of cutting a turn short is a truncated tool call — malformed JSON,
+ * a failed edit — or a reasoning model cut off mid-thought, which is worse
+ * than a slow turn. Reasoning tokens count against this cap on every backend
+ * (Ollama's num_predict, OpenAI's max_completion_tokens), and reasoning models
+ * routinely think for 5–20K tokens before answering, so the default is the
+ * `sidecar.maxOutputTokens` setting, 32768 (was 8192 for Ollama and 4096 for
+ * OpenAI-compatible servers). Measured on gemma4:e4b with thinking on: p99
+ * ~2.2K and max ~4.5K tokens of thinking per turn, so the old 8192 was not
+ * binding there -- it bound larger thinkers. A turn that still hits the cap is
+ * handled in the loop (it continues instead of ending the run).
  */
-export const AGENT_MAX_OUTPUT_TOKENS = 8_192;
+export const AGENT_MAX_OUTPUT_TOKENS = 32_768;
+
+/** Never ask for less output than this, even with the context nearly full. */
+export const MIN_OUTPUT_TOKENS = 4_096;
+
+/**
+ * The output budget to request: the configured cap, but no more than the
+ * context left after the prompt (a local server that generates past its window
+ * silently shifts out the OLDEST context -- the system prompt), and never below
+ * MIN_OUTPUT_TOKENS (or the cap, if smaller).
+ */
+export function fitOutputBudget(cap: number, contextWindow: number, promptTokens: number): number {
+  const room = contextWindow - promptTokens;
+  return Math.max(Math.min(cap, room), Math.min(cap, MIN_OUTPUT_TOKENS));
+}
 
 /**
  * Per-model context caps that override LOCAL_CONTEXT_CAP downward. KV-cache

@@ -386,7 +386,43 @@ describe('OllamaBackend', () => {
 
       for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) void _;
 
-      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_predict).toBe(8192);
+      // The 32K default (reasoning counts against num_predict), fitted to the
+      // room the prompt leaves in num_ctx -- here nearly all of it.
+      const { options } = JSON.parse(mockFetch.mock.calls.at(-1)![1].body);
+      expect(options.num_predict).toBeGreaterThan(32_000);
+      expect(options.num_predict).toBeLessThanOrEqual(Math.min(32_768, options.num_ctx));
+    });
+
+    // Generating past num_ctx makes Ollama shift out the OLDEST context -- the
+    // system prompt -- so a long prompt shrinks the output budget, never below 4096.
+    it('fits num_predict into the context the prompt leaves', async () => {
+      __resetNumCtxProbesForTests();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+      const longPrompt = 'x'.repeat(20_000 * 4); // ~20K tokens
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: longPrompt }])) void _;
+      const { options } = JSON.parse(mockFetch.mock.calls.at(-1)![1].body);
+      expect(options.num_predict).toBeLessThan(32_768 - 15_000);
+      expect(options.num_predict).toBeGreaterThanOrEqual(4_096);
+
+      __resetNumCtxProbesForTests();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+      const fullPrompt = 'x'.repeat(32_000 * 4); // the window is nearly full
+      for await (const _ of backend.streamChat('test', '', [{ role: 'user', content: fullPrompt }])) void _;
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_predict).toBe(4_096);
+    });
+
+    it("reports Ollama's done_reason 'length' as max_tokens, so the loop sees a cut-off turn", async () => {
+      __resetNumCtxProbesForTests();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([{ message: { content: 'partial' }, done: true, done_reason: 'length' }]),
+      });
+      const events = [];
+      for await (const e of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) events.push(e);
+      expect(events.find((e) => e.type === 'stop')).toEqual({ type: 'stop', stopReason: 'max_tokens' });
     });
 
     it('honours SIDECAR_NUM_PREDICT so a benchmark can vary the ceiling', async () => {

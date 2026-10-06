@@ -175,6 +175,9 @@ export interface LoopState {
   // call). Bounded at 1 in loop.ts — silence twice ends the run. loop.ts is
   // the only writer.
   emptyTurnReprompts: number;
+  // Count of "you were cut off at the output limit, continue" reprompts.
+  // Bounded at 2 in loop.ts. loop.ts is the only writer.
+  truncatedTurnContinues: number;
 
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
@@ -412,6 +415,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentWriteTargets: [],
     recentMutationCalls: [],
     emptyTurnReprompts: 0,
+    truncatedTurnContinues: 0,
     autoFixRetriesByFile: new Map<string, number>(),
     fullRewriteCountByFile: new Map<string, number>(),
     isolateNudgesByFile: new Map<string, number>(),
