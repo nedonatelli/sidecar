@@ -22,6 +22,26 @@ describe('parseCheckCommand', () => {
 
   it('quotes the path', () => {
     expect(parseCheckCommand('src/my file.py')).toContain("'src/my file.py'");
+    expect(parseCheckCommand('src\\pkg\\a-b_c.v2.py')).toContain("'src\\pkg\\a-b_c.v2.py'");
+  });
+
+  // The command runs in the integrated terminal, which is PowerShell by default
+  // on Windows; POSIX quoting does not hold there. A path that could break out
+  // gets no shell command at all (tree-sitter still checks it in-process).
+  it('builds no command for a path a shell could interpret', () => {
+    for (const p of [
+      "x';Write-Output INJECTED;'.py",
+      'a$(touch pwned).py',
+      'a`id`.js',
+      'a;rm -rf src.py',
+      'a&calc.js',
+      'a|b.py',
+      'a"b.py',
+      'a\nb.py',
+      'a%PATH%.py',
+    ]) {
+      expect(parseCheckCommand(p), p).toBeNull();
+    }
   });
 });
 
