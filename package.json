@@ -431,6 +431,18 @@
             ],
             "markdownDescription": "Maximum total tokens (message history only, system prompt excluded) the agent loop may consume before it stops. Acts as a cost-control ceiling: the loop automatically uses the model's reported context window if smaller. Lower this if you want to limit per-run cost on paid backends."
           },
+          "sidecar.maxOutputTokens": {
+            "type": "number",
+            "default": 32768,
+            "minimum": 1024,
+            "maximum": 1000000,
+            "order": 25,
+            "tags": [
+              "sidecar",
+              "agent"
+            ],
+            "markdownDescription": "Maximum tokens the model may generate in one response, **reasoning included**. Reasoning models often think for 5–20K tokens before answering, so a low cap cuts them off mid-thought. Capped automatically at the model's own output limit (OpenAI) and at the context left after the prompt (Ollama). If a response still hits the cap, the agent asks the model to continue. On OpenAI, the cap is also reserved against your tokens-per-minute rate limit, so lower it if you hit rate limits on a low tier."
+          },
           "sidecar.toolPermissions": {
             "type": "object",
             "default": {},

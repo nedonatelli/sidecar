@@ -375,7 +375,47 @@ describe('OpenAIBackend', () => {
 
       const call = mockFetch.mock.calls[0];
       const sentBody = JSON.parse(call[1].body);
-      expect(sentBody.max_tokens).toBe(4096);
+      // The 32K default: reasoning counts against it, and 4096 cut reasoning
+      // models off mid-thought.
+      expect(sentBody.max_tokens).toBe(32_768);
+    });
+
+    // On the official API, a cap above the model's own output limit is a 400.
+    it('clamps to the model output limit on api.openai.com', async () => {
+      const official = new OpenAIBackend('https://api.openai.com', 'k');
+      for (const [model, key, expected] of [
+        ['gpt-4o', 'max_tokens', 16_384],
+        ['o3-mini', 'max_completion_tokens', 32_768],
+        ['gpt-5', 'max_completion_tokens', 32_768],
+        ['gpt-4-turbo', 'max_tokens', 4_096],
+      ] as const) {
+        mockFetch.mockResolvedValueOnce({ ok: true, body: sseBody([chunk('ok', true), '[DONE]']) });
+        for await (const _e of official.streamChat(model, '', [{ role: 'user', content: 'hi' }])) {
+          // consume
+        }
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body)[key], model).toBe(expected);
+      }
+    });
+
+    // vLLM and friends reject prompt + max_tokens past their context: one retry
+    // without the cap lets the server use the room it has.
+    it('retries once without a cap when a compatible server rejects it as too large', async () => {
+      mockFetch.mockClear();
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          statusText: 'Bad Request',
+          text: async () =>
+            "This model's maximum context length is 32768 tokens. However, you requested 41000 tokens (8232 in the messages, 32768 in the completion).",
+        })
+        .mockResolvedValueOnce({ ok: true, body: sseBody([chunk('ok', true), '[DONE]']) });
+      const events = [];
+      for await (const e of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) events.push(e);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body).max_tokens).toBe(32_768);
+      expect(JSON.parse(mockFetch.mock.calls[1][1].body)).not.toHaveProperty('max_tokens');
+      expect(events.some((e) => e.type === 'text')).toBe(true);
     });
 
     it('sets stream_options.include_usage so the final chunk carries usage totals', async () => {

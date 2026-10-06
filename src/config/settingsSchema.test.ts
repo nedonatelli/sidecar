@@ -139,11 +139,13 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     // + visualVerify.browser, visualVerify.browserPath (+2: which browser
     //   screenshot_page drives; it only ever tried Playwright's own Chromium,
     //   which playwright-core does not ship).
+    // + maxOutputTokens (+1: the per-response output cap, reasoning included;
+    //   was a fixed 8192 on Ollama and 4096 on OpenAI-compatible servers).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(251);
+    expect(totalKeys).toBe(252);
   });
 
   it('no setting key is duplicated across sections', () => {
