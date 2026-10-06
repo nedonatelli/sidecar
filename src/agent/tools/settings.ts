@@ -55,10 +55,41 @@ const DENIED_SETTING_KEYS: ReadonlySet<string> = new Set([
   'systemPrompt',
   'pinnedContext',
   'workspaceRoots',
+  // more secrets
+  'webSearch.apiKey',
+  'zotero.apiKey',
+  'mcpServer.authToken',
+  'databases.profiles',
+  // hosts that receive credentials or fetched data
+  'zotero.baseUrl',
+  'voice.transcriptionUrl',
+  'webSearch.connectivityCheckUrl',
+  'contextProviders',
+  'visualVerify.allowedDomains',
+  // programs SideCar would run
+  'visualVerify.browserPath',
+  'regressionGuards',
+  'shadowWorkspace.gateCommand',
+  // the agent's own approval level, isolation and guards
+  'agentMode',
+  'sandbox.enabled',
+  'injectionGuard.enabled',
+  'mcpDelegation.enabled',
+  'mcpDelegation.allowedServers',
+  'mcpServer.enabled',
+  'mcpServer.requireAuth',
+  'skills.trustedRegistries',
 ]);
 
+/**
+ * Denied keys AND their parents: updating `mcpServer` writes the whole object,
+ * `mcpServer.authToken` included. And their children, for object settings.
+ */
 function isDenied(key: string): boolean {
-  return DENIED_SETTING_KEYS.has(key);
+  for (const d of DENIED_SETTING_KEYS) {
+    if (key === d || d.startsWith(key + '.') || key.startsWith(d + '.')) return true;
+  }
+  return false;
 }
 
 /** Exposed for the denylist regression test. */

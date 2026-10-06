@@ -349,8 +349,37 @@ describe('settings tools', () => {
           'systemPrompt',
           'toolPermissions',
           'workspaceRoots',
+          // security review 2026-10
+          'webSearch.apiKey',
+          'zotero.apiKey',
+          'mcpServer.authToken',
+          'databases.profiles',
+          'zotero.baseUrl',
+          'voice.transcriptionUrl',
+          'webSearch.connectivityCheckUrl',
+          'contextProviders',
+          'visualVerify.allowedDomains',
+          'visualVerify.browserPath',
+          'regressionGuards',
+          'shadowWorkspace.gateCommand',
+          'agentMode',
+          'sandbox.enabled',
+          'injectionGuard.enabled',
+          'mcpDelegation.enabled',
+          'mcpDelegation.allowedServers',
+          'mcpServer.enabled',
+          'mcpServer.requireAuth',
+          'skills.trustedRegistries',
         ].sort(),
       );
+    });
+
+    // Updating a parent writes the whole object, children included.
+    it('refuses the parent of a denied key', async () => {
+      for (const k of ['mcpServer', 'webSearch', 'zotero', 'mcpDelegation']) {
+        const out = await updateSetting({ key: k, value: {} });
+        expect(out, k).toContain('denylist');
+      }
     });
   });
 });
