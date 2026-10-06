@@ -49,6 +49,20 @@ Update to this version; every earlier version is affected.
   Revert button, review mode, the process-cleanup list and the macOS sandbox profile** were
   hardened; see the advisory.
 
+### Fixed
+
+- **Reasoning models were cut off mid-thought.** Reasoning counts against the per-response
+  output cap, which was 8,192 tokens on Ollama and 4,096 on OpenAI-compatible servers. The
+  new `sidecar.maxOutputTokens` setting defaults to 32,768; it is clamped to the model's
+  own limit on OpenAI and to the context left after the prompt on Ollama and Kickstand.
+  A response that still reaches the cap is now continued instead of ending the run as if
+  it had finished. (`src/agent/loop.ts`, `src/ollama/*Backend.ts`)
+- **Reasoning from vLLM, DeepSeek, OpenRouter, Groq, LM Studio and llama.cpp was dropped.**
+  These servers send it in a separate field (`reasoning`, `reasoning_content`,
+  `reasoning_details`), which SideCar ignored, so it was never shown, and a model thinking
+  for a long time could be stopped as if it had hung. It now appears as reasoning like
+  Ollama's and Anthropic's. (`src/ollama/openAiSseStream.ts`)
+
 ## [0.126.0] - 2026-10-06
 
 Things that reported success, or failure, without it being true. SideCar now knows today's
