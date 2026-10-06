@@ -10,7 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getConfig } from '../../config/settings.js';
-import { getRoot } from './shared.js';
+import { getRoot, resolveWorkspaceReadPath } from './shared.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 
 // ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ async function extractConstraints(input: Record<string, unknown>, context?: Tool
   if (!client) return 'Error: no SideCarClient available in tool context. This tool requires an active agent session.';
 
   const config = context?.config ?? getConfig();
-  const resolvedPath = path.isAbsolute(docPath) ? docPath : path.join(getRoot(), docPath);
+  const resolvedPath = resolveWorkspaceReadPath(docPath, getRoot());
 
   const ext = path.extname(resolvedPath).toLowerCase();
   const TEXT_LIMIT = 16_000;

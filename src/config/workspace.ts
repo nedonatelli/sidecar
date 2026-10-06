@@ -2,6 +2,7 @@ import { workspace, commands, Uri, CancellationToken, SymbolInformation } from '
 import * as path from 'path';
 import { getConfig } from './settings.js';
 import { unescapeHtml } from '../util/html.js';
+import { isSensitiveFile } from '../agent/tools/shared.js';
 
 export interface WorkspaceFile {
   relativePath: string;
@@ -204,8 +205,15 @@ export async function resolveFileReferences(text: string): Promise<string> {
     const candidate = match[1].trim();
     if (seen.has(candidate)) continue;
     seen.add(candidate);
+    // A path merely MENTIONED in the text is attached automatically -- and the
+    // text can include an attached file someone else wrote. So: inside the
+    // workspace only (Uri.joinPath resolves `../` right out of it), and never
+    // a credential file.
+    const base = path.resolve(root.fsPath);
+    const resolved = path.resolve(base, candidate.replace(/^\/+/, ''));
+    if (!resolved.startsWith(base + path.sep) || isSensitiveFile(resolved)) continue;
     try {
-      const fileUri = Uri.joinPath(root, candidate);
+      const fileUri = Uri.file(resolved);
       const stat = await workspace.fs.stat(fileUri);
       if (stat.size > MAX_FILE_SIZE) continue;
       const bytes = await workspace.fs.readFile(fileUri);

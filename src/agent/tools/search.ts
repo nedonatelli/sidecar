@@ -4,7 +4,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { getRoot, resolveRoot, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import { getRoot, resolveRoot, isSensitiveFile, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { compressGrepOutput } from './compression.js';
 import { grepArgs, GREP_ENV } from './grepArgs.js';
@@ -276,6 +276,12 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
   const pattern = input.pattern as string;
   const searchPath = (input.path as string) || '.';
   const cwd = resolveRoot(context);
+  // Pointed straight at a credential file, grep would print it whole
+  // (`pattern="."`) -- the same file read_file refuses. Checked before the
+  // existence check, which would otherwise confirm the file is there.
+  if (isSensitiveFile(searchPath)) {
+    throw new Error(`"${searchPath}" appears to contain secrets or credentials; the agent may not search it.`);
+  }
   const badPath = checkGrepPath(searchPath, cwd);
   if (badPath) return badPath;
 

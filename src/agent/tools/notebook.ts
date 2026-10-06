@@ -11,7 +11,7 @@
 
 import { promises as fsp } from 'fs';
 import * as path from 'path';
-import { getRoot, formatToolError } from './shared.js';
+import { getRoot, formatToolError, resolveWorkspaceReadPath } from './shared.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 import { getConfig } from '../../config/settings.js';
 import { unescapeHtml } from '../../util/html.js';
@@ -199,7 +199,7 @@ export const notebookTools: RegisteredTool[] = [
         }
       } else {
         // Local file
-        const absPath = path.isAbsolute(rawSource) ? rawSource : path.join(getRoot(), rawSource);
+        const absPath = resolveWorkspaceReadPath(rawSource, getRoot());
         const ext = path.extname(absPath).toLowerCase();
         if (ext === '.pdf')
           return 'Error: PDF ingestion requires the read_pdf tool. Use read_pdf first, then ingest the extracted text.';

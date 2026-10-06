@@ -213,6 +213,22 @@ describe('resolveFileReferences', () => {
     vi.restoreAllMocks();
   });
 
+  // Mentioned paths are attached automatically, and the scanned text can come
+  // from a file someone else wrote: nothing outside the workspace, no secrets.
+  it('never attaches a path outside the workspace or a credential file', async () => {
+    const stat = vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('TOKEN=abc') as never);
+
+    const result = await resolveFileReferences(
+      'see ../../.npmrc and ../../../../../../home/u/.config/gh/hosts.yml and ./.env and ./certs/server.pem ',
+    );
+    expect(result).not.toContain('Referenced Files');
+    expect(result).not.toContain('TOKEN=abc');
+    expect(stat).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
   it('skips files that do not exist', async () => {
     vi.spyOn(workspace.fs, 'stat').mockRejectedValue(new Error('not found'));
 
