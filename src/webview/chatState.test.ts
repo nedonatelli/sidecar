@@ -73,6 +73,25 @@ describe('ChatState', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({ command: 'chatCleared' });
   });
 
+  it('clearPendingInteractions forgets every pending interaction of the conversation', () => {
+    const state = createState();
+    state.pendingPlan = 'old plan';
+    state.pendingPlanMessages = [{ role: 'user', content: 'plan context' }];
+    state.pendingPartialAssistant = 'half an answer' as never;
+    state.pendingSteerSnapshot = [{ text: 'steer' }] as never;
+    state.pendingQuestion = 'which file?';
+    state.pendingFacetReview = { facetIds: ['a'], displayName: 'A', task: 't' };
+
+    state.clearPendingInteractions();
+
+    expect(state.pendingPlan).toBeNull();
+    expect(state.pendingPlanMessages).toEqual([]);
+    expect(state.pendingPartialAssistant).toBeNull();
+    expect(state.pendingSteerSnapshot).toBeNull();
+    expect(state.pendingQuestion).toBeNull();
+    expect(state.pendingFacetReview).toBeNull();
+  });
+
   it('clearChat aborts running agent loop and bumps generation', () => {
     const state = createState();
     state.abortController = new AbortController();

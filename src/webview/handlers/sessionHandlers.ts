@@ -32,6 +32,7 @@ export function handleLoadSession(state: ChatState, id: string): void {
   state.currentSteerDisposer = null;
   state.currentSteerQueue = null;
   state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });
+  state.clearPendingInteractions();
   state.messages = session.messages;
   state.currentSessionId = session.id;
   state.saveHistory();
