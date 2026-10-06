@@ -553,7 +553,7 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
     const { visionTools } = await import('./vision.js');
     const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
     const result = await tool.executor({ url: 'http://localhost:3000' });
-    expect(result).toMatch(/loopback URLs are blocked/i);
+    expect(result).toMatch(/loopback addresses are blocked/i);
   });
 
   it('screenshot_page allows localhost when listed in allowedDomains config', async () => {
@@ -569,15 +569,15 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
     };
     const result = await tool.executor({ url: 'http://localhost:3000' }, context);
     // URL blocker must not fire — the result is a later error (browser launch/playwright)
-    expect(result).not.toMatch(/loopback URLs are blocked/i);
-    expect(result).not.toMatch(/private network URLs are blocked/i);
+    expect(result).not.toMatch(/loopback addresses are blocked/i);
+    expect(result).not.toMatch(/private addresses are blocked/i);
   });
 
   it('screenshot_page blocks 192.168.x.x without allowedDomains config', async () => {
     const { visionTools } = await import('./vision.js');
     const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
     const result = await tool.executor({ url: 'http://192.168.1.50' });
-    expect(result).toMatch(/private network URLs are blocked/i);
+    expect(result).toMatch(/private addresses are blocked/i);
   });
 
   it('screenshot_page allows 192.168.x.x when listed in allowedDomains config', async () => {
@@ -590,7 +590,7 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
       } as never,
     };
     const result = await tool.executor({ url: 'http://192.168.1.50' }, context);
-    expect(result).not.toMatch(/private network URLs are blocked/i);
+    expect(result).not.toMatch(/private addresses are blocked/i);
     expect(result).toMatch(/could not launch a browser/);
   });
 
@@ -622,6 +622,38 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
     60_000,
   );
 
+  // An allowed page that redirects somewhere blocked must not be captured:
+  // the browser follows redirects itself, so the URL check alone cannot see it.
+  it.skipIf(!fs.existsSync('C:/Program Files/Google/Chrome/Application/chrome.exe'))(
+    'a redirect to a blocked address is refused, not captured',
+    async () => {
+      const http = await import('http');
+      const target = http.createServer((_req, res) => res.end('<h1>internal admin</h1>'));
+      await new Promise<void>((resolve) => target.listen(0, '127.0.0.2', resolve));
+      const targetPort = (target.address() as net.AddressInfo).port;
+      const front = http.createServer((_req, res) => {
+        res.writeHead(302, { Location: `http://127.0.0.2:${targetPort}/` });
+        res.end();
+      });
+      await new Promise<void>((resolve) => front.listen(0, '127.0.0.1', resolve));
+      const frontPort = (front.address() as net.AddressInfo).port;
+      try {
+        const { visionTools } = await import('./vision.js');
+        const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+        const context = {
+          config: { visualVerifyAllowedDomains: ['127.0.0.1'], visualVerifyBrowser: 'chrome' },
+        } as never;
+        const result = String(await tool.executor({ url: `http://127.0.0.1:${frontPort}/` }, context));
+        expect(result).toMatch(/^Error:/);
+        expect(result).toMatch(/blocked/i);
+      } finally {
+        front.close();
+        target.close();
+      }
+    },
+    60_000,
+  );
+
   it('describes "nothing answered" failures as a dev server that is not running', () => {
     const refused = new Error('page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log: ...');
     expect(describeScreenshotFailure('http://localhost:3000', refused)).toBe(
@@ -643,7 +675,7 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
     const { visionTools } = await import('./vision.js');
     const tool = visionTools.find((t) => t.definition.name === 'open_in_browser')!;
     const result = await tool.executor({ url: 'http://localhost:5173' });
-    expect(result).toMatch(/loopback URLs are blocked/i);
+    expect(result).toMatch(/loopback addresses are blocked/i);
   });
 
   it('open_in_browser allows localhost when listed in allowedDomains config', async () => {
@@ -652,6 +684,6 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
     const context = { config: { visualVerifyAllowedDomains: ['localhost'] } as never };
     const result = await tool.executor({ url: 'http://localhost:5173' }, context);
     // URL check passes — VS Code simpleBrowser command fires (mocked), blocker must not appear
-    expect(result).not.toMatch(/loopback URLs are blocked/i);
+    expect(result).not.toMatch(/loopback addresses are blocked/i);
   });
 });
