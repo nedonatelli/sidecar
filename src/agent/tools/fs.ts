@@ -520,13 +520,38 @@ export const writeFileDef: ToolDefinition = {
   },
 };
 
+/**
+ * EXPERIMENT SWITCH (exp/edit-no-within, not for merge). `SIDECAR_EDIT_WITHIN=off`
+ * makes edit_file a plain search/replace: no `within` in the schema, no
+ * description or recovery text that points at it, and a `within` the model
+ * sends anyway is ignored. Read once at load -- the SWE harness sets it per
+ * process, before the module is imported.
+ */
+const EDIT_WITHIN_OFF = process.env.SIDECAR_EDIT_WITHIN === 'off';
+
+const EDIT_UNIQUE_RULE = EDIT_WITHIN_OFF
+  ? '`search` must resolve to ONE location. If it appears several times, add a neighbouring line to `search` to make it unique — and repeat that line verbatim in `replace`, or it is DELETED. To change every occurrence instead, pass `replace_all: true`. '
+  : '`search` must resolve to ONE location. If it appears several times, pass `within` (a unique line just above the edit, e.g. the enclosing `class`/`def`) rather than growing `search` — every line you add to `search` must be repeated verbatim in `replace` or it is DELETED. To change every occurrence instead, pass `replace_all: true`. ';
+
+const EDIT_SEARCH_DESC = EDIT_WITHIN_OFF
+  ? 'Exact text to find — whitespace and indentation must match the file byte-for-byte. Keep it to the text you are CHANGING plus only what makes it unique, since anything here must be repeated in `replace` or it is deleted.'
+  : 'Exact text to find — whitespace and indentation must match the file byte-for-byte. Keep it to the text you are CHANGING; disambiguate with `within`, not with extra lines, since anything extra here must be repeated in `replace` or it is deleted.';
+
+const WITHIN_PROPERTY = {
+  within: {
+    type: 'string',
+    description:
+      'Optional locator: unique text just ABOVE the edit (enclosing `class`/`def`, a docstring, a comment) saying which occurrence you mean. `search` is matched only at or after it. Must appear exactly once. Never written to the file, never repeated in `replace`. Not usable with `replace_all`.',
+  },
+};
+
 export const editFileDef: ToolDefinition = {
   name: 'edit_file',
   description:
     'Edit an existing file by replacing an exact search string with a replacement. ' +
     'Use for surgical changes — renaming a function, updating a single line, adding an import. ' +
     'Not for creating a file or doing a full rewrite — use `write_file` for those. ' +
-    '`search` must resolve to ONE location. If it appears several times, pass `within` (a unique line just above the edit, e.g. the enclosing `class`/`def`) rather than growing `search` — every line you add to `search` must be repeated verbatim in `replace` or it is DELETED. To change every occurrence instead, pass `replace_all: true`. ' +
+    EDIT_UNIQUE_RULE +
     'When in doubt, call `read_file` first and copy-paste the target text directly into `search`. ' +
     'There is ONE operation: substitution. To ADD text, put an anchor in `search` and REPEAT that anchor inside `replace` alongside the new code — dropping the anchor from `replace` DELETES it. ' +
     'Example: `edit_file(path="src/utils.ts", search="function greet(name: string)", replace="function greet(name: string, greeting = \'Hello\')")`. ' +
@@ -537,19 +562,14 @@ export const editFileDef: ToolDefinition = {
       path: { type: 'string', description: 'Relative file path from the project root' },
       search: {
         type: 'string',
-        description:
-          'Exact text to find — whitespace and indentation must match the file byte-for-byte. Keep it to the text you are CHANGING; disambiguate with `within`, not with extra lines, since anything extra here must be repeated in `replace` or it is deleted.',
+        description: EDIT_SEARCH_DESC,
       },
       replace: {
         type: 'string',
         description:
           'New text to substitute for the search match. Must differ from search — identical fields are an error. If it is very short and appears verbatim inside search, the call warns; read_file to verify.',
       },
-      within: {
-        type: 'string',
-        description:
-          'Optional locator: unique text just ABOVE the edit (enclosing `class`/`def`, a docstring, a comment) saying which occurrence you mean. `search` is matched only at or after it. Must appear exactly once. Never written to the file, never repeated in `replace`. Not usable with `replace_all`.',
-      },
+      ...(EDIT_WITHIN_OFF ? {} : WITHIN_PROPERTY),
       replace_all: {
         type: 'boolean',
         description:
@@ -1001,7 +1021,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // the identical regex lived in two validators, and it looped on the "appears 2
   // times" rejection until cycle detection bailed, despite knowing the fix).
   const replaceAll = input.replace_all === true;
-  const within = typeof input.within === 'string' ? input.within : undefined;
+  const within = !EDIT_WITHIN_OFF && typeof input.within === 'string' ? input.within : undefined;
 
   // Creation-intent coercion. Small models constantly call edit_file with
   // one of search/replace missing on a file that doesn't exist yet — the
@@ -1543,8 +1563,11 @@ export async function resolveEditedText(params: {
         `\`${dropped.trim()}\`, which your 'search' contained. The file was NOT modified. ` +
         `edit_file substitutes: everything in 'search' and missing from 'replace' is DELETED, and deleting a ` +
         `definition leaves its body attached to whatever precedes it — which still parses, so nothing downstream ` +
-        `would catch it. Either repeat that line inside 'replace' alongside your change, or shorten 'search' to ` +
-        `just the line you are changing and pass the enclosing definition in 'within' to disambiguate.`,
+        `would catch it. ` +
+        (EDIT_WITHIN_OFF
+          ? `Repeat that line inside 'replace' alongside your change.`
+          : `Either repeat that line inside 'replace' alongside your change, or shorten 'search' to ` +
+            `just the line you are changing and pass the enclosing definition in 'within' to disambiguate.`),
     );
   }
 
@@ -1822,13 +1845,16 @@ export async function resolveEditedText(params: {
     //
     // `within` leads because it resolves the ambiguity WITHOUT enlarging
     // `search`, so there is nothing extra to mirror into `replace`.
-    const locatorHint = buildWithinHint(text, search, match.start);
+    const fix = EDIT_WITHIN_OFF
+      ? `FIX: add a neighbouring line to \`search\` that only the occurrence you mean has, and repeat that ` +
+        `line verbatim in \`replace\` — anything in \`search\` and missing from \`replace\` is DELETED.`
+      : `FIX: add \`within\` — unique text just ABOVE the one you mean (the enclosing class/def line, a docstring, ` +
+        `a comment). \`search\` then matches only after it, and stays exactly as you already wrote it.` +
+        buildWithinHint(text, search, match.start);
     throw new Error(
       `${unreadPrefix}Error: edit_file failed — search string appears ${match.count} times in ${filePath}${where}. ` +
         `The file was NOT modified.\n\n` +
-        `FIX: add \`within\` — unique text just ABOVE the one you mean (the enclosing class/def line, a docstring, ` +
-        `a comment). \`search\` then matches only after it, and stays exactly as you already wrote it.` +
-        `${locatorHint}\n\n` +
+        `${fix}\n\n` +
         `Only if you truly intend to change all ${match.count} places: \`replace_all: true\` rewrites EVERY ` +
         `occurrence in ${filePath}. That is ${match.count} separate edits — do not use it to escape this error.`,
     );
