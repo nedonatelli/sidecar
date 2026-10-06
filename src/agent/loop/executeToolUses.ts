@@ -332,6 +332,37 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
  * token usage to the parent's budget since both run on the same
  * paid backend.
  */
+/**
+ * The parent options a sub-agent must inherit: everything that decides what
+ * it may do, where, and who approves it. Without these, a sub-agent's writes
+ * escaped the shadow workspace (cwdOverride) and review mode (pendingEdits),
+ * ignored custom-mode deny lists and tool restrictions, and -- with no
+ * confirmFn -- auto-denied every approval while telling the model the USER
+ * had refused. Per-run state (steer queue, initial plan, prompt) stays out.
+ */
+export function subAgentInheritedOptions(parent: AgentOptions): AgentOptions {
+  return {
+    confirmFn: parent.confirmFn,
+    clarifyFn: parent.clarifyFn,
+    diffPreviewFn: parent.diffPreviewFn,
+    inlineEditFn: parent.inlineEditFn,
+    streamingDiffPreviewFn: parent.streamingDiffPreviewFn,
+    isChatVisible: parent.isChatVisible,
+    modeToolPermissions: parent.modeToolPermissions,
+    pendingEdits: parent.pendingEdits,
+    editTimeline: parent.editTimeline,
+    toolOverride: parent.toolOverride,
+    toolTier: parent.toolTier,
+    extraTools: parent.extraTools,
+    toolRuntime: parent.toolRuntime,
+    commandFilter: parent.commandFilter,
+    extraPolicyHooks: parent.extraPolicyHooks,
+    cwdOverride: parent.cwdOverride,
+    config: parent.config,
+    modelOverride: parent.modelOverride,
+  };
+}
+
 async function runSpawnAgent(ctx: ExecutionContext, toolUse: ToolUseContentBlock): Promise<ToolResultContentBlock> {
   if (typeof toolUse.input.task !== 'string' || !toolUse.input.task) {
     return {
@@ -349,6 +380,7 @@ async function runSpawnAgent(ctx: ExecutionContext, toolUse: ToolUseContentBlock
     callbacks,
     signal,
     {
+      ...subAgentInheritedOptions(options),
       logger: state.logger,
       changelog: state.changelog,
       approvalMode: state.approvalMode,
