@@ -157,6 +157,25 @@ describe('dispatchFacet — success path', () => {
     expect(names).toEqual(['read_file', 'grep']);
   });
 
+  // Every production caller passes only { mcpManager }. The allowlist must hold
+  // there too: a facet runs autonomously, so a tool that reaches its catalog
+  // runs with no prompt.
+  it('enforces the allowlist when the caller passes no catalog (the production shape)', async () => {
+    runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
+    const f = facet({ id: 'security-reviewer', toolAllowlist: ['read_file', 'grep'] });
+    await dispatchFacet(makeClient(), f, makeCallbacks(), {
+      task: 'x',
+      signal: new AbortController().signal,
+      agentOptions: {},
+    });
+    const passedOptions = runAgentLoopInSandboxMock.mock.calls[0][4];
+    const names = (passedOptions.toolOverride as Array<{ name: string }> | undefined)?.map((t) => t.name);
+    expect(names).toBeDefined();
+    expect(names!.sort()).toEqual(['grep', 'read_file']);
+    expect(names).not.toContain('write_file');
+    expect(names).not.toContain('run_command');
+  });
+
   it('sets modeToolPermissions to "allow" for every allowlisted tool', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const client = makeClient();
@@ -469,6 +488,8 @@ describe('dispatchFacets — RPC wiring', () => {
     expect(dspToolNames.sort()).toEqual(['rpc.latex.publishMathBlock', 'rpc.latex.requestDefinition']);
     const dspExtraToolNames = (extraToolsByFacet.get('dsp') ?? []).map((t) => t.definition.name);
     expect(dspExtraToolNames.sort()).toEqual(['rpc.latex.publishMathBlock', 'rpc.latex.requestDefinition']);
+    // Peer tools are ADDED: dsp keeps its ordinary catalog alongside them.
+    expect((toolOverrideByFacet.get('dsp') ?? []).map((t) => t.name)).toContain('read_file');
   });
 
   it('no rpc tools are generated when no peer declares an rpcSchema', async () => {
