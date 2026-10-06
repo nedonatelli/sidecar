@@ -652,3 +652,29 @@ describe('OpenAIBackend', () => {
     });
   });
 });
+
+// Reasoning is shown and counted, but never sent back: DeepSeek's API rejects a
+// request whose assistant messages carry `reasoning_content`, and no
+// OpenAI-compatible server expects prior reasoning as input.
+describe('toOpenAIMessages: thinking is never sent back', () => {
+  it('drops thinking blocks from assistant history', async () => {
+    const { toOpenAIMessages } = await import('./openaiBackend.js');
+    const out = toOpenAIMessages(
+      [
+        { role: 'user', content: 'sum 2+2' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'The user wants a sum.' },
+            { type: 'text', text: '4' },
+          ],
+        },
+      ] as never,
+      '',
+    );
+    const assistant = out.find((m) => m.role === 'assistant') as unknown as Record<string, unknown>;
+    expect(assistant.content).toBe('4');
+    expect(JSON.stringify(out)).not.toContain('The user wants a sum.');
+    expect(assistant).not.toHaveProperty('reasoning_content');
+  });
+});
