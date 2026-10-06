@@ -3728,3 +3728,99 @@ describe('resolveContextBudget', () => {
     expect(r.maxSystemChars).toBeGreaterThan(LOCAL_MAX_SYSTEM_CHARS);
   });
 });
+
+// ---------------------------------------------------------------------------
+// handleUserMessage — a superseded run must not tear down the newer run (#110)
+// ---------------------------------------------------------------------------
+describe('handleUserMessage — superseded run', () => {
+  it("leaves the newer run's state alone when the older run unwinds", async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    // Hold each run inside connectWithRetry until the test releases it.
+    const releases: Array<(ok: boolean) => void> = [];
+    vi.spyOn(providerReachability, 'isProviderReachable').mockImplementation(
+      () => new Promise<boolean>((resolve) => releases.push(resolve)),
+    );
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 1.0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const state = {
+      messages: [],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      logMessage: vi.fn(),
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      pendingSteerSnapshot: null,
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      editCancelFns: null as unknown,
+      cancelCallbacks: null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        // At the budget limit, so each run stops right after connecting.
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 1.0, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+
+    const runA = handleUserMessage(state as never, 'first');
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    const runB = handleUserMessage(state as never, 'second');
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+
+    const bController = state.abortController;
+    const bQueue = state.currentSteerQueue;
+    const bEditCancels = state.editCancelFns;
+    expect(bController).not.toBeNull();
+    state.postMessage.mockClear();
+
+    // Run A finishes connecting after B has started, and unwinds.
+    releases[0](true);
+    await runA;
+
+    expect(state.abortController).toBe(bController);
+    expect(state.currentSteerQueue).toBe(bQueue);
+    expect(state.editCancelFns).toBe(bEditCancels);
+    expect(state.metricsCollector.endRun).not.toHaveBeenCalled();
+    expect(state.client.setTurnOverride).not.toHaveBeenCalled();
+    const posted = state.postMessage.mock.calls.map((c: unknown[]) => c[0] as Record<string, unknown>);
+    expect(posted).not.toContainEqual(expect.objectContaining({ command: 'setLoading', isLoading: false }));
+    expect(posted).not.toContainEqual(expect.objectContaining({ command: 'steerQueueUpdate', steerEnabled: false }));
+    // Aborted while connecting, A never went on to the budget check.
+    expect(state.metricsCollector.getSpendBreakdown).not.toHaveBeenCalled();
+
+    // Run B still cleans up after itself.
+    releases[1](true);
+    await runB;
+    expect(state.abortController).toBeNull();
+    expect(state.currentSteerQueue).toBeNull();
+
+    vi.restoreAllMocks();
+  });
+});

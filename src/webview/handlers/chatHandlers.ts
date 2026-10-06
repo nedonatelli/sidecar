@@ -409,7 +409,14 @@ export async function handleUserMessage(
 
   state.pendingPartialAssistant = null;
   state.postMessage({ command: 'setLoading', isLoading: true });
-  state.abortController = new AbortController();
+  // This run's own controller. state.abortController is shared: a message
+  // sent while this run is still unwinding replaces it, so every check below
+  // (and the cleanup in `finally`) goes through `runController` instead.
+  const runController = new AbortController();
+  state.abortController = runController;
+  // True once a newer run has taken over the shared run state. A session load
+  // nulls abortController instead, and has already done its own teardown.
+  const supersededByNewerRun = () => state.abortController !== null && state.abortController !== runController;
 
   // Steer queue: one instance per agent run. Subscribes to mutations so
   // the webview strip UI re-renders from a single authoritative source.
@@ -437,6 +444,9 @@ export async function handleUserMessage(
   try {
     const config = getConfig();
     const started = await connectWithRetry(state);
+    // Stopped or replaced while connecting: the newer run (or session) owns
+    // the panel now, so this one must not go on to build a prompt and run.
+    if (runController.signal.aborted) return;
 
     if (!started) {
       state.postMessage(
@@ -494,7 +504,7 @@ export async function handleUserMessage(
       turnText,
       effectiveApprovalMode,
       resolved.systemPrompt,
-      state.abortController.signal,
+      runController.signal,
     );
     state.client.updateSystemPrompt(systemPrompt);
 
@@ -644,19 +654,13 @@ export async function handleUserMessage(
         state.client,
         chatMessages,
         agentCbs,
-        state.abortController.signal,
+        runController.signal,
         loopOptions,
         { forceShadow },
       );
       updatedMessages = sandboxResult.messages ?? chatMessages;
     } else {
-      updatedMessages = await runAgentLoop(
-        state.client,
-        chatMessages,
-        agentCbs,
-        state.abortController.signal,
-        loopOptions,
-      );
+      updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, runController.signal, loopOptions);
     }
 
     if (state.chatGeneration !== generationAtStart) {
@@ -679,6 +683,8 @@ export async function handleUserMessage(
     state.autoSave();
 
     if (err instanceof Error && err.name === 'AbortError') {
+      // A newer run's spinner and bubbles are on screen; don't end them.
+      if (supersededByNewerRun()) return;
       state.postMessage({ command: 'done', messageCount: state.messages.length });
       state.postMessage({ command: 'setLoading', isLoading: false });
       return;
@@ -701,10 +707,6 @@ export async function handleUserMessage(
     });
     void surfaceNativeToast(errorMessage, classified);
   } finally {
-    recordRunCost(state);
-    state.metricsCollector.endRun();
-    state.abortController = null;
-    state.cancelCallbacks = null;
     // Call the locally-captured disposer directly. Reading state.currentSteerDisposer
     // here would race with a session load that already replaced it with a new
     // session's disposer, causing the new session's listener to be torn down.
@@ -712,12 +714,23 @@ export async function handleUserMessage(
     if (state.currentSteerDisposer === steerDisposer) {
       state.currentSteerDisposer = null;
     }
-    state.currentSteerQueue = null;
-    state.editCancelFns = null;
-    state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });
-    state.postMessage({ command: 'setLoading', isLoading: false });
-    // Clear any sentinel pin so the next user message routes normally.
-    state.client.setTurnOverride(null);
+    // Everything below is shared run state. When the user sent another message
+    // while this run was unwinding, it belongs to that run: resetting it here
+    // hid its spinner, disabled its steering, dropped its cancel hooks and
+    // cleared its @model pin. (This run's metrics are dropped too, rather than
+    // ending the newer run's.)
+    if (!supersededByNewerRun()) {
+      recordRunCost(state);
+      state.metricsCollector.endRun();
+      state.abortController = null;
+      state.cancelCallbacks = null;
+      state.currentSteerQueue = null;
+      state.editCancelFns = null;
+      state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });
+      state.postMessage({ command: 'setLoading', isLoading: false });
+      // Clear any sentinel pin so the next user message routes normally.
+      state.client.setTurnOverride(null);
+    }
   }
 }
 
