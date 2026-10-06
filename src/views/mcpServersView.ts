@@ -12,7 +12,7 @@ import {
   commands,
 } from 'vscode';
 import type { MCPManager, MCPServerInfo } from '../agent/mcpManager.js';
-import { getConfig } from '../config/settings.js';
+import { connectMcpServers } from '../activation/mcpSetup.js';
 
 const VIEW_ID = 'sidecar.mcpServers';
 
@@ -101,8 +101,10 @@ export function registerMcpServersView(context: ExtensionContext, manager: MCPMa
     if (item) void manager.reconnectServer(item.info.name);
   });
 
+  // Through the same gated path as activation: the trust prompt still applies,
+  // and project .mcp.json servers are kept rather than dropped.
   const reconnectAllCmd = commands.registerCommand('sidecar.mcp.reconnectAll', () => {
-    void manager.connect(getConfig().mcpServers ?? {});
+    void connectMcpServers(manager);
   });
 
   context.subscriptions.push(treeView, provider, reconnectCmd, reconnectAllCmd);
