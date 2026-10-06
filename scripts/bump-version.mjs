@@ -25,7 +25,13 @@ import { readFileSync, writeFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { deriveTestStats, deriveToolCount, deriveSkillCount, packageVersion } from './lib/releaseStats.mjs';
+import {
+  deriveTestStats,
+  deriveToolCount,
+  deriveSkillCount,
+  packageVersion,
+  releaseDate,
+} from './lib/releaseStats.mjs';
 import {
   validNextVersions,
   latestReleaseTag,
@@ -54,7 +60,7 @@ if (!newVersion || !/^\d+\.\d+\.\d+$/.test(newVersion)) {
 }
 
 const oldVersion = packageVersion();
-const today = new Date().toISOString().slice(0, 10);
+const today = releaseDate(); // local date -- see releaseStats.mjs
 if (newVersion === oldVersion) {
   console.error(
     `ERROR: package.json is already at ${oldVersion}; a bump to the same version would add a duplicate CHANGELOG section.`,

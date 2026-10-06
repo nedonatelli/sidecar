@@ -10,6 +10,8 @@ import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
 import { estimateRequestTokens } from '../config/tokenEstimation.js';
 import { toOpenAIMessages } from './openaiBackend.js';
+import { getConfig } from '../config/settings.js';
+import { AGENT_MAX_OUTPUT_TOKENS, fitOutputBudget } from '../config/constants.js';
 
 const KICKSTAND_TOKEN_PATH = path.join(os.homedir(), '.config', 'kickstand', 'token');
 const TOKEN_CACHE_TTL_MS = 60_000;
@@ -181,11 +183,19 @@ export class KickstandBackend implements ApiBackend {
   ): AsyncGenerator<StreamEvent> {
     const llmMessages = toOpenAIMessages(messages, systemPrompt);
 
+    // The `sidecar.maxOutputTokens` setting (reasoning counts against it),
+    // fitted to the context this backend loads models with -- asking past it
+    // is the 400 that makes Kickstand reload the model. Was a fixed 4096.
+    const maxOutput = fitOutputBudget(
+      getConfig().maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS,
+      this.nCtx,
+      estimateRequestTokens(systemPrompt, messages, 0),
+    );
     const body: KickstandChatRequest = {
       model,
       messages: llmMessages,
       stream: true,
-      max_tokens: 4096,
+      max_tokens: maxOutput,
       stream_options: { include_usage: true },
     };
 
@@ -208,7 +218,7 @@ export class KickstandBackend implements ApiBackend {
     };
     const rateLimitOpts = {
       rateLimits: this.rateLimits,
-      estimatedTokens: estimateRequestTokens(systemPrompt, messages, 4096),
+      estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxOutput),
       maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
       parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
       label: 'kickstand',

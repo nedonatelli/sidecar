@@ -11,22 +11,59 @@ import { sidecarFetch } from './sidecarFetch.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { charsToTokens, estimateTokensFromText, estimateRequestTokens } from '../config/tokenEstimation.js';
 import { OllamaBackend } from './ollamaBackend.js';
+import { AGENT_MAX_OUTPUT_TOKENS } from '../config/constants.js';
 
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
 /**
- * Cap on completion tokens per request. OpenAI's rate limiter reserves
- * `max_tokens` against the TPM bucket at request time, even though
- * billing only counts tokens actually produced. When `max_tokens` is
- * omitted, OpenAI defaults to the model's max output (e.g. ~16k for
- * gpt-4o), which drains a 200k TPM bucket in ~10 requests even though
- * real spend stays tiny. 4096 matches our local estimator and is
- * plenty for the small completions an agent produces between tool
- * calls (the loop continues with a follow-up request if a completion
- * hits the cap, so truncation is graceful).
+ * Output cap per request. It was a fixed 4096 for every model -- reasoning
+ * included, since `max_completion_tokens` covers an o-series/gpt-5 model's
+ * reasoning tokens -- so a reasoning model could spend the whole budget
+ * thinking and return nothing, or a tool call cut off mid-JSON. Now it is the
+ * `sidecar.maxOutputTokens` setting (default 32768).
+ *
+ * Trade-off kept in view: OpenAI's rate limiter RESERVES this value against
+ * the tokens-per-minute bucket at request time (billing counts only tokens
+ * produced), so a large cap uses TPM headroom on low tiers. The setting is the
+ * knob for that.
+ *
+ * On the official API a cap above the model's own output limit is a 400, so
+ * it is clamped per model. Other OpenAI-compatible servers (vLLM, llama.cpp,
+ * LM Studio, OpenRouter) reject `prompt + max_tokens` past their context
+ * instead; that is handled by one retry without the field (see streamChat).
  */
-const MAX_OUTPUT_TOKENS = 4096;
+const OPENAI_MODEL_MAX_OUTPUT: ReadonlyArray<[RegExp, number]> = [
+  [/^gpt-5/i, 128_000],
+  [/^o1-mini/i, 65_536],
+  [/^o\d/i, 100_000],
+  [/^gpt-4\.1/i, 32_768],
+  [/^gpt-4o/i, 16_384],
+  [/^gpt-4-turbo|^gpt-4-\d{4}-preview/i, 4_096],
+  [/^gpt-4/i, 8_192],
+  [/^gpt-3\.5/i, 4_096],
+];
+/** An official model not in the table: what every current chat model accepts. */
+const OPENAI_DEFAULT_MAX_OUTPUT = 16_384;
+
+export function isOfficialOpenAI(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname === 'api.openai.com';
+  } catch {
+    return false;
+  }
+}
+
+/** The output cap to send for `model` at `baseUrl`, given the configured setting. */
+export function outputCapFor(model: string, baseUrl: string, configured: number): number {
+  if (!isOfficialOpenAI(baseUrl)) return configured;
+  const modelMax = OPENAI_MODEL_MAX_OUTPUT.find(([re]) => re.test(model))?.[1] ?? OPENAI_DEFAULT_MAX_OUTPUT;
+  return Math.min(configured, modelMax);
+}
+
+/** A 400 that says the requested output does not fit -- worth one retry without the cap. */
+export const OUTPUT_CAP_REJECTED =
+  /max_tokens|max_completion_tokens|maximum context|context length|context window|too (large|many tokens)/i;
 
 /** o-series and gpt-5+ models reject `max_tokens`; they require `max_completion_tokens`. */
 function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
@@ -247,15 +284,15 @@ export class OpenAIBackend implements ApiBackend {
     const openaiMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
     const functionTools = tools && tools.length > 0 ? toFunctionTools(tools) : undefined;
 
+    const outputCap = outputCapFor(model, this.baseUrl, cfg.maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS);
     const body: Record<string, unknown> = {
       model,
       messages: openaiMessages,
       stream: true,
-      // Cap reservation against the TPM bucket — see MAX_OUTPUT_TOKENS
-      // rationale above. Omitting this made OpenAI reserve the model's
-      // full default output cap per request and drain the bucket in
-      // ~10 requests at low actual spend.
-      [maxTokensKey(model)]: MAX_OUTPUT_TOKENS,
+      // See OPENAI_MODEL_MAX_OUTPUT above: the setting, clamped per model on
+      // the official API. Sent explicitly so the TPM reservation is ours to
+      // choose rather than the model's full default.
+      [maxTokensKey(model)]: outputCap,
       // Ask OpenAI to include `usage` on the final stream chunk so we
       // can emit a StreamUsageEvent and feed spendTracker with real
       // numbers instead of heuristic estimates.
@@ -270,28 +307,40 @@ export class OpenAIBackend implements ApiBackend {
 
     logRequestSizeBreakdown(model, pruned.systemPrompt, openaiMessages, functionTools);
 
-    const response = await sidecarFetch(
-      this.chatUrl,
-      {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(body),
-        signal,
-      },
-      {
-        rateLimits: this.rateLimits,
-        estimatedTokens: estimateRequestTokens(pruned.systemPrompt, pruned.messages, MAX_OUTPUT_TOKENS),
-        maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
-        parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
-        label: 'openai',
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(
-        `OpenAI API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+    const send = () =>
+      sidecarFetch(
+        this.chatUrl,
+        {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(body),
+          signal,
+        },
+        {
+          rateLimits: this.rateLimits,
+          estimatedTokens: estimateRequestTokens(pruned.systemPrompt, pruned.messages, outputCap),
+          maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
+          parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
+          label: 'openai',
+        },
       );
+
+    let response = await send();
+    if (!response.ok) {
+      let errorText = await response.text().catch(() => '');
+      // A non-OpenAI server rejecting prompt + cap past its context: retry
+      // once without the cap, so the server uses the room it actually has.
+      if (response.status === 400 && !isOfficialOpenAI(this.baseUrl) && OUTPUT_CAP_REJECTED.test(errorText)) {
+        logger.info(`[SideCar] ${model}: server rejected max output ${outputCap}; retrying without a cap`);
+        delete body[maxTokensKey(model)];
+        response = await send();
+        if (!response.ok) errorText = await response.text().catch(() => '');
+      }
+      if (!response.ok) {
+        throw new Error(
+          `OpenAI API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
+        );
+      }
     }
 
     yield* streamOpenAiSse(response, model, tools, signal, {

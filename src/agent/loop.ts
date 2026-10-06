@@ -691,6 +691,33 @@ export async function runAgentLoop(
           break;
         }
 
+        // Cut off at the output limit. Every backend reports it (Ollama's
+        // `length` is mapped to max_tokens), but nothing acted on it: a
+        // reasoning model stopped mid-thought, or an answer stopped mid-
+        // sentence, ended the run as if finished. Keep what was written and
+        // ask the model to carry on -- at most twice, so a model that cannot
+        // fit its answer in the cap is not looped forever. (A tool call cut
+        // off mid-JSON is never emitted as one, so it lands here too.)
+        if (resolved.stopReason === 'max_tokens' && state.truncatedTurnContinues < 2) {
+          state.truncatedTurnContinues += 1;
+          if (fullText.trim()) pushAssistantMessage(state, fullText, []);
+          state.logger?.warn('Turn hit the output limit — asking the model to continue');
+          callbacks.onText('\n\n⚙️ Response reached the output limit — asking the model to continue...\n');
+          state.messages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'text' as const,
+                text:
+                  '[Output limit] Your previous response was cut off at the output-token limit before it finished. ' +
+                  'Continue from exactly where it stopped, without repeating what you already wrote. Keep your ' +
+                  'reasoning short and act; if you were writing a large file, write it in smaller parts.',
+              },
+            ],
+          });
+          continue;
+        }
+
         // A turn with NO text and NO tool calls is silence, not an answer.
         // Three models ended runs this way in the 2026-08 sweep, always right
         // after a successful read (granite stub-validator-forces-real-impl at

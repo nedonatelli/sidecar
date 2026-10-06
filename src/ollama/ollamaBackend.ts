@@ -20,7 +20,18 @@ import {
   MODEL_PROBE_BATCH_SIZE,
   contextCapForModel,
   AGENT_MAX_OUTPUT_TOKENS,
+  fitOutputBudget,
 } from '../config/constants.js';
+import { estimateRequestTokens } from '../config/tokenEstimation.js';
+
+/**
+ * Ollama's `done_reason` in the loop's vocabulary. `length` means the turn hit
+ * num_predict (or the context): report it as `max_tokens` so the loop can tell
+ * a cut-off turn from a finished one.
+ */
+export function normalizeDoneReason(reason: string): string {
+  return reason === 'length' ? 'max_tokens' : reason;
+}
 
 // ---------------------------------------------------------------------------
 // Tool support detection
@@ -408,6 +419,7 @@ export class OllamaBackend implements ApiBackend {
       ollamaDisableThinking,
       promptPruningEnabled,
       promptPruningMaxToolResultTokens,
+      maxOutputTokens = AGENT_MAX_OUTPUT_TOKENS,
     } = getConfig();
     // Explicit override, in precedence order: the `sidecar.ollama.numCtx`
     // setting, then `SIDECAR_OLLAMA_NUM_CTX`. The env fallback exists because
@@ -440,11 +452,15 @@ export class OllamaBackend implements ApiBackend {
     // Bound the turn. Without this a verbose model generates until it decides
     // to stop; measured live at 3,400+ tokens in one turn on gemma4:12b, which
     // at 14 t/s is minutes of wall-clock nothing interrupts.
+    // Reasoning counts against num_predict, and generating past num_ctx makes
+    // Ollama shift out the OLDEST context (the system prompt) -- so the cap is
+    // the setting, fitted to the room the prompt leaves. SIDECAR_NUM_PREDICT
+    // still pins it exactly for benchmarks.
     const envPredict = process.env.SIDECAR_NUM_PREDICT;
     const numPredict =
       envPredict !== undefined && envPredict !== '' && Number.isFinite(Number(envPredict)) && Number(envPredict) > 0
         ? Number(envPredict)
-        : AGENT_MAX_OUTPUT_TOKENS;
+        : fitOutputBudget(maxOutputTokens, numCtx, estimateRequestTokens(systemPrompt, messages, 0));
     const options: Record<string, unknown> = {
       temperature: agentTemperature,
       num_ctx: numCtx,
@@ -652,7 +668,7 @@ export class OllamaBackend implements ApiBackend {
             } else if (chunk.done_reason === 'stop' || !chunk.done_reason) {
               stopReason = 'end_turn';
             } else {
-              stopReason = chunk.done_reason;
+              stopReason = normalizeDoneReason(chunk.done_reason);
             }
             yield { type: 'stop', stopReason };
           }
@@ -686,7 +702,7 @@ export class OllamaBackend implements ApiBackend {
                 ? 'tool_use'
                 : chunk.done_reason === 'stop' || !chunk.done_reason
                   ? 'end_turn'
-                  : chunk.done_reason,
+                  : normalizeDoneReason(chunk.done_reason),
             };
           }
         } catch {

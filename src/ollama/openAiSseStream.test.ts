@@ -280,3 +280,105 @@ describe('streamOpenAiSse', () => {
     });
   });
 });
+
+// Reasoning in a dedicated delta field. Many OpenAI-compatible servers send it
+// there instead of inlining <think> tags; it used to be dropped, which hid it
+// AND produced no stream events while the model reasoned, so the loop's
+// first-token / stall timer could abort a thinking model as hung.
+describe('streamOpenAiSse: reasoning fields', () => {
+  const frame = (delta: Record<string, unknown>, finish: string | null = null) =>
+    JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] });
+  const thinking = (events: StreamEvent[]) =>
+    events
+      .filter((e) => e.type === 'thinking')
+      .map((e: any) => e.thinking)
+      .join('');
+  const text = (events: StreamEvent[]) =>
+    events
+      .filter((e) => e.type === 'text')
+      .map((e: any) => e.text)
+      .join('');
+
+  it('reads reasoning_content (DeepSeek, vLLM, llama.cpp, LM Studio) as thinking, before the answer', async () => {
+    const events = await collect(
+      streamOpenAiSse(
+        mockSseResponse([
+          frame({ role: 'assistant', content: null, reasoning_content: 'The user wants ' }),
+          frame({ content: null, reasoning_content: 'a sum.' }),
+          frame({ content: '4' }),
+          frame({}, 'stop'),
+        ]),
+        'deepseek-reasoner',
+        undefined,
+        undefined,
+      ),
+    );
+    expect(thinking(events)).toBe('The user wants a sum.');
+    expect(text(events)).toBe('4');
+    expect(events.findIndex((e) => e.type === 'thinking')).toBeLessThan(events.findIndex((e) => e.type === 'text'));
+  });
+
+  it('reads `reasoning` (OpenRouter, Groq) without doubling reasoning_details', async () => {
+    const events = await collect(
+      streamOpenAiSse(
+        mockSseResponse([
+          frame({
+            reasoning: 'Check the file first.',
+            reasoning_details: [{ type: 'reasoning.text', text: 'Check the file first.' }],
+          }),
+          frame({ content: 'Done.' }),
+          frame({}, 'stop'),
+        ]),
+        'openrouter/model',
+        undefined,
+        undefined,
+      ),
+    );
+    expect(thinking(events)).toBe('Check the file first.');
+    expect(text(events)).toBe('Done.');
+  });
+
+  it('falls back to reasoning_details text or summary when no plain field is present', async () => {
+    const events = await collect(
+      streamOpenAiSse(
+        mockSseResponse([
+          frame({
+            reasoning_details: [
+              { type: 'reasoning.summary', summary: 'Summarised. ' },
+              { type: 'reasoning.text', text: 'Detail.' },
+            ],
+          }),
+          frame({}, 'stop'),
+        ]),
+        'm',
+        undefined,
+        undefined,
+      ),
+    );
+    expect(thinking(events)).toBe('Summarised. Detail.');
+  });
+
+  it('a long reasoning stream yields an event per chunk, so the stall timer keeps resetting', async () => {
+    const frames = Array.from({ length: 50 }, (_, i) => frame({ content: null, reasoning_content: `step ${i}. ` }));
+    const events = await collect(
+      streamOpenAiSse(mockSseResponse([...frames, frame({}, 'stop')]), 'm', undefined, undefined),
+    );
+    expect(events.filter((e) => e.type === 'thinking')).toHaveLength(50);
+  });
+
+  it('still parses inline <think> tags, and ignores null reasoning fields', async () => {
+    const events = await collect(
+      streamOpenAiSse(
+        mockSseResponse([
+          frame({ content: '<think>inline</think>answer', reasoning: null, reasoning_content: null }),
+          frame({}, 'stop'),
+        ]),
+        'm',
+        undefined,
+        undefined,
+      ),
+    );
+    expect(thinking(events)).toBe('inline');
+    expect(text(events)).toBe('answer');
+  });
+});

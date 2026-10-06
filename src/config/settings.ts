@@ -1,4 +1,5 @@
 import { workspace, window, commands } from 'vscode';
+import { AGENT_MAX_OUTPUT_TOKENS } from './constants.js';
 import { getCachedApiKey, getCachedFallbackApiKey } from './settings/secrets.js';
 import { trustFilteredConfig, ensureSensitiveWorkspaceSettingsTrust } from './workspaceTrust.js';
 import { OLLAMA_DEFAULT_MODEL, ANTHROPIC_DEFAULT_MODEL, detectProvider } from './settings/backends.js';
@@ -102,6 +103,8 @@ export interface SideCarConfig {
   agentMaxIterations: number;
   agentMaxMessages: number;
   agentMaxTokens: number;
+  /** Per-response output cap (reasoning included) -- see AGENT_MAX_OUTPUT_TOKENS. */
+  maxOutputTokens: number;
   enableInlineCompletions: boolean;
   completionModel: string;
   completionDraftModel: string;
@@ -532,6 +535,7 @@ function readConfig(): SideCarConfig {
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),
     agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 200000),
+    maxOutputTokens: clampMin(cfg.get<number>('maxOutputTokens'), 1024, AGENT_MAX_OUTPUT_TOKENS),
     enableInlineCompletions: cfg.get<boolean>('enableInlineCompletions', false),
     completionModel: cfg.get<string>('completionModel', ''),
     completionDraftModel: cfg.get<string>('completionDraftModel', ''),
