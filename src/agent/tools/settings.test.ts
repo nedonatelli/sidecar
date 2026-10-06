@@ -185,6 +185,46 @@ describe('settings tools', () => {
       const out = await getSetting({ key: '' });
       expect(out).toContain('key is required');
     });
+
+    // get_setting needs no approval and its result goes to the provider, so
+    // every credential the settings hold -- not just the main API key -- must
+    // come back redacted, top-level or nested.
+    it.each([
+      ['webSearch.apiKey', 'tvly-SECRET123'],
+      ['zotero.apiKey', 'zot-SECRET123'],
+      ['mcpServer.authToken', 'bearer-SECRET123'],
+    ])('redacts the credential setting %s', async (key, secret) => {
+      mockGet.mockReturnValue(secret);
+      const out = await getSetting({ key });
+      expect(out).not.toContain(secret);
+      expect(out).toContain('[redacted]');
+    });
+
+    it('redacts credentials nested inside an object setting', async () => {
+      mockGet.mockReturnValue({ enabled: true, requireAuth: true, authToken: 'bearer-SECRET123', port: 3999 });
+      const out = await getSetting({ key: 'mcpServer' });
+      expect(out).not.toContain('SECRET123');
+      expect(out).toContain('"requireAuth":true');
+      expect(out).toContain('"port":3999');
+    });
+
+    it('redacts every env/header value of MCP servers but keeps their names', async () => {
+      mockGet.mockReturnValue({
+        github: { command: 'npx', args: ['gh-mcp'], env: { GITHUB_TOKEN: 'ghp_SECRET123' } },
+        remote: { url: 'https://x', headers: { 'X-Custom': 'SECRET123' } },
+      });
+      const out = await getSetting({ key: 'mcpServers' });
+      expect(out).not.toContain('SECRET123');
+      expect(out).toContain('GITHUB_TOKEN');
+      expect(out).toContain('"command":"npx"');
+    });
+
+    it('redacts passwords inside connection strings', async () => {
+      mockGet.mockReturnValue([{ name: 'db', url: 'postgres://admin:hunter2@db.local:5432/app' }]);
+      const out = await getSetting({ key: 'databases.profiles' });
+      expect(out).not.toContain('hunter2');
+      expect(out).toContain('postgres://admin:[redacted]@db.local:5432/app');
+    });
   });
 
   // -------------------------------------------------------------------------

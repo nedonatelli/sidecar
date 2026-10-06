@@ -121,7 +121,7 @@ export const getSettingDef: ToolDefinition = {
     'Read the current value of a SideCar configuration setting. ' +
     'Use when the user asks "what is my current X" or when you need to check config before suggesting a change. ' +
     'Not for reading arbitrary VS Code settings — only keys under `sidecar.*` are exposed. ' +
-    'Not for reading secrets — `apiKey` and `fallbackApiKey` are blocked and return an error; API keys live in VS Code SecretStorage and are never exposed to tools. ' +
+    'Not for reading secrets — keys, tokens and passwords are blocked or shown as [redacted], including inside objects such as MCP server `env`. ' +
     'Example: `get_setting(key="model")`, `get_setting(key="dailyBudget")`, `get_setting(key="chatDensity")`, `get_setting(key="jsDocSync.enabled")`.',
   input_schema: {
     type: 'object',
@@ -135,6 +135,42 @@ export const getSettingDef: ToolDefinition = {
     required: ['key'],
   },
 };
+
+/**
+ * A setting name that holds a credential. Matched on the LAST segment of a
+ * dotted key and on every nested field name, because secrets are not only
+ * top-level: `webSearch.apiKey`, `zotero.apiKey`, `mcpServer.authToken`, and
+ * the `env` of an MCP server entry all hold one. get_setting needs no approval
+ * and its result goes to the model provider, so a miss here is a leak.
+ */
+const SECRET_NAME = /(api[-_]?key|token|secret|password|passwd|credential|private[-_]?key|auth)$/i;
+/** Fields whose VALUES are environment or header maps -- every entry may be a secret. */
+const SECRET_MAPS = new Set(['env', 'headers']);
+/** `scheme://user:password@host` -- connection strings in database profiles. */
+const URL_PASSWORD = /(\w[\w+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/g;
+
+const REDACTED = '[redacted]';
+
+function redactSecrets(value: unknown, name = ''): unknown {
+  if (typeof value === 'string') {
+    // A credential is a string; `requireAuth: true` under the same name is not.
+    if (SECRET_NAME.test(name) && value !== '') return REDACTED;
+    return value.replace(URL_PASSWORD, `$1${REDACTED}@`);
+  }
+  if (Array.isArray(value)) return value.map((v) => redactSecrets(v));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (SECRET_MAPS.has(k) && v && typeof v === 'object') {
+        out[k] = Object.fromEntries(Object.keys(v).map((ek) => [ek, REDACTED]));
+      } else {
+        out[k] = redactSecrets(v, k);
+      }
+    }
+    return out;
+  }
+  return value;
+}
 
 export async function getSetting(input: Record<string, unknown>): Promise<string> {
   const key = (input.key as string) || '';
@@ -153,7 +189,7 @@ export async function getSetting(input: Record<string, unknown>): Promise<string
   if (value === undefined) {
     return `Setting "sidecar.${key}" is not configured (no value at any scope).`;
   }
-  return `sidecar.${key} = ${JSON.stringify(value)}`;
+  return `sidecar.${key} = ${JSON.stringify(redactSecrets(value, key.split('.').pop()))}`;
 }
 
 // ---------------------------------------------------------------------------
