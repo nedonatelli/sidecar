@@ -50,8 +50,19 @@ export async function enrichAndPruneMessages(
     }
 
     if (lastUserIdx !== -1) {
-      let enriched =
-        typeof chatMessages[lastUserIdx].content === 'string' ? (chatMessages[lastUserIdx].content as string) : '';
+      // A message with an image arrives as content BLOCKS ([image, text]).
+      // Enrich only its text and keep every other block: this used to treat
+      // any non-string content as '' and write that back, so an image plus
+      // "what's wrong here?" reached the model as an empty prompt.
+      const original = chatMessages[lastUserIdx];
+      const blocks = typeof original.content === 'string' ? null : original.content;
+      let enriched = blocks
+        ? blocks
+            .filter((b) => b.type === 'text')
+            .map((b) => (b.type === 'text' ? b.text : ''))
+            .join('\n')
+        : (original.content as string);
+      const hadText = enriched.length > 0;
 
       // The active file is injected only when the user explicitly attached it
       // via the "add" toggle (state.activeFileIncluded). config.includeActiveFile
@@ -71,7 +82,12 @@ export async function enrichAndPruneMessages(
         enriched = await resolveUrlReferences(enriched);
       }
 
-      chatMessages[lastUserIdx] = { ...chatMessages[lastUserIdx], content: enriched };
+      if (!blocks) {
+        chatMessages[lastUserIdx] = { ...original, content: enriched };
+      } else if (hadText || enriched) {
+        const others = blocks.filter((b) => b.type !== 'text');
+        chatMessages[lastUserIdx] = { ...original, content: [...others, { type: 'text', text: enriched }] };
+      }
     }
   }
 
