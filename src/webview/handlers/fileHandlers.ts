@@ -1,5 +1,6 @@
 import { window, workspace, Uri, FileType } from 'vscode';
 import * as path from 'path';
+import { execFile } from 'child_process';
 import type { ChatState } from '../chatState.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import { languageToExtension } from './messageUtils.js';
@@ -454,17 +455,29 @@ export async function handleAcceptAllChanges(state: ChatState): Promise<void> {
 /**
  * Revert a single file that was written by the edit plan.
  *
- * op === 'create' → the file was new; trash it.
- * op === 'edit' | 'delete' → restore the HEAD version via git checkout.
+ * Prefers the changelog's snapshot of the file from BEFORE the agent touched
+ * it: that restores the user's own uncommitted edits, and deletes the file
+ * only if the agent really created it. `op` is the model's claim about what it
+ * did, so it is used only when there is no snapshot:
+ *   op === 'create' → trash it (recoverable).
+ *   op === 'edit' | 'delete' → restore the HEAD version via git.
  *
- * `filePath` is the workspace-relative path sent from the webview.
+ * `filePath` is the workspace-relative path sent from the webview, and it is
+ * the model's choice -- it reaches git as one argv element, never through a
+ * shell, where `$(...)` in a file name would execute.
  */
-export async function revertEditPlanFile(filePath: string, op: 'create' | 'edit' | 'delete'): Promise<void> {
+export async function revertEditPlanFile(
+  filePath: string,
+  op: 'create' | 'edit' | 'delete',
+  changelog?: { rollbackFile(filePath: string): Promise<boolean> },
+): Promise<void> {
   const folders = workspace.workspaceFolders;
   if (!folders || folders.length === 0) return;
   const rootUri = folders[0].uri;
   const fileUri = Uri.joinPath(rootUri, filePath);
   if (!isWithinRoot(fileUri, rootUri)) return;
+
+  if (changelog && (await changelog.rollbackFile(filePath))) return;
 
   if (op === 'create') {
     try {
@@ -475,16 +488,9 @@ export async function revertEditPlanFile(filePath: string, op: 'create' | 'edit'
     return;
   }
 
-  // Restore HEAD content via git checkout using ShellSession so the
-  // same hardening (alias/function namespace reset) applies as for all
-  // agent-originated shell commands.
-  const cwd = rootUri.fsPath;
-  const session = new ShellSession(cwd);
-  try {
-    await session.execute(`git checkout HEAD -- ${JSON.stringify(filePath)}`, { timeout: 10_000 });
-  } finally {
-    session.dispose();
-  }
+  await new Promise<void>((resolve) => {
+    execFile('git', ['checkout', 'HEAD', '--', filePath], { cwd: rootUri.fsPath, timeout: 10_000 }, () => resolve());
+  });
 }
 
 /**

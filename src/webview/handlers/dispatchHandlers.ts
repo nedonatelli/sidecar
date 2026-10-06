@@ -365,7 +365,7 @@ export function buildDispatchHandlers(
 
     rejectEditPlanFile: async (msg) => {
       if (!msg.filePath || !msg.op) return;
-      await revertEditPlanFile(msg.filePath, msg.op);
+      await revertEditPlanFile(msg.filePath, msg.op, state.changelog);
     },
 
     changeModel: async (msg) => {
