@@ -41,6 +41,24 @@ import { getConfig } from '../config/settings.js';
  */
 let toolCallIdCounter = 0;
 
+/**
+ * The reasoning text in one stream delta, from whichever field the server
+ * uses. `reasoning_content` and `reasoning` carry the same thing under
+ * different names; OpenRouter sends `reasoning` AND `reasoning_details`
+ * with the same text, so the structured form is read only when neither
+ * plain field is present.
+ */
+export function reasoningText(delta: OpenAIChatChunk['choices'][number]['delta']): string {
+  if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) return delta.reasoning_content;
+  if (typeof delta.reasoning === 'string' && delta.reasoning) return delta.reasoning;
+  if (Array.isArray(delta.reasoning_details)) {
+    return delta.reasoning_details
+      .map((d) => (typeof d?.text === 'string' ? d.text : typeof d?.summary === 'string' ? d.summary : ''))
+      .join('');
+  }
+  return '';
+}
+
 interface OpenAIToolCallDelta {
   index: number;
   id?: string;
@@ -57,6 +75,12 @@ interface OpenAIChatChunk {
       role?: string;
       content?: string | null;
       tool_calls?: OpenAIToolCallDelta[];
+      /** DeepSeek API, vLLM reasoning parsers, llama.cpp server, LM Studio, LiteLLM. */
+      reasoning_content?: string | null;
+      /** OpenRouter, Groq, newer vLLM. */
+      reasoning?: string | null;
+      /** OpenRouter's structured form, sent alongside (or instead of) `reasoning`. */
+      reasoning_details?: Array<{ type?: string; text?: string | null; summary?: string | null }> | null;
     };
     finish_reason: string | null;
   }[];
@@ -234,6 +258,14 @@ export async function* streamOpenAiSse(
         if (!choice) continue;
 
         const delta = choice.delta;
+
+        // Reasoning in a dedicated field. Many OpenAI-compatible servers
+        // separate it from `content` rather than inlining <think> tags; it
+        // used to be dropped, which hid the reasoning AND emitted no stream
+        // events while a reasoning model thought -- so the loop's first-token
+        // / stall timer could abort it mid-thought as a hung request.
+        const reasoning = reasoningText(delta);
+        if (reasoning) yield { type: 'thinking', thinking: reasoning };
 
         // Text content: <think> tag parsing plus XML-style text tool-call
         // interception for models that don't emit structured tool_calls.
