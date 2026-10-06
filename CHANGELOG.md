@@ -4,6 +4,8 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.127.0] - 2026-10-06
+
 A security release. A review of the whole codebase found ways for content you did not
 write — a cloned repository, a file the agent reads, a web page, or another extension — to
 make SideCar run commands, change or read files, or send your credentials elsewhere without
@@ -62,6 +64,10 @@ Update to this version; every earlier version is affected.
   `reasoning_details`), which SideCar ignored, so it was never shown, and a model thinking
   for a long time could be stopped as if it had hung. It now appears as reasoning like
   Ollama's and Anthropic's. (`src/ollama/openAiSseStream.ts`)
+
+### Stats
+- 9260 total tests (516 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.126.0] - 2026-10-06
 
