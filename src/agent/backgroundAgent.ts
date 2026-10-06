@@ -215,6 +215,10 @@ export class BackgroundAgentManager implements Disposable {
         },
       );
 
+      // stop() already marked the run cancelled. The loop returns normally on
+      // abort rather than throwing, and overwriting the status here showed a
+      // stopped run as completed and toasted "Background task completed".
+      if (run.status === 'cancelled') return;
       run.status = 'completed';
       run.completedAt = Date.now();
       this.callbacks.onComplete(serializeRun(run));
