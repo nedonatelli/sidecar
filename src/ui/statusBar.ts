@@ -6,6 +6,19 @@ import { spendTracker, formatUsd } from '../ollama/spendTracker.js';
 import { circuitBreaker } from '../ollama/circuitBreaker.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 
+/** The only commands the status-bar hover may run. */
+export const HOVER_COMMANDS = ['sidecar.toggleChat', 'sidecar.switchBackend', 'sidecar.setApiKey'];
+
+/** Render untrusted text as literal text in markdown. */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_{}[\]()<>#+\-.!|~$]/g, '\\$&');
+}
+
+/** An inline code span that untrusted text cannot close early. */
+export function codeSpan(text: string): string {
+  return '`' + text.replace(/`/g, "'") + '`';
+}
+
 export interface StatusBarDeps {
   getChatProvider: () => ChatViewProvider | undefined;
 }
@@ -34,12 +47,12 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
       case 'error':
         icon = '$(error)';
         bgColor = new ThemeColor('statusBarItem.errorBackground');
-        statusLine = `**Disconnected** — ${health.detail ?? 'backend error'}`;
+        statusLine = `**Disconnected** — ${escapeMarkdown(health.detail ?? 'backend error')}`;
         break;
       case 'degraded':
         icon = '$(warning)';
         bgColor = new ThemeColor('statusBarItem.warningBackground');
-        statusLine = `**Degraded** — ${health.detail ?? 'rate-limited'}`;
+        statusLine = `**Degraded** — ${escapeMarkdown(health.detail ?? 'rate-limited')}`;
         break;
       case 'ok':
         icon = '$(hubot)';
@@ -57,11 +70,15 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
     statusBar.backgroundColor = bgColor;
 
     const md = new MarkdownString('', true);
-    md.isTrusted = true;
+    // Trust ONLY the three links this hover offers. Backend error text (a
+    // response body from whatever server baseUrl names) and workspace-set
+    // routing rules are interpolated below; with blanket trust, a command:
+    // link planted in them ran with its own arguments when clicked.
+    md.isTrusted = { enabledCommands: HOVER_COMMANDS };
     md.supportHtml = false;
     md.appendMarkdown(`### SideCar\n\n`);
     md.appendMarkdown(`${statusLine}\n\n`);
-    md.appendMarkdown(`**Model:** \`${liveModel}\`  \n`);
+    md.appendMarkdown(`**Model:** ${codeSpan(liveModel)}  \n`);
     md.appendMarkdown(`**Backend:** ${provider}\n\n`);
     if (policyActive) {
       md.appendMarkdown(`$(shield) **Repo policy active** — tool permissions governed by \`.sidecar/policy.json\`\n\n`);
@@ -75,7 +92,7 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
         for (const rule of rules) {
           const usd = router.getRuleSpendUsd(rule);
           const over = router.isRuleOverBudget(rule);
-          const line = `\`${rule.when}\` → \`${rule.model}\`` + (usd > 0 ? ` · ${formatUsd(usd)}` : '');
+          const line = `${codeSpan(rule.when)} → ${codeSpan(rule.model)}` + (usd > 0 ? ` · ${formatUsd(usd)}` : '');
           md.appendMarkdown(over ? `- ${line} *(budget hit)*  \n` : `- ${line}  \n`);
         }
         md.appendMarkdown(`\n`);
@@ -84,11 +101,12 @@ export function registerStatusBar(context: ExtensionContext, deps: StatusBarDeps
 
     const override = getChatProvider()?.client.getTurnOverride();
     if (override) {
-      md.appendMarkdown(`---\n\n**Sentinel pin:** \`${override}\` (this turn only)\n\n`);
+      md.appendMarkdown(`---\n\n**Sentinel pin:** ${codeSpan(override)} (this turn only)\n\n`);
     }
 
     if (health.lastError && health.status === 'error') {
-      md.appendMarkdown(`---\n\n**Last error:**\n\n\`\`\`\n${health.lastError}\n\`\`\`\n\n`);
+      md.appendMarkdown(`---\n\n**Last error:**\n\n`);
+      md.appendCodeblock(health.lastError, 'text'); // fences safely, whatever the text holds
     }
     md.appendMarkdown(`[Toggle chat](command:sidecar.toggleChat) · `);
     md.appendMarkdown(`[Switch backend](command:sidecar.switchBackend) · `);
