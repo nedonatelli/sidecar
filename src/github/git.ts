@@ -5,6 +5,19 @@ import type { GitCommitInfo, GitDiffResult } from './types.js';
 const MAX_DIFF_LENGTH = 10_000;
 const MAX_LOG_ENTRIES = 50;
 
+/**
+ * Refs, branch and remote names reach git's argv from model-supplied tool
+ * input. A value starting with `-` is parsed as an OPTION, not a name --
+ * `git diff --output=<path>` writes anywhere -- so refuse it outright. No real
+ * ref, branch or remote starts with `-` (git check-ref-format forbids it).
+ */
+export function assertGitName(value: string | undefined, what: string): void {
+  if (value === undefined) return;
+  if (value.startsWith('-') || /[\0\r\n]/.test(value)) {
+    throw new Error(`Invalid ${what} "${value}": must not start with "-" or contain control characters.`);
+  }
+}
+
 export class GitCLI {
   private cwd: string;
 
@@ -37,6 +50,8 @@ export class GitCLI {
   }
 
   async push(remote: string = 'origin', branch?: string): Promise<string> {
+    assertGitName(remote, 'remote');
+    assertGitName(branch, 'branch');
     const args = ['push', remote];
     if (branch) args.push(branch);
     const result = await this.exec(args);
@@ -50,11 +65,15 @@ export class GitCLI {
    * the caller doesn't have to resolve the current branch name.
    */
   async pushWithUpstream(remote: string = 'origin', branch: string = 'HEAD'): Promise<string> {
+    assertGitName(remote, 'remote');
+    assertGitName(branch, 'branch');
     const result = await this.exec(['push', '-u', remote, branch]);
     return result || `Pushed ${branch} to ${remote} with upstream tracking.`;
   }
 
   async pull(remote: string = 'origin', branch?: string): Promise<string> {
+    assertGitName(remote, 'remote');
+    assertGitName(branch, 'branch');
     const args = ['pull', remote];
     if (branch) args.push(branch);
     const result = await this.exec(args);
@@ -73,6 +92,8 @@ export class GitCLI {
   }
 
   async diff(ref1?: string, ref2?: string): Promise<GitDiffResult> {
+    assertGitName(ref1, 'ref');
+    assertGitName(ref2, 'ref');
     const args = ['diff', '--stat'];
     if (ref1) args.push(ref1);
     if (ref2) args.push(ref2);
@@ -156,12 +177,16 @@ export class GitCLI {
   }
 
   async createBranch(name: string): Promise<string> {
+    assertGitName(name, 'branch name');
     await this.exec(['checkout', '-b', name]);
     return `Created and switched to branch: ${name}`;
   }
 
   async switchBranch(name: string): Promise<string> {
-    await this.exec(['checkout', name]);
+    assertGitName(name, 'branch name');
+    // The trailing `--` makes git read `name` as a ref, never a pathspec:
+    // `git checkout .` would silently discard every unstaged change.
+    await this.exec(['checkout', name, '--']);
     return `Switched to branch: ${name}`;
   }
 
