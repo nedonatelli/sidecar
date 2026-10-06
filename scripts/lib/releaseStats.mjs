@@ -75,3 +75,15 @@ export function deriveSkillCount() {
 export function packageVersion() {
   return JSON.parse(readFileSync('package.json', 'utf-8')).version;
 }
+
+/**
+ * Today's date as YYYY-MM-DD in the LOCAL timezone -- the release date both
+ * bump-version and verify-release use. They both used
+ * `new Date().toISOString().slice(0, 10)`, which is the UTC date: v0.126.0 was
+ * cut at 20:14 EDT on Oct 5 and stamped 2026-10-06, and the verifier agreed only
+ * because it made the same mistake. One helper, so the two cannot drift apart.
+ */
+export function releaseDate(now = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}

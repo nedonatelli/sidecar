@@ -17,7 +17,13 @@
 
 import { execSync, execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
-import { deriveTestStats, deriveToolCount, deriveSkillCount, packageVersion } from './lib/releaseStats.mjs';
+import {
+  deriveTestStats,
+  deriveToolCount,
+  deriveSkillCount,
+  packageVersion,
+  releaseDate,
+} from './lib/releaseStats.mjs';
 
 const SKIP_TESTS = process.argv.includes('--skip-tests');
 const problems = [];
@@ -47,9 +53,22 @@ const alreadyTagged = (() => {
     return false;
   }
 })();
-const today = new Date().toISOString().slice(0, 10);
+const today = releaseDate(); // local date -- see releaseStats.mjs
 if (!alreadyTagged && section[1] !== today) {
   problems.push(`release date is ${section[1]}, today is ${today} — the bump ran on a different day than the release`);
+}
+
+// --- a tagged release is history: nothing below can say anything about it --
+// The counts are derived from TODAY's tree, so after the tag they fail as soon
+// as any test lands on main (seen right after v0.126.0: 9121 stamped, 9124 a PR
+// later) -- the same reasoning that already exempts the date. Run this before
+// the NEXT tag, when it can catch a stale number.
+if (alreadyTagged) {
+  console.log(
+    `✓ v${version} is already tagged — its date and stats are history, not drift. ` +
+      `Run verify:release after the next bump, before tagging.`,
+  );
+  process.exit(0);
 }
 
 // --- the stats must match a freshly-derived reality ------------------------
