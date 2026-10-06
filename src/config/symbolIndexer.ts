@@ -17,6 +17,7 @@ import {
   type TypeUseEdge,
 } from './symbolGraph.js';
 import type { SidecarDir } from './sidecarDir.js';
+import { loadSidecarIgnore, isSidecarIgnored, type IgnoreMatcher } from './sidecarIgnore.js';
 import { assignOrdinals, makeSymbolId, type SymbolEmbeddingIndex } from './symbolEmbeddingIndex.js';
 import { symbolInputsFrom } from './symbolExtraction.js';
 import {
@@ -93,6 +94,8 @@ export class SymbolIndexer implements Disposable {
   private pendingUpdates = new Set<string>();
   private pendingDeletes = new Set<string>();
   private rootPath = '';
+  /** .sidecarignore patterns: symbol bodies are context too. */
+  private ignoreMatchers: IgnoreMatcher[] = [];
   /**
    * Optional PKI symbol-embedding index. When wired, each
    * `indexFile` pass feeds every extracted symbol's body through the
@@ -147,6 +150,7 @@ export class SymbolIndexer implements Disposable {
     if (!folders || folders.length === 0) return;
 
     this.rootPath = folders[0].uri.fsPath;
+    this.ignoreMatchers = await loadSidecarIgnore(folders[0].uri);
 
     // Try to restore from cache
     const restored = await this.restore();
@@ -166,8 +170,9 @@ export class SymbolIndexer implements Disposable {
       allUris.push(...uris);
     }
 
-    // Filter to code files
+    // Filter to code files the user has not excluded
     const codeUris = allUris.filter((uri) => {
+      if (this.shouldExclude(this.relKey(uri.fsPath))) return false;
       const ext = path.extname(uri.fsPath).toLowerCase();
       return CODE_EXTENSIONS.has(ext);
     });
@@ -526,7 +531,9 @@ export class SymbolIndexer implements Disposable {
   }
 
   private shouldExclude(relativePath: string): boolean {
-    return relativePath.split(path.sep).some((p) => EXCLUDE_DIRS.has(p));
+    // Keys use '/', but accept either separator.
+    if (relativePath.split(/[\\/]/).some((p) => EXCLUDE_DIRS.has(p))) return true;
+    return isSidecarIgnored(relativePath, this.ignoreMatchers);
   }
 
   dispose(): void {
