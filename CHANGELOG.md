@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.126.0] - 2026-10-06
+
+Things that reported success, or failure, without it being true. SideCar now knows today's
+date, so "latest" no longer means the model's training cutoff. After an error, Retry no
+longer sends your message twice, and a new message is no longer answered alongside the
+failed one. A short request after SideCar asks a question is no longer taken as your answer.
+Web search tells a blocked provider apart from "no results" and checks the provider you
+actually use. And the visual-verification tools, which could not run in any installed
+SideCar, now ship what they need and use your installed Chrome or Edge.
+
 ### Added
 
 - **SideCar knows today's date.** The system prompt now carries the current date in your
@@ -59,6 +69,10 @@ All notable changes to the SideCar extension will be documented in this file.
   got the reply "I still need a location". Only replies that look like answers (yes/no,
   picking an option, or a short bare answer such as a place or version) are framed as one
   now; anything else is sent as typed. (`src/webview/handlers/messageUtils/`)
+
+### Stats
+- 9121 total tests (509 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.125.0] - 2026-10-03
 
