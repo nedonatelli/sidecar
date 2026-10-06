@@ -335,20 +335,46 @@ export function isSensitiveFile(filePath: string): boolean {
 }
 
 /**
+ * Resolve a path a read-only tool will read and send to the model. Tools that
+ * need no approval must not become a way around read_file's rules: the file
+ * has to be inside `root`, and must not be a credential file. Returns the
+ * absolute path, or throws with what the user can do instead.
+ */
+export function resolveWorkspaceReadPath(requested: string, root: string): string {
+  const resolved = path.resolve(root, requested);
+  const rel = path.relative(root, resolved);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    throw new Error(
+      `"${requested}" is outside the workspace. This tool reads only workspace files -- ` +
+        `copy the file into the project (or attach it to the chat) and try again.`,
+    );
+  }
+  if (isSensitiveFile(resolved)) {
+    throw new Error(`"${requested}" appears to contain secrets or credentials; the agent may not read it.`);
+  }
+  return resolved;
+}
+
+/**
  * Check whether a write to the given path should be rejected because
  * it targets SideCar's protected internal state. Returns an error
  * message if blocked, or null if the write is allowed.
  *
- * Paths are normalised to use forward slashes so the same prefix
- * check works for Windows-style input.
+ * The path is judged the way the filesystem will resolve it, not as typed:
+ * `.sidecar/./memory/x`, `.sidecar//logs/x` and `./.sidecar/settings.json`
+ * all land on protected state once joined to the root, and Windows and macOS
+ * filesystems are case-insensitive, so `.SIDECAR/memory` is the same folder.
  */
 export function isProtectedWritePath(filePath: string): string | null {
-  const normalized = filePath.replace(/\\/g, '/');
+  const normalized = path.posix
+    .normalize(filePath.replace(/\\/g, '/'))
+    .replace(/^(\.\/)+/, '')
+    .toLowerCase();
   if (normalized === '.sidecar/settings.json') {
     return `Refusing to write SideCar's own settings file (${filePath}). Ask the user to edit it directly.`;
   }
   for (const prefix of PROTECTED_WRITE_PREFIXES) {
-    if (normalized.startsWith(prefix) || normalized.startsWith('./' + prefix)) {
+    if (normalized.startsWith(prefix) || normalized === prefix.slice(0, -1)) {
       return (
         `Refusing to write under ${prefix} — this path is SideCar's internal state ` +
         `(audit log, persistent memory, session history, or cache) and must not be modified by the agent. ` +

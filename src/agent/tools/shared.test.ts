@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as path from 'path';
 import { workspace } from 'vscode';
+import { grepArgs } from './grepArgs.js';
 import {
+  resolveWorkspaceReadPath,
   resolveRoot,
   resolveRootUri,
   getRoot,
@@ -191,5 +194,38 @@ describe('formatToolError', () => {
   it('stringifies non-Error values', () => {
     expect(formatToolError('raw string')).toBe('raw string');
     expect(formatToolError(42)).toBe('42');
+  });
+});
+
+// Read-only tools that need no approval must not become a way around
+// read_file's rules: workspace files only, never credential files.
+describe('resolveWorkspaceReadPath', () => {
+  const root = path.resolve('/ws');
+  it('resolves a workspace file', () => {
+    expect(resolveWorkspaceReadPath('docs/spec.pdf', root)).toBe(path.join(root, 'docs', 'spec.pdf'));
+  });
+  it.each(['../outside.pdf', path.resolve('/home/u/.aws/credentials'), '/etc/passwd'])(
+    'refuses %s outside the workspace',
+    (p) => {
+      expect(() => resolveWorkspaceReadPath(p, root)).toThrow(/outside the workspace/);
+    },
+  );
+  it.each(['.env', 'config/.env.production', 'keys/server.pem', 'gcp/service-account.json'])(
+    'refuses the credential file %s',
+    (p) => {
+      expect(() => resolveWorkspaceReadPath(p, root)).toThrow(/secrets or credentials/);
+    },
+  );
+});
+
+describe('grepArgs: credential files are never searched', () => {
+  it('excludes them, after --include so the exclusion wins', () => {
+    const args = grepArgs('KEY', '.');
+    const include = args.indexOf('--include=*');
+    for (const g of ['.env', '.env.*', '*.pem', 'id_rsa*', '*credentials.json']) {
+      const at = args.indexOf(`--exclude=${g}`);
+      expect(at, g).toBeGreaterThan(include);
+    }
+    expect(args.slice(-3)).toEqual(['KEY', '--', '.']);
   });
 });

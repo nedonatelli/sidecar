@@ -10,7 +10,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { PdfSource } from '../../sources/pdfSource.js';
-import { getRoot, type RegisteredTool } from './shared.js';
+import { getRoot, resolveWorkspaceReadPath, type RegisteredTool } from './shared.js';
 import type { SourceDocument } from '../../sources/types.js';
 
 const MAX_READ_CHARS = 8_000;
@@ -24,7 +24,7 @@ async function readPdf(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string;
   if (!filePath) return 'Error: path is required';
 
-  const resolved = path.isAbsolute(filePath) ? filePath : path.join(getRoot(), filePath);
+  const resolved = resolveWorkspaceReadPath(filePath, getRoot());
   const source = new PdfSource();
   if (!source.canHandle(resolved)) return `Error: ${filePath} is not a PDF file`;
 
@@ -64,7 +64,7 @@ async function indexPdf(input: Record<string, unknown>): Promise<string> {
   const filePath = input.path as string;
   if (!filePath) return 'Error: path is required';
 
-  const resolved = path.isAbsolute(filePath) ? filePath : path.join(getRoot(), filePath);
+  const resolved = resolveWorkspaceReadPath(filePath, getRoot());
 
   const source = new PdfSource();
   if (!source.canHandle(resolved)) return `Error: ${filePath} is not a PDF file`;

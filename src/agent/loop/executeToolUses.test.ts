@@ -126,6 +126,56 @@ describe('executeToolUses — dispatch routing', () => {
     expect(results[0].is_error).toBe(false);
   });
 
+  // A sub-agent must work under the SAME rules as its parent: in the shadow
+  // workspace, through review mode's pending edits, under the mode's deny list
+  // and tool restrictions, and asking the user through the same confirmFn.
+  it('passes the parent policy to the sub-agent, but not its per-run state', async () => {
+    vi.mocked(spawnSubAgent).mockResolvedValueOnce({
+      id: 's',
+      task: 't',
+      output: 'ok',
+      success: true,
+      charsConsumed: 0,
+    });
+    const parent = {
+      cwdOverride: '/shadow/abc',
+      pendingEdits: { marker: 'review-queue' },
+      modeToolPermissions: { run_command: 'deny' },
+      toolOverride: catalog(['read_file']),
+      confirmFn: vi.fn(),
+      clarifyFn: vi.fn(),
+      commandFilter: vi.fn(),
+      toolRuntime: { marker: 'runtime' },
+      steerQueue: { marker: 'parent-steer' },
+      systemPromptOverride: 'parent prompt',
+      initialPlan: 'parent plan',
+    } as unknown as AgentOptions;
+    await executeToolUses(
+      catalogState(),
+      [use('spawn_agent', { task: 'sub' })],
+      {} as SideCarClient,
+      parent,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    const passed = vi.mocked(spawnSubAgent).mock.calls[0][5] as AgentOptions;
+    for (const key of [
+      'cwdOverride',
+      'pendingEdits',
+      'modeToolPermissions',
+      'toolOverride',
+      'confirmFn',
+      'clarifyFn',
+      'commandFilter',
+      'toolRuntime',
+    ] as const) {
+      expect(passed[key], key).toBe((parent as Record<string, unknown>)[key]);
+    }
+    expect(passed.steerQueue).toBeUndefined();
+    expect(passed.systemPromptOverride).toBeUndefined();
+    expect(passed.initialPlan).toBeUndefined();
+  });
+
   it('returns an error tool_result when spawn_agent succeeds:false', async () => {
     vi.mocked(spawnSubAgent).mockResolvedValueOnce({
       id: 'sub-2',

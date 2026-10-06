@@ -14,6 +14,7 @@ import { commands, Uri, env } from 'vscode';
 import { resizePngBuffer } from './pngUtils.js';
 import { getConfig } from '../../config/settings.js';
 import { launchBrowser } from './browserLaunch.js';
+import { urlBlockReason } from '../../util/netGuard.js';
 import { getRoot } from './shared.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
@@ -23,6 +24,7 @@ import {
   urlSlug,
   validateCssSelector,
   validateScreenshotUrl,
+  screenshotUrlBlockReason,
   cheapScreenshotChecks,
   hasVisionSupport,
   checkVisionRateLimit,
@@ -65,7 +67,8 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
   if (rateLimitErr) return rateLimitErr;
 
   const cfg = _context?.config ?? getConfig();
-  const urlError = validateScreenshotUrl(url, cfg.visualVerifyAllowedDomains);
+  const allowedHosts = cfg.visualVerifyAllowedDomains;
+  const urlError = validateScreenshotUrl(url, allowedHosts) ?? (await screenshotUrlBlockReason(url, allowedHosts));
   if (urlError) return urlError;
 
   const selector = input.selector as string | undefined;
@@ -117,6 +120,14 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
       return `Error: ${launchErr instanceof Error ? launchErr.message : String(launchErr)}`;
     }
     page = await browser.newPage();
+    // Every request the page makes -- subresources and scripted fetches too --
+    // passes the same address check as the URL itself.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await page.route('**/*', async (route: any) => {
+      const reqUrl: string = route.request().url();
+      if (!/^https?:/i.test(reqUrl)) return route.continue(); // data:, blob: -- no network
+      return (await urlBlockReason(reqUrl, allowedHosts)) ? route.abort('blockedbyclient') : route.continue();
+    });
 
     const width = Math.min(viewportRaw?.width ?? 1280, MAX_VIEWPORT_WIDTH);
     const height = Math.min(viewportRaw?.height ?? 800, MAX_VIEWPORT_HEIGHT);
@@ -134,7 +145,14 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
     }
     // selector:<css> handled below after navigation
 
-    await page.goto(url, { waitUntil, timeout: 30000 });
+    const response = await page.goto(url, { waitUntil, timeout: 30000 });
+    // Redirect hops are followed without passing through the route handler,
+    // so walk the chain: a public URL that 302s to the metadata service must
+    // not be captured.
+    for (let req = response?.request(); req; req = req.redirectedFrom()) {
+      const why = await urlBlockReason(req.url(), allowedHosts);
+      if (why) return `Error: the page redirected to a blocked address (${why}); no screenshot was taken.`;
+    }
 
     if (extraWaitMs > 0) {
       await page.waitForTimeout(extraWaitMs);
@@ -332,7 +350,9 @@ async function openInBrowser(input: Record<string, unknown>, context?: ToolExecu
   if (!url) return 'Error: url is required';
 
   const cfg = context?.config ?? getConfig();
-  const urlError = validateScreenshotUrl(url, cfg.visualVerifyAllowedDomains);
+  const urlError =
+    validateScreenshotUrl(url, cfg.visualVerifyAllowedDomains) ??
+    (await screenshotUrlBlockReason(url, cfg.visualVerifyAllowedDomains));
   if (urlError) return urlError;
 
   const uri = Uri.parse(url);

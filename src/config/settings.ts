@@ -1,6 +1,7 @@
-import { workspace } from 'vscode';
+import { workspace, window, commands } from 'vscode';
 import { AGENT_MAX_OUTPUT_TOKENS } from './constants.js';
 import { getCachedApiKey, getCachedFallbackApiKey } from './settings/secrets.js';
+import { trustFilteredConfig, ensureSensitiveWorkspaceSettingsTrust } from './workspaceTrust.js';
 import { OLLAMA_DEFAULT_MODEL, ANTHROPIC_DEFAULT_MODEL, detectProvider } from './settings/backends.js';
 import type { RoutingRule } from '../ollama/modelRouter.js';
 import type { CapabilityTier } from '../ollama/modelCapability.js';
@@ -453,10 +454,28 @@ let _cachedConfig: SideCarConfig | null = null;
  * extension context and disposed cleanly on deactivation.
  */
 export function initConfigWatcher(context: import('vscode').ExtensionContext): void {
+  // Sensitive workspace values (see workspaceTrust.ts) are ignored until the
+  // user allows them; ask now and whenever SideCar settings change, since a
+  // pull or an edit to .vscode/settings.json can introduce new ones.
+  const askAboutSensitiveValues = () => {
+    void ensureSensitiveWorkspaceSettingsTrust(context.workspaceState).then(async (changed) => {
+      if (!changed) return;
+      _cachedConfig = null;
+      // Components that captured config at startup (the backend connection)
+      // only see the newly allowed values after a reload.
+      const reload = await window.showInformationMessage(
+        'SideCar: workspace settings allowed. Reload the window to apply them everywhere.',
+        'Reload Window',
+      );
+      if (reload) await commands.executeCommand('workbench.action.reloadWindow');
+    });
+  };
+  askAboutSensitiveValues();
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('sidecar')) {
         _cachedConfig = null;
+        askAboutSensitiveValues();
       }
     }),
   );
@@ -469,7 +488,9 @@ export function clampMin(value: number | undefined, min: number, fallback: numbe
 }
 
 function readConfig(): SideCarConfig {
-  const cfg = workspace.getConfiguration('sidecar');
+  // Sensitive keys read through the trust filter: a workspace value the user
+  // has not allowed falls back to their own setting or the default.
+  const cfg = trustFilteredConfig(workspace.getConfiguration('sidecar'));
   const rawModel = cfg.get<string>('model', OLLAMA_DEFAULT_MODEL) || OLLAMA_DEFAULT_MODEL;
   const rawProvider = cfg.get<
     | 'auto'

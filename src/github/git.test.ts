@@ -160,6 +160,36 @@ describe('GitCLI', () => {
     mockGitOutput('');
     const result = await git.switchBranch('main');
     expect(result).toContain('main');
+    // `--` pins the name as a ref: `checkout .` must never mean "discard changes".
+    expect(mockExecFile.mock.calls.at(-1)?.[1]).toEqual(['checkout', 'main', '--']);
+  });
+
+  describe('model-supplied names never reach git as options', () => {
+    // `git diff --output=<path>` overwrites any file the user can write.
+    const attempts: Array<[string, () => Promise<unknown>]> = [
+      ['diff ref1', () => git.diff('--output=/tmp/victim')],
+      ['diff ref2', () => git.diff('HEAD', '--output=/tmp/victim')],
+      ['switchBranch', () => git.switchBranch('--orphan=x')],
+      ['createBranch', () => git.createBranch('-D')],
+      ['push remote', () => git.push('--receive-pack=evil')],
+      ['push branch', () => git.push('origin', '--force')],
+      ['pull', () => git.pull('--upload-pack=evil')],
+      ['pushWithUpstream', () => git.pushWithUpstream('origin', '--mirror')],
+      ['newline', () => git.diff('HEAD\n--output=x')],
+    ];
+    for (const [label, call] of attempts) {
+      it(`rejects ${label} without running git`, async () => {
+        mockGitOutput('');
+        mockExecFile.mockClear();
+        await expect(call()).rejects.toThrow(/must not start with "-"/);
+        expect(mockExecFile).not.toHaveBeenCalled();
+      });
+    }
+
+    it('still accepts ordinary refs', async () => {
+      mockGitOutput('');
+      await expect(git.diff('HEAD~1', 'feature/x-1')).resolves.toBeDefined();
+    });
   });
 
   it('getCurrentBranch returns branch name', async () => {

@@ -93,7 +93,7 @@ If you are seeing a loop that was not caught: press Escape or click Stop to abor
 
 Three approaches:
 
-1. **.sidecarignore**: create a `.sidecarignore` file in the workspace root (same syntax as `.gitignore`). Files matching those patterns are excluded from workspace indexing. The agent won't discover those files during relevance-scored context building.
+1. **.sidecarignore**: create a `.sidecarignore` file in the workspace root (a subset of `.gitignore` syntax; see [Ignoring patterns](configuration#ignoring-patterns)). Files matching those patterns are excluded from the workspace index, the symbol index and semantic search. The agent won't discover those files during relevance-scored context building.
 2. **Per-tool deny**: add `"write_file": "deny"` and `"edit_file": "deny"` to `sidecar.toolPermissions` to block all writes globally, or use a custom mode with those restrictions for specific sessions.
 3. **Review mode**: in `review` mode all writes are buffered and nothing hits disk until you explicitly accept. You can discard individual files without accepting the full batch.
 

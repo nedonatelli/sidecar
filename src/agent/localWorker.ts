@@ -28,92 +28,141 @@ const WORKER_ALLOWED_TOOLS = new Set([
 ]);
 
 /**
- * Read-only command prefixes the worker is allowed to execute.
- * These are exploration/inspection commands that cannot modify state.
+ * What the worker may run. The worker runs AUTONOMOUSLY -- no approval prompt
+ * in any mode -- so this is an allowlist of whole command shapes, not of
+ * prefixes. A prefix list cannot hold: `ls ; <anything>` starts with `ls `,
+ * `env <cmd>` with `env`, and `find -exec`, `rg --pre`, `awk 'system()'`
+ * run programs from inside an "inspection" command.
+ *
+ * Each pipeline stage must be one of these commands. The value is a pattern
+ * over the stage's arguments that must NOT match: the flags that make an
+ * otherwise read-only command write a file or execute something.
+ *
+ * Deliberately absent: awk/sed (both execute or write), curl/wget (a GET can
+ * carry `$SECRET` in its URL), env/printenv (dump secrets to the model),
+ * xxd (writes with two operands), ldd (may execute the binary it inspects).
  */
-const WORKER_SAFE_COMMAND_PREFIXES = [
-  'cat ',
-  'head ',
-  'tail ',
-  'less ',
-  'more ',
-  'wc ',
-  'grep ',
-  'egrep ',
-  'fgrep ',
-  'rg ', // ripgrep
-  'ag ', // silver searcher
-  'find ',
-  'fd ', // fd-find
-  'ls ',
-  'tree ',
-  'file ',
-  'stat ',
-  'which ',
-  'type ',
-  'whereis ',
-  'du ',
-  'df ',
-  'pwd',
-  'echo ',
-  'printf ',
-  'env',
-  'printenv',
-  'whoami',
-  'id',
-  'uname ',
-  'hostname',
-  'date',
-  'uptime',
-  'ps ',
-  'pgrep ',
-  'lsof ',
-  'netstat ',
-  'ss ',
-  'curl ', // read-only fetch (no -X POST etc.)
-  'wget -O - ', // stdout only
-  'jq ',
-  'yq ',
-  'sed -n ', // print-only sed
-  'awk ',
-  'sort ',
-  'uniq ',
-  'cut ',
-  'tr ',
-  'diff ',
-  'comm ',
-  'md5sum ',
-  'sha256sum ',
-  'sha1sum ',
-  'base64 ',
-  'xxd ',
-  'hexdump ',
-  'od ',
-  'strings ',
-  'nm ',
-  'objdump ',
-  'readelf ',
-  'otool ',
-  'ldd ',
-  'cargo metadata',
-  'cargo tree',
-  'npm ls',
-  'npm list',
-  'npm view',
-  'npm info',
-  'npm outdated',
-  'npm audit',
-  'npx tsc --noEmit',
-  'pip list',
-  'pip show',
-  'pip freeze',
-  'go list',
-  'go mod graph',
-  'git ',
-  'gh pr view',
-  'gh issue view',
-  'gh repo view',
+const WORKER_COMMANDS: Record<string, RegExp | null> = {
+  cat: null,
+  head: null,
+  tail: null,
+  less: null,
+  more: null,
+  wc: null,
+  grep: null,
+  egrep: null,
+  fgrep: null,
+  rg: /(^|\s)--pre(-glob)?(=|\s|$)/,
+  ag: null,
+  find: /(^|\s)-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)(\s|$)/,
+  fd: /(^|\s)(-x|-X|--exec|--exec-batch)(=|\s|$)/,
+  ls: null,
+  tree: /(^|\s)-o(\s|$)/,
+  file: null,
+  stat: null,
+  which: null,
+  type: null,
+  whereis: null,
+  du: null,
+  df: null,
+  echo: null,
+  printf: null,
+  uname: null,
+  ps: null,
+  pgrep: null,
+  lsof: null,
+  netstat: null,
+  ss: null,
+  jq: null,
+  yq: /(^|\s)(-i|--inplace)(=|\s|$)/,
+  sort: /(^|\s)(-o|--output)(=|\s|$)/,
+  // `uniq IN OUT` writes OUT; as a pipeline stage it takes no operands.
+  uniq: /(^|\s)[^-\s]/,
+  cut: null,
+  tr: null,
+  diff: null,
+  comm: null,
+  md5sum: null,
+  sha256sum: null,
+  sha1sum: null,
+  base64: null,
+  hexdump: null,
+  od: null,
+  strings: null,
+  nm: null,
+  objdump: null,
+  readelf: null,
+  otool: null,
+};
+
+/** Commands allowed only bare -- an argument would turn them into launchers or setters. */
+const WORKER_BARE_COMMANDS = new Set(['pwd', 'whoami', 'id', 'hostname', 'date', 'uptime']);
+
+/** Multi-word read-only invocations, with the arguments that would make them mutate. */
+const WORKER_SUBCOMMANDS: Array<[string, RegExp | null]> = [
+  ['cargo metadata', null],
+  ['cargo tree', null],
+  ['npm ls', null],
+  ['npm list', null],
+  ['npm view', null],
+  ['npm info', null],
+  ['npm outdated', null],
+  ['npm audit', /(^|\s)fix(\s|$)/],
+  ['npx tsc --noEmit', /(^|\s)(-b|--build|-w|--watch)(\s|$)/],
+  ['pip list', null],
+  ['pip show', null],
+  ['pip freeze', null],
+  ['go list', null],
+  ['go mod graph', null],
+  ['gh pr view', null],
+  ['gh issue view', null],
+  ['gh repo view', null],
 ];
+
+/** git: read-only subcommands only, and never the flags that write or launch. */
+const WORKER_GIT_SUBCOMMANDS = new Set([
+  'status',
+  'log',
+  'diff',
+  'show',
+  'blame',
+  'ls-files',
+  'rev-parse',
+  'grep',
+  'shortlog',
+  'describe',
+]);
+const WORKER_GIT_FORBIDDEN = /(^|\s)(--output|-O|--open-files-in-pager|--ext-diff)(=|\s|$)|(^|\s)-O\S/;
+/** `git branch` lists, but any operand or mutating flag creates/deletes/renames. */
+const WORKER_GIT_BRANCH_FLAGS = new Set(['-a', '-r', '-v', '-vv', '--all', '--remotes', '--list', '--show-current']);
+
+function isSafeStage(stage: string): boolean {
+  // Judge the words the shell will see: quotes and escapes removed, so
+  // `--p''re` or `"-exec"` cannot hide a forbidden flag.
+  const words = stage.replace(/["'\\]/g, '').trim();
+  if (!words) return false;
+  const [cmd, ...rest] = words.split(/\s+/);
+  const args = rest.join(' ');
+
+  if (WORKER_BARE_COMMANDS.has(cmd)) return rest.length === 0;
+
+  if (cmd === 'git') {
+    const [sub, ...gitRest] = rest;
+    if (sub === 'branch') return gitRest.every((a) => WORKER_GIT_BRANCH_FLAGS.has(a));
+    if (!sub || !WORKER_GIT_SUBCOMMANDS.has(sub)) return false;
+    return !WORKER_GIT_FORBIDDEN.test(' ' + gitRest.join(' '));
+  }
+
+  for (const [prefix, forbidden] of WORKER_SUBCOMMANDS) {
+    if (words === prefix || words.startsWith(prefix + ' ')) {
+      return !forbidden || !forbidden.test(words.slice(prefix.length));
+    }
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(WORKER_COMMANDS, cmd)) return false;
+  const forbidden = WORKER_COMMANDS[cmd];
+  return !forbidden || !forbidden.test(args);
+}
 
 /**
  * Check if a command is safe for the worker to execute (read-only).
@@ -121,30 +170,19 @@ const WORKER_SAFE_COMMAND_PREFIXES = [
  * exfiltrate data in non-obvious ways.
  */
 export function isWorkerSafeCommand(command: string): boolean {
-  const trimmed = command.trim();
+  // `2>&1` is the one redirection a read-only command needs; drop it before
+  // the structural checks so it is not mistaken for a write.
+  const trimmed = command.trim().replace(/(^|\s)2>&1(?=\s|$)/g, ' ');
 
-  // Reject pipelines to potentially dangerous commands
-  const dangerousPipeTargets = /\|\s*(sh|bash|zsh|eval|xargs|tee|dd|rm|mv|cp|chmod|chown|>)/;
-  if (dangerousPipeTargets.test(trimmed)) return false;
+  // No chaining (`;`, `&`, `&&`, `||`), no substitution (`$(`, backticks),
+  // no variable expansion (`$VAR`, `${VAR}` -- `echo $API_KEY` hands a secret
+  // to the model), no redirection, no second line. Each of these runs, writes
+  // or reveals something no stage check below would see. A regex anchor such
+  // as `grep 'foo$'` is unaffected.
+  if (/[;&`<>\n\r]|\$[A-Za-z_{(]/.test(trimmed)) return false;
 
-  // Reject output redirection (could write files)
-  if (/[^2]?>(?!&)/.test(trimmed)) return false; // Allow 2>&1 but not > or >>
-
-  // Reject command substitution that could hide dangerous ops
-  if (/\$\(.*\)/.test(trimmed) && !/\$\(pwd\)|\$\(date\)/.test(trimmed)) return false;
-
-  // Reject curl/wget with write flags
-  if (/curl\s+.*(-o|-O|--output)/.test(trimmed)) return false;
-  if (/wget\s+(?!-O\s*-)/.test(trimmed)) return false; // Only allow wget -O -
-
-  // Check against safe prefixes
-  for (const prefix of WORKER_SAFE_COMMAND_PREFIXES) {
-    if (trimmed.startsWith(prefix) || trimmed === prefix.trim()) {
-      return true;
-    }
-  }
-
-  return false;
+  const stages = trimmed.split('|');
+  return stages.every((stage) => isSafeStage(stage));
 }
 
 const WORKER_SYSTEM_PROMPT = `You are a local research worker spawned by a frontier-model orchestrator. Your job is to investigate a focused task using the read-only tools available and return a compact, structured summary.
@@ -153,7 +191,7 @@ const WORKER_SYSTEM_PROMPT = `You are a local research worker spawned by a front
 
 - Do the task efficiently. No chit-chat, no clarifying questions.
 - You have read-only tools: read_file, grep, search_files, list_directory, get_diagnostics, find_references, git_diff, git_status, git_log, display_diagram.
-- You can run SAFE read-only shell commands via run_command: cat, head, tail, grep, find, ls, tree, wc, file, stat, jq, awk, sed -n, etc.
+- You can run SAFE read-only shell commands via run_command: cat, head, tail, grep, rg, find, ls, tree, wc, file, stat, jq, sort, read-only git (status, log, diff, show, blame), etc. One command per call; pipes between these are fine, but no ; or &&, no redirection, no $VARS.
 - Destructive commands (rm, mv, cp, chmod, >, >>) are blocked — don't try them.
 - You CANNOT write files or edit code, and only the safe read-only commands above are allowed. If the task asks for changes, describe what *should* change — do not attempt it.
 - Your final reply is the ONLY thing the orchestrator will see. Make it count.

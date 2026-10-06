@@ -17,7 +17,7 @@ interface DuckDBInstance {
 }
 
 interface DuckDBInstanceConstructor {
-  create(path: string): Promise<DuckDBInstance>;
+  create(path: string, options?: Record<string, string>): Promise<DuckDBInstance>;
 }
 
 interface DuckDBConnection {
@@ -78,19 +78,18 @@ export class DuckDbProvider implements DatabaseProvider {
     this.readOnly = profile.readOnly !== false;
 
     const filePath = profile.filePath ?? ':memory:';
-    this.instance = await mod.DuckDBInstance.create(filePath);
+    // Read-only has to be set when the database is OPENED. `SET access_mode`
+    // on a running database always throws ("must be set when opening"), and
+    // that throw used to be swallowed -- every read-only profile was writable.
+    // An in-memory database cannot be opened read-only, and has nothing on disk
+    // to protect; assertReadOnly still refuses ATTACH and every write there.
+    const isFile = filePath !== ':memory:' && filePath !== '';
+    this.instance =
+      this.readOnly && isFile
+        ? await mod.DuckDBInstance.create(filePath, { access_mode: 'READ_ONLY' })
+        : await mod.DuckDBInstance.create(filePath);
     this.conn = await this.instance.connect();
     this.connected = true;
-
-    if (this.readOnly) {
-      // DuckDB supports SET statement for read-only access on file databases.
-      // For in-memory databases this is a no-op but harmless.
-      try {
-        await this.conn.run('SET access_mode = READ_ONLY');
-      } catch {
-        // Ignore if not supported on this DuckDB version / connection type
-      }
-    }
   }
 
   async disconnect(): Promise<void> {

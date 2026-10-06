@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../system/logger.js';
 import { commands, window, workspace, ExtensionContext } from 'vscode';
@@ -36,7 +37,12 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
         logger.info('[SideCar] .sidecar/ directory ready');
 
         const processRegistry = getProcessRegistry();
-        processRegistry.setManifestPath(sidecarDir.getPath('pids.json'));
+        // The manifest names processes this extension KILLS on the next
+        // activation, so it must live where only SideCar writes -- never in the
+        // workspace, which a cloned repo controls.
+        const storage = context.storageUri ?? context.globalStorageUri;
+        await fs.promises.mkdir(storage.fsPath, { recursive: true });
+        processRegistry.setManifestPath(path.join(storage.fsPath, 'pids.json'));
         await processRegistry.sweepOrphans().catch((err) => {
           logger.warn('[SideCar] Process orphan sweep failed:', err);
         });

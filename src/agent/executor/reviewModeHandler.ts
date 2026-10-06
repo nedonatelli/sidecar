@@ -2,7 +2,7 @@ import { workspace, Uri } from 'vscode';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { PendingEditStore } from '../pendingEdits.js';
 import type { AgentLogger } from '../logger.js';
-import type { ToolExecutorContext } from '../tools/shared.js';
+import { validateFilePath, isProtectedWritePath, isSensitiveFile, type ToolExecutorContext } from '../tools/shared.js';
 import { resolveEditedText, editDiffSuffix, type ResolvedEdit } from '../tools/fs.js';
 import { computeLineDiff } from '../tools/diffUtils.js';
 
@@ -32,8 +32,31 @@ export async function handleReviewModeTool(
   logger?: AgentLogger,
   context?: ToolExecutorContext,
 ): Promise<ToolResultContentBlock | null> {
-  const root = workspace.workspaceFolders?.[0]?.uri;
+  // A shadow or fork run's tree, when there is one -- not the main workspace.
+  const root = context?.cwd ? Uri.file(context.cwd) : workspace.workspaceFolders?.[0]?.uri;
   if (!root) return null;
+
+  // Writes and edits are intercepted BEFORE the fs tools run, so their path
+  // rules must be applied here too. Without them, `../../.aws/credentials`
+  // was read (its contents came back in the edit diff) and a write outside
+  // the workspace was queued for acceptance.
+  if (toolUse.name === 'write_file' || toolUse.name === 'edit_file') {
+    const relPath = toolUse.input.path as string | undefined;
+    if (relPath !== undefined) {
+      const refusal =
+        validateFilePath(relPath) ??
+        isProtectedWritePath(relPath) ??
+        (isSensitiveFile(relPath) ? `"${relPath}" appears to contain secrets or credentials.` : null);
+      if (refusal) {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: `Error: ${refusal} The file was NOT modified.`,
+          is_error: true,
+        };
+      }
+    }
+  }
 
   // --- read_file: prefer pending content when present ---
   if (toolUse.name === 'read_file') {

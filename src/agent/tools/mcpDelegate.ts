@@ -79,6 +79,12 @@ export async function delegateToMcp(input: Record<string, unknown>, context?: To
   const resolved = resolveTaskTool(server, toolNames, explicitTool);
   if ('error' in resolved) return resolved.error;
 
+  // A deny the user set on the target MCP tool must hold when it is reached
+  // this way too; the executor only ever sees the name `delegate_to_mcp`.
+  if (cfg.toolPermissions?.[`mcp_${server}_${resolved.toolName}`] === 'deny') {
+    throw new Error(`Tool "mcp_${server}_${resolved.toolName}" is denied by sidecar.toolPermissions.`);
+  }
+
   // Redact secrets before the payload leaves for a third-party MCP server.
   // task/context are free-text fields the model may have populated with
   // content it read (file bodies, command output), so scrub them per the
@@ -150,6 +156,8 @@ export const mcpDelegateTools: RegisteredTool[] = [
   {
     definition: mcpDelegateDef,
     executor: delegateToMcp,
-    requiresApproval: false,
+    // It calls ANY tool on a connected server, including agentic ones that act
+    // on the user's behalf -- the same approval every MCP tool has.
+    requiresApproval: true,
   },
 ];

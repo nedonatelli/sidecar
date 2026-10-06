@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock fetch at module level before any imports that use it
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
+// URL fetching resolves hostnames before fetching (SSRF guard); keep tests
+// off the real network. Every name resolves to a public address.
+vi.mock('dns/promises', () => ({ lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]) }));
 
 import {
   extractPinReferences,
@@ -48,6 +51,25 @@ describe('extractPinReferences', () => {
 describe('resolveUrlReferences', () => {
   beforeEach(() => {
     fetchMock.mockReset();
+  });
+
+  // fetch follows redirects by default; a public page answering 302 to the
+  // metadata service must not have that body put in the prompt.
+  it('does not follow a redirect to a private or metadata address', async () => {
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 302,
+      headers: { get: (k: string) => (k === 'location' ? 'http://169.254.169.254/latest/meta-data/' : null) },
+    }));
+    const result = await resolveUrlReferences('see https://example.com/redirect');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: 'manual' });
+    expect(result).not.toContain('Web Page Context');
+  });
+
+  it('does not fetch a mapped-IPv6 or 127/8 address at all', async () => {
+    await resolveUrlReferences('a http://[::ffff:a9fe:a9fe]/x b http://127.0.0.2/y');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns text unchanged when no URLs', async () => {
@@ -209,6 +231,22 @@ describe('resolveFileReferences', () => {
     expect(result).toContain('Referenced Files');
     expect(result).toContain('src/app.ts');
     expect(result).toContain('file content here');
+
+    vi.restoreAllMocks();
+  });
+
+  // Mentioned paths are attached automatically, and the scanned text can come
+  // from a file someone else wrote: nothing outside the workspace, no secrets.
+  it('never attaches a path outside the workspace or a credential file', async () => {
+    const stat = vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('TOKEN=abc') as never);
+
+    const result = await resolveFileReferences(
+      'see ../../.npmrc and ../../../../../../home/u/.config/gh/hosts.yml and ./.env and ./certs/server.pem ',
+    );
+    expect(result).not.toContain('Referenced Files');
+    expect(result).not.toContain('TOKEN=abc');
+    expect(stat).not.toHaveBeenCalled();
 
     vi.restoreAllMocks();
   });

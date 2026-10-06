@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { workspace } from 'vscode';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './reviewModeHandler.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { PendingEditStore } from '../pendingEdits.js';
@@ -347,5 +348,25 @@ describe('REVIEW_OVERLAY_TOOLS', () => {
     expect(REVIEW_OVERLAY_TOOLS.has('grep')).toBe(true);
     expect(REVIEW_OVERLAY_TOOLS.has('search_files')).toBe(true);
     expect(REVIEW_OVERLAY_TOOLS.has('list_directory')).toBe(true);
+  });
+});
+
+// Review mode intercepts writes and edits before the fs tools run, so the fs
+// tools' path rules have to hold here too.
+describe('handleReviewModeTool — path rules', () => {
+  it.each([
+    ['edit_file', { path: '../../.aws/credentials', search: 'x', replace: 'y' }, /path traversal/],
+    ['write_file', { path: '../outside.txt', content: 'x' }, /path traversal/],
+    ['write_file', { path: '/etc/passwd', content: 'x' }, /absolute paths/],
+    ['edit_file', { path: '.env', search: 'A=1', replace: 'A=2' }, /secrets or credentials/],
+    ['write_file', { path: '.sidecar/memory/m.json', content: '{}' }, /internal state/],
+  ])('refuses %s %o without reading or queueing anything', async (name, input, why) => {
+    const store = makePendingStore([]);
+    const readFile = vi.spyOn(workspace.fs, 'readFile');
+    const result = await handleReviewModeTool(makeToolUse(name, input), store);
+    expect(result?.is_error).toBe(true);
+    expect(String(result?.content)).toMatch(why);
+    expect(store.record).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
   });
 });

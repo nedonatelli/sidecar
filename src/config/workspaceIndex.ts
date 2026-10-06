@@ -9,6 +9,7 @@ import type { SidecarDir } from './sidecarDir.js';
 import { readFileStreaming } from './streamingFileReader.js';
 import { getConfig } from './settings.js';
 import { getCurrentContextRules, applyContextRules } from './structuredContextRules.js';
+import { loadSidecarIgnore, isSidecarIgnored, type IgnoreMatcher } from './sidecarIgnore.js';
 import { tokenize } from './workspaceIndex/tokenize.js';
 import type { FileNode, RankedFile } from './workspaceIndex/types.js';
 import {
@@ -66,8 +67,8 @@ export class WorkspaceIndex implements Disposable {
   private sidecarDir: SidecarDir | null = null;
   /** Files the agent has accessed this session, for graph context. */
   private recentlyAccessedFiles = new Set<string>();
-  /** Extra exclude patterns from .sidecarignore */
-  private customExcludes = new Set<string>();
+  /** Patterns from .sidecarignore (see sidecarIgnore.ts) */
+  private ignoreMatchers: IgnoreMatcher[] = [];
 
   /** Active workspace roots (can be a subset if workspaceRoots is configured) */
   private activeRoots: Array<{ uri: Uri; fsPath: string }> = [];
@@ -156,8 +157,11 @@ export class WorkspaceIndex implements Disposable {
     const result = new Set<string>();
     if (this.pinnedPaths.size > 0) {
       for (const f of this.files.keys()) {
-        for (const pinPath of this.pinnedPaths) {
-          if (f === pinPath || f.startsWith(pinPath + path.sep)) {
+        for (const rawPin of this.pinnedPaths) {
+          // Keys use '/' on every OS; a pin may be typed with '\' or a
+          // trailing '/'. Comparing against path.sep matched nothing on Windows.
+          const pinPath = rawPin.replace(/\\/g, '/').replace(/\/+$/, '');
+          if (f === pinPath || f.startsWith(pinPath + '/')) {
             result.add(f);
             break;
           }
@@ -213,23 +217,12 @@ export class WorkspaceIndex implements Disposable {
     const rootUri = this.activeRoots[0]?.uri || folders[0].uri;
     const rootPath = rootUri.fsPath;
 
-    // Load .sidecarignore patterns if the file exists
-    try {
-      const ignoreUri = Uri.joinPath(rootUri, '.sidecarignore');
-      const ignoreBytes = await workspace.fs.readFile(ignoreUri);
-      const ignoreContent = Buffer.from(ignoreBytes).toString('utf-8');
-      for (const line of ignoreContent.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-          // Strip trailing slashes and glob markers for directory matching
-          this.customExcludes.add(trimmed.replace(/\/?\*?\*?$/, '').replace(/^\//, ''));
-        }
-      }
-      if (this.customExcludes.size > 0) {
-        logger.info(`[SideCar] Loaded ${this.customExcludes.size} patterns from .sidecarignore`);
-      }
-    } catch {
-      // .sidecarignore doesn't exist — use defaults only
+    // .sidecarignore applies to EVERY way a file enters the index: the full
+    // scan, the cache restore and the watchers. It used to reach only the
+    // watchers, so an ignored file was still ranked and put in the prompt.
+    this.ignoreMatchers = await loadSidecarIgnore(rootUri);
+    if (this.ignoreMatchers.length > 0) {
+      logger.info(`[SideCar] Loaded ${this.ignoreMatchers.length} patterns from .sidecarignore`);
     }
 
     // Try to restore from persistent cache first (instant startup)
@@ -238,6 +231,7 @@ export class WorkspaceIndex implements Disposable {
       const cache = await this.sidecarDir.readJson<IndexCache>(INDEX_CACHE_FILE);
       if (cache && cache.version === INDEX_VERSION && cache.files) {
         for (const f of cache.files) {
+          if (this.shouldExclude(f.path)) continue;
           this.files.set(f.path, {
             relativePath: f.path,
             sizeBytes: f.size,
@@ -311,6 +305,7 @@ export class WorkspaceIndex implements Disposable {
       const stat = statResults[j];
       if (stat.status !== 'fulfilled' || stat.value.size > MAX_FILE_SIZE) continue;
       const relativePath = this.relKey(rootPath, allUris[j].fsPath);
+      if (this.shouldExclude(relativePath)) continue;
       freshFiles.set(relativePath, {
         relativePath,
         sizeBytes: stat.value.size,
@@ -909,15 +904,8 @@ export class WorkspaceIndex implements Disposable {
     const defaultExcludes = new Set<string>(DEFAULT_EXCLUDES);
     // Check default directory excludes
     if (parts.some((p) => defaultExcludes.has(p))) return true;
-    // Check custom .sidecarignore patterns
-    if (this.customExcludes.size > 0) {
-      // Match directory names or path prefixes
-      for (const pattern of this.customExcludes) {
-        if (parts.some((p) => p === pattern)) return true;
-        if (relativePath.startsWith(pattern + path.sep) || relativePath === pattern) return true;
-      }
-    }
-    return false;
+    // .sidecarignore patterns (keys use '/', on every OS)
+    return isSidecarIgnored(relativePath, this.ignoreMatchers);
   }
 
   /**

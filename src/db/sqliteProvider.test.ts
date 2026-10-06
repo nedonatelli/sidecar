@@ -99,12 +99,15 @@ describe('assertReadOnly', () => {
     expect(() => assertReadOnly('REVOKE SELECT ON users FROM guest')).toThrow('Read-only violation');
   });
 
-  it('ignores write keywords inside -- comments', () => {
-    expect(() => assertReadOnly('SELECT id -- INSERT ignored\nFROM users')).not.toThrow();
+  // Comment syntax differs by dialect, so the guard scans comments rather than
+  // stripping them: a write word in a comment is refused (conservatively).
+  it('refuses write keywords even inside comments', () => {
+    expect(() => assertReadOnly('SELECT id -- INSERT ignored\nFROM users')).toThrow('Read-only violation');
+    expect(() => assertReadOnly('SELECT id /* UPDATE ignored */ FROM users')).toThrow('Read-only violation');
   });
 
-  it('ignores write keywords inside /* */ block comments', () => {
-    expect(() => assertReadOnly('SELECT id /* UPDATE ignored */ FROM users')).not.toThrow();
+  it('allows a read whose comment contains no write word', () => {
+    expect(() => assertReadOnly('SELECT id -- just the ids\nFROM users')).not.toThrow();
   });
 
   it('catches the second statement in a multi-statement SQL string', () => {

@@ -306,9 +306,7 @@ describe('PostgresProvider', () => {
       it(`blocks ${label}`, async () => {
         const provider = new PostgresProvider();
         await provider.connect(makeProfile({ readOnly: true }));
-        await expect(provider.query(sql)).rejects.toThrow(
-          `Read-only violation: ${verb} inside a CTE is not permitted on a read-only connection`,
-        );
+        await expect(provider.query(sql)).rejects.toThrow(`Read-only violation: "${verb}" can write`);
       });
     }
 

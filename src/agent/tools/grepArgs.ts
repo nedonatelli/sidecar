@@ -12,8 +12,49 @@
  *   clones, which broke 3 of 50 determinism pairs in a baseline.
  */
 export function grepArgs(pattern: string, where: string): string[] {
-  return ['-rn', '-E', '-I', '--exclude-dir=.git', '--include=*', '-e', pattern, '--', where];
+  return [
+    '-rn',
+    '-E',
+    '-I',
+    '--exclude-dir=.git',
+    '--include=*',
+    // After --include: when the two disagree, grep lets the LAST match win.
+    ...SECRET_FILE_GLOBS.map((g) => `--exclude=${g}`),
+    '-e',
+    pattern,
+    '--',
+    where,
+  ];
 }
+
+/**
+ * Credential files, as basename globs -- the grep counterpart of
+ * SENSITIVE_PATTERNS in tools/shared.ts, which read_file refuses. Without
+ * these, `grep(pattern="KEY")` over the workspace printed the matching lines
+ * of `.env` with no approval, and they went to the model provider.
+ */
+export const SECRET_FILE_GLOBS: readonly string[] = [
+  '.env',
+  '.env.*',
+  '*.pem',
+  '*.key',
+  '*.p12',
+  '*.pfx',
+  'id_rsa*',
+  'id_ed25519*',
+  '*credentials.json',
+  '*secret.json',
+  '*secrets.json',
+  '*secret.yml',
+  '*secrets.yml',
+  '*secret.yaml',
+  '*secrets.yaml',
+  '*secret.toml',
+  '*secrets.toml',
+  '*.secret',
+  '*token.json',
+  '*service?account.json',
+];
 
 /**
  * Git for Windows' grep glob-expands its argv like a shell would, even under

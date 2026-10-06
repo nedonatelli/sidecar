@@ -10,6 +10,7 @@ import * as path from 'path';
 import { getConfig } from '../../config/settings.js';
 import { getRoot } from './shared.js';
 import type { ToolExecutorContext } from './shared.js';
+import { blockReasonFor, classifyHostLiteral, normalizeHost, urlBlockReason } from '../../util/netGuard.js';
 
 /** Resolve and ensure the screenshots directory exists. Returns the absolute path. */
 export async function ensureScreenshotsDir(context?: ToolExecutorContext): Promise<string> {
@@ -56,8 +57,11 @@ export function validateCssSelector(sel: string): string | null {
 }
 
 /**
- * Reject URLs that could be used for SSRF: file://, non-http(s) schemes,
- * loopback addresses, link-local (169.254.x.x), and RFC 1918 private ranges.
+ * Reject URLs that could be used for SSRF: non-http(s) schemes, and hosts on
+ * the user's machine, network or cloud metadata -- classified by address
+ * range (see util/netGuard.ts), not by string. Synchronous: IP literals and
+ * localhost names only. `screenshotUrlBlockReason` adds DNS resolution, and
+ * the browser re-checks every request and redirect hop.
  * Returns an error string if the URL is blocked, or null if it is allowed.
  */
 export function validateScreenshotUrl(rawUrl: string, allowedDomains?: string[]): string | null {
@@ -72,26 +76,17 @@ export function validateScreenshotUrl(rawUrl: string, allowedDomains?: string[])
     return `Error: only http:// and https:// URLs are allowed (got "${parsed.protocol}").`;
   }
 
-  const host = parsed.hostname.toLowerCase();
+  const host = normalizeHost(parsed.hostname);
+  const cls = classifyHostLiteral(host);
+  if (cls === 'name') return null;
+  const reason = blockReasonFor(cls, host, allowedDomains);
+  return reason ? `Error: ${reason}. Add it to sidecar.visualVerify.allowedDomains to permit.` : null;
+}
 
-  // Loopback
-  if (host === 'localhost' || host === '::1' || /^127\./.test(host)) {
-    if (allowedDomains?.includes(host)) return null;
-    return `Error: loopback URLs are blocked (${host}). Add to sidecar.visualVerify.allowedDomains to permit.`;
-  }
-
-  // Link-local (169.254.x.x) — AWS/GCP metadata endpoint lives here
-  if (/^169\.254\./.test(host)) {
-    return `Error: link-local URLs are blocked (${host}).`;
-  }
-
-  // RFC 1918 private ranges
-  if (/^10\./.test(host) || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(host) || /^192\.168\./.test(host)) {
-    if (allowedDomains?.some((d) => host === d || host.endsWith(`.${d}`))) return null;
-    return `Error: private network URLs are blocked (${host}). Add to sidecar.visualVerify.allowedDomains to permit.`;
-  }
-
-  return null;
+/** The full check, DNS included. Error string, or null when allowed. */
+export async function screenshotUrlBlockReason(rawUrl: string, allowedDomains?: string[]): Promise<string | null> {
+  const reason = await urlBlockReason(rawUrl, allowedDomains);
+  return reason ? `Error: ${reason}. Add it to sidecar.visualVerify.allowedDomains to permit.` : null;
 }
 
 /**

@@ -197,7 +197,7 @@ SideCar ships with 80+ built-in tools the agent can use. The table below covers 
 | `db_list_connections`                         | List configured database connections                                                                  |
 | `db_list_tables`                              | List tables in a connected database                                                                   |
 | `db_describe_table`                           | Describe table schema, columns, and indexes                                                           |
-| `db_query`                                    | Run a read-only SQL query                                                                             |
+| `db_query`                                    | Run one read-only SQL statement (anything that might write goes to `db_execute`, which asks first)    |
 | `db_execute`                                  | Execute a write SQL statement (requires approval)                                                     |
 | `db_migrate_up`                               | Apply pending database migrations                                                                     |
 | `index_pdf`                                   | Index a PDF for citation-aware Q&A                                                                    |
@@ -257,14 +257,14 @@ When the active backend is paid (Anthropic, OpenAI), SideCar exposes a `delegate
 **How it works:**
 
 1. The frontier model calls `delegate_task({task, context?})` when it needs to explore the codebase — "find all callers of `authenticate()`", "summarize how tool execution flows through `src/agent/`", "grep for TODO comments related to caching".
-2. SideCar spawns a fresh `SideCarClient` pointed at `http://localhost:11434` (or the configured `sidecar.delegateTask.workerBaseUrl`) with its own system prompt and a **read-only** tool subset: `read_file`, `grep`, `search_files`, `list_directory`, `get_diagnostics`, `find_references`, `git_*`, `display_diagram`.
+2. SideCar spawns a fresh `SideCarClient` pointed at `http://localhost:11434` (or the configured `sidecar.delegateTask.workerBaseUrl`) with its own system prompt and a **read-only** tool subset: `read_file`, `grep`, `search_files`, `list_directory`, `get_diagnostics`, `find_references`, `git_diff`/`git_status`/`git_log`, `display_diagram`, and `run_command` limited to read-only command shapes (no `;`, `&&`, redirection or `$VARS`; inspection commands such as `cat`, `grep`, `find`, `ls`, `jq` and read-only `git`, with the flags that write or execute refused).
 3. The worker runs its own mini agent loop (max 10 iterations) with `autonomous` approval mode and produces a compact structured summary — file paths, symbol names, line numbers, recommendations.
 4. The summary is returned to the orchestrator as the `tool_result`. The orchestrator never sees the raw file contents or grep output.
 5. **The worker's token consumption does not count against the orchestrator's char budget.** Local Ollama is free; the paid model only pays for reasoning and synthesis.
 
 **Design choices:**
 
-- **Read-only by design** — the worker cannot write files, run commands, or make changes. If the task asks for edits, the worker is instructed to describe what _should_ change and leave the actual edits to the orchestrator.
+- **Read-only by design** — the worker cannot write files, change state, or reach the network (`curl`, `wget`, `awk`, `sed` and `env` are not available to it). If the task asks for edits, the worker is instructed to describe what _should_ change and leave the actual edits to the orchestrator.
 - **Not exposed to the worker** — the worker doesn't know `delegate_task` or `spawn_agent` exist, so it can't recursively delegate or spiral.
 - **Hidden from local-only setups** — the tool definition is only added to `getToolDefinitions()` when the provider is `anthropic` or `openai`. Local Ollama users don't see a pointless option.
 - **Configurable worker** — `sidecar.delegateTask.workerModel` picks which Ollama model runs the worker (default: same as chat). A code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b` gives the best research results.

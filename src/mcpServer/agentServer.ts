@@ -1,4 +1,5 @@
 import * as http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -56,6 +57,27 @@ export interface McpAgentServerStatus {
   running: boolean;
   port: number;
   activeTaskCount: number;
+}
+
+/**
+ * True when a request can only have come from a local, non-browser client:
+ * no Origin header, a Host naming this loopback port, and a JSON body type.
+ */
+export function isLocalRequest(req: http.IncomingMessage, port: number): boolean {
+  if (req.headers.origin !== undefined) return false;
+  const host = (req.headers.host ?? '').toLowerCase();
+  if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return false;
+  if (req.method === 'POST') {
+    const type = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    if (type !== 'application/json') return false;
+  }
+  return true;
+}
+
+function constantTimeEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
 export class McpAgentServer {
@@ -162,12 +184,25 @@ export class McpAgentServer {
     }
 
     const httpServer = http.createServer(async (req, res) => {
+      // Browser and DNS-rebinding guard, before anything else. Binding to
+      // 127.0.0.1 keeps other MACHINES out, not other ORIGINS: any web page
+      // the user opens can POST here, and `Content-Type: text/plain;
+      // charset=application/json` is a CORS "simple" request that needs no
+      // preflight. MCP clients are not browsers -- they send no Origin -- and
+      // a rebound DNS name arrives with a foreign Host. Refuse both, and accept
+      // only a real JSON content type.
+      if (!isLocalRequest(req, this.getStatus().port)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: cross-origin or non-local Host' }));
+        return;
+      }
+
       // Auth check — fail closed. When requireAuth is on, every request must
       // carry a matching bearer token; a missing server token rejects all.
       if (this.options.requireAuth) {
         const authHeader = req.headers['authorization'] ?? '';
         const expected = this.options.authToken ? `Bearer ${this.options.authToken}` : null;
-        if (!expected || authHeader !== expected) {
+        if (!expected || !constantTimeEquals(authHeader, expected)) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Unauthorized' }));
           return;

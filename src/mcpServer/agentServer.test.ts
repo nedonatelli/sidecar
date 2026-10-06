@@ -262,3 +262,65 @@ describe('McpAgentServer — runTask', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Browser / DNS-rebinding guard. Loopback binding keeps other machines out,
+// not other origins: any web page can POST to 127.0.0.1, and a text/plain
+// body is a CORS "simple" request with no preflight. With auth off (or a
+// known token), that page could start an autonomous agent run.
+// ---------------------------------------------------------------------------
+
+describe('McpAgentServer — browser and DNS-rebinding guard', () => {
+  const toolsCall = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'run_agent_task', arguments: { task: 'touch pwned' } },
+  });
+
+  async function rawPost(port: number, headers: Record<string, string>): Promise<number> {
+    const http = await import('node:http');
+    return new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'POST', headers }, (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      });
+      req.on('error', reject);
+      req.end(toolsCall);
+    });
+  }
+
+  it.each([
+    [
+      'a browser page (Origin + CORS-simple content type)',
+      { Origin: 'https://evil.example', 'Content-Type': 'text/plain;charset=application/json' },
+    ],
+    ['any request carrying an Origin', { Origin: 'http://localhost:3000', 'Content-Type': 'application/json' }],
+    ['a rebound DNS name (foreign Host)', { Host: 'evil.example', 'Content-Type': 'application/json' }],
+    ['a non-JSON content type', { 'Content-Type': 'text/plain;charset=application/json' }],
+  ])('refuses %s before the agent can run', async (_label, headers) => {
+    mockRunAgentLoop.mockClear();
+    const server = new McpAgentServer(makeOptions({ requireAuth: false }));
+    await server.start();
+    try {
+      expect(await rawPost(server.getStatus().port, headers as Record<string, string>)).toBe(403);
+      expect(mockRunAgentLoop).not.toHaveBeenCalled();
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('still serves a local, non-browser JSON client', async () => {
+    const server = new McpAgentServer(makeOptions({ requireAuth: false }));
+    await server.start();
+    try {
+      const status = await rawPost(server.getStatus().port, {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      });
+      expect(status).not.toBe(403);
+    } finally {
+      await server.stop();
+    }
+  });
+});

@@ -6,6 +6,7 @@ import type { FacetDefinition } from './facetLoader.js';
 import type { FacetRegistry } from './facetRegistry.js';
 import { FacetRpcBus, generateRpcTools, type RpcHandler, type RpcWireTraceEntry } from './facetRpcBus.js';
 import { runForEachWithCap } from '../parallelDispatch.js';
+import { getToolDefinitionsForTier } from '../tools.js';
 import { logger, kv } from '../../system/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -152,9 +153,19 @@ export async function dispatchFacet(
   // Compose the agent-options shape: tool allowlist → toolOverride
   // + modeToolPermissions (same technique localWorker uses), plus
   // the caller's own agentOptions extras.
+  // The catalog the run would otherwise get. A facet's allowlist filters THIS,
+  // so it holds even when the caller passes no catalog of its own -- which is
+  // every production caller.
+  const baseCatalog = (): ToolDefinition[] =>
+    options.agentOptions?.toolOverride ??
+    getToolDefinitionsForTier(
+      options.agentOptions?.toolTier ?? 'full',
+      options.agentOptions?.mcpManager,
+      options.agentOptions?.config,
+    );
   let toolOverride: ToolDefinition[] | undefined =
     facet.toolAllowlist && facet.toolAllowlist.length > 0
-      ? buildToolOverride(facet.toolAllowlist, options.agentOptions?.toolOverride)
+      ? buildToolOverride(facet.toolAllowlist, baseCatalog())
       : undefined;
 
   let modeToolPermissions: Record<string, 'allow' | 'deny' | 'ask'> | undefined = facet.toolAllowlist
@@ -175,7 +186,8 @@ export async function dispatchFacet(
       extraTools = rpcTools;
       const rpcToolDefs = rpcTools.map((t) => t.definition);
       const rpcNames = rpcToolDefs.map((d) => d.name);
-      toolOverride = toolOverride ? [...toolOverride, ...rpcToolDefs] : rpcToolDefs;
+      // Peer tools ADD to the facet's surface; they never replace it.
+      toolOverride = [...(toolOverride ?? baseCatalog()), ...rpcToolDefs];
       modeToolPermissions = {
         ...(modeToolPermissions ?? {}),
         ...Object.fromEntries(rpcNames.map((n) => [n, 'allow' as const])),
@@ -464,17 +476,14 @@ export async function dispatchFacets(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildToolOverride(
-  allowlist: readonly string[],
-  baseTools: readonly ToolDefinition[] | undefined,
-): ToolDefinition[] | undefined {
-  if (!baseTools) {
-    // Caller didn't hand us a tool catalog — the runAgentLoop call
-    // will fall back to the default getToolDefinitions(). Filtering
-    // happens via modeToolPermissions, which denies non-allowlisted
-    // tools at dispatch time regardless of the visible catalog.
-    return undefined;
-  }
+/**
+ * The facet's allowlist applied to a catalog. The filtered catalog IS the
+ * enforcement: the loop's catalog gate refuses any tool not in it.
+ * modeToolPermissions cannot do this job -- it only carries 'allow' entries,
+ * and a tool absent from it falls through to the run's approval mode, which
+ * for a facet is autonomous.
+ */
+function buildToolOverride(allowlist: readonly string[], baseTools: readonly ToolDefinition[]): ToolDefinition[] {
   const allowed = new Set(allowlist);
   return baseTools.filter((t) => allowed.has(t.name));
 }

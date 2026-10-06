@@ -2,6 +2,8 @@ import { workspace, commands, Uri, CancellationToken, SymbolInformation } from '
 import * as path from 'path';
 import { getConfig } from './settings.js';
 import { unescapeHtml } from '../util/html.js';
+import { isSensitiveFile } from '../agent/tools/shared.js';
+import { classifyHostLiteral, urlBlockReason } from '../util/netGuard.js';
 
 export interface WorkspaceFile {
   relativePath: string;
@@ -204,8 +206,15 @@ export async function resolveFileReferences(text: string): Promise<string> {
     const candidate = match[1].trim();
     if (seen.has(candidate)) continue;
     seen.add(candidate);
+    // A path merely MENTIONED in the text is attached automatically -- and the
+    // text can include an attached file someone else wrote. So: inside the
+    // workspace only (Uri.joinPath resolves `../` right out of it), and never
+    // a credential file.
+    const base = path.resolve(root.fsPath);
+    const resolved = path.resolve(base, candidate.replace(/^\/+/, ''));
+    if (!resolved.startsWith(base + path.sep) || isSensitiveFile(resolved)) continue;
     try {
-      const fileUri = Uri.joinPath(root, candidate);
+      const fileUri = Uri.file(resolved);
       const stat = await workspace.fs.stat(fileUri);
       if (stat.size > MAX_FILE_SIZE) continue;
       const bytes = await workspace.fs.readFile(fileUri);
@@ -235,24 +244,33 @@ const URL_FETCH_TIMEOUT = 10000;
  */
 export function isPrivateUrl(urlStr: string): boolean {
   try {
-    const parsed = new URL(urlStr);
-    const host = parsed.hostname;
-    // Block localhost
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return true;
-    // Block private IPv4 ranges and cloud metadata
-    const ipv4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-    if (ipv4) {
-      const [, a, b] = ipv4.map(Number);
-      if (a === 10) return true; // 10.0.0.0/8
-      if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-      if (a === 192 && b === 168) return true; // 192.168.0.0/16
-      if (a === 169 && b === 254) return true; // 169.254.0.0/16 (link-local, cloud metadata)
-      if (a === 0) return true; // 0.0.0.0/8
-    }
-    return false;
+    // By address range, not by string (see util/netGuard.ts): the old list
+    // missed the rest of 127/8 and IPv4-mapped IPv6. Literals only; the fetch
+    // below adds DNS resolution and checks every redirect hop.
+    const cls = classifyHostLiteral(new URL(urlStr).hostname);
+    return cls !== 'name' && cls !== 'public';
   } catch {
     return true; // Block malformed URLs
   }
+}
+
+/**
+ * fetch() with every hop checked: `fetch` follows redirects by default, so a
+ * public URL answering 302 to 169.254.169.254 would be fetched and its body
+ * put in the prompt. Follows at most 3 redirects, re-checking each Location
+ * (DNS included); returns null when any hop is blocked.
+ */
+async function fetchPublic(url: string, init: RequestInit): Promise<Response | null> {
+  let current = url;
+  for (let hop = 0; hop <= 3; hop++) {
+    if (await urlBlockReason(current)) return null;
+    if (!isAllowedOutboundHost(current)) return null;
+    const response = await fetch(current, { ...init, redirect: 'manual' });
+    const location = response.status >= 300 && response.status < 400 ? response.headers.get('location') : null;
+    if (!location) return response;
+    current = new URL(location, current).toString();
+  }
+  return null;
 }
 
 /**
@@ -314,11 +332,11 @@ export async function resolveUrlReferences(text: string): Promise<string> {
     if (isPrivateUrl(url)) continue; // SSRF protection
     if (!isAllowedOutboundHost(url)) continue; // outbound allowlist (when configured)
     try {
-      const response = await fetch(url, {
+      const response = await fetchPublic(url, {
         signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),
         headers: { 'User-Agent': 'SideCar-VSCode/1.0' },
       });
-      if (!response.ok) continue;
+      if (!response?.ok) continue;
       const contentType = response.headers.get('content-type') || '';
       if (!contentType.includes('text/html') && !contentType.includes('text/plain')) continue;
       const html = await response.text();

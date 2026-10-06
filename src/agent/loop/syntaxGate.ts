@@ -33,10 +33,26 @@ function shellQuote(p: string): string {
   return `'${p.replace(/'/g, `'\\''`)}'`;
 }
 
-/** The parse-check command for a file, or null if no cheap per-file checker applies. */
+/**
+ * Path characters that are literal inside single quotes in EVERY shell this
+ * command may reach. It runs in the user's integrated terminal -- bash, zsh,
+ * PowerShell or cmd -- and `shellQuote`'s `'\''` escaping is POSIX-only:
+ * PowerShell reads a file named `x';cmd;'.py` as three statements. Rather than
+ * quote per shell, refuse anything outside this set; cmd does not treat `'` as
+ * a quote at all, and none of these characters are metacharacters there.
+ */
+const SHELL_SAFE_PATH = /^[A-Za-z0-9 ._/\\:@+-]+$/;
+
+/**
+ * The parse-check command for a file, or null if no cheap per-file checker
+ * applies -- or if the path holds a character a shell could interpret. Such a
+ * file is still checked in-process by tree-sitter; it only loses the shell
+ * checker's extra precision (e.g. IndentationError).
+ */
 export function parseCheckCommand(relPath: string): string | null {
   const checker = PARSE_CHECKERS.find((c) => c.ext.test(relPath));
-  return checker ? checker.cmd(shellQuote(relPath)) : null;
+  if (!checker || !SHELL_SAFE_PATH.test(relPath)) return null;
+  return checker.cmd(shellQuote(relPath));
 }
 
 /**

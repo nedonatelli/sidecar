@@ -137,7 +137,7 @@ For shared repos or CI environments where you want restrictions checked into sou
 }
 ```
 
-SideCar routes workspace settings through a per-session trust prompt (`checkWorkspaceConfigTrust`) before applying them — a cloned repo's settings don't take effect until you acknowledge the trust prompt. This prevents a malicious repo from pre-configuring a permissive mode without your awareness.
+SideCar routes workspace settings through a trust prompt before applying them — a cloned repo's settings don't take effect until you acknowledge it. Settings that could send your API keys elsewhere, run a program, or lower approval (`baseUrl`, `provider`, `agentMode`, `eventHooks`, `visualVerify.browserPath`, `mcpServer.*` and others) are **ignored** until you allow them: SideCar uses your own settings in the meantime, and asks again if the repo's values change. A project `.mcp.json` triggers the MCP trust prompt too. This prevents a malicious repo from pre-configuring a permissive mode, or pointing your API key at its own server, without your awareness. See [SECURITY.md](https://github.com/nedonatelli/sidecar/blob/main/SECURITY.md#workspace-trust-gating) for the full list.
 
 ---
 

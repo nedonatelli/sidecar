@@ -784,7 +784,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   const pathError = validateFilePath(filePath);
   if (pathError) throw new Error(pathError);
   const protectedError = isProtectedWritePath(filePath);
-  if (protectedError) return protectedError;
+  if (protectedError) throw new Error(protectedError);
   if (isSensitiveFile(filePath)) {
     throw new Error(
       `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to write to this file.`,
@@ -971,7 +971,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const pathError = validateFilePath(filePath);
   if (pathError) throw new Error(pathError);
   const protectedError = isProtectedWritePath(filePath);
-  if (protectedError) return protectedError;
+  if (protectedError) throw new Error(protectedError);
   if (isSensitiveFile(filePath)) {
     throw new Error(
       `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to edit this file.`,
@@ -2036,7 +2036,7 @@ export async function deleteFile(input: Record<string, unknown>, context?: ToolE
   const pathError = validateFilePath(filePath);
   if (pathError) throw new Error(pathError);
   const protectedError = isProtectedWritePath(filePath);
-  if (protectedError) return protectedError;
+  if (protectedError) throw new Error(protectedError);
   if (isSensitiveFile(filePath)) {
     throw new Error(
       `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to delete this file.`,

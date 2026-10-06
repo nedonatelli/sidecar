@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { delegateToMcp, resolveTaskTool } from './mcpDelegate.js';
+import { delegateToMcp, resolveTaskTool, mcpDelegateTools } from './mcpDelegate.js';
 import type { ToolExecutorContext } from './shared.js';
 
 // ---------------------------------------------------------------------------
@@ -266,5 +266,27 @@ describe('delegateToMcp — timeout and abort', () => {
 
     expect(result).toContain('aborted');
     expect(result).toContain('math-engine/run_task');
+  });
+});
+
+// delegate_to_mcp reaches ANY tool on a connected server, so it must carry
+// the approval and the per-tool deny that the tool itself would.
+describe('delegate_to_mcp policy', () => {
+  it('requires approval, like every MCP tool', () => {
+    expect(mcpDelegateTools.find((t) => t.definition.name === 'delegate_to_mcp')?.requiresApproval).toBe(true);
+  });
+
+  it('honours a toolPermissions deny on the target MCP tool', async () => {
+    const mgr = makeMcpManager({ toolNames: ['run_task'] });
+    const ctx: ToolExecutorContext = {
+      config: {
+        mcpDelegationEnabled: true,
+        mcpDelegationAllowedServers: [],
+        toolPermissions: { 'mcp_math-engine_run_task': 'deny' },
+      } as never,
+      mcpManager: mgr as never,
+    };
+    await expect(delegateToMcp({ server: 'math-engine', task: 'x' }, ctx)).rejects.toThrow(/denied/);
+    expect(mgr.callServerTool).not.toHaveBeenCalled();
   });
 });

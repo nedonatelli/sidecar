@@ -146,6 +146,13 @@ describe('grep', () => {
     vi.clearAllMocks();
   });
 
+  it('refuses to search a credential file directly, without running grep', async () => {
+    for (const p of ['.env', 'config/.env.local', 'certs/server.pem']) {
+      await expect(grep({ pattern: '.', path: p })).rejects.toThrow(/secrets or credentials/);
+    }
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
   it('returns formatted matches when grep finds results', async () => {
     mockExecFile.mockImplementationOnce(
       (_cmd: unknown, _args: unknown, _opts: unknown, cb: (err: null, result: { stdout: string }) => void) => {
