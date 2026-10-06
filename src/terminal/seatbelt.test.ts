@@ -132,3 +132,44 @@ describe('wrapWithSeatbelt', () => {
     expect(args).toHaveLength(3);
   });
 });
+
+// Ways a sandboxed command could get code run OUTSIDE the sandbox later
+// (security review 2026-10). Checked on the profile text: these tests run on
+// every OS, but nothing here executes sandbox-exec.
+describe('buildSandboxProfile carve-outs', () => {
+  const ws = '/Users/dev/my-project';
+  const home = '/Users/dev';
+  const profile = buildSandboxProfile(ws, home);
+  const lastIndex = (s: string) => profile.lastIndexOf(s);
+
+  it('binds and listens on localhost only', () => {
+    expect(profile).toContain('(allow network-inbound (local ip "localhost:*"))');
+    expect(profile).toContain('(allow network-bind (local ip "localhost:*"))');
+    expect(profile).not.toContain('"*:*"');
+  });
+
+  it('denies writes that make unsandboxed code run, AFTER the workspace allow', () => {
+    for (const rule of [
+      `(subpath "${ws}/.git/hooks")`,
+      `(literal "${ws}/.git/config")`,
+      `(subpath "${ws}/.vscode")`,
+      `(literal "${ws}/.mcp.json")`,
+      `(literal "${ws}/.sidecar/settings.json")`,
+    ]) {
+      expect(lastIndex(rule), rule).toBeGreaterThan(lastIndex(`(subpath "${ws}"))`));
+    }
+    expect(lastIndex('(deny file-write*')).toBeGreaterThan(lastIndex('(allow file-write*'));
+  });
+
+  it('denies writes to PATH directories inside the writable caches', () => {
+    for (const dir of ['.local/bin', '.cargo/bin', 'go/bin']) {
+      expect(profile).toContain(`(subpath "${home}/${dir}")`);
+    }
+  });
+
+  it('denies the launchers that escape via launchd or LaunchServices', () => {
+    for (const bin of ['/bin/launchctl', '/usr/bin/osascript', '/usr/bin/open']) {
+      expect(profile).toContain(`(literal "${bin}")`);
+    }
+  });
+});

@@ -59,8 +59,8 @@ export function buildSandboxProfile(workspacePath: string, homeDir = os.homedir(
 ; Restrict inbound to localhost so the agent can't open a server
 ; reachable from outside the machine.
 (allow network-outbound)
-(allow network-inbound (local ip "*:*"))
-(allow network-bind (local ip "*:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-bind (local ip "localhost:*"))
 
 ; /dev pseudo-files
 (allow file-write*
@@ -97,6 +97,39 @@ export function buildSandboxProfile(workspacePath: string, homeDir = os.homedir(
   (subpath "${home}/Library/Caches")
   (subpath "${home}/Library/Logs")
   (subpath "${home}/Library/Application Support/pip"))
+
+; ---------------------------------------------------------------------------
+; Carve-outs. In SBPL the LAST matching rule wins, so these denies override
+; the broad allows above. Each blocks a way for a sandboxed command to get
+; code run OUTSIDE the sandbox later.
+; ---------------------------------------------------------------------------
+
+; Workspace files that make unsandboxed code run: git hooks and git config
+; (core.hooksPath, core.fsmonitor -- SideCar's own git commands run
+; unsandboxed), VS Code settings and tasks (settings can turn this sandbox
+; off), project MCP servers, and SideCar's settings.
+(deny file-write*
+  (subpath "${ws}/.git/hooks")
+  (literal "${ws}/.git/config")
+  (subpath "${ws}/.vscode")
+  (literal "${ws}/.mcp.json")
+  (literal "${ws}/.sidecar/settings.json"))
+
+; PATH directories inside the writable caches: a shim placed there outlives
+; the sandbox and runs the next time the user types the command.
+(deny file-write*
+  (subpath "${home}/.local/bin")
+  (subpath "${home}/.cargo/bin")
+  (subpath "${home}/go/bin")
+  (subpath "${home}/.go/bin"))
+
+; Programs that start other programs outside this sandbox via launchd or
+; LaunchServices. Partial: (allow mach*) above stays, as narrowing Mach
+; lookups breaks ordinary CLI tools.
+(deny process-exec
+  (literal "/bin/launchctl")
+  (literal "/usr/bin/osascript")
+  (literal "/usr/bin/open"))
 `;
 }
 
