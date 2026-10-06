@@ -339,16 +339,21 @@ export function isSensitiveFile(filePath: string): boolean {
  * it targets SideCar's protected internal state. Returns an error
  * message if blocked, or null if the write is allowed.
  *
- * Paths are normalised to use forward slashes so the same prefix
- * check works for Windows-style input.
+ * The path is judged the way the filesystem will resolve it, not as typed:
+ * `.sidecar/./memory/x`, `.sidecar//logs/x` and `./.sidecar/settings.json`
+ * all land on protected state once joined to the root, and Windows and macOS
+ * filesystems are case-insensitive, so `.SIDECAR/memory` is the same folder.
  */
 export function isProtectedWritePath(filePath: string): string | null {
-  const normalized = filePath.replace(/\\/g, '/');
+  const normalized = path.posix
+    .normalize(filePath.replace(/\\/g, '/'))
+    .replace(/^(\.\/)+/, '')
+    .toLowerCase();
   if (normalized === '.sidecar/settings.json') {
     return `Refusing to write SideCar's own settings file (${filePath}). Ask the user to edit it directly.`;
   }
   for (const prefix of PROTECTED_WRITE_PREFIXES) {
-    if (normalized.startsWith(prefix) || normalized.startsWith('./' + prefix)) {
+    if (normalized.startsWith(prefix) || normalized === prefix.slice(0, -1)) {
       return (
         `Refusing to write under ${prefix} — this path is SideCar's internal state ` +
         `(audit log, persistent memory, session history, or cache) and must not be modified by the agent. ` +

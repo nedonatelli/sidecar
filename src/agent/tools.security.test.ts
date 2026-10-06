@@ -96,6 +96,21 @@ describe('isProtectedWritePath', () => {
     expect(isProtectedWritePath('.sidecar/sessions/last.json')).not.toBeNull();
     expect(isProtectedWritePath('.sidecar/cache/embeddings.bin')).not.toBeNull();
   });
+  // Judged as the filesystem will resolve the path, not as typed.
+  it('blocks the same paths spelled differently', () => {
+    for (const p of [
+      '.sidecar/./memory/agent-memories.json',
+      '.sidecar//logs/audit.jsonl',
+      './.sidecar/settings.json',
+      '././.sidecar/sessions/x.json',
+      '.SIDECAR/memory/x.json',
+      '.sidecar\\cache\\x.bin',
+      'src/../.sidecar/logs/a.log',
+      '.sidecar/memory',
+    ]) {
+      expect(isProtectedWritePath(p), p).not.toBeNull();
+    }
+  });
   it('blocks writes to .sidecar/settings.json specifically', () => {
     expect(isProtectedWritePath('.sidecar/settings.json')).not.toBeNull();
   });
