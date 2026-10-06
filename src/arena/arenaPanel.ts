@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomBytes } from 'crypto';
 import type { SideCarClient } from '../ollama/client.js';
 import type { StreamEvent } from '../ollama/types.js';
 import type { EloStore } from './eloStore.js';
@@ -195,9 +196,14 @@ export class ArenaPanel {
   }
 
   private buildHtml(): string {
+    // Nonce CSP: the page renders model output and workspace-sourced ratings,
+    // and its script can start an autonomous agent run -- so no script may
+    // execute except this page's own.
+    const nonce = randomBytes(16).toString('hex');
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SideCar Arena</title>
@@ -453,7 +459,7 @@ export class ArenaPanel {
   <button id="send-btn">Send</button>
 </div>
 
-<script>
+<script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 
 // ---------------------------------------------------------------------------
@@ -478,7 +484,10 @@ const $leaderboard = document.getElementById('leaderboard');
 const $emptyState = document.getElementById('empty-state');
 const $modeIndicator = document.getElementById('mode-indicator');
 
-function elo(model) { return ratings[model] ?? 1200; }
+// Every number rendered into HTML goes through this: a rating or count that is
+// not a finite number renders as a number anyway, never as markup.
+function num(v, fallback) { const n = Number(v); return Number.isFinite(n) ? Math.round(n) : fallback; }
+function elo(model) { return num(ratings[model], 1200); }
 
 // ---------------------------------------------------------------------------
 // Render pills
@@ -499,9 +508,9 @@ function renderLeaderboard() {
   if (all.length === 0) { $leaderboard.innerHTML = ''; return; }
   $leaderboard.innerHTML = '<span style="opacity:.6;margin-right:4px">ELO:</span>' +
     all.map(([m, r]) => {
-      const w = (stats.wins || {})[m] ?? 0;
-      const l = (stats.losses || {})[m] ?? 0;
-      return \`<span class="lb-entry"><span class="lb-model">\${escHtml(shortLabel(m))}</span><span class="lb-score">\${r}</span><span class="lb-record">(\${w}W \${l}L)</span></span>\`;
+      const w = num((stats.wins || {})[m], 0);
+      const l = num((stats.losses || {})[m], 0);
+      return \`<span class="lb-entry"><span class="lb-model">\${escHtml(shortLabel(m))}</span><span class="lb-score">\${num(r, 1200)}</span><span class="lb-record">(\${w}W \${l}L)</span></span>\`;
     }).join('');
 }
 
@@ -522,12 +531,12 @@ function buildLanes(lanes) {
     lane.innerHTML = \`
       <div class="lane-header">
         <span class="lane-model-name" title="\${escHtml(model)}">\${escHtml(shortLabel(model))}</span>
-        <span class="lane-elo">\${eloVal}</span>
+        <span class="lane-elo">\${num(eloVal, 1200)}</span>
         <span class="lane-status" id="status-\${i}"><span class="spinner"></span></span>
       </div>
       <div class="lane-response" id="resp-\${i}"></div>
       <div class="lane-footer">
-        <button class="vote-btn" id="vote-\${i}" onclick="vote(\${i})" disabled>👑 Best</button>
+        <button class="vote-btn" id="vote-\${i}" data-vote="\${i}" disabled>👑 Best</button>
       </div>
     \`;
     $lanes.appendChild(lane);
@@ -600,6 +609,12 @@ function vote(index) {
 // Send
 // ---------------------------------------------------------------------------
 $send.addEventListener('click', sendPrompt);
+// Vote buttons are created per round; one delegated listener (the CSP forbids
+// inline onclick handlers).
+$lanes.addEventListener('click', e => {
+  const btn = e.target.closest('[data-vote]');
+  if (btn && !btn.disabled) vote(Number(btn.dataset.vote));
+});
 $prompt.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
 });

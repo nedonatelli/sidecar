@@ -10,6 +10,30 @@ import { ELO_DEFAULT_RATING, ELO_K_FACTOR, type EloState } from './types.js';
  * ELO formula: standard K=32, expected score E_a = 1 / (1 + 10^((Rb-Ra)/400)).
  * For multi-way contests (winner vs N losers) each pair is updated independently.
  */
+/**
+ * elo.json lives in the workspace's .sidecar/ folder, so a cloned repo can ship
+ * one. Keep only the shape the store writes -- numbers keyed by model id --
+ * so nothing else in it ever reaches the Arena webview.
+ */
+export function sanitizeEloState(raw: unknown): EloState {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const numbers = (v: unknown, integer: boolean): Record<string, number> => {
+    const out: Record<string, number> = {};
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+    for (const [k, n] of Object.entries(v)) {
+      if (typeof n === 'number' && Number.isFinite(n) && (!integer || (Number.isInteger(n) && n >= 0))) out[k] = n;
+    }
+    return out;
+  };
+  const total = obj.totalMatches;
+  return {
+    ratings: numbers(obj.ratings, false),
+    wins: numbers(obj.wins, true),
+    losses: numbers(obj.losses, true),
+    totalMatches: typeof total === 'number' && Number.isInteger(total) && total >= 0 ? total : 0,
+  };
+}
+
 export class EloStore {
   private state: EloState = {
     ratings: {},
@@ -23,7 +47,7 @@ export class EloStore {
   async load(): Promise<void> {
     try {
       const raw = await fs.readFile(this.storePath, 'utf-8');
-      this.state = JSON.parse(raw) as EloState;
+      this.state = sanitizeEloState(JSON.parse(raw));
     } catch {
       // No file yet — start from scratch with empty state.
     }
