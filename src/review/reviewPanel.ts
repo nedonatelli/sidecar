@@ -126,7 +126,8 @@ class ReviewPanel {
 // HTML / CSS / JS builder
 // ---------------------------------------------------------------------------
 
-function buildHtml(nonce: string): string {
+/** Exported for the DOM test (reviewPanel.dom.test.ts). */
+export function buildHtml(nonce: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -191,7 +192,7 @@ var items = [];
 var pending = {};   // facet: id -> true when still pending
 
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function fmtMs(ms) {
   return ms >= 1000 ? (ms/1000).toFixed(1)+'s' : ms+'ms';
@@ -218,7 +219,7 @@ function renderForks() {
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     html += '<div class="card" data-id="' + esc(it.id) + '">';
-    html += '<div class="card-header" onclick="selFork(\'' + esc(it.id) + '\')">';
+    html += '<div class="card-header" data-action="select" data-id="' + esc(it.id) + '">';
     html += '<label class="card-radio"><input type="radio" name="w" value="' + esc(it.id) + '"><span class="card-title">' + esc(it.label) + '</span></label>';
     html += '<div class="stats"><span>' + it.files.length + ' file' + (it.files.length!==1?'s':'') + '</span>';
     html += '<span class="stat-add">+' + it.linesAdded + '</span><span class="stat-del">-' + it.linesRemoved + '</span>';
@@ -229,15 +230,21 @@ function renderForks() {
   }
   html += '</div>';
   if (items.length > 0) {
-    html += '<div class="bottom-bar"><button class="btn-p" id="applyBtn" disabled onclick="doApply()">Apply Selected Fork</button><button class="btn-s" onclick="vsc.postMessage({command:\'dismiss\'})">Dismiss</button></div>';
+    html += '<div class="bottom-bar"><button class="btn-p" id="applyBtn" disabled data-action="apply">Apply Selected Fork</button><button class="btn-s" data-action="dismiss">Dismiss</button></div>';
   }
   document.getElementById('root').innerHTML = html;
+}
+
+function cardById(id) {
+  var cards = document.querySelectorAll('.card');
+  for (var i = 0; i < cards.length; i++) if (cards[i].getAttribute('data-id') === id) return cards[i];
+  return null;
 }
 
 function selFork(id) {
   var cards = document.querySelectorAll('.card');
   for (var i = 0; i < cards.length; i++) cards[i].classList.remove('selected');
-  var card = document.querySelector('.card[data-id="' + id + '"]');
+  var card = cardById(id);
   if (card) card.classList.add('selected');
   var radio = card && card.querySelector('input[type=radio]');
   if (radio) radio.checked = true;
@@ -251,7 +258,7 @@ function doApply() {
   var id = radio.value;
   var btn = document.getElementById('applyBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
-  var card = document.querySelector('.card[data-id="' + id + '"]');
+  var card = cardById(id);
   if (card) card.style.opacity = '0.6';
   vsc.postMessage({command:'applyFork', forkId:id});
 }
@@ -274,18 +281,18 @@ function renderFacets() {
     if (it.outputSnippet) html += '<div class="snippet">' + esc(it.outputSnippet) + '</div>';
     html += '<div class="diff-wrap">' + renderDiff(it.diff) + '</div>';
     html += '<div class="card-actions" id="act-' + esc(it.id) + '">';
-    html += '<button class="btn-acc" onclick="doAccept(\'' + esc(it.id) + '\')">Accept</button>';
-    html += '<button class="btn-rej" onclick="doReject(\'' + esc(it.id) + '\')">Reject</button>';
-    html += '<button class="btn-skip" onclick="doSkip(\'' + esc(it.id) + '\')">Skip</button>';
+    html += '<button class="btn-acc" data-action="accept" data-id="' + esc(it.id) + '">Accept</button>';
+    html += '<button class="btn-rej" data-action="reject" data-id="' + esc(it.id) + '">Reject</button>';
+    html += '<button class="btn-skip" data-action="skip" data-id="' + esc(it.id) + '">Skip</button>';
     html += '</div></div>';
   }
   html += '</div>';
-  html += '<div class="bottom-bar"><button class="btn-s" onclick="vsc.postMessage({command:\'dismiss\'})">Done</button></div>';
+  html += '<div class="bottom-bar"><button class="btn-s" data-action="dismiss">Done</button></div>';
   document.getElementById('root').innerHTML = html;
 }
 
 function setCardStatus(id, cls, msg) {
-  var card = document.querySelector('.card[data-id="' + id + '"]');
+  var card = cardById(id);
   if (card) {
     card.classList.remove('selected');
     if (cls) card.classList.add(cls);
@@ -309,6 +316,23 @@ function doSkip(id) {
   vsc.postMessage({command:'skipFacet', facetId:id});
 }
 
+// ---- clicks ----
+// One delegated listener. The panel's CSP allows only this nonce'd script, so
+// inline onclick="..." attributes never ran: every Fork/Facet button was dead.
+document.addEventListener('click', function(e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+  if (!el || el.disabled) return;
+  var id = el.getAttribute('data-id');
+  switch (el.getAttribute('data-action')) {
+    case 'select': selFork(id); break;
+    case 'apply': doApply(); break;
+    case 'dismiss': vsc.postMessage({command:'dismiss'}); break;
+    case 'accept': doAccept(id); break;
+    case 'reject': doReject(id); break;
+    case 'skip': doSkip(id); break;
+  }
+});
+
 // ---- message handler ----
 
 window.addEventListener('message', function(e) {
@@ -321,7 +345,7 @@ window.addEventListener('message', function(e) {
   } else if (msg.command === 'applyResult') {
     if (mode === 'fork') {
       var btn = document.getElementById('applyBtn');
-      var card = document.querySelector('.card[data-id="' + msg.id + '"]');
+      var card = cardById(msg.id);
       if (msg.ok) {
         if (btn) btn.textContent = '✓ Applied';
         if (card) { card.style.opacity='1'; card.classList.add('accepted'); }
