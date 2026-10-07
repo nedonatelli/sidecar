@@ -128,8 +128,8 @@ describe('compressGitDiff', () => {
 describe('compactSourceFile', () => {
   it('strips block comments', () => {
     const src = '/* this is a block comment */\nexport const x = 1;';
-    expect(compactSourceFile(src)).not.toContain('block comment');
-    expect(compactSourceFile(src)).toContain('export const x = 1;');
+    expect(compactSourceFile(src, 'a.ts')).not.toContain('block comment');
+    expect(compactSourceFile(src, 'a.ts')).toContain('export const x = 1;');
   });
 
   it('strips JSDoc blocks', () => {
@@ -140,7 +140,7 @@ describe('compactSourceFile', () => {
       ' */',
       'export function greet(name: string) { return "hi " + name; }',
     ].join('\n');
-    const result = compactSourceFile(src);
+    const result = compactSourceFile(src, 'a.ts');
     expect(result).not.toContain('@param');
     expect(result).not.toContain('@returns');
     expect(result).toContain('export function greet');
@@ -148,7 +148,7 @@ describe('compactSourceFile', () => {
 
   it('strips full-line // comments but preserves trailing inline comments', () => {
     const src = ['// top-level note', 'const x = 1; // inline note', '// another'].join('\n');
-    const result = compactSourceFile(src);
+    const result = compactSourceFile(src, 'a.ts');
     expect(result).not.toContain('top-level note');
     expect(result).not.toContain('another');
     expect(result).toContain('inline note');
@@ -156,7 +156,7 @@ describe('compactSourceFile', () => {
 
   it('strips full-line # comments but preserves shebangs', () => {
     const src = ['#!/usr/bin/env python', '# a comment', 'print("hi")'].join('\n');
-    const result = compactSourceFile(src);
+    const result = compactSourceFile(src, 'a.py');
     expect(result).toContain('#!/usr/bin/env python');
     expect(result).not.toContain('# a comment');
     expect(result).toContain('print("hi")');
@@ -164,18 +164,50 @@ describe('compactSourceFile', () => {
 
   it('collapses runs of more than one blank line to a single blank line', () => {
     const src = ['a', '', '', '', 'b'].join('\n');
-    expect(compactSourceFile(src)).toBe(['a', '', 'b'].join('\n'));
+    expect(compactSourceFile(src, 'a.ts')).toBe(['a', '', 'b'].join('\n'));
   });
 
   it('trims trailing whitespace', () => {
     const src = 'const x = 1;   \nconst y = 2;\t\t\n';
-    const result = compactSourceFile(src);
+    const result = compactSourceFile(src, 'a.ts');
     expect(result.split('\n')[0]).toBe('const x = 1;');
     expect(result.split('\n')[1]).toBe('const y = 2;');
   });
 
   it('is a no-op on empty input', () => {
     expect(compactSourceFile('')).toBe('');
+  });
+
+  // #109: compact mode deleted real code.
+  describe('keeps code that only looks like a comment', () => {
+    it('keeps a /* inside a string literal and everything after it', () => {
+      const src = ['const glob = "src/*.ts";', 'run(glob);', '/* real comment */', 'done();'].join('\n');
+      expect(compactSourceFile(src, 'a.ts')).toBe(['const glob = "src/*.ts";', 'run(glob);', '', 'done();'].join('\n'));
+    });
+
+    it('keeps a /* after // on the same line', () => {
+      const src = ['x(); // see lib/*', 'y();', '// end */'].join('\n');
+      expect(compactSourceFile(src, 'a.ts')).toBe(['x(); // see lib/*', 'y();'].join('\n'));
+    });
+
+    it('keeps # lines that are code: C preprocessor, Rust attributes, CSS ids', () => {
+      expect(compactSourceFile('#include <stdio.h>\n#define N 3\nint x;', 'a.c')).toBe(
+        '#include <stdio.h>\n#define N 3\nint x;',
+      );
+      expect(compactSourceFile('#[derive(Debug)]\nstruct S;', 'a.rs')).toBe('#[derive(Debug)]\nstruct S;');
+      expect(compactSourceFile('#header {\n  color: red;\n}', 'a.css')).toBe('#header {\n  color: red;\n}');
+    });
+
+    it('does not read a Rust lifetime as a quote', () => {
+      const src = "fn f<'a>(x: &'a str) -> &'a str {\n    /* gone */ x\n}";
+      expect(compactSourceFile(src, 'a.rs')).toBe("fn f<'a>(x: &'a str) -> &'a str {\n     x\n}");
+    });
+
+    it('strips nothing but whitespace from a file of unknown type', () => {
+      expect(compactSourceFile('# heading\n// not a comment\n/* nor this */  ', 'notes.txt')).toBe(
+        '# heading\n// not a comment\n/* nor this */',
+      );
+    });
   });
 });
 

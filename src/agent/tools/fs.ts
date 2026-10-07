@@ -641,7 +641,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
         throw new Error(`Error: File not found (${filePath}) — deleted in Audit Buffer pending review.`);
       }
       const text = bufState.content ?? '';
-      return applyReadView(text, mode, startLine, endLine);
+      return applyReadView(text, mode, startLine, endLine, filePath);
     }
     // Not buffered — fall through to real disk.
   }
@@ -742,7 +742,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   // A read refreshes the model's memory of the file: it is no longer stale
   // with respect to its own earlier edits.
   context?.editedSinceRead?.delete(readKey);
-  return applyReadView(text, mode, startLine, endLine);
+  return applyReadView(text, mode, startLine, endLine, filePath);
 }
 
 /** Coerce a line-number input (number or numeric string, as weak models send
@@ -758,7 +758,13 @@ function toLineNum(v: unknown): number | undefined {
  * line-number prefix, so the slice can be copied verbatim into an edit_file
  * `search`. Without a range, mode selects full/compact/outline.
  */
-export function applyReadView(text: string, mode: string | undefined, startLine?: number, endLine?: number): string {
+export function applyReadView(
+  text: string,
+  mode: string | undefined,
+  startLine?: number,
+  endLine?: number,
+  filePath = '',
+): string {
   if (startLine !== undefined || endLine !== undefined) {
     const lines = text.split('\n');
     const start = Math.max(1, startLine ?? 1);
@@ -771,7 +777,7 @@ export function applyReadView(text: string, mode: string | undefined, startLine?
     }
     return lines.slice(start - 1, end).join('\n');
   }
-  if (mode === 'compact') return compactSourceFile(text);
+  if (mode === 'compact') return compactSourceFile(text, filePath);
   if (mode === 'outline') return outlineSourceFile(text);
   return text;
 }

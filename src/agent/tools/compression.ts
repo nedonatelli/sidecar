@@ -133,6 +133,86 @@ export function compressGitDiff(raw: string): string {
   return out.join('\n');
 }
 
+/** Which comment syntaxes a file's language actually has, by extension. */
+function commentSyntax(filePath: string): { block: boolean; slash: boolean; hash: boolean } {
+  const ext = filePath.slice(filePath.lastIndexOf('.') + 1).toLowerCase();
+  const cFamily = new Set([
+    'ts',
+    'tsx',
+    'mts',
+    'cts',
+    'js',
+    'jsx',
+    'mjs',
+    'cjs',
+    'c',
+    'h',
+    'cc',
+    'cpp',
+    'cxx',
+    'hpp',
+    'hh',
+    'cs',
+    'java',
+    'go',
+    'rs',
+    'swift',
+    'kt',
+    'kts',
+    'scala',
+    'php',
+    'dart',
+    'groovy',
+    'scss',
+    'less',
+  ]);
+  const hash = new Set(['py', 'pyw', 'rb', 'sh', 'bash', 'zsh', 'fish', 'toml', 'yaml', 'yml', 'r', 'pl', 'pm', 'ps1']);
+  if (cFamily.has(ext)) return { block: true, slash: true, hash: false };
+  if (ext === 'css') return { block: true, slash: false, hash: false };
+  if (hash.has(ext)) return { block: false, slash: false, hash: true };
+  return { block: false, slash: false, hash: false };
+}
+
+/**
+ * Remove `/* … *\/` comments that are really comments: a `/*` inside a string
+ * literal or after `//` on the same line is text. The old regex took the
+ * first `/*` anywhere, so `"src/*.ts"` swallowed everything up to the next
+ * `*\/` -- real code gone from what the model was shown.
+ */
+function stripBlockComments(text: string, filePath: string, slashComments: boolean): string {
+  const rust = /\.rs$/i.test(filePath);
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '/' && text[i + 1] === '*') {
+      const close = text.indexOf('*/', i + 2);
+      i = close === -1 ? text.length : close + 2;
+      continue;
+    }
+    if (slashComments && c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      const end = nl === -1 ? text.length : nl;
+      out += text.slice(i, end);
+      i = end;
+      continue;
+    }
+    // In Rust a lone ' opens a lifetime (`'a`), not a literal; only a
+    // complete char literal ('x', '\n') is a quoted span.
+    const quoted = c === '"' || c === '`' || (c === "'" && (!rust || /^'(?:\\.|[^\\'\n])'/.test(text.slice(i, i + 4))));
+    if (quoted) {
+      let j = i + 1;
+      while (j < text.length && text[j] !== c && !(c !== '`' && text[j] === '\n')) j += text[j] === '\\' ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 /**
  * Remove comment blocks and collapse whitespace runs from a source
  * file to produce a "compact" reading mode. Aims at the biggest
@@ -140,22 +220,23 @@ export function compressGitDiff(raw: string): string {
  * safer than signature-only mode for round-tripping through edits
  * that target code (not comments).
  *
- * Strips:
- *   - /\* ... *\/ block comments (including JSDoc)
- *   - `# ...` full-line comments in .py, .rb, .sh, .toml, .yaml files
- *   - `// ...` full-line C-style comments (inline `// ...` at the end
- *     of a line is preserved — it may explain a tricky expression)
- *   - Trailing whitespace
- *   - Runs of >2 blank lines collapsed to 1
+ * Strips only the comment syntax the file's language has (by extension):
+ *   - /\* ... *\/ block comments (including JSDoc) in C-family files and CSS,
+ *     outside string literals
+ *   - `// ...` full-line comments in C-family files (inline `// ...` at the
+ *     end of a line is preserved — it may explain a tricky expression)
+ *   - `# ...` full-line comments in Python, Ruby, shell, TOML, YAML…, keeping
+ *     `#!` shebangs. In C (`#include`), Rust (`#[derive]`) or CSS (`#id`) a
+ *     `#` line is code, and dropping it everywhere deleted those.
+ *   - Trailing whitespace, and runs of >2 blank lines collapsed to 1, in any file
  *
- * Does NOT strip string literals, inline comments, or JSX; the cost
- * of getting language-specific parsing wrong exceeds the token win.
+ * Does NOT strip inline comments or JSX; the cost of getting
+ * language-specific parsing wrong exceeds the token win.
  */
-export function compactSourceFile(text: string): string {
+export function compactSourceFile(text: string, filePath = ''): string {
   if (!text) return text;
-  // Block comments: /* ... */ spanning any number of lines.
-  // Non-greedy so consecutive blocks don't merge.
-  const compact = text.replace(/\/\*[\s\S]*?\*\//g, '');
+  const syntax = commentSyntax(filePath);
+  const compact = syntax.block ? stripBlockComments(text, filePath, syntax.slash) : text;
 
   const lines = compact.split('\n');
   const kept: string[] = [];
@@ -166,10 +247,10 @@ export function compactSourceFile(text: string): string {
     const leading = trimmed.match(/^\s*/)?.[0] ?? '';
     const body = trimmed.slice(leading.length);
     // Full-line C-style comment (// ...): drop.
-    if (body.startsWith('//')) continue;
-    // Full-line shell/python/ruby/toml/yaml comment: drop — but keep
-    // `#!` shebangs since losing them changes file semantics.
-    if (body.startsWith('#') && !body.startsWith('#!')) continue;
+    if (syntax.slash && body.startsWith('//')) continue;
+    // Full-line hash comment: drop — but keep `#!` shebangs since losing
+    // them changes file semantics.
+    if (syntax.hash && body.startsWith('#') && !body.startsWith('#!')) continue;
 
     if (trimmed.length === 0) {
       blankRun++;
