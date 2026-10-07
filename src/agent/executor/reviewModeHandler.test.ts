@@ -85,20 +85,25 @@ describe('handleReviewModeTool — edit_file creation-intent coercion (review-mo
     expect(store.record).toHaveBeenCalledWith(`${ROOT}/out/f4.md`, null, 'mm05-delta', 'write_file');
   });
 
-  it('falls through (null) when the file EXISTS — the executor hard-error writes nothing', async () => {
+  // Falling through to the real executor wrote to disk: edit_file infers a
+  // missing `search` on an existing file and writes the result, unreviewed.
+  it.each([
+    ['search', { path: 'src/a.ts', replace: 'export const x = 2;' }],
+    ['replace', { path: 'src/a.ts', search: 'x' }],
+  ])('refuses an edit to an existing file that is missing %s, without falling through', async (_missing, input) => {
     // Default mock: readFile resolves, so the file "exists".
     const store = makePendingStore([]);
-    const result = await handleReviewModeTool(makeToolUse('edit_file', { path: 'src/a.ts', search: 'x' }), store);
-    expect(result).toBeNull();
+    const result = await handleReviewModeTool(makeToolUse('edit_file', input), store);
+    expect(result?.is_error).toBe(true);
     expect(store.record).not.toHaveBeenCalled();
   });
 
-  it('falls through (null) when both search and replace are missing', async () => {
+  it('refuses when both search and replace are missing', async () => {
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
     const store = makePendingStore([]);
     const result = await handleReviewModeTool(makeToolUse('edit_file', { path: 'out/f9.md' }), store);
-    expect(result).toBeNull();
+    expect(result?.is_error).toBe(true);
     expect(store.record).not.toHaveBeenCalled();
   });
 });

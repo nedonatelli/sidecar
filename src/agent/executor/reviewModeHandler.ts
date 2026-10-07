@@ -105,9 +105,19 @@ export async function handleReviewModeTool(
       const absPathC = Uri.joinPath(root, relPath).fsPath;
       const pendingC = pendingEdits.get(absPathC);
       const diskC = pendingC ? pendingC.newContent : await readDiskOrNull(root, relPath);
-      if (diskC !== null) return null; // file exists → executor's hard error (no write) is correct
       const content = replace ?? search;
-      if (content === undefined) return null; // both missing → executor's error (no write)
+      // Never fall through to the real executor from here: for an existing
+      // file it infers the missing field and WRITES TO DISK, bypassing review.
+      if (diskC !== null || content === undefined) {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content:
+            `Error: edit_file requires both 'search' (the exact current text in ${relPath}) and 'replace' ` +
+            `(the new text). Call read_file(path="${relPath}") and copy the text you want to change into 'search'.`,
+          is_error: true,
+        };
+      }
       pendingEdits.record(absPathC, null, content, 'write_file');
       logger?.info(`[REVIEW] Coerced creation-intent edit_file into pending write for ${relPath}`);
       return {
