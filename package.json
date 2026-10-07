@@ -527,7 +527,7 @@
           "sidecar.scaffolding.cycleDetectionMinRepeats": {
             "type": "number",
             "default": 10,
-            "minimum": 1,
+            "minimum": 2,
             "description": "Repeats of the same tool + file (content-aware) before the agent loop bails as a stuck cycle. Default 10 — was a fixed 3. Weaker/smaller models sometimes need a few attempts to self-correct from a hint (e.g. an edit_file search/replace mistake) before genuinely succeeding; raising this gives more retries before the safety net stops the loop, at the cost of a truly stuck model burning more iterations first. Lower it (e.g. back to 3) for a stricter, faster-to-bail loop."
           },
           "sidecar.recovery.codeAsText": {

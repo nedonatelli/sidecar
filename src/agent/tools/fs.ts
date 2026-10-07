@@ -919,27 +919,23 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     }
   }
 
-  // Syntax guard — the same invariant edit_file enforces: never write source
-  // that does not parse. Live v0.119 dogfood: asked to add a JSDoc comment,
-  // llama3.2 sidestepped edit_file entirely and called write_file with
-  // `@tsdoc \n\nfunction welcome(name: string): string {…` — dropping `export`,
-  // writing a non-comment, and clobbering a clean file with unparseable source.
-  // Every corruption defense lived in edit_file, so this sailed through and
-  // reported success. An empty/absent file parses clean, so the same rule
-  // covers creation: don't create a file that doesn't parse either. Fails open
-  // when no grammar applies (markdown, JSON, unknown extensions).
-  // Committing to write — record the content hash for circular detection.
-  if (writeHistory && contentHash !== undefined) {
+  // Record the content hash for circular detection -- only once the write is
+  // committed. It used to be recorded before the syntax guard below, so a
+  // refused write's next attempt was told it was "byte-identical to a version
+  // you already wrote" when nothing had been written at all.
+  const recordWrite = () => {
+    if (!writeHistory || contentHash === undefined) return;
     const set = writeHistory.get(filePath);
     if (set) set.add(contentHash);
     else writeHistory.set(filePath, new Set([contentHash]));
-  }
+  };
 
   // Audit Mode: divert the write to the in-memory buffer instead of
   // touching disk. The agent sees a normal success response and keeps
   // working against the buffered state; user reviews later and either
   // flushes (applies every buffered change atomically) or rejects.
   if (isAuditModeActive(context)) {
+    recordWrite();
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
     return `File written: ${filePath} (buffered for audit review)`;
@@ -990,6 +986,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
       `not \\n escapes.]`;
   }
 
+  recordWrite();
   if (context?.editTimeline && !context.cwd) {
     context.editTimeline.record(filePath, original, content);
   }

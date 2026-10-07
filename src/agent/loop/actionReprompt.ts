@@ -369,7 +369,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   const wordingEnabled = state.config.codeAsTextRecoveryEnabled === true;
   const codeAsText = wordingEnabled && hasEditShapedCodeBlock(fullText);
   const fakeOutput = wordingEnabled && hasFakeToolOutput(fullText);
-  const userText = lastUserMessageText(state.messages);
+  const userText = state.userRequestText ?? lastUserMessageText(state.messages);
   const triggered = isActionRequest(userText) || looksLikeDeferredAction(fullText);
   if (!triggered) return false;
 

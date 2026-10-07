@@ -194,3 +194,17 @@ describe('initLoopState', () => {
     });
   });
 });
+
+// #108: request-shape checks took the loop's own reprompts (and routing the
+// conversation's first message) for the user's request.
+describe('initLoopState — userRequestText', () => {
+  it("is the user's latest real message, not an earlier task or a loop note", () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'Prove this theorem step by step' },
+      { role: 'assistant', content: 'Done.' },
+      { role: 'user', content: 'Rename foo to bar in util.ts' },
+      { role: 'user', content: [{ type: 'text', text: '[gate] verify your change' }] },
+    ];
+    expect(initLoopState(messages, emptyOptions()).userRequestText).toBe('Rename foo to bar in util.ts');
+  });
+});

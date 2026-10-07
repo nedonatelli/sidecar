@@ -6,6 +6,28 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Runs on OpenAI-compatible servers could break after a blocked rewrite.** SideCar's
+  "stop rewriting this file" reminder was inserted between a tool call and its result,
+  which those servers reject — and every later request in the run failed with it.
+- **Later edits to a file in a multi-file batch were silently dropped.** When the model
+  edited the same file twice in one batch, only the first edit ran, though both were
+  reported as done. Each edit now runs, in order.
+- **Checks ran against the wrong copy of the project in Shadow Workspace and fork runs.**
+  The syntax check and your regression guards looked at the main project instead of the
+  run's own copy, so a broken file could pass. Stop now also cancels a running guard.
+- **Stop didn't interrupt a network retry**, and a retried response counted twice against
+  the run's budget.
+- **The keep-best safeguard could undo good work or only part of it.** A small edit to a
+  large file counted as large growth, and a file named as `./src/a.ts` could be skipped
+  when changes were rolled back.
+- **A long `----` or `====` line could get a good answer rejected as garbled output.**
+- **Smaller fixes in the agent loop:** the "stop rewriting" reminder fired for the wrong
+  kind of blocked write; auto-fix checked a twice-edited file twice; refused writes counted
+  as rewrites; `cycleDetectionMinRepeats: 1` stopped every run on its first tool call;
+  model routing, and checks that look at what you asked for, sometimes read SideCar's own
+  reminders or an earlier task instead of your request; and a refused write was later
+  reported as "already written".
+
 - **A message with an image reached the model as an empty prompt.** Both the image and
   your text were dropped on every backend; they are now sent as written.
   (`src/webview/handlers/messageEnricher.ts`)

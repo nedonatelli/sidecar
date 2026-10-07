@@ -192,8 +192,14 @@ describe('executeMultiFilePlan — bounded parallelism', () => {
 });
 
 describe('executeMultiFilePlan — same-path duplicates', () => {
-  it('executes the first tool_use for a path; subsequent dupes get a merged-by-plan synthetic result', async () => {
-    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, pendingTu) => result(pendingTu.id, 'wrote'));
+  // #108: only the first write to a path used to run; the rest were reported
+  // 'Merged by edit plan… (result: ok)' and dropped.
+  it('runs every tool_use for a path, in order, each with its own result', async () => {
+    const order: string[] = [];
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, pendingTu) => {
+      order.push(pendingTu.id);
+      return result(pendingTu.id, 'wrote ' + pendingTu.id);
+    });
     const pending = [tu('a.ts', 'tu1'), tu('a.ts', 'tu2'), tu('b.ts', 'tu3')];
     const plan: EditPlan = {
       edits: [
@@ -213,14 +219,14 @@ describe('executeMultiFilePlan — same-path duplicates', () => {
     );
     expect(results).toHaveLength(3);
     expect(results[0].tool_use_id).toBe('tu1');
-    expect(results[0].content).toBe('wrote');
+    expect(results[0].content).toBe('wrote tu1');
     expect(results[1].tool_use_id).toBe('tu2');
-    expect(String(results[1].content)).toContain('Merged by edit plan');
-    expect(results[1].is_error).toBe(false);
+    expect(results[1].content).toBe('wrote tu2');
     expect(results[2].tool_use_id).toBe('tu3');
-    expect(results[2].content).toBe('wrote');
-    // executeOneToolUse called exactly twice (a.ts + b.ts), not 3 times.
-    expect(executeOneToolUse).toHaveBeenCalledTimes(2);
+    expect(results[2].content).toBe('wrote tu3');
+    expect(executeOneToolUse).toHaveBeenCalledTimes(3);
+    // The second write to a.ts runs after the first.
+    expect(order.indexOf('tu2')).toBeGreaterThan(order.indexOf('tu1'));
   });
 });
 

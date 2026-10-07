@@ -1,7 +1,7 @@
 import type { SteerQueue } from '../steerQueue.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
-import { getContentLength } from '../../ollama/types.js';
+import { getContentLength, getContentText } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
 // Steer-queue drain at iteration boundary.
@@ -67,6 +67,9 @@ export async function drainSteerQueueAtBoundary(
   if (!drained) return;
 
   state.messages.push(drained.message);
+  // A steer is the user speaking mid-run: it is part of what they asked for.
+  const steerText = getContentText(drained.message.content).trim();
+  if (steerText) state.userRequestText = [state.userRequestText, steerText].filter(Boolean).join('\n');
   state.totalChars += getContentLength(drained.message.content);
   const n = drained.items.length;
   callbacks.onText(`\n↪ Applying ${n} queued steer${n === 1 ? '' : 's'}.\n`);

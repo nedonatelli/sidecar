@@ -265,3 +265,22 @@ describe('applyAgentLoopRouting — downgrade toast', () => {
     expect(showWarning).toHaveBeenCalledOnce();
   });
 });
+
+// #108: routing read the conversation's FIRST user message, which in a long
+// chat is an earlier, unrelated task.
+describe('applyAgentLoopRouting — which prompt is routed', () => {
+  it('routes on the current request, not the first message of the conversation', () => {
+    const client = new SideCarClient('ollama/qwen3-coder:30b', 'http://localhost:11434', 'ollama');
+    client.setRouter(
+      new ModelRouter([{ when: 'agent-loop.complexity=high', model: 'claude-opus-4-6' }], 'ollama/qwen3-coder:30b'),
+    );
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'Please prove this theorem step by step' },
+      { role: 'assistant', content: 'Done.' },
+      { role: 'user', content: 'rename foo to bar' },
+    ];
+    const state = stubLoopState({ messages, userRequestText: 'rename foo to bar' });
+    applyAgentLoopRouting(client, state, { modelRoutingVisibleSwaps: false, modelRoutingDryRun: false });
+    expect(client.getModel()).toBe('ollama/qwen3-coder:30b');
+  });
+});

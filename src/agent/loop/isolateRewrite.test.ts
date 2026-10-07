@@ -114,3 +114,15 @@ describe('applyIsolateRewriteNudge', () => {
     expect(applyIsolateRewriteNudge(state, [read], cb)).toBe(false);
   });
 });
+
+// #108: a refused write_file counted as an overwrite.
+describe('applyIsolateRewriteNudge — refused writes', () => {
+  it('does not count a write whose result was an error', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const refused = [{ type: 'tool_result' as const, tool_use_id: 'tu-gui.py', content: 'refused', is_error: true }];
+    applyIsolateRewriteNudge(state, [writeFile('gui.py')], cb, refused); // never landed
+    const mutated = applyIsolateRewriteNudge(state, [writeFile('gui.py')], cb); // the real first write
+    expect(mutated).toBe(false);
+  });
+});

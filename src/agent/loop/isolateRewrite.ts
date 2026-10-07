@@ -1,4 +1,4 @@
-import type { ToolUseContentBlock } from '../../ollama/types.js';
+import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 
@@ -66,15 +66,20 @@ export function applyIsolateRewriteNudge(
   state: LoopState,
   pendingToolUses: ToolUseContentBlock[],
   callbacks: AgentCallbacks,
+  toolResults?: readonly ToolResultContentBlock[],
 ): boolean {
   // The whole-file-rewrite strategy TELLS the model to rewrite files whole —
   // nudging it back toward targeted edits would contradict the system prompt
   // it was just given. One strategy at a time.
   if (state.config.wholeFileRewriteStrategyEnabled === true) return false;
   const overwritten: string[] = [];
-  for (const tu of pendingToolUses) {
+  for (let i = 0; i < pendingToolUses.length; i++) {
+    const tu = pendingToolUses[i];
     const path = writeFilePath(tu);
     if (!path) continue;
+    // A write that was refused never overwrote anything. Counting it made the
+    // next real write look like a 2nd rewrite and nudged the model for it.
+    if (toolResults?.[i]?.is_error) continue;
     // Don't fight the edit→write steer. If maybeSteerEditToWrite deliberately
     // redirected this file to write_file (because edit_file was failing on it),
     // nudging it back to "targeted edits" ping-pongs the model between tools —

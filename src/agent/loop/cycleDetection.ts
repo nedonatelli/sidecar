@@ -108,9 +108,11 @@ const MUTATION_TOOLS = new Set([
 const READ_ONLY_TOOLS = new Set(['read_file', 'grep', 'list_directory', 'search_files', 'get_diagnostics']);
 
 /** The normalized pass's repeat threshold: user-configurable, falls back to
- *  the default when config is absent (unit tests / non-loop calls). */
+ *  the default when config is absent (unit tests / non-loop calls). At least
+ *  2: a repeat takes two calls, and at 1 "the last 1 calls match" is always
+ *  true, so the loop bailed on its very first tool call. */
 function normalizedRepeatsFor(state: LoopState): number {
-  return state.config?.cycleDetectionMinRepeats ?? DEFAULT_MIN_NORMALIZED_REPEATS;
+  return Math.max(2, state.config?.cycleDetectionMinRepeats ?? DEFAULT_MIN_NORMALIZED_REPEATS);
 }
 
 /**

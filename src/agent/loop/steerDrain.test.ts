@@ -196,3 +196,15 @@ describe('drainSteerQueueAtBoundary — coalesce window', () => {
     expect(cb.texts).toHaveLength(0);
   });
 });
+
+// #108: a steer is the user speaking mid-run; request-shape checks must see it.
+describe('drainSteerQueueAtBoundary — userRequestText', () => {
+  it("adds the steer to the run's request", async () => {
+    const state = stubLoopState({ userRequestText: 'Fix the parser' });
+    const q = new SteerQueue();
+    q.enqueue('also update parser.test.ts', 'nudge');
+    await drainSteerQueueAtBoundary(state, q, new AbortController().signal, stubCallbacks(), { coalesceWindowMs: 0 });
+    expect(state.userRequestText).toContain('Fix the parser');
+    expect(state.userRequestText).toContain('also update parser.test.ts');
+  });
+});
