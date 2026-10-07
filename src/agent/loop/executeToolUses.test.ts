@@ -486,6 +486,24 @@ describe('executeToolUses — catalog gate', () => {
     expect(executeTool).toHaveBeenCalledTimes(1);
   });
 
+  // #107: the gate rejected aliases before the executor could map them.
+  it('judges a foreign alias by the tool it maps to', async () => {
+    vi.mocked(executeTool).mockResolvedValueOnce({
+      type: 'tool_result',
+      tool_use_id: 'x',
+      content: 'ok',
+      is_error: false,
+    });
+    await run(catalogState(), use('cat', { path: 'a.py' })); // cat -> read_file, offered
+    expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it('still refuses an alias whose target was not offered', async () => {
+    const results = await run(catalogState(), use('bash', { command: 'ls' })); // bash -> run_command, hidden
+    expect(executeTool).not.toHaveBeenCalled();
+    expect(results[0].is_error).toBe(true);
+  });
+
   it('judges a mangled call-expression name by its salvaged base name', async () => {
     // `read_file(path="x")` as the tool NAME is what some runtimes emit; the
     // executor salvages it, so the gate must not reject it first.
