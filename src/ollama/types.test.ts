@@ -152,3 +152,19 @@ describe('serializeContent', () => {
     expect(result).toEqual([]);
   });
 });
+
+// #111: nested tool inputs counted as "[object Object]" (15 chars).
+describe('getContentLength — nested tool inputs', () => {
+  it('counts the code inside a multi-edit input', () => {
+    const code = 'x'.repeat(5000);
+    const len = getContentLength([
+      {
+        type: 'tool_use',
+        id: 't',
+        name: 'multi_edit',
+        input: { path: 'a.ts', edits: [{ search: code, replace: code }] },
+      },
+    ]);
+    expect(len).toBeGreaterThan(10_000);
+  });
+});

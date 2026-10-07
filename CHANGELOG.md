@@ -6,6 +6,23 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A backend could stay disabled until you changed a setting.** After repeated failures
+  SideCar pauses a provider and later sends one test request; if you pressed Stop during
+  that request, the provider stayed paused for good. It now recovers on its own.
+- **A connection dropped mid-answer could make the model's output, and its tool calls,
+  happen twice.** The request was re-sent into the same turn; it now retries the turn
+  cleanly instead.
+- **The fallback backend:** it was sent the main backend's model name, and after one
+  answer from it SideCar switched straight back to the main backend while that was still
+  down — an error every few requests. It now stays on the fallback for two minutes before
+  checking the main backend again.
+- **Ollama errors that happen mid-answer were lost** (the turn looked successful), and
+  background requests such as summaries didn't use the chat's context size, so Ollama
+  reloaded the model or cut the request short.
+- Anthropic's "overloaded" (529) errors are now retried; Ollama errors that will happen
+  again (out of memory, unknown model) are reported at once instead of after retries.
+- Large multi-edit tool calls are now counted at their real size against the context budget.
+
 - **Runs on OpenAI-compatible servers could break after a blocked rewrite.** SideCar's
   "stop rewriting this file" reminder was inserted between a tool call and its result,
   which those servers reject — and every later request in the run failed with it.

@@ -398,6 +398,38 @@ function toOllamaMessages(messages: ChatMessage[], systemPrompt: string): Ollama
  * Backend for Ollama's native /api/chat endpoint.
  * Uses NDJSON streaming and Ollama's tool call format.
  */
+/**
+ * Ollama reports a failure that happens AFTER the 200 response has started
+ * (out of memory mid-generation, a runner crash, a template error) as an
+ * NDJSON line `{"error": "…"}`. Those lines were parsed as empty chunks and
+ * skipped: the real error was lost and the turn recorded as a success.
+ */
+/**
+ * Ollama 500s that will fail the same way however often they are retried:
+ * not enough memory to load the model, a model output it cannot parse as a
+ * tool call, a broken template, an unknown model or tool, an unsupported
+ * feature. Retrying
+ * these three times only delayed the error by the backoff.
+ */
+const DETERMINISTIC_OLLAMA_ERROR =
+  /requires more system memory|error parsing tool call|template|not found|does not support|invalid (?:option|parameter|request)/i;
+
+/** fetchWithRetry hook: retry an Ollama error status only if it may be transient. */
+async function ollamaErrorIsRetryable(response: Response): Promise<boolean> {
+  let text = '';
+  try {
+    text = await response.clone().text();
+  } catch {
+    return true; // can't tell: keep the default (retry)
+  }
+  return !DETERMINISTIC_OLLAMA_ERROR.test(text);
+}
+
+function throwIfStreamError(chunk: unknown): void {
+  const err = (chunk as { error?: unknown } | null)?.error;
+  if (typeof err === 'string' && err) throw new Error(`Ollama error: ${err}`);
+}
+
 export class OllamaBackend implements ApiBackend {
   constructor(private baseUrl: string) {}
 
@@ -421,25 +453,7 @@ export class OllamaBackend implements ApiBackend {
       promptPruningMaxToolResultTokens,
       maxOutputTokens = AGENT_MAX_OUTPUT_TOKENS,
     } = getConfig();
-    // Explicit override, in precedence order: the `sidecar.ollama.numCtx`
-    // setting, then `SIDECAR_OLLAMA_NUM_CTX`. The env fallback exists because
-    // the setting is VS Code-only, which left benchmarks with no way to pin the
-    // window at all (mirrors SIDECAR_AGENT_SEED).
-    const envNumCtx = process.env.SIDECAR_OLLAMA_NUM_CTX;
-    const overrideNumCtx = ollamaNumCtx ?? (envNumCtx !== undefined && envNumCtx !== '' ? Number(envNumCtx) : null);
-    const hasOverride = overrideNumCtx !== null && Number.isFinite(overrideNumCtx);
-    // Without an override the model's real window has to be known, so probe it
-    // here rather than trusting some earlier caller to have done it.
-    if (!hasOverride) await ensureNumCtxProbed(this.baseUrl, model);
-    const probedNumCtx = numCtxCache.get(model) ?? null;
-    // Use the probed num_ctx, floored at 32 768 (models that report < 32 K still
-    // get a full 32 K window) and capped per-model (contextCapForModel): the
-    // general ceiling is 128 K, but global-attention models get lower caps —
-    // llama3.2 at 131 K allocated a 17.4 GB KV for a 2 GB model (observed
-    // live). An explicit override wins outright, in both directions.
-    const numCtx = hasOverride
-      ? (overrideNumCtx as number)
-      : Math.min(Math.max(probedNumCtx ?? 0, 32_768), contextCapForModel(model));
+    const numCtx = await this.resolveNumCtx(model, ollamaNumCtx);
     // Neutralize presence/frequency penalties. Some models ship aggressive
     // penalty defaults in their Ollama Modelfile (e.g. qwen3.5's `presence_penalty
     // 1.5`), which sabotage structured tool-call generation: the XML tool format
@@ -529,7 +543,7 @@ export class OllamaBackend implements ApiBackend {
         body: JSON.stringify(body),
         signal,
       },
-      { label: 'ollama' },
+      { label: 'ollama', retry: { isRetryable: ollamaErrorIsRetryable } },
     );
 
     if (!response.ok) {
@@ -596,6 +610,7 @@ export class OllamaBackend implements ApiBackend {
             logger.warn('[SideCar] Ollama: failed to parse NDJSON line:', trimmed.slice(0, 200));
             continue;
           }
+          throwIfStreamError(chunk);
 
           // Emit native thinking field (used by models like GLM-4 that put
           // their chain-of-thought in message.thinking rather than <think>
@@ -680,6 +695,14 @@ export class OllamaBackend implements ApiBackend {
       // Attempt to parse it so the done:true chunk is never silently dropped.
       const trailing = buffer.trim();
       if (trailing) {
+        // Checked before the parse below, whose catch would swallow the throw.
+        let trailingChunk: unknown = null;
+        try {
+          trailingChunk = JSON.parse(trailing);
+        } catch {
+          /* unparseable: logged below */
+        }
+        throwIfStreamError(trailingChunk);
         try {
           const chunk = JSON.parse(trailing) as OllamaChatChunk;
           if (chunk.done) {
@@ -740,6 +763,47 @@ export class OllamaBackend implements ApiBackend {
     }
   }
 
+  /**
+   * The context window to request for `model`. Every request to a model must
+   * send the same num_ctx: Ollama reloads the model whenever it differs from
+   * the loaded instance's, and a request with none gets the server default
+   * (often 2-4 K) and is silently truncated to it.
+   */
+  private async resolveNumCtx(
+    model: string,
+    ollamaNumCtx: number | null | undefined,
+    probe: false,
+  ): Promise<number | null>;
+  private async resolveNumCtx(model: string, ollamaNumCtx: number | null | undefined, probe?: true): Promise<number>;
+  private async resolveNumCtx(
+    model: string,
+    ollamaNumCtx: number | null | undefined,
+    probe = true,
+  ): Promise<number | null> {
+    // Explicit override, in precedence order: the `sidecar.ollama.numCtx`
+    // setting, then `SIDECAR_OLLAMA_NUM_CTX`. The env fallback exists because
+    // the setting is VS Code-only, which left benchmarks with no way to pin the
+    // window at all (mirrors SIDECAR_AGENT_SEED).
+    const envNumCtx = process.env.SIDECAR_OLLAMA_NUM_CTX;
+    const overrideNumCtx = ollamaNumCtx ?? (envNumCtx !== undefined && envNumCtx !== '' ? Number(envNumCtx) : null);
+    const hasOverride = overrideNumCtx !== null && Number.isFinite(overrideNumCtx);
+    // Without an override the model's real window has to be known, so probe it
+    // here rather than trusting some earlier caller to have done it.
+    if (!hasOverride && probe) await ensureNumCtxProbed(this.baseUrl, model);
+    const probedNumCtx = numCtxCache.get(model) ?? null;
+    // Without probing, an unknown window stays unknown rather than defaulting.
+    if (!hasOverride && !probe && probedNumCtx === null) return null;
+    // Use the probed num_ctx, floored at 32 768 (models that report < 32 K still
+    // get a full 32 K window) and capped per-model (contextCapForModel): the
+    // general ceiling is 128 K, but global-attention models get lower caps —
+    // llama3.2 at 131 K allocated a 17.4 GB KV for a 2 GB model (observed
+    // live). An explicit override wins outright, in both directions.
+    const numCtx = hasOverride
+      ? (overrideNumCtx as number)
+      : Math.min(Math.max(probedNumCtx ?? 0, 32_768), contextCapForModel(model));
+    return numCtx;
+  }
+
   async complete(
     model: string,
     systemPrompt: string,
@@ -758,6 +822,10 @@ export class OllamaBackend implements ApiBackend {
       messages: toOllamaMessages(prunedComplete.messages, prunedComplete.systemPrompt),
       stream: false,
     };
+    // Known from the chat that ran first (the usual case for a summarizer or
+    // repair call) or from the override; no extra probe round-trip here.
+    const completeNumCtx = await this.resolveNumCtx(model, completeCfg.ollamaNumCtx, false);
+    if (completeNumCtx !== null) body.options = { num_ctx: completeNumCtx };
     // V3: Ollama enforces structured output via the `format` field — 'json'
     // for any valid JSON, or a JSON-schema object to constrain the shape.
     if (responseFormat !== undefined) {
@@ -772,7 +840,7 @@ export class OllamaBackend implements ApiBackend {
         body: JSON.stringify(body),
         signal,
       },
-      { label: 'ollama' },
+      { label: 'ollama', retry: { isRetryable: ollamaErrorIsRetryable } },
     );
 
     if (!response.ok) {

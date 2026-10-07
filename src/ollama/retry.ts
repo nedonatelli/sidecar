@@ -5,15 +5,23 @@ export interface RetryOptions {
   baseDelayMs?: number;
   /** Maximum delay in ms (caps exponential backoff). Default: 30000 */
   maxDelayMs?: number;
-  /** HTTP status codes that should trigger a retry. Default: [429, 500, 502, 503, 504] */
+  /** HTTP status codes that should trigger a retry. Default: [429, 500, 502, 503, 504, 529] */
   retryableStatuses?: number[];
+  /**
+   * Second opinion on a response whose status is retryable: return false when
+   * it is a failure that will recur (the server says why in the body), so it
+   * is surfaced at once instead of after two backoffs. Must not consume the
+   * response body (read a clone).
+   */
+  isRetryable?: (response: Response) => Promise<boolean>;
 }
 
-const DEFAULT_OPTIONS: Required<RetryOptions> = {
+const DEFAULT_OPTIONS: Required<Omit<RetryOptions, 'isRetryable'>> & Pick<RetryOptions, 'isRetryable'> = {
   maxAttempts: 3,
   baseDelayMs: 1000,
   maxDelayMs: 30_000,
-  retryableStatuses: [429, 500, 502, 503, 504],
+  // 529 is Anthropic's "overloaded": transient by definition, like 503.
+  retryableStatuses: [429, 500, 502, 503, 504, 529],
 };
 
 /**
@@ -30,6 +38,9 @@ export async function fetchWithRetry(url: string, init: RequestInit, options?: R
       const response = await fetch(url, init);
 
       if (response.ok || !opts.retryableStatuses.includes(response.status)) {
+        return response;
+      }
+      if (opts.isRetryable && !(await opts.isRetryable(response))) {
         return response;
       }
 
