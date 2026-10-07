@@ -2,6 +2,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import { executeTool } from '../executor.js';
+import { FENCE_WRITE_ID_PREFIX } from './textParsing.js';
 import { advancePlanPastWrite } from '../plans/externalPlan.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
@@ -9,6 +10,7 @@ import type { LoopState } from './state.js';
 import { checkToolBudget, recordToolUse } from './toolBudget.js';
 import { resolveIterationTools } from './streamTurn.js';
 import { parseMangledToolName } from './textParsing.js';
+import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 
 // ---------------------------------------------------------------------------
 // Parallel tool execution for runAgentLoop.
@@ -217,12 +219,20 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
   // `extraTools` are honoured because their callers may deliberately keep
   // them out of the visible catalog. A mangled call-expression name
   // (`read_file(path="x")`) is judged by its salvaged base name so the
-  // executor's recovery still applies.
+  // executor's recovery still applies, and a foreign alias (`create_file`,
+  // `bash`, `cat`) by the tool the executor maps it to — rejecting the alias
+  // here meant that mapping never ran. Either way the TARGET must be offered,
+  // so neither route reaches a hidden tool.
   const offered = resolveIterationTools(state);
   const salvagedName = parseMangledToolName(toolUse.name)?.name;
+  const aliasTarget = resolveToolNameAlias(toolUse.name);
   const isOffered = (n: string): boolean =>
     offered.some((t) => t.name === n) || (options.extraTools?.some((t) => t.definition.name === n) ?? false);
-  if (!isOffered(toolUse.name) && !(salvagedName !== undefined && isOffered(salvagedName))) {
+  if (
+    !isOffered(toolUse.name) &&
+    !(salvagedName !== undefined && isOffered(salvagedName)) &&
+    !(aliasTarget !== null && isOffered(aliasTarget))
+  ) {
     const msg =
       `Tool "${toolUse.name}" is not available in this session: it is not in the tool catalog you were given, ` +
       `so it was not run. Use one of the tools listed in your catalog instead.`;
@@ -296,6 +306,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       zeroHitPatterns: state.zeroHitPatterns,
       bounceCounts: state.bounceCounts,
       planRef: state.planRef,
+      synthesizedFromFence: toolUse.id.startsWith(FENCE_WRITE_ID_PREFIX),
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

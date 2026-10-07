@@ -4,7 +4,12 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
-import { parseTextToolCallsCleaned, stripRepeatedContent, synthesizeFenceWrite } from './textParsing.js';
+import {
+  FENCE_WRITE_ID_PREFIX,
+  parseTextToolCallsCleaned,
+  stripRepeatedContent,
+  synthesizeFenceWrite,
+} from './textParsing.js';
 import {
   lastUserMessageText,
   isMutationRequest,
@@ -466,7 +471,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
         state.fenceWriteCoercions++;
         const tu: ToolUseContentBlock = {
           type: 'tool_use',
-          id: `fence_write_${state.fenceWriteCoercions}`,
+          id: `${FENCE_WRITE_ID_PREFIX}${state.fenceWriteCoercions}`,
           name: synth.name,
           input: synth.input,
         };

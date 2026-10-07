@@ -779,6 +779,22 @@ function pathInSetByBasename(filePath: string, set: Set<string>): boolean {
   return false;
 }
 
+// A definition at column 0: def/class/function, a top-level const/let/var, Go
+// func (with or without a receiver), Rust fn, Ruby def. Indented ones are
+// methods or locals, which a rewritten class body may legitimately rename.
+const TOP_LEVEL_DEFINITION =
+  /^(?:export\s+(?:default\s+)?)?(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:def|class|function\*?|fn|func(?:\s*\([^)]*\))?|const|let|var|interface|type|struct|enum)\s+([A-Za-z_]\w*)/gm;
+
+/**
+ * Names defined at the top level of `current` that `next` never mentions.
+ * Non-empty means writing `next` over `current` deletes those definitions.
+ */
+export function droppedTopLevelDefinitions(current: string, next: string): string[] {
+  const names = new Set<string>();
+  for (const m of current.matchAll(TOP_LEVEL_DEFINITION)) names.add(m[1]);
+  return [...names].filter((n) => !new RegExp(`\\b${n}\\b`).test(next));
+}
+
 export async function writeFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
@@ -824,6 +840,26 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
         `lines in \`replace\`. To replace a whole section, pass that entire block as \`search\` and the new block as ` +
         `\`replace\`. Read the file first if you're unsure of the current text.`,
     );
+  }
+
+  // A write the model never called: the loop built it from a code fence the
+  // model printed. That fence is often only the new code ("add multiply to
+  // calculator.py" -> just the new function), and it parses, so nothing else
+  // stopped it replacing the whole file. Refuse when it would delete what's there.
+  if (context?.synthesizedFromFence) {
+    const currentText = isAuditModeActive(context)
+      ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
+      : await readDiskViaWorkspace(context, filePath);
+    const dropped = currentText ? droppedTopLevelDefinitions(currentText, content) : [];
+    if (dropped.length > 0) {
+      const shown = dropped.slice(0, 5).join(', ') + (dropped.length > 5 ? `, and ${dropped.length - 5} more` : '');
+      throw new Error(
+        `Nothing was written to \`${filePath}\`. You made no tool call, and the code block you printed is not the ` +
+          `whole file: it is missing ${shown}, which the file has now, so writing it would delete them. Add your ` +
+          `change with edit_file (put the existing lines it goes next to in \`search\`), or call write_file with ` +
+          `the COMPLETE file.`,
+      );
+    }
   }
 
   const writeHistory = context?.writeHistoryByFile;

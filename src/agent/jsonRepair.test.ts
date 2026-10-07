@@ -38,6 +38,35 @@ describe('tryJsonRepair', () => {
     expect(tryJsonRepair('{“path”: “a.ts”}')).toEqual({ path: 'a.ts' });
   });
 
+  // #107: the repairs rewrote string VALUES too, so a repaired write_file
+  // saved different code than the model sent.
+  describe('leaves string values alone', () => {
+    it('keeps Python literals inside a value', () => {
+      const raw = '{"path": "f.py", "content": "if x is None:\\n    return True",}';
+      expect(tryJsonRepair(raw)).toEqual({ path: 'f.py', content: 'if x is None:\n    return True' });
+    });
+
+    it('keeps smart quotes, apostrophes and key-like text inside a value', () => {
+      const raw = '{path: "a.md", "content": "It’s “quoted”, see {note: 1}, ok"}';
+      expect(tryJsonRepair(raw)).toEqual({ path: 'a.md', content: 'It’s “quoted”, see {note: 1}, ok' });
+    });
+
+    it('keeps an apostrophe in a double-quoted value next to single-quoted args', () => {
+      expect(tryJsonRepair(`{'path': 'a.py', "content": "print('hi', None)"}`)).toEqual({
+        path: 'a.py',
+        content: "print('hi', None)",
+      });
+    });
+
+    it('converts a single-quoted value holding double quotes and an escaped apostrophe', () => {
+      expect(tryJsonRepair(`{'content': 'it\\'s "x", True'}`)).toEqual({ content: 'it\'s "x", True' });
+    });
+
+    it('keeps a trailing-comma pattern inside a value', () => {
+      expect(tryJsonRepair('{"content": "f(a,)\\n[1,]", "n": 1,}')).toEqual({ content: 'f(a,)\n[1,]', n: 1 });
+    });
+  });
+
   it('balances a truncated object', () => {
     expect(tryJsonRepair('{"path":"a.ts","opts":{"deep":true')).toEqual({ path: 'a.ts', opts: { deep: true } });
   });

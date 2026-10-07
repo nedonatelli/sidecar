@@ -917,3 +917,56 @@ describe('synthesizeFenceWrite — test-target coherence (campaign 3, ministral 
     expect(synthesizeFenceWrite(moduleFence, 'update calculator.py with the functions', toolNames)).not.toBeNull();
   });
 });
+
+// #107: format latch, fence spanning, and <tool_call> arrays.
+describe('parseTextToolCalls — format latch and fences', () => {
+  const tools = defineTools('read_file', 'grep');
+
+  it('does not let a non-call JSON fence latch out a later <tool_call>', () => {
+    const text =
+      'Your config could look like:\n```json\n{"port": 8080}\n```\n' +
+      '<tool_call>{"name": "read_file", "arguments": {"path": "config.json"}}</tool_call>';
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => [c.name, c.input])).toEqual([['read_file', { path: 'config.json' }]]);
+  });
+
+  it('still ignores a restatement of the first call in another format', () => {
+    const text =
+      '<tool_call>{"name": "read_file", "arguments": {"path": "a.ts"}}</tool_call>\n' +
+      '```json\n{"name": "read_file", "arguments": {"path": "a.ts"}}\n```';
+    expect(parseTextToolCalls(text, tools)).toHaveLength(1);
+  });
+
+  it('does not read a json fence across the end of an earlier fence', () => {
+    const text = '```\n{ unclosed example\n```\nthen\n```json\n{"name": "grep", "arguments": {"pattern": "x"}}\n```';
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => [c.name, c.input, c._malformedInputRaw])).toEqual([['grep', { pattern: 'x' }, undefined]]);
+  });
+
+  it('dispatches every call in a <tool_call> array', () => {
+    const text =
+      '<tool_call>[{"name": "read_file", "arguments": {"path": "a.ts"}}, ' +
+      '{"name": "grep", "arguments": {"pattern": "foo"}}]</tool_call>';
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => [c.name, c.input])).toEqual([
+      ['read_file', { path: 'a.ts' }],
+      ['grep', { pattern: 'foo' }],
+    ]);
+  });
+});
+
+// #107: a value ending in an escaped backslash swallowed the next argument.
+describe('splitTopLevelArgs — escaped backslash before the closing quote', () => {
+  it('closes the string after an escaped backslash', () => {
+    expect(splitTopLevelArgs(String.raw`path="C:\\", pattern="x"`)).toEqual([String.raw`path="C:\\"`, ' pattern="x"']);
+  });
+
+  it('still keeps an escaped quote inside the string', () => {
+    expect(splitTopLevelArgs(String.raw`a="say \"hi\", ok", b=1`)).toEqual([String.raw`a="say \"hi\", ok"`, ' b=1']);
+  });
+
+  it('parses both arguments of the call', () => {
+    const parsed = parseMangledToolName(String.raw`grep(path="C:\\", pattern="TODO")`);
+    expect(parsed?.input).toEqual({ path: 'C:\\', pattern: 'TODO' });
+  });
+});

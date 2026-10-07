@@ -29,6 +29,22 @@ All notable changes to the SideCar extension will be documented in this file.
   without touching settings.
 - **An `@pin:path` pin lasted only one message.** It now stays pinned for the session.
 - **Regenerating part of an answer garbled `$&` and similar text** in the new section.
+- **A printed code block could replace a whole file.** When a model printed code without
+  calling a tool, SideCar wrote the block to the file you named — even when the block was
+  only the new function, deleting the rest of the file. That write is now refused when it
+  would remove anything the file already defines, and the model is told to edit instead.
+- **Repaired tool arguments changed the code being written.** Fixing up a malformed tool
+  call also rewrote text inside its values: `None`/`True` became `null`/`true`, and quotes
+  and apostrophes in code were changed. Repairs now touch only the JSON around the values.
+- **Some malformed tool calls failed after being repaired.** A call written as text
+  (`<tool_call>…`) was repaired into the wrong shape and then rejected; it now runs.
+- **"Node.js", "Vue.js" and similar names were treated as files.** Asking for a Node.js
+  server could create a file literally named `Node.js`, or demand a read of one.
+- **Tool calls written as text could be dropped:** after an unrelated JSON example in the
+  same answer, when several calls were grouped in one `<tool_call>`, or when an argument
+  ended in an escaped backslash (`"C:\\"`).
+- **Tool names from other agents (`cat`, `bash`, `create_file`) were refused** instead of
+  being mapped to SideCar's own tools, when the mapped tool is available.
 
 ## [0.127.0] - 2026-10-06
 

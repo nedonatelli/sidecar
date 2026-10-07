@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { writeFile, editFile, readFile, applyReadView, editFileDef, fsTools } from './fs.js';
+import {
+  writeFile,
+  editFile,
+  readFile,
+  applyReadView,
+  editFileDef,
+  fsTools,
+  droppedTopLevelDefinitions,
+} from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
 import { workspace } from 'vscode';
@@ -2270,5 +2278,60 @@ describe('edit_file — structured outcome flags', () => {
     const msg = await editMsg({ path: 'm.py', search: 'nowhere in the file', replace: 'x' }, ctx());
     expect(msg).not.toContain('File edited');
     expect(outcomes()).toHaveLength(0);
+  });
+});
+
+// #107: fence-write coercion turns a printed code block into write_file. A
+// block holding only the new function parsed fine and replaced the whole file.
+describe('write_file synthesized from a printed fence', () => {
+  const calculator = 'def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n';
+  const snippet = 'def multiply(a, b):\n    return a * b\n';
+
+  async function setup(existing: string) {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(existing) as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    return vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refuses a snippet that would delete what the file defines', async () => {
+    const write = await setup(calculator);
+    await expect(
+      writeFile({ path: 'calculator.py', content: snippet }, { synthesizedFromFence: true }),
+    ).rejects.toThrow(/missing add, subtract/);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('writes a fence that holds the whole file plus the change', async () => {
+    const write = await setup(calculator);
+    const result = await writeFile(
+      { path: 'calculator.py', content: calculator + '\n\n' + snippet },
+      { synthesizedFromFence: true },
+    );
+    expect(result).toBe('File written: calculator.py');
+    expect(write).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a write the model called itself to the model's judgement", async () => {
+    const write = await setup(calculator);
+    await writeFile({ path: 'calculator.py', content: snippet }, {});
+    expect(write).toHaveBeenCalledOnce();
+  });
+});
+
+describe('droppedTopLevelDefinitions', () => {
+  it('finds top-level definitions across languages that the new content lacks', () => {
+    const ts = 'export function a() {}\nexport const b = 1;\nclass C {\n  method() {}\n}\n';
+    expect(droppedTopLevelDefinitions(ts, 'export function a() {}')).toEqual(['b', 'C']);
+    const go = 'func (s *Server) Start() {}\nfunc helper() {}\ntype Server struct{}\n';
+    expect(droppedTopLevelDefinitions(go, 'func helper() {}')).toEqual(['Start', 'Server']);
+  });
+
+  it('ignores indented definitions, which a rewritten body may rename', () => {
+    expect(
+      droppedTopLevelDefinitions('class A:\n    def old(self): pass\n', 'class A:\n    def new(self): pass\n'),
+    ).toEqual([]);
   });
 });

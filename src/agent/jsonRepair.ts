@@ -91,6 +91,94 @@ function escapeControlCharsInStrings(s: string): string {
   return out;
 }
 
+/**
+ * Apply `fix` to the text OUTSIDE double-quoted strings, leaving every string
+ * literal byte-for-byte as it was. The repairs below are for JSON syntax; run
+ * over the whole text they also rewrote string VALUES, so a repaired write_file
+ * turned `if x is None: return True` into `if x is null: return true`.
+ */
+function outsideStrings(s: string, fix: (code: string) => string): string {
+  let out = '';
+  let code = '';
+  let inStr = false;
+  let esc = false;
+  for (const c of s) {
+    if (inStr) {
+      out += c;
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      out += fix(code) + c;
+      code = '';
+      inStr = true;
+      continue;
+    }
+    code += c;
+  }
+  return out + fix(code);
+}
+
+/**
+ * Turn single-quoted strings into JSON strings: `'it\'s "x"'` becomes
+ * `"it's \"x\""`. Double-quoted strings pass through, so an apostrophe inside
+ * one stays an apostrophe (replacing every `'` broke any value holding one).
+ */
+function singleQuotedToJson(s: string): string {
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '"') {
+      // Copy a double-quoted string verbatim.
+      let j = i + 1;
+      while (j < s.length && s[j] !== '"') j += s[j] === '\\' ? 2 : 1;
+      out += s.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (c === "'") {
+      let body = '';
+      let j = i + 1;
+      while (j < s.length && s[j] !== "'") {
+        if (s[j] === '\\' && s[j + 1] === "'") {
+          body += "'";
+          j += 2;
+        } else if (s[j] === '\\') {
+          body += s.slice(j, j + 2);
+          j += 2;
+        } else {
+          body += s[j] === '"' ? '\\"' : s[j];
+          j++;
+        }
+      }
+      // An unterminated string (truncation) is left open for balanceBrackets.
+      out += '"' + body + (j < s.length ? '"' : '');
+      i = j + 1;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/** Python/JS literals, trailing commas and bare keys: JSON syntax fixes for code outside strings. */
+function fixSyntax(code: string): string {
+  // NaN/Infinity aren't valid JSON — small models emit them for numeric args;
+  // null is the safe recovery.
+  return code
+    .replace(/\bTrue\b/g, 'true')
+    .replace(/\bFalse\b/g, 'false')
+    .replace(/\bNone\b/g, 'null')
+    .replace(/\bNaN\b/g, 'null')
+    .replace(/-?\bInfinity\b/g, 'null')
+    .replace(/,(\s*[}\]])/g, '$1')
+    .replace(/([{,]\s*)([A-Za-z_]\w*)(\s*:)/g, '$1"$2"$3');
+}
+
 /** Append closers for any unclosed `{`/`[` (truncated output). */
 function balanceBrackets(s: string): string {
   const stack: string[] = [];
@@ -132,38 +220,28 @@ export function tryJsonRepair(raw: string): Record<string, unknown> | null {
     .trim();
   candidates.push(s);
 
-  // Python/JS literals + smart quotes → JSON. NaN/Infinity aren't valid JSON —
-  // small models emit them for numeric args; null is the safe recovery.
-  s = s
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .replace(/\bTrue\b/g, 'true')
-    .replace(/\bFalse\b/g, 'false')
-    .replace(/\bNone\b/g, 'null')
-    .replace(/\bNaN\b/g, 'null')
-    .replace(/-?\bInfinity\b/g, 'null');
+  // Smart quotes used as delimiters → straight ones. Inside a real string
+  // they are text and stay.
+  s = outsideStrings(s, (code) => code.replace(/[“”]/g, '"').replace(/[‘’]/g, "'"));
   candidates.push(s);
 
-  // Drop trailing commas before a closer.
-  const noTrailing = s.replace(/,(\s*[}\]])/g, '$1');
-  candidates.push(noTrailing);
-
-  // Quote bare keys: `{ key: ` / `, key: ` → `"key":`.
-  const quotedKeys = noTrailing.replace(/([{,]\s*)([A-Za-z_]\w*)(\s*:)/g, '$1"$2"$3');
+  // Literals, trailing commas, bare keys — outside strings only.
+  const quotedKeys = outsideStrings(s, fixSyntax);
   candidates.push(quotedKeys);
 
-  // Single-quoted strings/keys → double (after key-quoting so we don't fight it).
-  candidates.push(quotedKeys.replace(/'/g, '"'));
+  // Single-quoted strings → JSON strings, converted BEFORE the syntax fixes so
+  // their contents are protected too.
+  const dq = outsideStrings(singleQuotedToJson(s), fixSyntax);
+  candidates.push(dq);
 
   // Balance unclosed brackets / strings (truncation).
   candidates.push(balanceBrackets(quotedKeys));
-  candidates.push(balanceBrackets(quotedKeys.replace(/'/g, '"')));
+  candidates.push(balanceBrackets(dq));
 
   // Escape raw control chars inside strings (literal newlines in multi-line
   // content) — the dominant coding-tool-call failure. Layered on the strongest
   // candidates: double-quoted, and the original-quoting variant (for models that
   // correctly used double quotes but embedded raw newlines).
-  const dq = quotedKeys.replace(/'/g, '"');
   candidates.push(escapeControlCharsInStrings(quotedKeys));
   candidates.push(escapeControlCharsInStrings(dq));
   candidates.push(balanceBrackets(escapeControlCharsInStrings(dq)));
