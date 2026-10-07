@@ -14,7 +14,7 @@ import { reportSecurityIssues, reportStubs } from './sidecarDiagnostics.js';
 import { scanToolOutput, buildInjectionWarning } from './injectionScanner.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import { withFileLock } from './fileLock.js';
-import { detectIrrecoverable } from './executor/irrecoverableDetector.js';
+import { detectIrrecoverable, shellCommandOf } from './executor/irrecoverableDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
@@ -320,6 +320,14 @@ export async function executeTool(
     if (target.denied) return { ...target.denied, tool_use_id: toolUse.id };
     if (target.explicitPermission === 'ask') explicitPermission = 'ask';
   }
+  // A tool that runs a free-form shell command (run_tests with `command`,
+  // research_log_experiment) is a run_command too: the user's deny or ask on
+  // run_command applies to it.
+  if (toolUse.name !== 'run_command' && shellCommandOf(toolUse) !== null) {
+    const asShell = await resolveToolPermission({ ...toolUse, name: 'run_command' }, executorContext);
+    if (asShell.denied) return { ...asShell.denied, tool_use_id: toolUse.id };
+    if (asShell.explicitPermission === 'ask' && explicitPermission !== 'deny') explicitPermission = 'ask';
+  }
 
   const irrecoverableDescription = detectIrrecoverable(toolUse);
   const needsApproval = resolveApprovalNeeded({
@@ -428,7 +436,8 @@ export async function executeTool(
       // operations are gated separately by detectIrrecoverable's type-to-CONFIRM
       // step, which runs regardless of this branch.
       const chatVisible = executorContext?.isChatVisible?.() ?? false;
-      const useModal = NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name) && !chatVisible;
+      const useModal =
+        (NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name) || shellCommandOf(toolUse) !== null) && !chatVisible;
       const choice = useModal
         ? await confirm(`Allow SideCar to run ${toolUse.name}?`, ['Allow', 'Deny'], {
             modal: true,

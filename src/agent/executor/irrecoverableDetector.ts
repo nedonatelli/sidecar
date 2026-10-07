@@ -13,12 +13,27 @@ import { isExecutionConfigPath } from '../tools/shared.js';
  * conservative — we'd rather miss a destructive pattern than prompt
  * on innocuous calls.
  */
+/**
+ * The shell command a tool call would run, for the tools that take one:
+ * run_command, run_tests with an explicit `command`, and
+ * research_log_experiment. Null for every other call.
+ */
+export function shellCommandOf(toolUse: ToolUseContentBlock): string | null {
+  const input = toolUse.input as Record<string, unknown>;
+  const cmd = typeof input.command === 'string' ? input.command : '';
+  if (!cmd) return null;
+  return ['run_command', 'run_tests', 'research_log_experiment'].includes(toolUse.name) ? cmd : null;
+}
+
 export function detectIrrecoverable(toolUse: ToolUseContentBlock): string | null {
   const name = toolUse.name;
   const input = toolUse.input as Record<string, unknown>;
 
-  if (name === 'run_command') {
-    const cmd = typeof input.command === 'string' ? input.command : '';
+  // Every tool that runs a shell command, not only run_command: run_tests and
+  // research_log_experiment take a free-form command too.
+  const shellCommand = shellCommandOf(toolUse);
+  if (shellCommand !== null) {
+    const cmd = shellCommand;
     // Recursive force-delete (rm -rf, rm -fr, rm -Rf…)
     if (/\brm\s+(-[frRf]{1,3}|--force\s+--recursive|--recursive\s+--force)\b/.test(cmd)) {
       return 'Recursive force-delete (rm -rf)';
