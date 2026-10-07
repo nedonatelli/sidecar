@@ -19,7 +19,20 @@
  * mutex to work. This is one of the few legitimate uses of global state.
  */
 
+import * as path from 'path';
+
 const locks = new Map<string, Promise<void>>();
+
+/**
+ * One key per FILE, however the path is spelled. Keys were the raw path, so
+ * on Windows `C:\repo\a.ts`, `c:/repo/a.ts` and `C:\repo\x\..\a.ts` got three
+ * locks for one file and two writes to it could still race. Resolved (so `..`
+ * and separators are normalized) and, on Windows, case-folded, because
+ * Windows paths are case-insensitive.
+ */
+export function lockKey(absPath: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? path.win32.resolve(absPath).toLowerCase() : path.posix.resolve(absPath);
+}
 
 /**
  * Run `task` while holding an exclusive lock on `absPath`. Callers with
@@ -30,14 +43,15 @@ const locks = new Map<string, Promise<void>>();
  * write never deadlocks subsequent writes to the same path.
  */
 export async function withFileLock<T>(absPath: string, task: () => Promise<T>): Promise<T> {
-  const previous = locks.get(absPath) ?? Promise.resolve();
+  const key = lockKey(absPath);
+  const previous = locks.get(key) ?? Promise.resolve();
   let releaseLock: () => void = () => {
     /* assigned synchronously below */
   };
   const gate = new Promise<void>((resolve) => {
     releaseLock = resolve;
   });
-  locks.set(absPath, gate);
+  locks.set(key, gate);
 
   try {
     await previous;
@@ -47,8 +61,8 @@ export async function withFileLock<T>(absPath: string, task: () => Promise<T>): 
     // Clean up the map entry only if nobody else queued behind us while we
     // were running. If another caller installed a newer tail, leave their
     // entry in place so they can finish their turn.
-    if (locks.get(absPath) === gate) {
-      locks.delete(absPath);
+    if (locks.get(key) === gate) {
+      locks.delete(key);
     }
   }
 }

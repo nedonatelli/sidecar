@@ -1042,6 +1042,10 @@ Loop-safety scaffolding tuning. See also the scaffolding roadmap in `docs/`.
 | `sidecar.recovery.codeAsText`                   | boolean | `true`  | Recovery package for models that print code instead of calling tools (call-expression parsing, fence-write synthesis, literal-escape decode, fused-anchor split). Dormant on capable models; proven on weak ones.  |
 | `sidecar.editFile.steerToWrite`                 | boolean | `false` | When `edit_file` keeps failing on one file, steer the model to rewrite it with `write_file`. Manual-use flag — campaigned to a powered null.                                                                       |
 | `sidecar.editFile.steerToWriteThreshold`        | number  | `3`     | Consecutive `edit_file` failures on one file before the steer fires.                                                                                                                                               |
+| `sidecar.editStrategy.wholeFileRewrite`         | boolean | `false` | Tell the model to change files by writing the complete file instead of using `edit_file`. Off until A/B-proven.                                                                                                    |
+| `sidecar.compaction.durableInstructions`        | boolean | `true`  | Keep your standing instructions in their own section when the conversation is compacted.                                                                                                                           |
+| `sidecar.compaction.verbatimUserChars`          | number  | `0`     | Characters of your messages kept word for word through compaction (0 disables).                                                                                                                                    |
+| `sidecar.memory.persistInstructions`            | boolean | `true`  | Save standing instructions and bring them back in later sessions.                                                                                                                                                  |
 
 ## AWS Bedrock
 

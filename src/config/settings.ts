@@ -490,6 +490,19 @@ export function clampMin(value: number | undefined, min: number, fallback: numbe
   return Math.max(min, value);
 }
 
+/**
+ * Bound a numeric setting to [min, max], with `fallback` for a missing or
+ * non-numeric value. Settings read with a default (`cfg.get(key, 8)`) were
+ * passed to clampMin with their intended MAXIMUM as the third argument --
+ * clampMin's fallback, unused because the value is never undefined -- so
+ * the upper bound the schema declares (fork.defaultCount <= 10,
+ * multiFileEdits.maxParallel <= 32, ...) was never enforced.
+ */
+export function clampRange(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (value === undefined || typeof value !== 'number' || isNaN(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
 function readConfig(): SideCarConfig {
   // Sensitive keys read through the trust filter: a workspace value the user
   // has not allowed falls back to their own setting or the default.
@@ -580,27 +593,27 @@ function readConfig(): SideCarConfig {
     redCheckGateEnabled: cfg.get<boolean>('redCheckGate.enabled', true),
     redCheckPythonRunnersEnabled: cfg.get<boolean>('redCheckGate.pythonRunners', false),
     redCheckRatchetedEnabled: cfg.get<boolean>('redCheckGate.ratcheted', false),
-    steerQueueCoalesceWindowMs: clampMin(cfg.get<number>('steerQueue.coalesceWindowMs', 2000), 0, 10_000),
-    steerQueueMaxPending: clampMin(cfg.get<number>('steerQueue.maxPending', 5), 1, 20),
+    steerQueueCoalesceWindowMs: clampRange(cfg.get<number>('steerQueue.coalesceWindowMs', 2000), 0, 10_000, 2000),
+    steerQueueMaxPending: clampRange(cfg.get<number>('steerQueue.maxPending', 5), 1, 20, 5),
     multiFileEditsEnabled: cfg.get<boolean>('multiFileEdits.enabled', true),
-    multiFileEditsMaxParallel: clampMin(cfg.get<number>('multiFileEdits.maxParallel', 8), 1, 32),
+    multiFileEditsMaxParallel: clampRange(cfg.get<number>('multiFileEdits.maxParallel', 8), 1, 32, 8),
     multiFileEditsPlanningPass: cfg.get<boolean>('multiFileEdits.planningPass', true),
-    multiFileEditsMinFilesForPlan: clampMin(cfg.get<number>('multiFileEdits.minFilesForPlan', 3), 2, 50),
+    multiFileEditsMinFilesForPlan: clampRange(cfg.get<number>('multiFileEdits.minFilesForPlan', 3), 2, 50, 3),
     multiFileEditsPlannerModel: cfg.get<string>('multiFileEdits.plannerModel', ''),
     multiFileEditsReviewGranularity: cfg.get<'bulk' | 'per-file' | 'per-hunk'>(
       'multiFileEdits.reviewGranularity',
       'per-file',
     ),
     retrievalGraphExpansionEnabled: cfg.get<boolean>('retrieval.graphExpansion.enabled', true),
-    retrievalGraphExpansionMaxHits: clampMin(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50),
+    retrievalGraphExpansionMaxHits: clampRange(cfg.get<number>('retrieval.graphExpansion.maxHits', 8), 0, 50, 8),
     retrievalQueryRewrite: cfg.get<'off' | 'rule' | 'llm' | 'expand'>('retrieval.queryRewrite', 'rule'),
     facetsEnabled: cfg.get<boolean>('facets.enabled', true),
-    facetsMaxConcurrent: clampMin(cfg.get<number>('facets.maxConcurrent', 3), 1, 16),
-    facetsRpcTimeoutMs: clampMin(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000),
+    facetsMaxConcurrent: clampRange(cfg.get<number>('facets.maxConcurrent', 3), 1, 16, 3),
+    facetsRpcTimeoutMs: clampRange(cfg.get<number>('facets.rpcTimeoutMs', 30_000), 1_000, 300_000, 30_000),
     facetsRegistry: cfg.get<string[]>('facets.registry', []),
     designMdEnabled: cfg.get<boolean>('designMd.enabled', true),
     sidecarMdMode: cfg.get<'full' | 'sections' | 'retrieval'>('sidecarMd.mode', 'sections'),
-    sidecarMdRetrievalTopK: clampMin(cfg.get<number>('sidecarMd.retrieval.topK', 5), 1, 20),
+    sidecarMdRetrievalTopK: clampRange(cfg.get<number>('sidecarMd.retrieval.topK', 5), 1, 20, 5),
     sidecarMdRetrievalMinScore: Math.min(Math.max(cfg.get<number>('sidecarMd.retrieval.minScore', 0.3), 0), 1),
     sidecarMdAlwaysIncludeHeadings: cfg.get<string[]>('sidecarMd.alwaysIncludeHeadings', [
       'Build',
@@ -608,13 +621,13 @@ function readConfig(): SideCarConfig {
       'Setup',
     ]),
     sidecarMdLowPriorityHeadings: cfg.get<string[]>('sidecarMd.lowPriorityHeadings', ['Glossary', 'FAQ', 'Changelog']),
-    sidecarMdMaxScopedSections: clampMin(cfg.get<number>('sidecarMd.maxScopedSections', 5), 1, 50),
+    sidecarMdMaxScopedSections: clampRange(cfg.get<number>('sidecarMd.maxScopedSections', 5), 1, 50, 5),
     forkEnabled: cfg.get<boolean>('fork.enabled', true),
-    forkDefaultCount: clampMin(cfg.get<number>('fork.defaultCount', 3), 2, 10),
-    forkMaxConcurrent: clampMin(cfg.get<number>('fork.maxConcurrent', 3), 1, 10),
+    forkDefaultCount: clampRange(cfg.get<number>('fork.defaultCount', 3), 2, 10, 3),
+    forkMaxConcurrent: clampRange(cfg.get<number>('fork.maxConcurrent', 3), 1, 10, 3),
     arenaEnabled: cfg.get<boolean>('arena.enabled', true),
     arenaDefaultModels: cfg.get<string[]>('arena.defaultModels', []),
-    kickstandNCtx: clampMin(cfg.get<number>('kickstand.nCtx', 32768), 512, 1_000_000),
+    kickstandNCtx: clampRange(cfg.get<number>('kickstand.nCtx', 32768), 512, 1_000_000, 32768),
     kickstandRopeFreqBase: Math.max(cfg.get<number>('kickstand.ropeFreqBase', 0), 0),
     kickstandRopeFreqScale: Math.max(cfg.get<number>('kickstand.ropeFreqScale', 0), 0),
     kickstandYarnExtFactor: cfg.get<number>('kickstand.yarnExtFactor', -1),
@@ -702,7 +715,7 @@ function readConfig(): SideCarConfig {
     projectKnowledgeEnabled: cfg.get<boolean>('projectKnowledge.enabled', true),
     projectKnowledgeMaxSymbolsPerFile: cfg.get<number>('projectKnowledge.maxSymbolsPerFile', 500),
     projectKnowledgeBackend: cfg.get<'flat' | 'lance'>('projectKnowledge.backend', 'flat'),
-    projectKnowledgeGraphWalkDepth: clampMin(cfg.get<number>('projectKnowledge.graphWalkDepth', 2), 0, 4),
+    projectKnowledgeGraphWalkDepth: clampRange(cfg.get<number>('projectKnowledge.graphWalkDepth', 2), 0, 4, 2),
     merkleIndexEnabled: cfg.get<boolean>('merkleIndex.enabled', true),
     /* Skill Sync & Registry */
     skillsUserRegistry: cfg.get<string>('skills.userRegistry', ''),
@@ -776,10 +789,10 @@ function readConfig(): SideCarConfig {
     researchEnabled: cfg.get<boolean>('research.enabled', false),
     researchActiveProject: cfg.get<string>('research.activeProject', ''),
     profilingEnabled: cfg.get<boolean>('profiling.enabled', false),
-    profilingTopN: clampMin(cfg.get<number>('profiling.topN', 10), 1, 50),
+    profilingTopN: clampRange(cfg.get<number>('profiling.topN', 10), 1, 50, 10),
     mutationEnabled: cfg.get<boolean>('mutation.enabled', false),
-    mutationMaxMutants: clampMin(cfg.get<number>('mutation.maxMutants', 25), 1, 500),
-    mutationTestTimeoutMs: clampMin(cfg.get<number>('mutation.testTimeoutMs', 60000), 1000, 600000),
+    mutationMaxMutants: clampRange(cfg.get<number>('mutation.maxMutants', 25), 1, 500, 25),
+    mutationTestTimeoutMs: clampRange(cfg.get<number>('mutation.testTimeoutMs', 60000), 1000, 600000, 60000),
     impactGateEnabled: cfg.get<boolean>('codeGraph.impactGate', false),
     numericalContractGateEnabled: cfg.get<boolean>('numericalContracts.gate', false),
     analyticBoundsGateEnabled: cfg.get<boolean>('analyticBounds.gate', false),

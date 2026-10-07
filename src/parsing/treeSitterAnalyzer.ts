@@ -273,225 +273,231 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
     }
 
     const tree = parser.parse(content);
-    const mappings = LANGUAGE_MAPPINGS[langName] || [];
-    const elements: CodeElement[] = [];
-    const lines = content.split('\n');
-
-    // Walk the tree and extract elements matching our mappings
+    // The tree lives in WASM memory and is freed only by delete(): released in
+    // `finally` so an exception anywhere below no longer leaks it.
     const cursor = tree.walk();
-    const visit = (): void => {
-      const node = cursor.currentNode;
+    try {
+      const mappings = LANGUAGE_MAPPINGS[langName] || [];
+      const elements: CodeElement[] = [];
+      const lines = content.split('\n');
 
-      for (const mapping of mappings) {
-        if (node.type === mapping.nodeType) {
-          if (mapping.perDeclarator) {
-            // One declaration, N bound names. Restricted to the top level:
-            // `program`, or an `export_statement` directly under it. A
-            // declaration in a function body is not an addressable symbol and
-            // indexing them would inflate the graph for no query value.
-            const parent = node.parent;
-            const topLevel =
-              parent?.type === 'program' || (parent?.type === 'export_statement' && parent.parent?.type === 'program');
-            if (!topLevel) break;
+      // Walk the tree and extract elements matching our mappings
+      const visitNode = (): void => {
+        const node = cursor.currentNode;
 
-            const startLine = node.startPosition.row;
-            const endLine = node.endPosition.row;
-            const declContent = lines.slice(startLine, endLine + 1).join('\n');
-            for (let i = 0; i < node.childCount; i++) {
-              const child = node.child(i);
-              if (child?.type !== mapping.perDeclarator) continue;
-              const nameNode = child.childForFieldName('name');
-              // Destructuring binds via object_pattern / array_pattern, which
-              // have no single identifier to attribute a range to. Deliberately
-              // skipped rather than guessed at.
-              if (!nameNode || nameNode.type !== 'identifier') continue;
-              // `const handle = () => {}` is a function to everyone who reads
-              // it, and the regex analyzer already indexes it as one. Typing it
-              // `variable` here would make a symbol's kind depend on which
-              // analyzer happened to run.
-              const value = child.childForFieldName('value')?.type;
-              const isFunctionValued =
-                value === 'arrow_function' || value === 'function_expression' || value === 'function';
+        for (const mapping of mappings) {
+          if (node.type === mapping.nodeType) {
+            if (mapping.perDeclarator) {
+              // One declaration, N bound names. Restricted to the top level:
+              // `program`, or an `export_statement` directly under it. A
+              // declaration in a function body is not an addressable symbol and
+              // indexing them would inflate the graph for no query value.
+              const parent = node.parent;
+              const topLevel =
+                parent?.type === 'program' ||
+                (parent?.type === 'export_statement' && parent.parent?.type === 'program');
+              if (!topLevel) break;
+
+              const startLine = node.startPosition.row;
+              const endLine = node.endPosition.row;
+              const declContent = lines.slice(startLine, endLine + 1).join('\n');
+              for (let i = 0; i < node.childCount; i++) {
+                const child = node.child(i);
+                if (child?.type !== mapping.perDeclarator) continue;
+                const nameNode = child.childForFieldName('name');
+                // Destructuring binds via object_pattern / array_pattern, which
+                // have no single identifier to attribute a range to. Deliberately
+                // skipped rather than guessed at.
+                if (!nameNode || nameNode.type !== 'identifier') continue;
+                // `const handle = () => {}` is a function to everyone who reads
+                // it, and the regex analyzer already indexes it as one. Typing it
+                // `variable` here would make a symbol's kind depend on which
+                // analyzer happened to run.
+                const value = child.childForFieldName('value')?.type;
+                const isFunctionValued =
+                  value === 'arrow_function' || value === 'function_expression' || value === 'function';
+                elements.push({
+                  type: isFunctionValued ? 'function' : mapping.elementType,
+                  name: nameNode.text,
+                  startLine,
+                  endLine,
+                  content: declContent,
+                  relevanceScore: 0,
+                  exported: parent?.type === 'export_statement',
+                });
+              }
+              break;
+            }
+
+            if (mapping.moduleAssignment) {
+              // Python `NAME = value` at module level. Top-level only: the
+              // assignment's parent is `expression_statement` directly under
+              // `module`. Only a bare identifier target is an addressable symbol.
+              const stmt = node.parent;
+              const topLevel = stmt?.type === 'expression_statement' && stmt.parent?.type === 'module';
+              if (!topLevel) break;
+              const target = node.childForFieldName('left');
+              if (!target || target.type !== 'identifier') break;
+              const startLine = node.startPosition.row;
+              const endLine = node.endPosition.row;
               elements.push({
-                type: isFunctionValued ? 'function' : mapping.elementType,
-                name: nameNode.text,
+                type: mapping.elementType,
+                name: target.text,
                 startLine,
                 endLine,
-                content: declContent,
+                content: lines.slice(startLine, endLine + 1).join('\n'),
                 relevanceScore: 0,
-                exported: parent?.type === 'export_statement',
+                exported: false,
               });
+              break;
             }
-            break;
-          }
 
-          if (mapping.moduleAssignment) {
-            // Python `NAME = value` at module level. Top-level only: the
-            // assignment's parent is `expression_statement` directly under
-            // `module`. Only a bare identifier target is an addressable symbol.
-            const stmt = node.parent;
-            const topLevel = stmt?.type === 'expression_statement' && stmt.parent?.type === 'module';
-            if (!topLevel) break;
-            const target = node.childForFieldName('left');
-            if (!target || target.type !== 'identifier') break;
-            const startLine = node.startPosition.row;
-            const endLine = node.endPosition.row;
-            elements.push({
-              type: mapping.elementType,
-              name: target.text,
-              startLine,
-              endLine,
-              content: lines.slice(startLine, endLine + 1).join('\n'),
-              relevanceScore: 0,
-              exported: false,
-            });
-            break;
-          }
+            let name = '';
 
-          let name = '';
-
-          // Try to get name from the designated field
-          if (mapping.nameField) {
-            const nameNode = node.childForFieldName(mapping.nameField);
-            if (nameNode) {
-              name = nameNode.text;
-            }
-          }
-
-          // C/C++ function names are buried in a declarator chain:
-          // function_definition → declarator (pointer_declarator | function_declarator) → ... → identifier
-          if (!name && (langName === 'c' || langName === 'cpp') && node.type === 'function_definition') {
-            const declarator = node.childForFieldName('declarator');
-            if (declarator) name = walkDeclarator(declarator);
-          }
-
-          // For exports, try to get the name from the inner declaration
-          if (!name && mapping.elementType === 'export') {
-            const inner = node.childForFieldName('declaration') || node.childForFieldName('value');
-            if (inner) {
-              const innerName = inner.childForFieldName('name');
-              name = innerName ? innerName.text : inner.text.slice(0, 50);
-            }
-          }
-
-          // For imports, extract the source module
-          if (!name && mapping.elementType === 'import') {
-            const source =
-              node.childForFieldName('source') || node.childForFieldName('path') || node.childForFieldName('name'); // Java import_declaration uses 'name'
-            name = source ? source.text.replace(/['"]/g, '') : node.text.slice(0, 80);
-          }
-
-          // For Go type declarations and Rust impl, get the type name
-          if (!name && (node.type === 'type_declaration' || node.type === 'impl_item')) {
-            // Walk children to find the type identifier
-            for (let i = 0; i < node.childCount; i++) {
-              const child = node.child(i);
-              if (
-                child &&
-                (child.type === 'type_spec' || child.type === 'type_identifier' || child.type === 'generic_type')
-              ) {
-                const nameChild = child.childForFieldName('name') || child;
-                name = nameChild.text.split(/[\s<{]/)[0];
-                break;
+            // Try to get name from the designated field
+            if (mapping.nameField) {
+              const nameNode = node.childForFieldName(mapping.nameField);
+              if (nameNode) {
+                name = nameNode.text;
               }
             }
-          }
 
-          if (!name) name = node.type;
+            // C/C++ function names are buried in a declarator chain:
+            // function_definition → declarator (pointer_declarator | function_declarator) → ... → identifier
+            if (!name && (langName === 'c' || langName === 'cpp') && node.type === 'function_definition') {
+              const declarator = node.childForFieldName('declarator');
+              if (declarator) name = walkDeclarator(declarator);
+            }
 
-          const startLine = node.startPosition.row;
-          const endLine = node.endPosition.row;
-          const elementContent = lines.slice(startLine, endLine + 1).join('\n');
+            // For exports, try to get the name from the inner declaration
+            if (!name && mapping.elementType === 'export') {
+              const inner = node.childForFieldName('declaration') || node.childForFieldName('value');
+              if (inner) {
+                const innerName = inner.childForFieldName('name');
+                name = innerName ? innerName.text : inner.text.slice(0, 50);
+              }
+            }
 
-          // Check if this element is exported
-          let exported = false;
-          if (mapping.elementType === 'export') {
-            exported = true;
-          } else if (node.parent?.type === 'export_statement') {
-            exported = true;
-          } else if (langName === 'go' && name.length > 0 && name[0] === name[0].toUpperCase()) {
-            exported = true; // Go convention: uppercase = exported
-          } else if (langName === 'rust' && node.previousSibling?.type === 'visibility_modifier') {
-            exported = true;
-          } else if (
-            (langName === 'java' || langName === 'c_sharp' || langName === 'kotlin') &&
-            hasPublicModifier(node)
-          ) {
-            exported = true;
-          } else if (langName === 'swift' && hasSwiftPublicModifier(node)) {
-            exported = true;
-          }
+            // For imports, extract the source module
+            if (!name && mapping.elementType === 'import') {
+              const source =
+                node.childForFieldName('source') || node.childForFieldName('path') || node.childForFieldName('name'); // Java import_declaration uses 'name'
+              name = source ? source.text.replace(/['"]/g, '') : node.text.slice(0, 80);
+            }
 
-          // Extract import bindings
-          let bindings: string[] | undefined;
-          if (mapping.elementType === 'import') {
-            bindings = [];
-            // Look for named imports
-            for (let i = 0; i < node.childCount; i++) {
-              const child = node.child(i);
-              if (child?.type === 'import_clause' || child?.type === 'named_imports') {
-                for (let j = 0; j < child.childCount; j++) {
-                  const specifier = child.child(j);
-                  if (specifier?.type === 'import_specifier') {
-                    const nameNode = specifier.childForFieldName('name');
-                    if (nameNode) bindings.push(nameNode.text);
+            // For Go type declarations and Rust impl, get the type name
+            if (!name && (node.type === 'type_declaration' || node.type === 'impl_item')) {
+              // Walk children to find the type identifier
+              for (let i = 0; i < node.childCount; i++) {
+                const child = node.child(i);
+                if (
+                  child &&
+                  (child.type === 'type_spec' || child.type === 'type_identifier' || child.type === 'generic_type')
+                ) {
+                  const nameChild = child.childForFieldName('name') || child;
+                  name = nameChild.text.split(/[\s<{]/)[0];
+                  break;
+                }
+              }
+            }
+
+            if (!name) name = node.type;
+
+            const startLine = node.startPosition.row;
+            const endLine = node.endPosition.row;
+            const elementContent = lines.slice(startLine, endLine + 1).join('\n');
+
+            // Check if this element is exported
+            let exported = false;
+            if (mapping.elementType === 'export') {
+              exported = true;
+            } else if (node.parent?.type === 'export_statement') {
+              exported = true;
+            } else if (langName === 'go' && name.length > 0 && name[0] === name[0].toUpperCase()) {
+              exported = true; // Go convention: uppercase = exported
+            } else if (langName === 'rust' && node.previousSibling?.type === 'visibility_modifier') {
+              exported = true;
+            } else if (
+              (langName === 'java' || langName === 'c_sharp' || langName === 'kotlin') &&
+              hasPublicModifier(node)
+            ) {
+              exported = true;
+            } else if (langName === 'swift' && hasSwiftPublicModifier(node)) {
+              exported = true;
+            }
+
+            // Extract import bindings
+            let bindings: string[] | undefined;
+            if (mapping.elementType === 'import') {
+              bindings = [];
+              // Look for named imports
+              for (let i = 0; i < node.childCount; i++) {
+                const child = node.child(i);
+                if (child?.type === 'import_clause' || child?.type === 'named_imports') {
+                  for (let j = 0; j < child.childCount; j++) {
+                    const specifier = child.child(j);
+                    if (specifier?.type === 'import_specifier') {
+                      const nameNode = specifier.childForFieldName('name');
+                      if (nameNode) bindings.push(nameNode.text);
+                    }
                   }
                 }
               }
             }
+
+            elements.push({
+              type: mapping.elementType,
+              name,
+              startLine,
+              endLine,
+              content: elementContent,
+              relevanceScore: 0,
+              exported,
+              ...(bindings && bindings.length > 0 ? { bindings } : {}),
+            });
+
+            break; // Don't match multiple mappings for the same node
           }
-
-          elements.push({
-            type: mapping.elementType,
-            name,
-            startLine,
-            endLine,
-            content: elementContent,
-            relevanceScore: 0,
-            exported,
-            ...(bindings && bindings.length > 0 ? { bindings } : {}),
-          });
-
-          break; // Don't match multiple mappings for the same node
         }
+      };
+
+      // Iterative pre-order walk with the cursor. The recursive version
+      // overflowed the call stack on deeply nested expressions.
+      for (;;) {
+        visitNode();
+        if (cursor.gotoFirstChild()) continue;
+        let next = cursor.gotoNextSibling();
+        while (!next && cursor.gotoParent()) next = cursor.gotoNextSibling();
+        if (!next) break;
       }
 
-      // Recurse into children (but not too deep for performance)
-      if (cursor.gotoFirstChild()) {
-        do {
-          visit();
-        } while (cursor.gotoNextSibling());
-        cursor.gotoParent();
+      // Edges: AST-accurate for TS/JS + Python; regex fallback for every other
+      // language so switching the indexer to tree-sitter never loses edge coverage.
+      let calls: ParsedCall[] | undefined;
+      let typeRelations: ParsedTypeRelation[] | undefined;
+      let typeUses: ParsedTypeUse[] | undefined;
+      const astEdges =
+        langName === 'python'
+          ? extractPyEdges(tree.rootNode as unknown as AnyNode)
+          : TS_EDGE_LANGUAGES.has(langName)
+            ? extractTsEdges(tree.rootNode as unknown as AnyNode)
+            : null;
+      if (astEdges) {
+        calls = astEdges.calls.length > 0 ? astEdges.calls : undefined;
+        typeRelations = astEdges.typeRelations.length > 0 ? astEdges.typeRelations : undefined;
+        typeUses = astEdges.typeUses.length > 0 ? astEdges.typeUses : undefined;
+      } else {
+        const regex = SimpleCodeAnalyzer.parseFileContent(filePath, content);
+        calls = regex.calls;
+        typeRelations = regex.typeRelations;
+        typeUses = regex.typeUses;
       }
-    };
 
-    visit();
-
-    // Edges: AST-accurate for TS/JS + Python; regex fallback for every other
-    // language so switching the indexer to tree-sitter never loses edge coverage.
-    let calls: ParsedCall[] | undefined;
-    let typeRelations: ParsedTypeRelation[] | undefined;
-    let typeUses: ParsedTypeUse[] | undefined;
-    const astEdges =
-      langName === 'python'
-        ? extractPyEdges(tree.rootNode as unknown as AnyNode)
-        : TS_EDGE_LANGUAGES.has(langName)
-          ? extractTsEdges(tree.rootNode as unknown as AnyNode)
-          : null;
-    if (astEdges) {
-      calls = astEdges.calls.length > 0 ? astEdges.calls : undefined;
-      typeRelations = astEdges.typeRelations.length > 0 ? astEdges.typeRelations : undefined;
-      typeUses = astEdges.typeUses.length > 0 ? astEdges.typeUses : undefined;
-    } else {
-      const regex = SimpleCodeAnalyzer.parseFileContent(filePath, content);
-      calls = regex.calls;
-      typeRelations = regex.typeRelations;
-      typeUses = regex.typeUses;
+      return { filePath, elements, content, calls, typeRelations, typeUses };
+    } finally {
+      cursor.delete?.();
+      tree.delete();
     }
-
-    tree.delete();
-
-    return { filePath, elements, content, calls, typeRelations, typeUses };
   }
 
   findRelevantElements(parsedFile: ParsedFile, query: string): CodeElement[] {

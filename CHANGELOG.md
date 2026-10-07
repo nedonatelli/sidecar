@@ -10,6 +10,17 @@ All notable changes to the SideCar extension will be documented in this file.
   it was being written to disk could be lost, attached to the wrong symbol, or bring back
   entries that had been deleted — and a change made during a save was then treated as
   saved. Saves now write a consistent snapshot.
+- **Showing a diff of a large file could crash VS Code's extension host** (out of memory at
+  around 30,000 lines). Change summaries, per-change review and write previews now handle
+  files of any size.
+- **Very deeply nested code could break code indexing** with a stack overflow, and leaked
+  memory each time.
+- **A specially crafted image in a repository could exhaust memory** when the agent read it.
+- **Several settings ignored their maximum** (for example `sidecar.fork.defaultCount` and
+  `sidecar.multiFileEdits.maxParallel`); four settings that were in use but missing from the
+  Settings UI are now listed there.
+- On Windows, two edits to the same file written with different path spellings (`C:\repo`
+  vs `c:/repo`) could run at the same time and overwrite each other.
 
 - **macOS/Linux: the startup cleanup of processes left over from a crash could, rarely,
   stop an unrelated process** that had just been given a leftover process's ID. It now
