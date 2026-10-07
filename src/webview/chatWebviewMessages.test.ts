@@ -262,6 +262,25 @@ describe('chat webview message dispatcher', () => {
       expect(bubbleIndices().slice(0, 4)).toEqual(['0', '1', '2', '3']);
     });
 
+    // #110: String.replace with a string treats $& / $' in the new text as patterns.
+    it('inserts regenerated text literally, $ patterns and all', () => {
+      postToWebview({
+        command: 'init',
+        messages: [
+          { role: 'user', content: 'q' },
+          { role: 'assistant', content: 'old part' },
+        ],
+      });
+      postToWebview({
+        command: 'regenSectionResult',
+        msgIndex: 1,
+        originalText: 'old part',
+        newText: "costs $& and $' now",
+      });
+      const answer = messagesEl.querySelector('.message.assistant[data-msg-index="1"]') as HTMLElement;
+      expect(answer.dataset.rawContent).toBe("costs $& and $' now");
+    });
+
     it('leaves the counter untouched when done carries no messageCount', () => {
       postToWebview({ command: 'init', messages: [{ role: 'user', content: 'hi' }] });
       postToWebview({ command: 'addUserMessage', content: 'task' }); // index 1

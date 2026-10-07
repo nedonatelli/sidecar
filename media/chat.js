@@ -5666,7 +5666,9 @@
         if (!targetDiv) break;
         // Replace inside raw markdown, then re-render
         const raw = targetDiv.dataset.rawContent || '';
-        const updated = raw.includes(origText) ? raw.replace(origText, newText) : raw + '\n\n' + newText;
+        // A function replacement: with a string, \`$&\`, \`$'\` and the like in the
+        // model's text were expanded as replacement patterns.
+        const updated = raw.includes(origText) ? raw.replace(origText, () => newText) : raw + '\n\n' + newText;
         targetDiv.dataset.rawContent = updated;
         // Re-render the content area (keep action buttons)
         const existingActions = targetDiv.querySelector('.message-actions');
