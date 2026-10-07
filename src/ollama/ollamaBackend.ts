@@ -13,7 +13,7 @@ import {
   type ThinkTagState,
   type TextToolCallState,
 } from './streamUtils.js';
-import { getConfig } from '../config/settings.js';
+import { getConfig, ollamaApiRoot } from '../config/settings.js';
 import { hasProblematicThinking } from '../config/modelAgentBehavior.js';
 import {
   TOOL_FAILURE_THRESHOLD,
@@ -431,7 +431,11 @@ function throwIfStreamError(chunk: unknown): void {
 }
 
 export class OllamaBackend implements ApiBackend {
-  constructor(private baseUrl: string) {}
+  private readonly baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = ollamaApiRoot(baseUrl);
+  }
 
   private get chatUrl(): string {
     return `${this.baseUrl}/api/chat`;

@@ -23,18 +23,18 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 
 You don't have to edit these settings by hand. Click the **⚙ gear** in the chat header and pick a backend from the **Backend** section of the settings menu — SideCar's built-in profiles flip `baseUrl`, `provider`, and `model` in one click:
 
-| Profile          | Provider     | Base URL                                           | Default model                                                                   |
-| ---------------- | ------------ | -------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Local Ollama     | `ollama`     | `http://localhost:11434`                           | `gemma4:e4b`                                                                    |
-| Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                        | `claude-haiku-4-5`                                                              |
-| OpenAI           | `openai`     | `https://api.openai.com`                           | `gpt-4o`                                                                        |
-| OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                     | `anthropic/claude-sonnet-4.5`                                                   |
-| Groq             | `groq`       | `https://api.groq.com/openai/v1`                   | `llama-3.3-70b-versatile`                                                       |
-| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`            | `qwen2p5-coder-32b-instruct`                                                    |
-| Kickstand        | `kickstand`  | `http://localhost:11435`                           | Token auto-loaded from `~/.config/kickstand/token` — no key prompt              |
-| AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`  | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |
-| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/openai` | `gemini-2.0-flash`                                                              |
-| GitHub Copilot   | `copilot`    | `vscode://github.copilot`                          | `gpt-4o` (uses your Copilot subscription — no API key)                          |
+| Profile          | Provider     | Base URL                                                  | Default model                                                                   |
+| ---------------- | ------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Local Ollama     | `ollama`     | `http://localhost:11434`                                  | `gemma4:e4b`                                                                    |
+| Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                               | `claude-haiku-4-5`                                                              |
+| OpenAI           | `openai`     | `https://api.openai.com`                                  | `gpt-4o`                                                                        |
+| OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`                                                   |
+| Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `llama-3.3-70b-versatile`                                                       |
+| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `qwen2p5-coder-32b-instruct`                                                    |
+| Kickstand        | `kickstand`  | `http://localhost:11435`                                  | Token auto-loaded from `~/.config/kickstand/token` — no key prompt              |
+| AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |
+| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash`                                                              |
+| GitHub Copilot   | `copilot`    | `vscode://github.copilot`                                 | `gpt-4o` (uses your Copilot subscription — no API key)                          |
 
 Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your OpenAI key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
@@ -46,11 +46,11 @@ For custom setups (non-standard ports, Anthropic-compatible proxies, etc.) the s
 
 When `sidecar.provider` is `auto` (default), SideCar detects the backend from the URL:
 
-- **`localhost:11434`** → Ollama (native API)
+- **Port `11434` on any host** (e.g. `http://gpu-box:11434`) → Ollama (native API)
 - **`anthropic.com`** → Anthropic (Messages API with prompt caching)
 - **`localhost:11435`** → Kickstand — reads bearer token from `~/.config/kickstand/token` automatically
 - **`openrouter.ai`** → OpenRouter · **`groq.com`** → Groq · **`fireworks.ai`** → Fireworks · **`generativelanguage.googleapis.com`** → Gemini · **`bedrock-runtime.*.amazonaws.com`** → AWS Bedrock
-- **Everything else** → OpenAI-compatible (`/v1/chat/completions`)
+- **Any other URL** → SideCar asks the server once, when it first connects: if it answers Ollama's `/api/version`, it is used as Ollama; otherwise it's treated as OpenAI-compatible (`/v1/chat/completions`). Cloud hosts are never asked.
 
 Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or a local Kickstand dev build on a non-standard port.
 
