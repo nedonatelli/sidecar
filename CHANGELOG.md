@@ -4,7 +4,22 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.127.1] - 2026-10-07
+
+A reliability release: the fixes from the October code review for bugs that lose your work
+or break core features. The chat panel no longer drops images, mixes up sessions or acts on
+the wrong message; edits can no longer silently delete code or write something other than
+what the model sent; a dropped connection or an aborted request can no longer leave a
+backend disabled or run tool calls twice; and large files, deeply nested code and unusual
+setups (another shell, Ollama on another machine, Gemini) no longer crash or stall SideCar.
+
 ### Fixed
+
+- **macOS: `sidecar.sandbox.enabled` didn't cover every agent shell.** The chat's Run button
+  fallback and regression guards ran unsandboxed, and turning the setting on or off had no
+  effect until the shell restarted. Both now follow the setting immediately.
+- **macOS: a glob passed to `grep` (such as `admin_utils/**`) returned a regular-expression
+  error** instead of pointing the model to `search_files`.
 
 - **The project knowledge index could save a damaged copy of itself.** Changes made while
   it was being written to disk could be lost, attached to the wrong symbol, or bring back
@@ -155,6 +170,10 @@ All notable changes to the SideCar extension will be documented in this file.
   mode, and both `within` and `replace_all` were ignored in review mode.
 - **An edit whose search text began at a line break could leave a stray carriage return**
   in files with Windows (CRLF) line endings.
+
+### Stats
+- 9420 total tests (526 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.127.0] - 2026-10-06
 
