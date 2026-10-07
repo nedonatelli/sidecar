@@ -2427,3 +2427,22 @@ describe('editFile audit mode with within', () => {
     expect(buf.read('notes.md').content).toBe('## One\nvalue\n## Two\nchanged\n');
   });
 });
+
+// #108: the content hash was recorded before the syntax guard refused a write.
+describe('write_file circular-write history', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('does not record a write the syntax guard refused', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('export const a = 1;\n') as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    const writeHistoryByFile = new Map<string, Set<string>>();
+    const broken = 'export const a = (;\n';
+
+    await expect(writeFile({ path: 'a.ts', content: broken }, { writeHistoryByFile })).rejects.toThrow(/refused/);
+    expect(writeHistoryByFile.get('a.ts')?.size ?? 0).toBe(0);
+    // The retry gets the same syntax refusal, not "byte-identical to a version you already wrote".
+    await expect(writeFile({ path: 'a.ts', content: broken }, { writeHistoryByFile })).rejects.toThrow(/refused/);
+  });
+});
