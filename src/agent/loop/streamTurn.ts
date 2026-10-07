@@ -1,7 +1,7 @@
 import { withSafetyRules } from '../safetyRules.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import { logger } from '../../system/logger.js';
-import type { ToolUseContentBlock } from '../../ollama/types.js';
+import type { ToolUseContentBlock, ChatMessage } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
@@ -426,6 +426,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     const iterationTools = resolveIterationTools(state);
     const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, iterationTools, {
       callExpressions: state.config.codeAsTextRecoveryEnabled === true,
+      echoSource: toolOutputText(state.messages),
     });
     for (const tu of parsed) {
       pendingToolUses.push(tu);
@@ -491,4 +492,24 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
   }
 
   return { fullText, pendingToolUses, stopReason, terminated: turn.terminated };
+}
+
+/**
+ * The text tool results returned in this conversation (most recent first,
+ * capped), for the text-call echo check in parseTextToolCalls.
+ */
+function toolOutputText(messages: readonly ChatMessage[], cap = 400_000): string {
+  const parts: string[] = [];
+  let size = 0;
+  for (let i = messages.length - 1; i >= 0 && size < cap; i--) {
+    const content = messages[i].content;
+    if (typeof content === 'string') continue;
+    for (const block of content) {
+      if (block.type !== 'tool_result') continue;
+      const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+      parts.push(text);
+      size += text.length;
+    }
+  }
+  return parts.join('\n');
 }

@@ -225,6 +225,25 @@ export interface TextParseOpts {
   /** Also recognize call-expression syntax emitted as prose — `write_file(path="x", content="…")`.
    *  Part of the code-as-text recovery package (`recovery.codeAsText`), default-on since v0.120. */
   callExpressions?: boolean;
+  /**
+   * Text this conversation's TOOLS returned (files read, pages fetched,
+   * command output). A prose-form call -- a bare JSON object, a call
+   * expression -- that appears verbatim in it is the model repeating what it
+   * read, not calling a tool, and is not dispatched: a README or web page
+   * could otherwise script the agent by containing the call.
+   */
+  echoSource?: string;
+}
+
+/** Whitespace-insensitive, for comparing a parsed call with tool output. */
+function squash(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function isEchoed(raw: string, opts?: TextParseOpts): boolean {
+  if (!opts?.echoSource) return false;
+  const needle = squash(raw);
+  return needle.length >= 12 && squash(opts.echoSource).includes(needle);
 }
 
 export function parseTextToolCallsCleaned(
@@ -446,7 +465,7 @@ function parseTextToolCallsInternal(
           parsed.function?.arguments ||
           parsed.function?.parameters ||
           {};
-        if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
+        if (name && typeof name === 'string' && isDispatchableName(name, toolNames) && !isEchoed(candidate, opts)) {
           firstType = 'bare';
           const input = typeof args === 'string' ? JSON.parse(args) : args;
           spans?.push([start, end + 1]);
@@ -454,7 +473,7 @@ function parseTextToolCallsInternal(
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
-        const name = salvageToolName(candidate, toolNames);
+        const name = isEchoed(candidate, opts) ? null : salvageToolName(candidate, toolNames);
         if (name) {
           firstType = 'bare';
           results.push({
@@ -478,6 +497,7 @@ function parseTextToolCallsInternal(
   // otherwise text-only turn, same family as paramRemap / toolNameAlias.
   if (firstType === null && results.length === 0 && opts?.callExpressions) {
     for (const call of parseCallExpressions(text, toolNames)) {
+      if (isEchoed(text.slice(call.span[0], call.span[1]).replace(/^`|`$/g, ''), opts)) continue;
       spans?.push(call.span);
       results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name: call.name, input: call.input });
     }
