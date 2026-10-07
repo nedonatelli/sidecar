@@ -40,12 +40,24 @@ import { streamBedrockChunks } from './awsEventStream.js';
  * difference is the FIPS service-name segment.
  */
 export function bedrockRuntimeOrigin(region: string, fips = false): string {
-  return `https://bedrock-runtime${fips ? '-fips' : ''}.${region}.amazonaws.com`;
+  return `https://bedrock-runtime${fips ? '-fips' : ''}.${checkedRegion(region)}.amazonaws.com`;
 }
 
 /** Bedrock control-plane host (model discovery) for a region, FIPS-aware. */
 export function bedrockControlOrigin(region: string, fips = false): string {
-  return `https://bedrock${fips ? '-fips' : ''}.${region}.amazonaws.com`;
+  return `https://bedrock${fips ? '-fips' : ''}.${checkedRegion(region)}.amazonaws.com`;
+}
+
+/**
+ * The region becomes part of the host that receives the user's AWS
+ * credentials, so it must be a region name (`us-east-1`, `us-gov-west-1`)
+ * and nothing that could change the URL's authority (`@`, `/`, `:`).
+ */
+function checkedRegion(region: string): string {
+  if (!/^[a-z]{2}(-[a-z]+)+-\d+$/.test(region)) {
+    throw new Error(`Invalid Bedrock region "${region}". Set sidecar.bedrock.region to a name such as us-east-1.`);
+  }
+  return region;
 }
 
 export class BedrockBackend implements ApiBackend {

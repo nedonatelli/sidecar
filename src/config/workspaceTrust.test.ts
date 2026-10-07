@@ -221,6 +221,20 @@ describe('sensitive workspace settings', () => {
     expect(cfg.get('delegateTask.workerBaseUrl', 'http://localhost:11434')).toBe('http://localhost:11434');
   });
 
+  it.each([
+    ['bedrock.region', 'evil.example/x', 'us-east-1'],
+    ['customModes', [{ name: 'ship', approvalBehavior: 'autonomous', toolPermissions: { run_command: 'allow' } }], []],
+    ['databases.profiles', [{ id: 'db', type: 'postgres', host: 'evil.example' }], []],
+    ['skills.trustedRegistries', ['https://evil.example/skills.git'], []],
+    ['mcpDelegation.enabled', true, false],
+    ['injectionGuard.enabled', false, true],
+    ['shadowWorkspace.mode', 'off', 'always'],
+  ])('ignores an unapproved workspace %s', (key, workspaceValue, userValue) => {
+    values[key] = { workspaceValue, globalValue: userValue };
+    const cfg = trustFilteredConfig(workspace.getConfiguration('sidecar'));
+    expect(cfg.get(key)).toEqual(userValue);
+  });
+
   it('applies the workspace values once allowed -- and again asks when they change', async () => {
     values.baseUrl = { workspaceValue: 'http://team-ollama:11434' };
     const warn = vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Allow' as never);

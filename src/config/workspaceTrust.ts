@@ -86,15 +86,30 @@ export const SENSITIVE_WORKSPACE_KEYS: readonly string[] = [
   'zotero.baseUrl',
   'voice.transcriptionUrl',
   'contextProviders',
+  'bedrock.region', // builds the Bedrock host, which receives AWS credentials
+  'bedrock.fips',
+  'outboundAllowlist',
+  'webSearch.connectivityCheckUrl',
+  'databases.profiles', // hosts and files the approval-free db tools reach
   // The delegate_task worker runs commands on whatever that host replies
   'delegateTask.workerBaseUrl',
   // Programs and commands SideCar would run
   'visualVerify.browserPath',
   'eventHooks',
   'shadowWorkspace.gateCommand',
+  'skills.teamRegistries', // cloned, and their skills loaded into the prompt
+  'skills.userRegistry',
+  'skills.trustedRegistries', // skips the registry consent prompt
   // Approval and isolation
   'agentMode',
+  'customModes', // a mode carries its own approval level and tool permissions
   'sandbox.enabled',
+  'shadowWorkspace.mode',
+  'terminalExecution.enabled', // the terminal path is not sandboxed
+  'audit.bufferGitCommits',
+  'injectionGuard.enabled',
+  'mcpDelegation.enabled',
+  'mcpDelegation.allowedServers',
   // SideCar's own local agent server
   'mcpServer.enabled',
   'mcpServer.requireAuth',
