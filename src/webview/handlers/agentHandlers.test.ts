@@ -625,7 +625,7 @@ vi.mock('./chatHandlers.js', async () => {
   const actual = await vi.importActual<typeof import('./chatHandlers.js')>('./chatHandlers.js');
   return {
     ...actual,
-    handleUserMessage: (state: unknown, text: string) => mockHandleUserMessage(state, text),
+    handleUserMessage: (state: unknown, text: string, options?: unknown) => mockHandleUserMessage(state, text, options),
   };
 });
 
@@ -653,6 +653,37 @@ describe('handleExecutePlan (happy path)', () => {
     // saveHistory must be called before handleUserMessage so the reassigned
     // messages survive any crash inside handleUserMessage.
     expect(state.saveHistory).toHaveBeenCalled();
+  });
+});
+
+// #110: these wrote agentMode to GLOBAL settings and back around the run.
+describe('plan execute/revise leave settings alone', () => {
+  beforeEach(() => {
+    mockHandleUserMessage.mockClear();
+  });
+
+  it.each(['execute', 'revise'] as const)('%s runs out of plan mode without writing agentMode', async (action) => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string, def?: unknown) => (key === 'agentMode' ? 'plan' : def),
+      update,
+      has: () => false,
+      inspect: () => undefined,
+    } as unknown as ReturnType<typeof workspace.getConfiguration>);
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      pendingPlan: 'Step 1',
+      pendingPlanMessages: [{ role: 'user', content: 'ask' }],
+      messages: [],
+      saveHistory: vi.fn(),
+    };
+
+    if (action === 'execute') await mod.handleExecutePlan(state as never);
+    else await mod.handleRevisePlan(state as never, 'shorter');
+
+    expect(mockHandleUserMessage).toHaveBeenCalledWith(state, '', { leavePlanMode: true });
+    expect(update).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 });
 

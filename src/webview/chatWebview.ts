@@ -167,6 +167,7 @@ export interface ExtensionMessage {
     | 'finalizeAssistantMessage'
     | 'error'
     | 'done'
+    | 'syncMessageIndices'
     | 'setLoading'
     | 'setModels'
     | 'setCurrentModel'
@@ -246,6 +247,12 @@ export interface ExtensionMessage {
   elapsedMs?: number;
   estimatedTokens?: number;
   messageCount?: number;
+  /** syncMessageIndices: how far history before the turn moved toward the front. */
+  shift?: number;
+  /** syncMessageIndices: the first index the webview stamped during the turn. */
+  turnStart?: number;
+  /** syncMessageIndices: state.messages index of the turn's final answer. */
+  lastAssistantIndex?: number;
   messagesRemaining?: number;
   atCapacity?: boolean;
   errorType?:

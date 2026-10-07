@@ -28,6 +28,7 @@ function createMockState() {
     cancelCallbacks: null as (() => void) | null,
     currentSessionId: null as string | null,
     chatGeneration: 0,
+    clearPendingInteractions: vi.fn(),
     currentSteerDisposer: null as (() => void) | null,
     currentSteerQueue: null as object | null,
     sessionManager: {
@@ -64,6 +65,23 @@ describe('sessionHandlers', () => {
   });
 
   describe('handleLoadSession', () => {
+    // The previous session's pending plan/question/partial answer must not
+    // survive into the loaded one: the next message revised the old plan
+    // inside the new session, and autosave then overwrote the loaded session.
+    it("clears the previous conversation's pending interactions before loading", () => {
+      const session = { id: 'session-2', messages: [{ role: 'user', content: 'loaded' }] };
+      state.sessionManager.load.mockReturnValue(session);
+      let messagesWhenCleared: unknown = 'not called';
+      state.clearPendingInteractions.mockImplementation(() => {
+        messagesWhenCleared = state.messages;
+      });
+      handleLoadSession(state as never, 'session-2');
+      expect(state.clearPendingInteractions).toHaveBeenCalledOnce();
+      // Cleared while the OLD conversation was still current.
+      expect(messagesWhenCleared).toEqual([{ role: 'user', content: 'hello' }]);
+      expect(state.messages).toEqual(session.messages);
+    });
+
     it('loads session and updates state', () => {
       const session = { id: 'session-1', messages: [{ role: 'assistant', content: 'loaded' }] };
       state.sessionManager.load.mockReturnValue(session);

@@ -295,6 +295,23 @@ describe('BackgroundAgentManager slot limit + queue drain', () => {
     expect(cbs.onComplete).toHaveBeenCalled();
   });
 
+  it('a stopped run whose loop then returns normally stays cancelled', async () => {
+    let finishRun!: () => void;
+    runAgentLoopMock.mockImplementationOnce(() => new Promise<void>((r) => (finishRun = r)));
+    const cbs = makeCallbacks();
+    const mgr = new BackgroundAgentManager(cbs);
+    const id = mgr.start('stop me');
+    await flush();
+
+    mgr.stop(id);
+    finishRun(); // runAgentLoop exits cleanly on abort instead of throwing
+    await flush();
+    await flush();
+
+    expect(mgr.get(id)?.status).toBe('cancelled');
+    expect(cbs.onComplete).not.toHaveBeenCalled();
+  });
+
   it('returns early from catch when run is cancelled (no double-complete)', async () => {
     // Make the loop reject AFTER the run is cancelled to cover the
     // `if (run.status === 'cancelled') return;` early-return path.

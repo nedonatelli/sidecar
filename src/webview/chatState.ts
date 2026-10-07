@@ -421,6 +421,23 @@ export class ChatState {
   /** Monotonically increasing generation counter, bumped on each clearChat. */
   chatGeneration = 0;
 
+  /**
+   * Forget every interaction that belongs to the CURRENT conversation: a plan
+   * awaiting approval, a question awaiting an answer, a partial answer /resume
+   * would replay, queued steers, a facet-review offer. Anything that replaces
+   * the conversation must call this -- loading a saved session used to keep
+   * them, so the next message revised the OLD session's plan inside the new
+   * one, and autosave then overwrote the loaded session with the old history.
+   */
+  clearPendingInteractions(): void {
+    this.pendingPlan = null;
+    this.pendingPlanMessages = [];
+    this.pendingPartialAssistant = null;
+    this.pendingSteerSnapshot = null;
+    this.pendingQuestion = null;
+    this.pendingFacetReview = null;
+  }
+
   clearChat(): void {
     this.autoSave();
     // Abort any in-flight agent loop so its post-loop code doesn't
@@ -428,12 +445,7 @@ export class ChatState {
     this.abort();
     this.abortController = null;
     this.messages = [];
-    this.pendingPlan = null;
-    this.pendingPlanMessages = [];
-    this.pendingPartialAssistant = null;
-    this.pendingSteerSnapshot = null;
-    this.pendingQuestion = null;
-    this.pendingFacetReview = null;
+    this.clearPendingInteractions();
     this.changelog.clear();
     this.editTimeline.clear();
     this.currentSessionId = null;

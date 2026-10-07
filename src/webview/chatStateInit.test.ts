@@ -270,25 +270,16 @@ describe('initializeChatSubsystems', () => {
     expect(postMessage).toHaveBeenCalledWith({ command: 'bgOutput', bgRunId: 'bg-1', content: 'chunk' });
   });
 
-  it('bgManager onComplete posts success summary', () => {
+  // The result goes to the background panel only. A summary posted into the
+  // chat landed inside a streaming foreground run and ended it (#110).
+  it.each([
+    { id: 'bg-1', status: 'completed', task: 'lint', toolCalls: 3, output: 'all good', error: undefined },
+    { id: 'bg-1', status: 'failed', task: 'lint', toolCalls: 0, output: '', error: 'OOM' },
+  ])('bgManager onComplete ($status) updates the panel and leaves the chat alone', (run) => {
     const state = makeState();
     initializeChatSubsystems(state, makeConfig(), undefined, {} as AgentLogger, {} as MCPManager, postMessage);
-    const run = { id: 'bg-1', status: 'completed', task: 'lint', toolCalls: 3, output: 'all good', error: undefined };
+    vi.mocked(postMessage).mockClear();
     (shared.bgCallbacks!.onComplete as (r: typeof run) => void)(run);
-    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'bgComplete', bgRun: run }));
-    expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('completed') }),
-    );
-    expect(postMessage).toHaveBeenCalledWith({ command: 'done' });
-  });
-
-  it('bgManager onComplete posts failure summary when task failed', () => {
-    const state = makeState();
-    initializeChatSubsystems(state, makeConfig(), undefined, {} as AgentLogger, {} as MCPManager, postMessage);
-    const run = { id: 'bg-1', status: 'failed', task: 'lint', toolCalls: 0, output: '', error: 'OOM' };
-    (shared.bgCallbacks!.onComplete as (r: typeof run) => void)(run);
-    expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('failed') }),
-    );
+    expect(vi.mocked(postMessage).mock.calls).toEqual([[{ command: 'bgComplete', bgRun: run }]]);
   });
 });

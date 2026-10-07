@@ -286,10 +286,10 @@ export function createAgentCallbacks(
       if (planStore && config.executiveFunctionEnabled) {
         void planStore.clear();
       }
-      // Report the authoritative transcript length so the webview can resync
-      // its message-index counter. A turn appends assistant + tool entries the
-      // webview never counts, so without this the next user bubble is stamped
-      // with a stale index and delete/edit target the wrong message.
+      // A first resync of the webview's message-index counter. The loop's
+      // entries are not in state.messages yet, so for a chat turn this count
+      // is short; postLoopProcessing follows with syncMessageIndices, which
+      // carries the final length and re-stamps every bubble.
       if (!cancelled) state.postMessage({ command: 'done', messageCount: state.messages.length });
     },
   };

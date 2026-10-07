@@ -3036,11 +3036,7 @@
     deleteBtn.title = 'Delete message';
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const index = parseInt(div.dataset.msgIndex, 10);
-      if (!isNaN(index)) {
-        vscode.postMessage({ command: 'deleteMessage', index });
-        div.remove();
-      }
+      deleteMessageBubble(div);
     });
     actions.appendChild(deleteBtn);
 
@@ -3251,13 +3247,7 @@
 
     items.push({
       label: 'Delete message',
-      action: () => {
-        const index = parseInt(messageDiv.dataset.msgIndex, 10);
-        if (!isNaN(index)) {
-          vscode.postMessage({ command: 'deleteMessage', index });
-          messageDiv.remove();
-        }
-      },
+      action: () => deleteMessageBubble(messageDiv),
     });
 
     return items;
@@ -3486,6 +3476,24 @@
     if (!realMessages && !emptyStateEl) {
       renderEmptyState();
     }
+  }
+
+  // Delete a bubble's message from history. Every later bubble's msgIndex
+  // points one past its message once the extension removes this entry, so
+  // shift them down with it; left alone, the next delete or edit hit the
+  // message AFTER the one clicked. During a run the extension refuses the
+  // delete, so the bubble stays.
+  function deleteMessageBubble(div) {
+    const index = parseInt(div.dataset.msgIndex, 10);
+    if (isNaN(index)) return;
+    vscode.postMessage({ command: 'deleteMessage', index });
+    if (isLoading) return;
+    div.remove();
+    for (const el of messagesContainer.querySelectorAll('.message[data-msg-index]')) {
+      const i = parseInt(el.dataset.msgIndex, 10);
+      if (i > index) el.dataset.msgIndex = String(i - 1);
+    }
+    if (messageCounter > index) messageCounter--;
   }
 
   function appendMessage(role, content, isError = false) {
@@ -4583,6 +4591,39 @@
         break;
       }
 
+      case 'syncMessageIndices': {
+        // Sent when a turn's history is final. Bubbles from before the turn
+        // move down by `shift` (history pruned or trimmed from the front;
+        // below zero they no longer have a message). Bubbles stamped during the
+        // turn (index >= turnStart) were numbered by a counter that never saw
+        // the tool entries, so they lose their index; only the turn's final
+        // answer gets one, the index the extension reports.
+        const shift = event.data.shift || 0;
+        const turnStart = event.data.turnStart;
+        for (const el of messagesContainer.querySelectorAll('.message[data-msg-index]')) {
+          const old = parseInt(el.dataset.msgIndex, 10);
+          if (isNaN(old)) continue;
+          if (typeof turnStart === 'number' && old >= turnStart) {
+            delete el.dataset.msgIndex;
+            continue;
+          }
+          if (old - shift >= 0) el.dataset.msgIndex = String(old - shift);
+          else delete el.dataset.msgIndex;
+        }
+        // The final answer streamed into a bubble that was never stamped.
+        const answers = messagesContainer.querySelectorAll('.message.assistant:not(.error)');
+        const lastAnswer = answers[answers.length - 1];
+        if (
+          lastAnswer &&
+          lastAnswer.dataset.msgIndex === undefined &&
+          typeof event.data.lastAssistantIndex === 'number'
+        ) {
+          lastAnswer.dataset.msgIndex = String(event.data.lastAssistantIndex);
+        }
+        if (typeof event.data.messageCount === 'number') messageCounter = event.data.messageCount;
+        break;
+      }
+
       case 'done': {
         finishAssistantMessage();
         // Resync the message-index counter to the extension's authoritative
@@ -5625,7 +5666,9 @@
         if (!targetDiv) break;
         // Replace inside raw markdown, then re-render
         const raw = targetDiv.dataset.rawContent || '';
-        const updated = raw.includes(origText) ? raw.replace(origText, newText) : raw + '\n\n' + newText;
+        // A function replacement: with a string, \`$&\`, \`$'\` and the like in the
+        // model's text were expanded as replacement patterns.
+        const updated = raw.includes(origText) ? raw.replace(origText, () => newText) : raw + '\n\n' + newText;
         targetDiv.dataset.rawContent = updated;
         // Re-render the content area (keep action buttons)
         const existingActions = targetDiv.querySelector('.message-actions');
