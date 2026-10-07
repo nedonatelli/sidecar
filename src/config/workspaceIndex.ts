@@ -60,6 +60,12 @@ export class WorkspaceIndex implements Disposable {
   private fileContentCache = new LimitedCache<string, string>(100, 300000); // 100 items, 5 min TTL
   private parsedFiles = new LimitedCache<string, ParsedFile>(100, 300000);
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  // Pins come from two places, kept apart because the chat re-applies the
+  // settings list on every message: replacing one shared set there dropped
+  // every @pin:path after the message that added it.
+  private settingsPins = new Set<string>();
+  private runtimePins = new Set<string>();
+  /** Union of settingsPins and runtimePins. */
   private pinnedPaths = new Set<string>();
   /** Cached expansion of pinnedPaths to concrete file paths. Null = stale, rebuilt lazily. */
   private pinnedFileCache: Set<string> | null = null;
@@ -133,21 +139,26 @@ export class WorkspaceIndex implements Disposable {
     return this.symbolIndexer?.getGraph() ?? null;
   }
 
-  /** Set pinned paths from settings (replaces previous pins from settings). */
+  /** Set pinned paths from settings (replaces previous pins from settings; runtime pins stay). */
   setPinnedPaths(paths: string[]): void {
-    this.pinnedPaths = new Set(paths);
-    this.pinnedFileCache = null;
+    this.settingsPins = new Set(paths);
+    this.rebuildPins();
   }
 
   /** Add a runtime pin (e.g. from @pin:path in chat). */
   addPin(relativePath: string): void {
-    this.pinnedPaths.add(relativePath);
-    this.pinnedFileCache = null;
+    this.runtimePins.add(relativePath);
+    this.rebuildPins();
   }
 
   /** Remove a runtime pin. */
   removePin(relativePath: string): void {
-    this.pinnedPaths.delete(relativePath);
+    this.runtimePins.delete(relativePath);
+    this.rebuildPins();
+  }
+
+  private rebuildPins(): void {
+    this.pinnedPaths = new Set([...this.settingsPins, ...this.runtimePins]);
     this.pinnedFileCache = null;
   }
 
