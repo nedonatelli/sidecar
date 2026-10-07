@@ -1,3 +1,4 @@
+import { withSafetyRules } from '../safetyRules.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import { logger } from '../../system/logger.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
@@ -214,9 +215,10 @@ export async function streamOneTurn(
       ? '<plan_state>\nNo plan yet. If this task takes more than one step, call update_plan with the full step list (steps=[...], current=1) in the SAME message as your first real tool call — planning must not cost an extra turn.\n</plan_state>'
       : undefined;
   const addons = [episodicAddon, planAddon].filter(Boolean).join('\n\n');
-  const effectiveSystemPrompt = addons
-    ? (state.systemPromptOverride ?? client.getSystemPrompt()) + '\n\n' + addons
-    : state.systemPromptOverride;
+  // Every run carries the data-not-instructions rule, including runs whose
+  // client was built without the chat panel's base prompt.
+  const basePrompt = withSafetyRules(state.systemPromptOverride ?? client.getSystemPrompt());
+  const effectiveSystemPrompt = addons ? basePrompt + '\n\n' + addons : basePrompt;
 
   // Per-turn AbortController for timeouts. Aborting this controller
   // cancels the underlying fetch TCP connection immediately — unlike
