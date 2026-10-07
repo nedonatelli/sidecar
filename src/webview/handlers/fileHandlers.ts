@@ -5,6 +5,7 @@ import type { ChatState } from '../chatState.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import { languageToExtension } from './messageUtils.js';
 import { ShellSession } from '../../terminal/shellSession.js';
+import { getConfig } from '../../config/settings.js';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
 
@@ -291,7 +292,7 @@ export async function handleRunCommand(state: ChatState, command: string): Promi
   // approved in the confirmation modal. Audit cycle-2 MEDIUM #13.
   const cwd = workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!cwd) return '(no workspace folder)';
-  const session = new ShellSession(cwd);
+  const session = new ShellSession(cwd, undefined, undefined, getConfig().sandboxEnabled);
   try {
     const result = await session.execute(command, { timeout: 30_000 });
     return result.stdout.trim() || '(no output)';

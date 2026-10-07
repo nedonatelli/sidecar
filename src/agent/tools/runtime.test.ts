@@ -4,26 +4,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // identity (not just shape) without spawning a real shell process. Each
 // `new ShellSession(...)` call bumps the counter and returns a fresh
 // object keyed by it.
-const { shellCounter, ShellSessionStub } = vi.hoisted(() => {
+const { shellCounter, ShellSessionStub, mockConfig } = vi.hoisted(() => {
   const counter = { n: 0 };
+  const mockConfig = { shellMaxOutputMB: 0, promptPruningMaxToolResultTokens: 4000, sandboxEnabled: true };
   class Stub {
     readonly id: number;
     readonly cwd: string;
     readonly maxOutputSize: number;
+    readonly sandboxEnabled: boolean;
     isAlive = true;
     disposed = false;
     dispose = vi.fn(() => {
       this.disposed = true;
       this.isAlive = false;
     });
-    constructor(cwd: string, _env?: Record<string, string>, maxOutputSize = 10 * 1024 * 1024) {
+    constructor(cwd: string, _env?: Record<string, string>, maxOutputSize = 10 * 1024 * 1024, sandboxEnabled = false) {
       counter.n += 1;
       this.id = counter.n;
       this.cwd = cwd;
       this.maxOutputSize = maxOutputSize;
+      this.sandboxEnabled = sandboxEnabled;
     }
   }
-  return { shellCounter: counter, ShellSessionStub: Stub };
+  return { shellCounter: counter, ShellSessionStub: Stub, mockConfig };
 });
 
 vi.mock('vscode', () => ({
@@ -33,7 +36,7 @@ vi.mock('vscode', () => ({
 }));
 
 vi.mock('../../config/settings.js', () => ({
-  getConfig: () => ({ shellMaxOutputMB: 0, promptPruningMaxToolResultTokens: 4000 }),
+  getConfig: () => mockConfig,
 }));
 
 vi.mock('../../terminal/shellSession.js', () => ({
@@ -45,6 +48,7 @@ import { ToolRuntime, getDefaultToolRuntime, disposeShellSession, setSymbolGraph
 describe('ToolRuntime', () => {
   beforeEach(() => {
     shellCounter.n = 0;
+    mockConfig.sandboxEnabled = true;
   });
 
   describe('isolation between instances', () => {
@@ -105,6 +109,27 @@ describe('ToolRuntime', () => {
       dead.isAlive = false;
       const alive = runtime.getShellSession();
       expect(alive).not.toBe(dead);
+    });
+  });
+
+  describe('sidecar.sandbox.enabled', () => {
+    it('passes the setting to the shell it constructs', () => {
+      const on = new ToolRuntime().getShellSession() as unknown as { sandboxEnabled: boolean };
+      expect(on.sandboxEnabled).toBe(true);
+      mockConfig.sandboxEnabled = false;
+      const off = new ToolRuntime().getShellSession() as unknown as { sandboxEnabled: boolean };
+      expect(off.sandboxEnabled).toBe(false);
+    });
+
+    it('replaces a live shell when the setting is toggled, since the sandbox is fixed at spawn', () => {
+      const runtime = new ToolRuntime();
+      const sandboxed = runtime.getShellSession() as unknown as { dispose: ReturnType<typeof vi.fn> };
+      mockConfig.sandboxEnabled = false;
+      const unsandboxed = runtime.getShellSession() as unknown as { sandboxEnabled: boolean };
+      expect(sandboxed.dispose).toHaveBeenCalledTimes(1);
+      expect(unsandboxed).not.toBe(sandboxed);
+      expect(unsandboxed.sandboxEnabled).toBe(false);
+      expect(runtime.getShellSession()).toBe(unsandboxed);
     });
   });
 
