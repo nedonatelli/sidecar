@@ -2338,7 +2338,11 @@
     }
   }
 
-  const createdFiles = new Set();
+  // The text after a fence's language word is taken as a file path only when
+  // it looks like one: `c#` or `js {1,3}` are not paths.
+  function looksLikeFencePath(p) {
+    return /^[\w@.\-/\\]+$/.test(p) && /[./\\]/.test(p) && !/^\.+$/.test(p);
+  }
 
   // ---------------------------------------------------------------------------
   // Tool display helpers — clean names and icons like Claude Code / Copilot
@@ -2725,20 +2729,6 @@
       header.className = 'code-block-header';
       header.appendChild(document.createTextNode(filePath || lang || 'code'));
 
-      if (filePath && supportsTools) {
-        // If tools supported and has file path, create file silently (don't show in webview)
-        if (!createdFiles.has(filePath)) {
-          createdFiles.add(filePath);
-          vscode.postMessage({ command: 'createFile', code, filePath });
-        }
-        const notice = document.createElement('div');
-        notice.className = 'file-created-notice';
-        notice.textContent = '\u2713 Created ' + filePath;
-        fragment.appendChild(notice);
-        lastIndex = match.index + match[0].length;
-        continue;
-      }
-
       // For chat-only models or code blocks without file paths, always show the code block
       const isShell = ['sh', 'bash', 'shell', 'zsh'].includes(lang.toLowerCase());
       if (isShell) {
@@ -2761,6 +2751,20 @@
         });
       });
       header.appendChild(copyCodeBtn);
+
+      // A fence that names a file offers to create it, never automatically:
+      // the text is model output, and neither a render nor a history replay
+      // may write to the workspace.
+      if (supportsTools && looksLikeFencePath(filePath)) {
+        const createBtn = document.createElement('button');
+        createBtn.className = 'code-save-btn code-create-btn';
+        createBtn.textContent = 'Create file';
+        createBtn.title = 'Create ' + filePath + ' with this code';
+        createBtn.dataset.action = 'create';
+        createBtn.dataset.code = code;
+        createBtn.dataset.path = filePath;
+        header.appendChild(createBtn);
+      }
 
       const saveBtn = document.createElement('button');
       saveBtn.className = 'code-save-btn';
@@ -4029,6 +4033,8 @@
       btn.disabled = true;
     } else if (action === 'save') {
       vscode.postMessage({ command: 'saveCodeBlock', code: btn.dataset.code, language: btn.dataset.lang });
+    } else if (action === 'create') {
+      vscode.postMessage({ command: 'createFile', code: btn.dataset.code, filePath: btn.dataset.path });
     }
   });
 

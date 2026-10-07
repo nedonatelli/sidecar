@@ -6,6 +6,7 @@ import { computeUnifiedDiff } from '../../agent/diff.js';
 import { languageToExtension } from './messageUtils.js';
 import { ShellSession } from '../../terminal/shellSession.js';
 import { getConfig } from '../../config/settings.js';
+import { isProtectedWritePath, isSensitiveFile } from '../../agent/tools/shared.js';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
 
@@ -243,6 +244,17 @@ export async function handleCreateFile(state: ChatState, code: string, filePath:
   const fileUri = Uri.joinPath(rootUri, filePath);
   if (!isWithinRoot(fileUri, rootUri)) {
     state.postMessage({ command: 'error', content: 'Invalid file path.' });
+    return;
+  }
+  // The path and code come from model output, so the agent's write rules
+  // apply: no SideCar state, no credential files, nothing git would run.
+  const rel = path.relative(rootUri.fsPath, fileUri.fsPath).replace(/\\/g, '/');
+  const refusal =
+    isProtectedWritePath(rel) ??
+    (isSensitiveFile(rel) ? `"${filePath}" looks like a credential file; create it yourself.` : null) ??
+    (rel.toLowerCase().split('/').includes('.git') ? `Refusing to create "${filePath}" inside .git.` : null);
+  if (refusal) {
+    state.postMessage({ command: 'error', content: refusal });
     return;
   }
 

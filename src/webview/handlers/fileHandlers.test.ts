@@ -5,7 +5,9 @@ import {
   handleAttachFile,
   handleAttachActiveFile,
   handleAcceptAllChanges,
+  handleCreateFile,
 } from './fileHandlers.js';
+import * as nodePath from 'path';
 
 // ---------------------------------------------------------------------------
 // Mutable audit buffer mock — allows individual tests to set isEmpty
@@ -420,5 +422,51 @@ describe('handleAcceptAllChanges — audit buffer non-empty', () => {
     expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'assistantMessage' }));
 
     (workspace as Record<string, unknown>).workspaceFolders = origFolders;
+  });
+});
+
+describe('handleCreateFile -- the path and code are model output', () => {
+  const root = nodePath.resolve('/create-ws');
+  let writes: string[];
+  let savedFolders: unknown;
+
+  afterEach(() => {
+    (workspace as { workspaceFolders: unknown }).workspaceFolders = savedFolders;
+  });
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    writes = [];
+    vi.spyOn(Uri, 'joinPath').mockImplementation(((base: { fsPath: string }, ...segs: string[]) => {
+      const joined = nodePath.join(base.fsPath, ...segs);
+      return { fsPath: joined, scheme: 'file', path: joined };
+    }) as never);
+    savedFolders = workspace.workspaceFolders;
+    (workspace as { workspaceFolders: unknown }).workspaceFolders = [
+      { uri: { fsPath: root, scheme: 'file' }, name: 'ws', index: 0 },
+    ];
+    vi.spyOn(workspace.fs, 'stat').mockRejectedValue(new Error('FileNotFound'));
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation((async (uri: { fsPath: string }) => {
+      writes.push(nodePath.relative(root, uri.fsPath).replace(/\\/g, '/'));
+    }) as never);
+  });
+
+  const stateFor = () => ({ postMessage: vi.fn(), requestConfirm: vi.fn() });
+
+  it.each([['.git/hooks/pre-commit'], ['sub/.GIT/config'], ['.sidecar/memory/agent-memories.json'], ['.env']])(
+    'refuses %s and writes nothing',
+    async (filePath) => {
+      const state = stateFor();
+      await handleCreateFile(state as never, '#!/bin/sh\necho hi\n', filePath);
+      expect(writes).toEqual([]);
+      expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
+    },
+  );
+
+  it('creates an ordinary new file', async () => {
+    const state = stateFor();
+    await handleCreateFile(state as never, 'export const x = 1;\n', 'src/x.ts');
+    expect(writes).toEqual(['src/x.ts']);
   });
 });
