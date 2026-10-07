@@ -6,7 +6,7 @@ import type {
   ColumnInfo,
   QueryResult,
 } from './provider.js';
-import { assertReadOnly } from './provider.js';
+import { assertReadOnly, type QueryOptions } from './provider.js';
 
 // ---------------------------------------------------------------------------
 // pg type shim — only the surface we call at runtime.
@@ -34,6 +34,7 @@ interface PgPoolClient {
 
 interface PgPool {
   query(sql: string, params?: unknown[]): Promise<PgQueryResult>;
+  connect(): Promise<PgPoolClient & { release(): void }>;
   end(): Promise<void>;
   on(event: 'connect', listener: (client: PgPoolClient) => void): void;
 }
@@ -278,27 +279,37 @@ export class PostgresProvider implements DatabaseProvider {
   // query
   // -------------------------------------------------------------------------
 
-  async query(
-    sql: string,
-    params: unknown[] = [],
-    opts: { limit?: number; timeoutMs?: number } = {},
-  ): Promise<QueryResult> {
+  async query(sql: string, params: unknown[] = [], opts: QueryOptions = {}): Promise<QueryResult> {
     const pool = this.requirePool();
 
-    if (this.readOnly) {
+    const readOnly = this.readOnly || opts.readOnly === true;
+    if (readOnly) {
       assertReadOnly(sql);
     }
 
     const limit = opts.limit ?? 1000;
+    const timeout =
+      opts.timeoutMs !== undefined && Number.isInteger(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : null;
 
-    // Apply statement_timeout for this transaction via a wrapping DO block
-    // is not possible in a pooled connection per-query, but we can set it
-    // on the connection level using a separate query first.
-    if (opts.timeoutMs !== undefined && Number.isInteger(opts.timeoutMs) && opts.timeoutMs > 0) {
-      await pool.query(`SET statement_timeout = ${opts.timeoutMs}`);
+    let result: Awaited<ReturnType<typeof pool.query>>;
+    if (readOnly) {
+      // A read runs in a READ ONLY transaction on its own connection, so the
+      // database refuses any write the text check missed -- and a session
+      // default cannot be switched off from inside it (set_config fails).
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN TRANSACTION READ ONLY');
+        if (timeout !== null) await client.query(`SET LOCAL statement_timeout = ${timeout}`);
+        result = await client.query(sql, params);
+      } finally {
+        await client.query('ROLLBACK').catch(() => undefined);
+        client.release();
+      }
+    } else {
+      // Apply statement_timeout at the connection level with a separate query.
+      if (timeout !== null) await pool.query(`SET statement_timeout = ${timeout}`);
+      result = await pool.query(sql, params);
     }
-
-    const result = await pool.query(sql, params);
 
     const truncated = result.rows.length > limit;
     const slicedRows = truncated ? result.rows.slice(0, limit) : result.rows;

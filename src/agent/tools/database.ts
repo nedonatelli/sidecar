@@ -231,7 +231,7 @@ async function dbQuery(
 
   let result: QueryResult;
   try {
-    result = await provider.query(sql, params, { limit, timeoutMs });
+    result = await provider.query(sql, params, { limit, timeoutMs, readOnly: true });
   } catch (err) {
     return `Error: ${String(err)}`;
   }

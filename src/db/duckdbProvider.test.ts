@@ -65,12 +65,15 @@ describe('DuckDbProvider — connect / disconnect', () => {
     expect(p.isConnected()).toBe(false);
     await p.connect(makeProfile());
     expect(p.isConnected()).toBe(true);
-    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb', { access_mode: 'READ_ONLY' });
+    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb', {
+      access_mode: 'READ_ONLY',
+      enable_external_access: 'false',
+    });
   });
 
   it('defaults to an in-memory database when no filePath is given', async () => {
     await connected(makeProfile({ filePath: undefined }));
-    expect(mock.create).toHaveBeenCalledWith(':memory:');
+    expect(mock.create).toHaveBeenCalledWith(':memory:', { enable_external_access: 'false' });
   });
 
   // Read-only must be set at OPEN: `SET access_mode` on a running database
@@ -78,14 +81,17 @@ describe('DuckDbProvider — connect / disconnect', () => {
   // real @duckdb/node-api: the old path left the file writable).
   it('opens a read-only file database with access_mode READ_ONLY, and runs no SET', async () => {
     await connected(makeProfile({ readOnly: true }));
-    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb', { access_mode: 'READ_ONLY' });
+    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb', {
+      access_mode: 'READ_ONLY',
+      enable_external_access: 'false',
+    });
     const ranSet = mock.conn.run.mock.calls.some(([sql]) => (sql as string).includes('access_mode'));
     expect(ranSet).toBe(false);
   });
 
   it('opens a writable connection without read-only options', async () => {
     await connected(makeProfile({ readOnly: false }));
-    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb');
+    expect(mock.create).toHaveBeenCalledWith('/tmp/test.duckdb', { enable_external_access: 'false' });
   });
 
   it('disconnect closes the connection and marks disconnected', async () => {

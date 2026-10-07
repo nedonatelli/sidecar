@@ -607,6 +607,8 @@ Describe the schema of a specific table: columns, indexes, and constraints.
 
 Run a read-only parameterized SQL query against a database connection.
 
+The query is read-only even on a read-write profile: Postgres and MySQL run it in a `READ ONLY` transaction, SQLite refuses any statement it reports as writing, and DuckDB connections have external file and URL access turned off (`read_csv`, `read_text`, `glob`, `httpfs` and `ATTACH` are unavailable). Use `db_execute`, which asks for approval, for anything that writes.
+
 | Parameter       | Type   | Required | Description                                                                                                 |
 | --------------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------- |
 | `connection_id` | string | Yes      | Connection ID from `db_list_connections`.                                                                   |

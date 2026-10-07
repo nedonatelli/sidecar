@@ -7,6 +7,7 @@ import { assertReadOnly } from './provider.js';
 
 interface MockStatement {
   all: ReturnType<typeof vi.fn>;
+  readonly?: boolean;
 }
 
 interface MockDatabase {
@@ -43,7 +44,7 @@ function setupSimpleDb(statementResults: Map<string, unknown[]>): void {
   mockDb = {
     prepare: vi.fn((sql: string): MockStatement => {
       const rows = statementResults.get(sql) ?? [];
-      return { all: vi.fn(() => rows) };
+      return { all: vi.fn(() => rows), readonly: true };
     }),
     close: vi.fn(),
   };
@@ -296,7 +297,7 @@ describe('SqliteProvider', () => {
     ];
 
     mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows) })),
+      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
       close: vi.fn(),
     };
 
@@ -316,7 +317,7 @@ describe('SqliteProvider', () => {
     const dbRows = Array.from({ length: 10 }, (_, i) => ({ id: i + 1 }));
 
     mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows) })),
+      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
       close: vi.fn(),
     };
 
@@ -334,7 +335,7 @@ describe('SqliteProvider', () => {
     const dbRows = [{ id: BigInt(9999999999999), count: BigInt(1) }];
 
     mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows) })),
+      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
       close: vi.fn(),
     };
 
@@ -363,7 +364,7 @@ describe('SqliteProvider', () => {
     const dbRows = [{ changes: 1 }];
 
     mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows) })),
+      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
       close: vi.fn(),
     };
 

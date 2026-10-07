@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ---------------------------------------------------------------------------
 
 interface MockPool {
+  connect?: () => Promise<{ query: (...a: unknown[]) => unknown; release: () => void }>;
   query: ReturnType<typeof vi.fn>;
   end: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
@@ -51,6 +52,10 @@ describe('PostgresProvider', () => {
   beforeEach(() => {
     // Default pool that accepts SET SESSION and returns nothing else
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
@@ -104,6 +109,10 @@ describe('PostgresProvider', () => {
     ];
 
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn(async () => ({ rows: joinedRows, fields: [] })),
       end: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
@@ -121,6 +130,10 @@ describe('PostgresProvider', () => {
 
   it('listTables defaults to public schema', async () => {
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
@@ -155,6 +168,10 @@ describe('PostgresProvider', () => {
     const pgClassRows = [{ reltuples: 200 }];
 
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn(async (sql: string) => {
         if (sql.includes('information_schema.columns')) return { rows: colRows, fields: [] };
         if (sql.includes('FOREIGN KEY')) return { rows: fkRows, fields: [] };
@@ -188,6 +205,10 @@ describe('PostgresProvider', () => {
 
   it('query returns QueryResult with columns from fields', async () => {
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn(async (sql: string) => {
         if (sql.includes('SET SESSION')) return { rows: [], fields: [] };
         return {
@@ -217,6 +238,10 @@ describe('PostgresProvider', () => {
     const rows = Array.from({ length: 20 }, (_, i) => ({ id: i + 1 }));
 
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn().mockResolvedValue({ rows, fields: [{ name: 'id' }] }),
       end: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
@@ -233,6 +258,10 @@ describe('PostgresProvider', () => {
 
   it('query enforces read-only by blocking INSERT', async () => {
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
@@ -246,6 +275,10 @@ describe('PostgresProvider', () => {
 
   it('query sets statement_timeout when timeoutMs provided', async () => {
     mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
       query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
       end: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
@@ -273,6 +306,10 @@ describe('PostgresProvider', () => {
   describe('read-only enforcement blocks write-keyword CTEs', () => {
     beforeEach(async () => {
       mockPool = {
+        connect: async () => ({
+          query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+          release: () => undefined,
+        }),
         query: vi.fn().mockResolvedValue({ rows: [], fields: [] }),
         end: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
