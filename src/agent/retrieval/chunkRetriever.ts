@@ -5,6 +5,7 @@ import { FlatVectorStore } from '../../config/vectorStore.js';
 import type { Retriever, RetrievalHit } from './retriever.js';
 import { chunkText, type TextChunk } from './textChunker.js';
 import { RETRIEVER_SYNC_BUDGET_MS } from './embeddedEntryRetriever.js';
+import { loadContextFileFilter } from '../../config/contextFileFilter.js';
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -147,6 +148,9 @@ export class ChunkRetriever implements Retriever {
 async function discoverFiles(): Promise<Array<{ filePath: string; content: string }>> {
   const results: Array<{ filePath: string; content: string }> = [];
   const seen = new Set<string>();
+  const root = workspace.workspaceFolders?.[0]?.uri;
+  if (!root) return results;
+  const mayInclude = await loadContextFileFilter(root);
 
   for (const pattern of CHUNK_RETRIEVER_PATTERNS) {
     let uris;
@@ -158,6 +162,7 @@ async function discoverFiles(): Promise<Array<{ filePath: string; content: strin
     for (const uri of uris) {
       if (seen.has(uri.fsPath)) continue;
       seen.add(uri.fsPath);
+      if (!mayInclude(uri.fsPath)) continue;
       try {
         const bytes = await workspace.fs.readFile(uri);
         results.push({ filePath: uri.fsPath, content: Buffer.from(bytes).toString('utf-8') });

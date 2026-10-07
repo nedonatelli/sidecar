@@ -8,6 +8,7 @@ vi.stubGlobal('fetch', fetchMock);
 vi.mock('dns/promises', () => ({ lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]) }));
 
 import {
+  getWorkspaceContext,
   extractPinReferences,
   resolveUrlReferences,
   getWorkspaceRoot,
@@ -324,5 +325,27 @@ describe('matchAllowlistHost', () => {
   it('ignores empty / whitespace-only entries', () => {
     expect(matchAllowlistHost('github.com', ['', '   ', 'github.com'])).toBe(true);
     expect(matchAllowlistHost('attacker.xyz', ['', '   '])).toBe(false);
+  });
+});
+
+// The no-index fallback put the first files matching sidecar.filePatterns into
+// the system prompt whole -- with no .sidecarignore and no credential check.
+describe('getWorkspaceContext (no-index fallback)', () => {
+  it("leaves out credential files and .sidecarignore'd files", async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/config/credentials.json' },
+      { fsPath: '/mock-workspace/private/plan.yaml' },
+      { fsPath: '/mock-workspace/src/app.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockImplementation((async (uri: { fsPath: string }) => {
+      if (uri.fsPath.endsWith('.sidecarignore')) return Buffer.from('private/');
+      return Buffer.from(uri.fsPath.endsWith('app.ts') ? 'export const app = 1;' : 'SECRET_VALUE');
+    }) as never);
+
+    const context = await getWorkspaceContext(['**/*'], 10);
+    expect(context).toContain('export const app = 1;');
+    expect(context).not.toContain('SECRET_VALUE');
+    vi.restoreAllMocks();
   });
 });

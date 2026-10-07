@@ -114,6 +114,26 @@ describe('DocumentationIndexer — indexing pipeline', () => {
     }
   });
 
+  // The documentation index scanned docs/** itself and applied none of
+  // .sidecarignore, so an ignored file still reached the prompt.
+  it("does not index .sidecarignore'd files", async () => {
+    setup({
+      'docs/guide.md': '# Guide\n\nA long enough paragraph about the public setup steps for users.',
+      'docs/private/notes.md': '# Private\n\nA long enough paragraph about the INTERNAL rollout schedule.',
+    });
+    const read = workspace.fs.readFile as unknown as {
+      getMockImplementation: () => (u: { fsPath: string }) => unknown;
+    };
+    const inner = read.getMockImplementation();
+    vi.spyOn(workspace.fs, 'readFile').mockImplementation((async (uri: { fsPath: string }) =>
+      uri.fsPath.replace(/\\/g, '/').endsWith('/.sidecarignore') ? Buffer.from('docs/private/') : inner(uri)) as never);
+
+    const idx = new DocumentationIndexer();
+    await idx.initialize();
+    expect(idx.search('rollout schedule')).toEqual([]);
+    expect(idx.search('setup steps').length).toBeGreaterThan(0);
+  });
+
   it('is not ready before initialize and returns no search results', () => {
     const idx = new DocumentationIndexer();
     expect(idx.isReady()).toBe(false);

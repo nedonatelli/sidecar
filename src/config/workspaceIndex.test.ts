@@ -289,4 +289,32 @@ describe('WorkspaceIndex', () => {
       expect(relevantSection).not.toContain('only.ts\n');
     }
   });
+
+  // .sidecar/cache/workspace-index.json sits in the workspace, so a cloned
+  // repository can ship one. Its entries were trusted: a `..` path was read
+  // from outside the workspace, and a stored score of 1000 put it first.
+  it('restores only plain workspace paths from the cache, with recomputed scores', async () => {
+    vi.spyOn(workspace, 'findFiles').mockReturnValue(new Promise(() => {}) as never); // background scan never lands
+    const sidecarDir = {
+      isReady: () => true,
+      readJson: async () => ({
+        version: 1,
+        fileCount: 4,
+        files: [
+          { path: '../outside/aws-credentials', size: 10, score: 1000 },
+          { path: '.env', size: 10, score: 1000 },
+          { path: 'C:/Users/x/.ssh/id_rsa', size: 10, score: 1000 },
+          { path: 'src/a.ts', size: 10, score: 1000 },
+        ],
+      }),
+      writeJson: async () => undefined,
+    };
+    index.setSidecarDir(sidecarDir as never);
+    await index.initialize(['**/*']);
+
+    const files = [...index.getFiles()];
+    expect(files.map((f) => f.relativePath)).toEqual(['src/a.ts']);
+    expect(files[0].relevanceScore).toBeLessThan(1000);
+    expect(await index.loadFileContent('../outside/aws-credentials')).toBeNull();
+  });
 });

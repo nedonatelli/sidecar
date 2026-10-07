@@ -4,6 +4,7 @@ import { getConfig } from './settings.js';
 import { unescapeHtml } from '../util/html.js';
 import { isSensitiveFile, realWorkspaceRelative } from '../agent/tools/shared.js';
 import { loadSidecarIgnore, isSidecarIgnored, type IgnoreMatcher } from './sidecarIgnore.js';
+import { loadContextFileFilter } from './contextFileFilter.js';
 import { classifyHostLiteral, urlBlockReason } from '../util/netGuard.js';
 
 export interface WorkspaceFile {
@@ -26,6 +27,7 @@ export async function getWorkspaceContext(
 
   const files: WorkspaceFile[] = [];
   const rootPath = workspaceFolders[0].uri.fsPath;
+  const mayInclude = await loadContextFileFilter(workspaceFolders[0].uri);
   for (const pattern of patterns) {
     if (files.length >= maxFiles) break;
     if (token?.isCancellationRequested) break;
@@ -40,6 +42,7 @@ export async function getWorkspaceContext(
     for (const uri of uris) {
       if (files.length >= maxFiles) break;
       if (token?.isCancellationRequested) break;
+      if (!mayInclude(uri.fsPath)) continue;
 
       try {
         const stat = await workspace.fs.stat(uri);
