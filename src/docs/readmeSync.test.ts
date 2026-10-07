@@ -272,6 +272,16 @@ describe('detectStaleReferences', () => {
     expect(stale[0].actual).toBe(1);
   });
 
+  // #119: optional params were counted toward the required arity.
+  it('accepts any argument count from the required params up to all of them', () => {
+    const exports = makeExports([exp('foo', ['a', 'b', 'c'], { requiredCount: 1 })]);
+    for (const args of ['1', '1, 2', '1, 2, 3']) {
+      expect(detectStaleReferences('```ts\nfoo(' + args + ');\n```', exports)).toEqual([]);
+    }
+    expect(detectStaleReferences('```ts\nfoo();\n```', exports)).toHaveLength(1);
+    expect(detectStaleReferences('```ts\nfoo(1, 2, 3, 4);\n```', exports)).toHaveLength(1);
+  });
+
   it('ignores calls to unknown (non-workspace) functions', () => {
     const md = '```ts\nunknown(1, 2, 3);\n```';
     const exports = makeExports([exp('foo', ['a', 'b'])]);

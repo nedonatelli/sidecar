@@ -67,6 +67,8 @@ export interface ExportedFunction {
   name: string;
   /** Parameter names in declaration order. */
   paramNames: string[];
+  /** How many of them are required (the rest are optional or defaulted). */
+  requiredCount?: number;
   /** True if the parameter list contains a destructured or rest param. */
   hasDestructuredOrRest: boolean;
   /** 0-based line where the declaration starts, relative to the source file. */
@@ -248,10 +250,11 @@ export function findExportedFunctions(source: string): ExportedFunction[] {
     const paren = extractParenContent(lines, i, decl.parenCol);
     if (!paren) continue;
 
-    const { names, hasDestructuredOrRest } = parseParamList(paren.content);
+    const { names, hasDestructuredOrRest, requiredCount } = parseParamList(paren.content);
     out.push({
       name: decl.name,
       paramNames: names,
+      requiredCount,
       hasDestructuredOrRest,
       declLine: i,
     });
@@ -280,7 +283,10 @@ export function detectStaleReferences(
       const fn = exportsByName.get(call.name);
       if (!fn) continue;
       if (fn.hasDestructuredOrRest) continue;
-      if (call.argCount !== fn.paramNames.length) {
+      // Any count from the required params up to all of them is a valid call;
+      // counting optional params as required flagged `f(a)` for `f(a, b?)`.
+      const min = fn.requiredCount ?? fn.paramNames.length;
+      if (call.argCount < min || call.argCount > fn.paramNames.length) {
         results.push({
           call,
           fn,
