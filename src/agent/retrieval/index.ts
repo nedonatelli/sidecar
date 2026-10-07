@@ -1,3 +1,4 @@
+import { neutralizeInjections } from '../injectionGuard.js';
 import { Retriever, RetrievalHit } from './retriever';
 import { logger } from '../../system/logger.js';
 import { reciprocalRankFusion } from './fusion';
@@ -66,12 +67,21 @@ export async function fuseRetrievers(
  * this wrapper just prepends a shared header and inserts a blank line
  * between hits so the model can see the boundaries.
  */
+function screenHit(h: RetrievalHit): string {
+  if (h.content.includes('[UNTRUSTED CONTENT from')) return h.content; // already fenced at the source
+  return neutralizeInjections(h.content, h.title ?? h.filePath ?? h.source).text;
+}
+
 export function renderFusedContext(
   hits: RetrievalHit[],
   header = '## Retrieved Context',
   mode: 'full' | 'reference' = 'full',
 ): string {
   if (hits.length === 0) return '';
+  // Retrieved text lands in the system prompt, the highest-trust position, so
+  // every hit passes the injection screen here -- documentation, chunks, PDFs
+  // and memory used to skip the screen that code retrieval applies.
+  hits = hits.map((h) => ({ ...h, content: screenHit(h) }));
   if (mode === 'full') {
     const body = hits.map((h) => h.content).join('\n\n');
     return `${header}\n\n${body}`;
