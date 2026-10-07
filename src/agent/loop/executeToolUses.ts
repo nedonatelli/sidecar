@@ -2,6 +2,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import { executeTool } from '../executor.js';
+import { FENCE_WRITE_ID_PREFIX } from './textParsing.js';
 import { advancePlanPastWrite } from '../plans/externalPlan.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
@@ -296,6 +297,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       zeroHitPatterns: state.zeroHitPatterns,
       bounceCounts: state.bounceCounts,
       planRef: state.planRef,
+      synthesizedFromFence: toolUse.id.startsWith(FENCE_WRITE_ID_PREFIX),
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,

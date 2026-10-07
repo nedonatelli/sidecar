@@ -605,6 +605,9 @@ export function parseCallExpressions(
   return out;
 }
 
+/** Tool-use id prefix of a write_file the loop synthesized from a printed fence. */
+export const FENCE_WRITE_ID_PREFIX = 'fence_write_';
+
 /** Fence language ↔ file extension sanity map for the fence-write synthesizer. */
 const LANG_TO_EXTS: Record<string, string[]> = {
   python: ['py'],
@@ -640,8 +643,10 @@ const FENCE_CODE_STRUCTURE = /\b(function|const|let|var|def|class|return|import|
  *   - the turn has an edit-shaped source fence (largest one wins), and
  *   - the fence language agrees with the file's extension (when both known).
  * The synthesized write still passes every write_file guard (syntax gate,
- * verify-before-rewrite, enforce-edit locks), so a partial snippet that would
- * corrupt the file is refused there, not written blind.
+ * verify-before-rewrite, enforce-edit locks), and one more that applies only to
+ * it: content missing a definition the file already has is refused. A fence is
+ * often just the new function ("add multiply to calculator.py"), and it parses
+ * fine, so the syntax gate alone wrote it over the whole file.
  */
 export function synthesizeFenceWrite(
   text: string,

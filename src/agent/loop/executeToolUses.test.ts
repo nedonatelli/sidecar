@@ -325,6 +325,33 @@ describe('executeToolUses — parallel execution + error promotion', () => {
   });
 });
 
+// #107: write_file applies its snippet guard only to writes the loop
+// synthesized, so the executor context must say which those are.
+describe('executeToolUses — fence-write flag', () => {
+  it('marks only fence-write tool uses as synthesized', async () => {
+    const flags: unknown[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(executeTool).mockImplementation(async (toolUse: any, opts: any) => {
+      flags.push(opts.executorContext.synthesizedFromFence);
+      return { type: 'tool_result', tool_use_id: toolUse.id, content: 'ok', is_error: false };
+    });
+    const input = { path: 'a.py', content: 'x = 1\n' };
+    await executeToolUses(
+      catalogState({ tools: catalog([...CATALOG_NAMES, 'write_file']) }),
+      [
+        { type: 'tool_use', id: 'fence_write_1', name: 'write_file', input },
+        { type: 'tool_use', id: 'tu-model', name: 'write_file', input },
+      ],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    expect(flags).toEqual([true, false]);
+    vi.mocked(executeTool).mockReset();
+  });
+});
+
 describe('executeToolUses — memory + chain recording', () => {
   it('records a "pattern" memory on successful tool execution', async () => {
     vi.mocked(executeTool).mockResolvedValueOnce({
