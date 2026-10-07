@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../ollama/types.js';
 import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 import { findBalancedEnd } from '../delimiters.js';
+import { isLibraryName } from '../fileRefs.js';
 
 /**
  * A parsed name is dispatchable when it's in the catalog OR the executor's
@@ -654,7 +655,7 @@ export function synthesizeFenceWrite(
   toolNames: Set<string>,
 ): { name: 'write_file'; input: { path: string; content: string } } | null {
   if (!toolNames.has('write_file')) return null;
-  const refs = [...new Set(userText.match(FILE_REF_RE) ?? [])];
+  const refs = [...new Set(userText.match(FILE_REF_RE) ?? [])].filter((ref) => !isLibraryName(ref));
   if (refs.length !== 1) return null; // zero or ambiguous targets — do not guess
   const path = refs[0];
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
