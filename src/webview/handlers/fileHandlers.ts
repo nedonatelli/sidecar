@@ -6,7 +6,7 @@ import { computeUnifiedDiff } from '../../agent/diff.js';
 import { languageToExtension } from './messageUtils.js';
 import { ShellSession } from '../../terminal/shellSession.js';
 import { getConfig } from '../../config/settings.js';
-import { isProtectedWritePath, isSensitiveFile } from '../../agent/tools/shared.js';
+import { isProtectedWritePath, isSensitiveFile, realPathRefusal } from '../../agent/tools/shared.js';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
 
@@ -250,9 +250,11 @@ export async function handleCreateFile(state: ChatState, code: string, filePath:
   // apply: no SideCar state, no credential files, nothing git would run.
   const rel = path.relative(rootUri.fsPath, fileUri.fsPath).replace(/\\/g, '/');
   const refusal =
+    (filePath.includes(':') ? `Invalid file path: ${filePath}` : null) ??
     isProtectedWritePath(rel) ??
     (isSensitiveFile(rel) ? `"${filePath}" looks like a credential file; create it yourself.` : null) ??
-    (rel.toLowerCase().split('/').includes('.git') ? `Refusing to create "${filePath}" inside .git.` : null);
+    (rel.toLowerCase().split('/').includes('.git') ? `Refusing to create "${filePath}" inside .git.` : null) ??
+    realPathRefusal(rootUri.fsPath, rel, 'write');
   if (refusal) {
     state.postMessage({ command: 'error', content: refusal });
     return;

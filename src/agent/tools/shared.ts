@@ -1,5 +1,6 @@
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { SideCarConfig } from '../../config/settings.js';
 // `import type` only — the actual runtime.ts module imports getRoot from
@@ -300,7 +301,108 @@ export function validateFilePath(filePath: string): string | null {
   if (path.isAbsolute(filePath)) {
     return `absolute paths are not allowed. Use a path relative to the workspace root.`;
   }
+  // A colon in a relative path names an NTFS alternate data stream:
+  // `.env::$DATA` opens `.env` while its name passes every basename check.
+  if (filePath.includes(':')) {
+    return `":" is not allowed in a file path: ${filePath.slice(0, 80)}`;
+  }
   return null; // valid
+}
+
+/**
+ * Where a path under `root` really lands, as a forward-slash path relative to
+ * the real root: symbolic links and junctions followed, Windows 8.3 short
+ * names (`SIDECA~1`) expanded. A path that does not exist yet is resolved
+ * through its deepest existing ancestor. Null when it lands outside the root.
+ */
+export function realWorkspaceRelative(root: string, filePath: string): string | null {
+  const absRoot = path.resolve(root);
+  const realRoot = realpathOrSelf(absRoot);
+  let existing = path.resolve(absRoot, filePath);
+  const rest: string[] = [];
+  for (;;) {
+    if (existing === absRoot) {
+      existing = realRoot;
+      break;
+    }
+    try {
+      existing = fs.realpathSync.native(existing);
+      break;
+    } catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return null;
+      rest.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
+  const rel = path.relative(realRoot, path.join(existing, ...rest));
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
+  return rel.split(path.sep).join('/');
+}
+
+function realpathOrSelf(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Files that make another program run commands -- VS Code tasks and settings,
+ * MCP server lists, git hook managers, direnv, dev containers, submodules. The
+ * agent may still change them, but never without the user confirming the
+ * exact write, in any mode (see detectIrrecoverable).
+ */
+const EXECUTION_CONFIG_PATHS: readonly RegExp[] = [
+  /^\.vscode\//,
+  /^\.mcp\.json$/,
+  /^\.husky\//,
+  /^\.githooks\//,
+  /^\.pre-commit-config\.ya?ml$/,
+  /^\.envrc$/,
+  /^\.gitmodules$/,
+  /^\.devcontainer\//,
+  /^\.devcontainer\.json$/,
+];
+
+/** The normalized form both checks below compare: forward slashes, no `./`, lower case. */
+function normalizeRel(filePath: string): string {
+  return path.posix
+    .normalize(filePath.replace(/\\/g, '/'))
+    .replace(/^(\.\/)+/, '')
+    .toLowerCase();
+}
+
+/** True when a workspace-relative path is a file another program runs commands from. */
+export function isExecutionConfigPath(filePath: string): boolean {
+  const normalized = normalizeRel(filePath);
+  return EXECUTION_CONFIG_PATHS.some((p) => p.test(normalized));
+}
+
+/**
+ * The refusal for a tool reaching `filePath` under `root`, judged on the file
+ * it really reaches rather than the name it was given: outside the workspace
+ * (through a link), a credential file, or -- for writes -- SideCar's protected
+ * state. Null when the access is allowed.
+ */
+export function realPathRefusal(root: string, filePath: string, access: 'read' | 'write'): string | null {
+  const real = realWorkspaceRelative(root, filePath);
+  if (real === null) {
+    return `"${filePath}" resolves outside the workspace (through a symbolic link or junction); it may not be ${access === 'read' ? 'read' : 'written'}.`;
+  }
+  if (isSensitiveFile(real)) {
+    return `"${filePath}" is a credential file (${real}); the agent may not ${access === 'read' ? 'read' : 'change'} it.`;
+  }
+  if (access === 'write') {
+    // The confirmation for these files is keyed on the path as given; one
+    // reached under another name (a link, a short name) would skip it.
+    if (isExecutionConfigPath(real) && normalizeRel(real) !== normalizeRel(filePath)) {
+      return `"${filePath}" is another name for ${real}; write it by its real path.`;
+    }
+    return isProtectedWritePath(real);
+  }
+  return null;
 }
 
 export const SENSITIVE_PATTERNS = [
@@ -333,6 +435,9 @@ export const PROTECTED_WRITE_PREFIXES = [
   '.sidecar/memory/', // poisoning: persistent memories must not be forgeable
   '.sidecar/sessions/', // tampering: session history must not be rewritable
   '.sidecar/cache/', // corruption: cache invariants would break
+  '.sidecar/audit-buffer/', // its entries are applied to disk on restore
+  '.sidecar/facets/', // facets carry their own instructions and tools
+  '.git/', // hooks and config run commands outside any approval
 ];
 
 export function isSensitiveFile(filePath: string): boolean {
@@ -358,6 +463,8 @@ export function resolveWorkspaceReadPath(requested: string, root: string): strin
   if (isSensitiveFile(resolved)) {
     throw new Error(`"${requested}" appears to contain secrets or credentials; the agent may not read it.`);
   }
+  const real = realPathRefusal(root, requested, 'read');
+  if (real) throw new Error(real);
   return resolved;
 }
 
@@ -376,15 +483,20 @@ export function isProtectedWritePath(filePath: string): string | null {
     .normalize(filePath.replace(/\\/g, '/'))
     .replace(/^(\.\/)+/, '')
     .toLowerCase();
+  if (normalized === '.sidecar/policy.json') {
+    return `Refusing to write the repository's tool policy (${filePath}). Ask the user to edit it directly.`;
+  }
   if (normalized === '.sidecar/settings.json') {
     return `Refusing to write SideCar's own settings file (${filePath}). Ask the user to edit it directly.`;
   }
   for (const prefix of PROTECTED_WRITE_PREFIXES) {
     if (normalized.startsWith(prefix) || normalized === prefix.slice(0, -1)) {
       return (
-        `Refusing to write under ${prefix} — this path is SideCar's internal state ` +
-        `(audit log, persistent memory, session history, or cache) and must not be modified by the agent. ` +
-        `If you need to reset this state, ask the user to do it directly.`
+        `Refusing to write under ${prefix} — this path is ` +
+        (prefix === '.git/'
+          ? `git's own directory, whose hooks and config run commands, `
+          : `SideCar's internal state (audit log, memory, sessions, cache, audit buffer or facets), `) +
+        `and must not be modified by the agent. If it needs changing, ask the user to do it directly.`
       );
     }
   }

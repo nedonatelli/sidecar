@@ -1,7 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { searchWeb, formatSearchResults, checkInternetConnectivity } from '../webSearch.js';
-import { validateFilePath, getRootUri, formatToolError, type RegisteredTool } from './shared.js';
+import { validateFilePath, getRootUri, formatToolError, realPathRefusal, type RegisteredTool } from './shared.js';
 import { getConfig } from '../../config/settings.js';
 
 // Knowledge tools: web_search and display_diagram. Grouped because both
@@ -121,7 +121,7 @@ export async function displayDiagram(input: Record<string, unknown>): Promise<st
   const diagramIndex = input.index as number;
   const effectiveIndex = diagramIndex ?? 0;
 
-  const pathError = validateFilePath(filePath);
+  const pathError = validateFilePath(filePath) ?? realPathRefusal(getRootUri().fsPath, filePath, 'read');
   if (pathError) throw new Error(pathError);
 
   try {

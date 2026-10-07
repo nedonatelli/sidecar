@@ -7,6 +7,7 @@ import {
   isSensitiveFile,
   isProtectedWritePath,
   resolveRootUri,
+  realPathRefusal,
   type ToolExecutorContext,
   type ToolExecutor,
   type RegisteredTool,
@@ -627,6 +628,10 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   if (isSensitiveFile(filePath)) {
     return `Warning: "${filePath}" appears to contain secrets or credentials. Reading this file would send its contents to the LLM provider. Use read_file on a non-sensitive file instead, or ask the user to provide the needed information directly.`;
   }
+  // Judged again on the file the path really reaches: a link out of the
+  // workspace, or another name for a credential file.
+  const realError = realPathRefusal(resolveRootUri(context).fsPath, filePath, 'read');
+  if (realError) throw new Error(realError);
   const mode = input.mode as string | undefined;
   const startLine = toLineNum(input.start_line);
   const endLine = toLineNum(input.end_line);
@@ -828,6 +833,9 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
       `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to write to this file.`,
     );
   }
+  // Judged again on the file the path really reaches (a link, an 8.3 short name).
+  const realError = realPathRefusal(resolveRootUri(context).fsPath, filePath, 'write');
+  if (realError) throw new Error(realError);
   let content = input.content as string;
 
   // --- Rewrite-thrash guards (per-run state threaded via context) ---
@@ -1032,6 +1040,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to edit this file.`,
     );
   }
+  // Judged again on the file the path really reaches (a link, an 8.3 short name).
+  const realError = realPathRefusal(resolveRootUri(context).fsPath, filePath, 'write');
+  if (realError) throw new Error(realError);
   const search = typeof input.search === 'string' ? (input.search as string) : undefined;
   const rawReplace = typeof input.replace === 'string' ? (input.replace as string) : undefined;
   // insert_before / insert_after / new_text were REMOVED. They existed to help
@@ -2180,6 +2191,9 @@ export async function deleteFile(input: Record<string, unknown>, context?: ToolE
       `Error: "${filePath}" appears to contain secrets or credentials. The agent is not permitted to delete this file.`,
     );
   }
+  // Judged again on the file the path really reaches (a link, an 8.3 short name).
+  const realError = realPathRefusal(resolveRootUri(context).fsPath, filePath, 'write');
+  if (realError) throw new Error(realError);
 
   if (isAuditModeActive(context)) {
     await getDefaultAuditBuffer().deleteFile(filePath, (p) => readDiskViaWorkspace(context, p));
@@ -2208,7 +2222,7 @@ export async function listDirectory(input: Record<string, unknown>, context?: To
   // the workspace boundary. VS Code's fs layer enforces workspace
   // trust independently, but belt-and-suspenders is the right shape.
   if (dirPath !== '.' && dirPath !== '') {
-    const pathError = validateFilePath(dirPath);
+    const pathError = validateFilePath(dirPath) ?? realPathRefusal(resolveRootUri(context).fsPath, dirPath, 'read');
     if (pathError) throw new Error(pathError);
   }
   const dirUri = Uri.joinPath(resolveRootUri(context), dirPath);

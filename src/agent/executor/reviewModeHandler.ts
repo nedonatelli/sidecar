@@ -2,7 +2,13 @@ import { workspace, Uri } from 'vscode';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { PendingEditStore } from '../pendingEdits.js';
 import type { AgentLogger } from '../logger.js';
-import { validateFilePath, isProtectedWritePath, isSensitiveFile, type ToolExecutorContext } from '../tools/shared.js';
+import {
+  validateFilePath,
+  isProtectedWritePath,
+  isSensitiveFile,
+  realPathRefusal,
+  type ToolExecutorContext,
+} from '../tools/shared.js';
 import { resolveEditedText, editDiffSuffix, type ResolvedEdit } from '../tools/fs.js';
 import { computeLineDiff } from '../tools/diffUtils.js';
 
@@ -46,7 +52,8 @@ export async function handleReviewModeTool(
       const refusal =
         validateFilePath(relPath) ??
         isProtectedWritePath(relPath) ??
-        (isSensitiveFile(relPath) ? `"${relPath}" appears to contain secrets or credentials.` : null);
+        (isSensitiveFile(relPath) ? `"${relPath}" appears to contain secrets or credentials.` : null) ??
+        realPathRefusal(root.fsPath, relPath, 'write');
       if (refusal) {
         return {
           type: 'tool_result',

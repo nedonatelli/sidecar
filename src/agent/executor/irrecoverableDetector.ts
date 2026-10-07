@@ -1,4 +1,5 @@
 import type { ToolUseContentBlock } from '../../ollama/types.js';
+import { isExecutionConfigPath } from '../tools/shared.js';
 
 /**
  * Detect tool calls that are destructive and hard or impossible to
@@ -45,6 +46,15 @@ export function detectIrrecoverable(toolUse: ToolUseContentBlock): string | null
     // chmod / chown on home dir roots
     if (/\b(?:chmod|chown)\b.*[\s=](?:\/|~|\$HOME)/.test(cmd)) {
       return 'Permission change targeting home or root';
+    }
+  }
+
+  // A file another program runs commands from (VS Code tasks, MCP servers,
+  // git hook managers): planting one runs code later, outside any approval.
+  if (name === 'write_file' || name === 'edit_file' || name === 'delete_file') {
+    const target = typeof input.path === 'string' ? input.path : '';
+    if (target && isExecutionConfigPath(target)) {
+      return `Changes ${target}, a file other tools run commands from`;
     }
   }
 
