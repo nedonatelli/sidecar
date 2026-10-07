@@ -164,3 +164,15 @@ describe('applyAutoFix', () => {
     expect(state.autoFixRetriesByFile.get('uses-file-path-key.ts')).toBe(1);
   });
 });
+
+// #108: two edits to one file checked it twice and spent two retries.
+describe('applyAutoFix — one file edited twice in a turn', () => {
+  it('checks it once and spends one retry', async () => {
+    vi.mocked(getDiagnostics).mockResolvedValue('[Error] line 1: boom');
+    const state = stubLoopState();
+    const editA = { type: 'tool_use', id: 'e2', name: 'edit_file', input: { path: 'a.ts' } } as ToolUseContentBlock;
+    await applyAutoFix(state, [writeFile('a.ts'), editA], stubConfig(), stubCallbacks());
+    expect(getDiagnostics).toHaveBeenCalledTimes(1);
+    expect(state.autoFixRetriesByFile.get('a.ts')).toBe(1);
+  });
+});
