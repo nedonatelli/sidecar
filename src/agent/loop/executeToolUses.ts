@@ -1,7 +1,8 @@
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { SideCarClient } from '../../ollama/client.js';
+import type { ToolExecutorContext } from '../tools.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
-import { executeTool } from '../executor.js';
+import { executeTool, resolveToolPermission } from '../executor.js';
 import { FENCE_WRITE_ID_PREFIX } from './textParsing.js';
 import { advancePlanPastWrite } from '../plans/externalPlan.js';
 import { spawnSubAgent } from '../subagent.js';
@@ -245,6 +246,17 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     };
   }
 
+  if (toolUse.name === 'spawn_agent' || toolUse.name === 'delegate_task') {
+    // Dispatched here rather than through executeTool, so apply its permission
+    // rules here: a 'deny' (user, mode or repo policy) refuses, and an 'ask' or
+    // manual mode asks first.
+    const refused = await authorizeSubAgentTool(ctx, toolUse);
+    if (refused) {
+      callbacks.onToolResult(toolUse.name, String(refused.content), true, toolUse.id);
+      return refused;
+    }
+  }
+
   if (toolUse.name === 'spawn_agent') {
     try {
       return await runSpawnAgent(ctx, toolUse);
@@ -374,6 +386,26 @@ export function subAgentInheritedOptions(parent: AgentOptions): AgentOptions {
   };
 }
 
+async function authorizeSubAgentTool(
+  ctx: ExecutionContext,
+  toolUse: ToolUseContentBlock,
+): Promise<ToolResultContentBlock | null> {
+  const { state, options } = ctx;
+  const { explicitPermission, denied } = await resolveToolPermission(toolUse, {
+    modeToolPermissions: options.modeToolPermissions,
+    config: state.config,
+  } as ToolExecutorContext);
+  if (denied) return denied;
+  const ask = explicitPermission === 'ask' || (explicitPermission !== 'allow' && state.approvalMode === 'manual');
+  if (!ask) return null;
+  const task = typeof toolUse.input.task === 'string' ? toolUse.input.task : '';
+  const choice = options.confirmFn
+    ? await options.confirmFn(`SideCar wants to use **${toolUse.name}**:\ntask: ${task}`, ['Allow', 'Deny'])
+    : 'Deny';
+  if (choice === 'Allow') return null;
+  return { type: 'tool_result', tool_use_id: toolUse.id, content: 'Tool call denied by user.', is_error: true };
+}
+
 async function runSpawnAgent(ctx: ExecutionContext, toolUse: ToolUseContentBlock): Promise<ToolResultContentBlock> {
   if (typeof toolUse.input.task !== 'string' || !toolUse.input.task) {
     return {
@@ -436,6 +468,11 @@ async function runDelegateTask(ctx: ExecutionContext, toolUse: ToolUseContentBlo
       changelog: state.changelog,
       mcpManager: state.mcpManager,
       depth: options.depth || 0,
+      // The worker's tool calls follow the parent run's rules and workspace.
+      modeToolPermissions: options.modeToolPermissions,
+      confirmFn: options.confirmFn,
+      cwdOverride: options.cwdOverride,
+      config: state.config,
     },
   );
   return {

@@ -305,45 +305,8 @@ export async function executeTool(
   }
 
   const config = executorContext?.config ?? getConfig();
-  // --- Per-tool permissions: mode-level overrides win over global ---
-  const permissions = config.toolPermissions;
-  const modePermissions = executorContext?.modeToolPermissions;
-  let explicitPermission: 'allow' | 'deny' | 'ask' | undefined =
-    modePermissions?.[toolUse.name] ?? permissions[toolUse.name];
-
-  // Warn once per session if tool permissions are defined at workspace level (supply-chain risk)
-  if (explicitPermission) {
-    const trust = await checkWorkspaceConfigTrust(
-      'toolPermissions',
-      'SideCar: This workspace defines tool permission overrides (e.g. auto-allow write_file). Only trust these from repositories you control.',
-      { modal: true },
-    );
-    if (trust === 'blocked') {
-      // Block discards only the workspace's values. The mode's and the user's
-      // own settings still apply -- above all their 'deny' and 'ask' rules.
-      explicitPermission = modePermissions?.[toolUse.name] ?? userToolPermissions()[toolUse.name];
-    }
-  }
-
-  // Repo policy (.sidecar/policy.json) applies restrictions on top of user settings.
-  // Policy is restrictions-only so it bypasses the workspace trust gate.
-  const repoPolicy = getActivePolicy();
-  const policyPerm = repoPolicy?.toolPermissions?.[toolUse.name];
-  const fromPolicy = policyPerm === 'deny' && (explicitPermission ?? 'allow') !== 'deny';
-  if (policyPerm) {
-    explicitPermission = mergePermLevel(explicitPermission, policyPerm);
-  }
-
-  if (explicitPermission === 'deny') {
-    return {
-      type: 'tool_result',
-      tool_use_id: toolUse.id,
-      content: fromPolicy
-        ? `Tool "${toolUse.name}" is denied by repo policy (.sidecar/policy.json).`
-        : `Tool "${toolUse.name}" is denied by policy.`,
-      is_error: true,
-    };
-  }
+  const { explicitPermission, denied } = await resolveToolPermission(toolUse, executorContext);
+  if (denied) return denied;
 
   const irrecoverableDescription = detectIrrecoverable(toolUse);
   const needsApproval = resolveApprovalNeeded({
@@ -670,6 +633,58 @@ export async function executeTool(
  * heuristic classifier and, if injection patterns match, prepends a
  * warning banner inside the wrapper.
  */
+/**
+ * The permission level that applies to a tool call: the mode's, else the
+ * user's settings (workspace values only once trusted), tightened by the repo
+ * policy. `denied` is the result to return when the level is 'deny'. Exported
+ * for the loop, which dispatches delegate_task and spawn_agent itself.
+ */
+export async function resolveToolPermission(
+  toolUse: ToolUseContentBlock,
+  executorContext?: ToolExecutorContext,
+): Promise<{ explicitPermission: 'allow' | 'deny' | 'ask' | undefined; denied: ToolResultContentBlock | null }> {
+  const config = executorContext?.config ?? getConfig();
+  // --- Per-tool permissions: mode-level overrides win over global ---
+  const modePermissions = executorContext?.modeToolPermissions;
+  let explicitPermission: 'allow' | 'deny' | 'ask' | undefined =
+    modePermissions?.[toolUse.name] ?? config.toolPermissions[toolUse.name];
+
+  // Warn once per session if tool permissions are defined at workspace level (supply-chain risk)
+  if (explicitPermission) {
+    const trust = await checkWorkspaceConfigTrust(
+      'toolPermissions',
+      'SideCar: This workspace defines tool permission overrides (e.g. auto-allow write_file). Only trust these from repositories you control.',
+      { modal: true },
+    );
+    if (trust === 'blocked') {
+      // Block discards only the workspace's values. The mode's and the user's
+      // own settings still apply -- above all their 'deny' and 'ask' rules.
+      explicitPermission = modePermissions?.[toolUse.name] ?? userToolPermissions()[toolUse.name];
+    }
+  }
+
+  // Repo policy (.sidecar/policy.json) applies restrictions on top of user settings.
+  // Policy is restrictions-only so it bypasses the workspace trust gate.
+  const policyPerm = getActivePolicy()?.toolPermissions?.[toolUse.name];
+  const fromPolicy = policyPerm === 'deny' && (explicitPermission ?? 'allow') !== 'deny';
+  if (policyPerm) {
+    explicitPermission = mergePermLevel(explicitPermission, policyPerm);
+  }
+
+  if (explicitPermission !== 'deny') return { explicitPermission, denied: null };
+  return {
+    explicitPermission,
+    denied: {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: fromPolicy
+        ? `Tool "${toolUse.name}" is denied by repo policy (.sidecar/policy.json).`
+        : `Tool "${toolUse.name}" is denied by policy.`,
+      is_error: true,
+    },
+  };
+}
+
 /** The user's own (global) tool permissions, without any workspace values. */
 function userToolPermissions(): Record<string, 'allow' | 'deny' | 'ask'> {
   const cfg = workspace.getConfiguration('sidecar');

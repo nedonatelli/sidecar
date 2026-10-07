@@ -277,7 +277,7 @@ export const DELEGATE_TASK_DEFINITION: ToolDefinition = {
   name: 'delegate_task',
   description:
     'Offload a focused, read-only research task to a local Ollama worker model, saving tokens on this paid backend. ' +
-    'The worker can read files, grep, search, list directories, inspect diagnostics, find references, query git, and run a filtered set of safe read-only shell commands — but CANNOT write or edit files. It returns a structured summary. ' +
+    'The worker can read files, grep, search, list directories, inspect diagnostics, find references, and query git — but CANNOT write or edit files or run shell commands. It returns a structured summary. ' +
     'IDEAL use cases: "Find all callers of the deprecated authenticate() function", "Read the three files in src/agent/ and summarize how tool execution flows", "Grep for any TODO comments related to caching and list them with file:line". ' +
     'BAD use cases: tasks requiring code changes, tasks needing user interaction, tasks where you need the exact raw bytes of a file (the worker summarizes), tasks that are trivially small (< 500 tokens of tool output). ' +
     'Use this liberally for codebase exploration on large repos — every delegated file read is a token you do not pay for.',
