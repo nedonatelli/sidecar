@@ -825,3 +825,15 @@ describe('detectCycleAndBail — recovery-shape exemption boundaries', () => {
     expect(cb.texts[0]).toContain('4 times in a row');
   });
 });
+
+// #108: at cycleDetectionMinRepeats: 1 "the last 1 calls match" is always
+// true, so the loop bailed on its first tool call.
+describe('detectCycleAndBail — cycleDetectionMinRepeats: 1', () => {
+  it('does not bail on the first call', () => {
+    const state = stubLoopStateWithMinRepeats(1);
+    const cb = stubCallbacks();
+    expect(detectCycleAndBail([makeToolUse('edit_file', { path: 'a.ts', search: 'x', replace: 'y' })], state, cb)).toBe(
+      false,
+    );
+  });
+});
