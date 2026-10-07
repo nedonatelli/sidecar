@@ -142,7 +142,17 @@ export async function handleReviewModeTool(
     // retry loop). Guards added to edit_file now cover review mode too.
     let resolved: ResolvedEdit;
     try {
-      resolved = await resolveEditedText({ filePath: relPath, text: base, search, replace, context });
+      // Same inputs edit_file itself reads: review mode used to drop `within`
+      // and `replace_all`, so a replace_all edit failed as ambiguous here (#109).
+      resolved = await resolveEditedText({
+        filePath: relPath,
+        text: base,
+        search,
+        replace,
+        replaceAll: toolUse.input.replace_all === true,
+        within: typeof toolUse.input.within === 'string' ? toolUse.input.within : undefined,
+        context,
+      });
     } catch (err: unknown) {
       return {
         type: 'tool_result',

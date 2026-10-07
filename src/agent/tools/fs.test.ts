@@ -2406,3 +2406,24 @@ describe('findIntentTarget — regions with blank lines', () => {
     );
   });
 });
+
+// #109: the audit-mode edit path did not pass `within`.
+describe('editFile audit mode with within', () => {
+  afterEach(() => {
+    __setDefaultAuditBufferForTests(null);
+    vi.restoreAllMocks();
+  });
+
+  it('edits the occurrence after the locator', async () => {
+    const buf = new AuditBuffer();
+    __setDefaultAuditBufferForTests(buf);
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'audit' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('## One\nvalue\n## Two\nvalue\n') as never);
+    const context = { config: { agentMode: 'audit' } as never, filesReadThisTurn: new Set(['notes.md']) };
+
+    await editFile({ path: 'notes.md', search: 'value', replace: 'changed', within: '## Two' }, context as never);
+
+    expect(buf.read('notes.md').content).toBe('## One\nvalue\n## Two\nchanged\n');
+  });
+});

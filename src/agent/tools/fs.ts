@@ -1289,6 +1289,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       search,
       replace,
       replaceAll,
+      // Audit mode gets the same locator as a direct edit; without it a
+      // `within` call was resolved against the whole file (#109).
+      within,
       stalePrefix: buildStalePrefix(filePath, context),
       context,
     });
