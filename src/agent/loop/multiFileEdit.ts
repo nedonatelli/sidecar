@@ -56,14 +56,18 @@ export async function executeMultiFilePlan(
     editedSinceRead: state.editedSinceRead,
   };
 
-  // Map each path → the FIRST tool_use targeting that path. Subsequent
-  // duplicates get a synthetic "merged-by-plan" result and never
-  // execute. This matches normalizeEditPlan's edit+edit merging.
-  const firstUseByPath = new Map<string, ToolUseContentBlock>();
+  // Map each path → EVERY tool_use targeting it, in the order the model
+  // sent them. When the path's layer runs, they run one after another, so a
+  // second edit to a file applies on top of the first. Only the first used
+  // to run: the rest got a synthetic "Merged by edit plan… (result: ok)" and
+  // were dropped, though the model believed every edit had landed.
+  const usesByPath = new Map<string, ToolUseContentBlock[]>();
   for (const tu of pendingToolUses) {
     const path = extractPath(tu);
     if (!path) continue;
-    if (!firstUseByPath.has(path)) firstUseByPath.set(path, tu);
+    const uses = usesByPath.get(path);
+    if (uses) uses.push(tu);
+    else usesByPath.set(path, [tu]);
   }
 
   // Execute layers in sequence; within each, parallel up to cap.
@@ -104,7 +108,7 @@ export async function executeMultiFilePlan(
         signal.addEventListener('abort', onParentAbort, { once: true });
         callbacks.onRegisterEditCancel?.(edit.path, () => editController.abort());
         const childCtx = { ...ctx, signal: editController.signal };
-        const task = buildLayerTask(edit, firstUseByPath, childCtx);
+        const task = buildLayerTask(edit, usesByPath, childCtx);
         return { edit, task, onParentAbort, editController };
       })
       .filter(
@@ -112,7 +116,7 @@ export async function executeMultiFilePlan(
           e,
         ): e is {
           edit: PlannedEdit;
-          task: () => Promise<ToolResultContentBlock>;
+          task: () => Promise<ToolResultContentBlock[]>;
           onParentAbort: () => void;
           editController: AbortController;
         } => e.task !== null,
@@ -131,18 +135,19 @@ export async function executeMultiFilePlan(
       const outcome = settled[i];
       const path = layerTasks[i].edit.path;
       if (outcome.status === 'fulfilled') {
-        resultById.set(outcome.value.tool_use_id, outcome.value);
+        for (const r of outcome.value) resultById.set(r.tool_use_id, r);
+        const failed = outcome.value.find((r) => r.is_error);
         callbacks.onEditPlanProgress?.({
           path,
-          status: outcome.value.is_error ? 'failed' : 'done',
-          errorMessage: outcome.value.is_error ? String(outcome.value.content).slice(0, 200) : undefined,
+          status: failed ? 'failed' : 'done',
+          errorMessage: failed ? String(failed.content).slice(0, 200) : undefined,
         });
       } else {
-        // Rejected task — surface a synthetic error keyed by the
-        // originating tool_use so index alignment downstream stays clean.
-        const tu = firstUseByPath.get(path);
-        if (tu) {
-          const msg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        // Rejected task — surface a synthetic error for each of the path's
+        // tool_uses that has no result yet, so alignment downstream stays clean.
+        const msg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        for (const tu of usesByPath.get(path) ?? []) {
+          if (resultById.has(tu.id)) continue;
           resultById.set(tu.id, {
             type: 'tool_result',
             tool_use_id: tu.id,
@@ -151,8 +156,8 @@ export async function executeMultiFilePlan(
           });
           state.logger?.warn(`Multi-file write ${tu.name} (${path}) threw: ${msg}`);
           callbacks.onToolResult(tu.name, `Multi-file edit failed: ${msg}`, true, tu.id);
-          callbacks.onEditPlanProgress?.({ path, status: 'failed', errorMessage: msg.slice(0, 200) });
         }
+        callbacks.onEditPlanProgress?.({ path, status: 'failed', errorMessage: msg.slice(0, 200) });
       }
     }
   }
@@ -168,14 +173,9 @@ export async function executeMultiFilePlan(
     }
   }
 
-  // Rebuild results aligned 1:1 with the original pendingToolUses.
-  // Dedup logic: for each pending tool_use, if its id is in resultById,
-  // use that. Otherwise it's either a same-path duplicate (synthetic
-  // merged-by-plan result) or a plan-invented path we skipped (synthetic
-  // error).
+  // Rebuild results aligned 1:1 with the original pendingToolUses: each
+  // tool_use's own result, or a synthetic error when it never ran.
   const results: ToolResultContentBlock[] = [];
-  const pathOfFirstById = new Map<string, string>(); // tool_use_id → path it corresponds to
-  for (const [path, tu] of firstUseByPath) pathOfFirstById.set(tu.id, path);
 
   for (const tu of pendingToolUses) {
     const existing = resultById.get(tu.id);
@@ -197,25 +197,9 @@ export async function executeMultiFilePlan(
       });
       continue;
     }
-    const firstForPath = firstUseByPath.get(path);
-    if (firstForPath && firstForPath.id !== tu.id) {
-      // Duplicate same-path write — the planner merged it into the
-      // first occurrence.
-      const mergedResult = resultById.get(firstForPath.id);
-      results.push({
-        type: 'tool_result',
-        tool_use_id: tu.id,
-        content: `Merged by edit plan into earlier write on ${path} (result: ${
-          mergedResult?.is_error ? 'error' : 'ok'
-        })`,
-        is_error: false,
-      });
-      continue;
-    }
-    // First occurrence for this path, but no result — planner's layer
-    // didn't include this path. Either (a) planner omitted it, or (b)
-    // signal aborted before this layer ran. Record a plan-skipped
-    // result so alignment holds.
+    // No result — the planner's layers didn't include this path, or the
+    // run was aborted before it (or before this write of it) ran. Record a
+    // plan-skipped result so alignment holds.
     results.push({
       type: 'tool_result',
       tool_use_id: tu.id,
@@ -240,15 +224,24 @@ export async function executeMultiFilePlan(
  */
 function buildLayerTask(
   edit: PlannedEdit,
-  firstUseByPath: Map<string, ToolUseContentBlock>,
+  usesByPath: Map<string, ToolUseContentBlock[]>,
   ctx: ExecutionContext,
-): (() => Promise<ToolResultContentBlock>) | null {
-  const tu = firstUseByPath.get(edit.path);
-  if (!tu) {
+): (() => Promise<ToolResultContentBlock[]>) | null {
+  const uses = usesByPath.get(edit.path);
+  if (!uses) {
     ctx.state.logger?.warn(`Edit plan references path "${edit.path}" that was not in the pending batch — skipping.`);
     return null;
   }
-  return () => executeOneToolUse(ctx, tu);
+  // Sequential: each write to the file sees the one before it. Stops at an
+  // abort; the writes left without a result are reported as not executed.
+  return async () => {
+    const out: ToolResultContentBlock[] = [];
+    for (const tu of uses) {
+      if (ctx.signal.aborted) break;
+      out.push(await executeOneToolUse(ctx, tu));
+    }
+    return out;
+  };
 }
 
 function extractPath(tu: ToolUseContentBlock): string | null {
