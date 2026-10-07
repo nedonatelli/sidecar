@@ -61,6 +61,7 @@ export function splitTopLevelArgs(s: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let quote: string | null = null; // '"', "'", or the triple forms '"""' / "'''"
+  let esc = false; // previous character in a single-quoted string was an unescaped backslash
   let cur = '';
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
@@ -76,7 +77,12 @@ export function splitTopLevelArgs(s: string): string[] {
         continue;
       }
       cur += c;
-      if (c === quote && s[i - 1] !== '\\') quote = null;
+      // Track escapes: checking only s[i - 1] read `\\"` (an escaped backslash,
+      // then the closing quote) as an escaped quote, so the string never closed
+      // and swallowed the next argument.
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === quote) quote = null;
       continue;
     }
     if (c === '"' || c === "'") {

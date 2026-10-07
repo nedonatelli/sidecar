@@ -954,3 +954,19 @@ describe('parseTextToolCalls — format latch and fences', () => {
     ]);
   });
 });
+
+// #107: a value ending in an escaped backslash swallowed the next argument.
+describe('splitTopLevelArgs — escaped backslash before the closing quote', () => {
+  it('closes the string after an escaped backslash', () => {
+    expect(splitTopLevelArgs(String.raw`path="C:\\", pattern="x"`)).toEqual([String.raw`path="C:\\"`, ' pattern="x"']);
+  });
+
+  it('still keeps an escaped quote inside the string', () => {
+    expect(splitTopLevelArgs(String.raw`a="say \"hi\", ok", b=1`)).toEqual([String.raw`a="say \"hi\", ok"`, ' b=1']);
+  });
+
+  it('parses both arguments of the call', () => {
+    const parsed = parseMangledToolName(String.raw`grep(path="C:\\", pattern="TODO")`);
+    expect(parsed?.input).toEqual({ path: 'C:\\', pattern: 'TODO' });
+  });
+});
