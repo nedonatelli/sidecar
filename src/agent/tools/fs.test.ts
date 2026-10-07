@@ -1230,6 +1230,61 @@ describe('editFile replace_all', () => {
   });
 });
 
+// #109: replace_all skipped the guards a single edit gets, and on a tolerance
+// tier it only replaced occurrences byte-identical to the first.
+describe('editFile replace_all guards and tolerance', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function run(file: string, input: Record<string, unknown>) {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(file) as never);
+    const written: string[] = [];
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written.push(Buffer.from(content as Uint8Array).toString('utf-8'));
+    });
+    const result = editFile({ path: 'src/x.ts', replace_all: true, ...input }, {
+      filesReadThisTurn: new Set(['src/x.ts']),
+    } as never);
+    return { result, written };
+  }
+
+  it('leaves occurrences inside longer words alone and says so', async () => {
+    const file = 'greet();\nconst greeting = 1;\ngreet();\n';
+    const { result, written } = await run(file, { search: 'greet', replace: 'hello' });
+    expect(await result).toMatch(/2 occurrences replaced; 1 more inside longer words \(e\.g\. `greeting`\)/);
+    expect(written).toEqual(['hello();\nconst greeting = 1;\nhello();\n']);
+  });
+
+  it('refuses when every occurrence is inside a longer word', async () => {
+    const { result, written } = await run('const greeting = 1;\nconst greeter = 2;\n', {
+      search: 'greet',
+      replace: 'hello',
+    });
+    await expect(result).rejects.toThrow(/part of a longer word/);
+    expect(written).toEqual([]);
+  });
+
+  it('re-indents and replaces every occurrence a tolerance tier matched', async () => {
+    const file =
+      'function a() {\n  if (x) {\n    run();\n  }\n}\nfunction b() {\n      if (x) {\n        run();\n      }\n}\n';
+    const { result, written } = await run(file, {
+      search: 'if (x) {\n  run();\n}',
+      replace: 'if (x) {\n  go();\n}',
+    });
+    expect(await result).toMatch(/2 occurrences replaced/);
+    expect(written).toEqual([
+      'function a() {\n  if (x) {\n    go();\n  }\n}\nfunction b() {\n      if (x) {\n        go();\n      }\n}\n',
+    ]);
+  });
+
+  it('refuses a replace_all that would shadow a top-level definition', async () => {
+    const { result, written } = await run('X = 1\nY = 2\nZ = 2\n', { search: '= 2', replace: '= 2\nX = 3' });
+    await expect(result).rejects.toThrow(/define `X` at the top level/);
+    expect(written).toEqual([]);
+  });
+});
+
 describe('editFile shadow-definition guard', () => {
   afterEach(() => vi.restoreAllMocks());
   // The django-10914 failure shape: a setting already exists as `= None`, and the
