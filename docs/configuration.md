@@ -46,11 +46,11 @@ For custom setups (non-standard ports, Anthropic-compatible proxies, etc.) the s
 
 When `sidecar.provider` is `auto` (default), SideCar detects the backend from the URL:
 
-- **`localhost:11434`** → Ollama (native API)
+- **Port `11434` on any host** (e.g. `http://gpu-box:11434`) → Ollama (native API)
 - **`anthropic.com`** → Anthropic (Messages API with prompt caching)
 - **`localhost:11435`** → Kickstand — reads bearer token from `~/.config/kickstand/token` automatically
 - **`openrouter.ai`** → OpenRouter · **`groq.com`** → Groq · **`fireworks.ai`** → Fireworks · **`generativelanguage.googleapis.com`** → Gemini · **`bedrock-runtime.*.amazonaws.com`** → AWS Bedrock
-- **Everything else** → OpenAI-compatible (`/v1/chat/completions`)
+- **Any other URL** → SideCar asks the server once, when it first connects: if it answers Ollama's `/api/version`, it is used as Ollama; otherwise it's treated as OpenAI-compatible (`/v1/chat/completions`). Cloud hosts are never asked.
 
 Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or a local Kickstand dev build on a non-standard port.
 

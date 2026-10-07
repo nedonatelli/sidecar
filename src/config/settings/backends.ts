@@ -312,6 +312,74 @@ export function isGemini(baseUrl: string): boolean {
   return baseUrl.includes('generativelanguage.googleapis.com');
 }
 
+/**
+ * The root an Ollama server's native API hangs off: `/api/chat` etc. are
+ * appended to it. A trailing slash or a `/v1` (the OpenAI-compatible path a
+ * user may paste) is dropped, or every request went to `/v1/api/chat`.
+ */
+export function ollamaApiRoot(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/i, '');
+}
+
+/** True when the URL names port 11434 -- Ollama's port -- on any host. */
+export function onOllamaPort(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).port === '11434';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * URLs an `/api/version` probe found to be Ollama (true) or not (false).
+ * detectProvider is synchronous and called from many places, so the probe
+ * runs once per URL at connect time (identifyOllamaServer) and its answer
+ * is read from here.
+ */
+const ollamaProbeResults = new Map<string, boolean>();
+
+/** Hosts that are never Ollama, so are never probed. */
+const KNOWN_CLOUD_HOST =
+  /(?:^|\.)(?:openai\.com|azure\.com|anthropic\.com|googleapis\.com|amazonaws\.com|mistral\.ai|together\.xyz|deepseek\.com|x\.ai)$/i;
+
+/**
+ * Ask a server whose URL no rule recognizes whether it is Ollama. An Ollama
+ * server on another port, or one reached through a proxy, matched no rule and
+ * was driven as generic OpenAI, losing its native handling (the real context
+ * window, num_ctx, seeds, in-stream errors). Ollama answers `GET /api/version`
+ * with `{"version": "..."}`; OpenAI-compatible servers (LM Studio, vLLM,
+ * llama.cpp) answer 404. Runs only when the provider is `auto`, once per URL,
+ * with a 1 s timeout; any failure means "not Ollama".
+ */
+export async function identifyOllamaServer(baseUrl: string, provider: string): Promise<void> {
+  if (provider !== 'auto' || detectProvider(baseUrl, 'auto') !== 'openai') return;
+  const root = ollamaApiRoot(baseUrl);
+  if (ollamaProbeResults.has(root)) return;
+  let host = '';
+  try {
+    host = new URL(root).hostname;
+  } catch {
+    return;
+  }
+  if (KNOWN_CLOUD_HOST.test(host)) return;
+  let isOllama = false;
+  try {
+    const resp = await fetch(`${root}/api/version`, { signal: AbortSignal.timeout(1000) });
+    if (resp.ok) {
+      const body = (await resp.json()) as { version?: unknown };
+      isOllama = typeof body?.version === 'string';
+    }
+  } catch {
+    // unreachable or not JSON: not Ollama, as far as we can tell
+  }
+  ollamaProbeResults.set(root, isOllama);
+}
+
+/** Test seam: forget probe results. */
+export function __resetOllamaProbesForTests(): void {
+  ollamaProbeResults.clear();
+}
+
 /** Determine which backend provider to use based on URL and explicit setting. */
 export function detectProvider(
   baseUrl: string,
@@ -349,6 +417,8 @@ export function detectProvider(
   if (isFireworks(baseUrl)) return 'fireworks';
   if (isGemini(baseUrl)) return 'gemini';
   if (/bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com/i.test(baseUrl)) return 'bedrock';
+  // Ollama on another machine (its port) or one the probe identified.
+  if (onOllamaPort(baseUrl) || ollamaProbeResults.get(ollamaApiRoot(baseUrl))) return 'ollama';
   return 'openai';
 }
 
