@@ -54,7 +54,9 @@ export function applyAgentLoopRouting(
     role: 'agent-loop',
     turnCount: state.iteration,
     retryCount: verifierFailures,
-    prompt: extractUserPrompt(state.messages),
+    // The current request, not the conversation's first message (which can be
+    // an earlier, unrelated task in a long chat).
+    prompt: state.userRequestText ?? extractUserPrompt(state.messages),
     consecutiveToolUseBlocks: countLastAssistantToolUses(state.messages),
   };
 

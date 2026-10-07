@@ -440,7 +440,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       // with the fence content correct every time sampled — synthesize the
       // write_file the model described. Only on an action-request turn with an
       // unambiguous single target; every write_file guard still applies.
-      const userText = lastUserMessageText(state.messages);
+      const userText = state.userRequestText ?? lastUserMessageText(state.messages);
       // isMutationRequest, NOT isActionRequest: a read request licenses the
       // re-prompt nudge but must never license synthesizing a write. A model
       // answering "what does X contain" prints fences to ILLUSTRATE, and coercing
