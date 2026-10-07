@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GeminiBackend, GEMINI_DEFAULT_MODELS } from './geminiBackend.js';
+import { GeminiBackend, GEMINI_DEFAULT_MODELS, geminiApiRoot } from './geminiBackend.js';
+import { BUILT_IN_BACKEND_PROFILES } from '../config/settings/backends.js';
 
 vi.mock('./sidecarFetch.js', () => ({
   sidecarFetch: vi.fn(),
@@ -101,5 +102,23 @@ describe('Gemini provider detection', () => {
     expect(geminiProfile?.baseUrl).toContain('googleapis.com');
     expect(geminiProfile?.defaultModel).toBe('gemini-2.0-flash');
     expect(geminiProfile?.secretKey).not.toBeNull();
+  });
+});
+
+// The Gemini profile pointed at /openai, without the /v1beta segment Google's
+// OpenAI-compatible endpoint lives under.
+describe('Gemini base URL', () => {
+  it('ships the /v1beta/openai endpoint in the built-in profile', () => {
+    const gemini = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === 'gemini');
+    expect(gemini?.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta/openai');
+  });
+
+  it('repairs the old profile URL and a bare host, and leaves other paths alone', () => {
+    const root = 'https://generativelanguage.googleapis.com/v1beta/openai';
+    expect(geminiApiRoot('https://generativelanguage.googleapis.com/openai')).toBe(root);
+    expect(geminiApiRoot('https://generativelanguage.googleapis.com/openai/')).toBe(root);
+    expect(geminiApiRoot('https://generativelanguage.googleapis.com')).toBe(root);
+    expect(geminiApiRoot(root + '/')).toBe(root);
+    expect(geminiApiRoot('https://proxy.example.com/gemini')).toBe('https://proxy.example.com/gemini');
   });
 });

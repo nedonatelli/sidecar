@@ -131,7 +131,7 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     id: 'gemini',
     name: 'Google Gemini',
     provider: 'gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/openai',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     defaultModel: 'gemini-2.0-flash',
     secretKey: 'sidecar.profileKey.gemini',
     description:
