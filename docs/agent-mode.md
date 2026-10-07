@@ -377,7 +377,7 @@ When a background agent completes, a summary is posted to the main chat so you s
 
 ## Typed Sub-Agent Facets _(new in v0.66)_
 
-Facets are a step up from background agents: named specialists with their own tool allowlist, preferred model, and composed system prompt, dispatched in parallel through the Command Palette. Where `/bg` spawns a generic autonomous agent, `SideCar: Facets: Dispatch Specialists` dispatches a specific _role_ — `security-reviewer`, `test-author`, `latex-writer`, etc. — against a task.
+Facets are a step up from background agents: named specialists with their own tool allowlist, preferred model, and composed system prompt, dispatched in parallel through the Command Palette. Where `/bg` spawns a generic background agent, `SideCar: Facets: Dispatch Specialists` dispatches a specific _role_ — `security-reviewer`, `test-author`, `latex-writer`, etc. — against a task.
 
 Key differences from background agents:
 

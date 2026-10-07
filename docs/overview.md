@@ -57,7 +57,6 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - **Streaming diff preview** — cautious mode shows file changes in VS Code's diff editor with dual accept/reject UI
 - **JSDoc staleness diagnostics** — on save, detects orphan `@param` tags and missing parameter documentation. Surfaces as warnings with "Remove orphan" and "Add missing" quick fixes that preserve JSDoc indentation. Toggle with `sidecar.jsDocSync.enabled`
 - **README sync** — on save of `README.md` or any `src/` source file, detects calls in fenced ts/tsx/js/jsx code blocks whose argument count no longer matches the current signature. Quick fix rewrites the call — drops extras or appends missing parameter names as placeholders. Toggle with `sidecar.readmeSync.enabled`
-- **Chat logging** — JSONL tmp files for every conversation for debugging and recovery
 
 ### Integration Points
 
