@@ -1160,6 +1160,82 @@ describe('postLoopProcessing', () => {
     expect(state.autoSave).toHaveBeenCalled();
   });
 
+  // #110: done.messageCount was read before the turn's entries reached
+  // state.messages, and nothing told the webview that pruning had moved the
+  // older history, so edit/delete targeted the wrong message after a run.
+  describe('webview index sync', () => {
+    function makeState(messages: Array<{ role: 'user' | 'assistant'; content: unknown }>) {
+      return {
+        messages,
+        pendingQuestion: null as string | null,
+        changelog: { hasChanges: () => false, getChangeSummary: async () => [] },
+        trimHistory: vi.fn(),
+        saveHistory: vi.fn(),
+        autoSave: vi.fn(),
+        postMessage: vi.fn(),
+        logMessage: vi.fn(),
+      };
+    }
+
+    it('reports the shift from pruning and where the final answer landed', async () => {
+      const old = [
+        { role: 'user' as const, content: 'a' },
+        { role: 'assistant' as const, content: 'b' },
+        { role: 'user' as const, content: 'c' },
+        { role: 'assistant' as const, content: 'd' },
+      ];
+      const prompt = { role: 'user' as const, content: 'e' };
+      const state = makeState([...old, prompt]);
+      // Pruning dropped the first turn, so the loop got [c, d, e] and added
+      // a tool round trip and an answer.
+      const updated = [
+        old[2],
+        old[3],
+        prompt,
+        { role: 'assistant' as const, content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: {} }] },
+        { role: 'user' as const, content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+        { role: 'assistant' as const, content: 'done.' },
+      ];
+
+      await postLoopProcessing(state as never, updated as never, 5, { loopStartCount: 3, loopPrompt: prompt });
+
+      expect(state.postMessage).toHaveBeenCalledWith({
+        command: 'syncMessageIndices',
+        messageCount: 6,
+        shift: 2,
+        turnStart: 5,
+        lastAssistantIndex: 5,
+      });
+    });
+
+    it('counts messages trimHistory drops from the front', async () => {
+      const prompt = { role: 'user' as const, content: 'q' };
+      const state = makeState([prompt]);
+      state.trimHistory.mockImplementation(() => state.messages.shift());
+      const updated = [prompt, { role: 'assistant' as const, content: 'a' }];
+
+      await postLoopProcessing(state as never, updated as never, 1, { loopStartCount: 1, loopPrompt: prompt });
+
+      expect(state.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'syncMessageIndices', messageCount: 1, shift: 1, lastAssistantIndex: 0 }),
+      );
+    });
+
+    it('re-renders when the loop compacted history', async () => {
+      const prompt = { role: 'user' as const, content: 'q' };
+      const state = makeState([{ role: 'user', content: 'old' }, { role: 'assistant', content: 'older' }, prompt]);
+      const updated = [
+        { role: 'user' as const, content: 'Summary of the conversation so far' },
+        { role: 'assistant' as const, content: 'ok' },
+      ];
+
+      await postLoopProcessing(state as never, updated as never, 3, { loopStartCount: 3, loopPrompt: prompt });
+
+      expect(state.postMessage).toHaveBeenCalledWith({ command: 'init', messages: state.messages });
+      expect(state.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'syncMessageIndices' }));
+    });
+  });
+
   it('detects pending question when assistant ends with ?', async () => {
     const state = {
       messages: [] as Array<{ role: string; content: string }>,

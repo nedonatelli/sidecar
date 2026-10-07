@@ -266,16 +266,66 @@ async function buildSystemPromptForRun(
 // Post-loop processing
 // ---------------------------------------------------------------------------
 
+/**
+ * Tell the webview where its bubbles now sit in state.messages. It numbers
+ * them with a local counter, and the extension takes that number as a direct
+ * index for edit, delete and regenerate. A turn breaks it three ways: it
+ * appends tool entries the counter never saw, pruning before the loop drops
+ * old turns from the front, and trimHistory drops more.
+ *
+ * `loopPrompt` is the user message the loop started from, at index
+ * `loopStartCount - 1`. When it is no longer there, the loop compacted
+ * history and nothing maps one to one, so the webview re-renders instead.
+ */
+function syncWebviewIndices(
+  state: ChatState,
+  updatedMessages: ChatMessage[],
+  prePruneMessageCount: number,
+  turn: { loopStartCount: number; loopPrompt: ChatMessage },
+  trimmed: number,
+): void {
+  const atPrompt = updatedMessages[turn.loopStartCount - 1];
+  const promptInPlace =
+    atPrompt === turn.loopPrompt ||
+    // In-loop compression copies a message it shrinks; same role and text is still the prompt.
+    (atPrompt?.role === turn.loopPrompt.role &&
+      getContentText(atPrompt.content) === getContentText(turn.loopPrompt.content));
+  if (!promptInPlace) {
+    state.postMessage({ command: 'init', messages: state.messages });
+    return;
+  }
+  const turnFrom = turn.loopStartCount - trimmed;
+  let lastAssistantIndex: number | undefined;
+  for (let i = state.messages.length - 1; i >= Math.max(0, turnFrom); i--) {
+    const m = state.messages[i];
+    if (m.role === 'assistant' && getContentText(m.content).trim()) {
+      lastAssistantIndex = i;
+      break;
+    }
+  }
+  state.postMessage({
+    command: 'syncMessageIndices',
+    messageCount: state.messages.length,
+    shift: prePruneMessageCount - turn.loopStartCount + trimmed,
+    turnStart: prePruneMessageCount,
+    lastAssistantIndex,
+  });
+}
+
 export async function postLoopProcessing(
   state: ChatState,
   updatedMessages: ChatMessage[],
   prePruneMessageCount: number,
+  turn?: { loopStartCount: number; loopPrompt: ChatMessage },
 ): Promise<void> {
   const newUserMessages = state.messages.slice(prePruneMessageCount);
   state.messages = [...updatedMessages, ...newUserMessages];
+  const mergedLength = state.messages.length;
   state.trimHistory();
   state.saveHistory();
   state.autoSave();
+  if (turn)
+    syncWebviewIndices(state, updatedMessages, prePruneMessageCount, turn, mergedLength - state.messages.length);
 
   state.pendingQuestion = null;
   const lastMsg = state.messages[state.messages.length - 1];
@@ -533,6 +583,8 @@ export async function handleUserMessage(
     const effectiveMaxTokens = Math.max(rawMaxTokens - systemPromptTokens, Math.floor(rawMaxTokens / 2));
 
     await enrichAndPruneMessages(chatMessages, config, systemPrompt, effectiveMaxTokens, state, config.verboseMode);
+    // Where the turn starts in the (possibly pruned) history the loop gets.
+    const turn = { loopStartCount: chatMessages.length, loopPrompt: chatMessages[chatMessages.length - 1] };
 
     if (config.verboseMode) {
       state.postMessage({ command: 'verboseLog', content: systemPrompt, verboseLabel: 'System Prompt' });
@@ -667,7 +719,7 @@ export async function handleUserMessage(
       return;
     }
 
-    await postLoopProcessing(state, updatedMessages, prePruneMessageCount);
+    await postLoopProcessing(state, updatedMessages, prePruneMessageCount, turn);
 
     state.postMessage({ command: 'setLoading', isLoading: false });
     healthStatus.setOk();
