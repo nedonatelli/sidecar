@@ -4,6 +4,32 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A message with an image reached the model as an empty prompt.** Both the image and
+  your text were dropped on every backend; they are now sent as written.
+  (`src/webview/handlers/messageEnricher.ts`)
+- **Loading a saved session kept the previous session's pending plan.** Your next message
+  revised the old plan inside the loaded session, and autosave then overwrote it. Loading a
+  session now clears pending plans, questions and partial answers.
+- **Sending a message while a run was still stopping broke the new run.** The old run's
+  cleanup hid the new run's Stop button, turned off steering, dropped its `@model` pin and
+  let the old run carry on in the background. Each run now cleans up only its own state.
+- **A finished background task appeared inside the main chat.** Its summary landed in
+  whatever answer was streaming and ended that run's spinner. Results now go to the
+  background panel and a notification only. A stopped background task is no longer
+  reported as completed.
+- **Edit and delete could act on the wrong message.** After a run, or after deleting a
+  message, the chat's bubbles kept stale positions (most often in long chats, once older
+  turns are pruned), so editing or deleting a bubble hit a different message. Positions are
+  now resynchronised after every run and every delete.
+- **Executing or revising a plan changed your global `agentMode` setting.** It switched the
+  setting out of plan mode and back, which undid a mode you picked during the run and
+  planned again when the workspace set plan mode. The run now leaves plan mode on its own,
+  without touching settings.
+- **An `@pin:path` pin lasted only one message.** It now stays pinned for the session.
+- **Regenerating part of an answer garbled `$&` and similar text** in the new section.
+
 ## [0.127.0] - 2026-10-06
 
 A security release. A review of the whole codebase found ways for content you did not
