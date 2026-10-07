@@ -6,6 +6,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **macOS/Linux: the startup cleanup of processes left over from a crash could, rarely,
+  stop an unrelated process** that had just been given a leftover process's ID. It now
+  stops checking as soon as the old process is gone.
+
 - **A backend could stay disabled until you changed a setting.** After repeated failures
   SideCar pauses a provider and later sends one test request; if you pressed Stop during
   that request, the provider stayed paused for good. It now recovers on its own.
