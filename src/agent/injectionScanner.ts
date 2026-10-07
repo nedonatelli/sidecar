@@ -90,33 +90,43 @@ const INJECTION_PATTERNS: { category: string; pattern: RegExp }[] = [
 ];
 
 /**
- * Returns true when `index` falls inside a JS/TS string literal on its line.
- * Handles single-quote, double-quote, and backtick delimiters; respects
- * backslash escapes. Used to suppress false positives when suspicious phrases
- * appear as test-fixture data inside string literals rather than as plain prose.
+ * Returns true when the match at `index`..`end` sits inside a JS/TS string
+ * literal on its line -- test-fixture data rather than prose. Handles single,
+ * double and backtick quotes and backslash escapes.
+ *
+ * The literal must really be one: it has to CLOSE after the match on the same
+ * line, and an apostrophe between letters ("don't") opens nothing. A stray
+ * quote earlier on the line used to mark the rest of it as a string, so
+ * prefixing a payload with one hid it from the scanner.
  */
-function isInsideStringLiteral(content: string, index: number): boolean {
+function isInsideStringLiteral(content: string, index: number, end: number): boolean {
   const lineStart = content.lastIndexOf('\n', index - 1) + 1;
-  const slice = content.slice(lineStart, index);
-  let inString = false;
+  const lineEndRaw = content.indexOf('\n', end);
+  const lineEnd = lineEndRaw === -1 ? content.length : lineEndRaw;
+  const line = content.slice(lineStart, lineEnd);
+  const at = index - lineStart;
+  const matchEnd = end - lineStart;
   let quoteChar = '';
-  for (let i = 0; i < slice.length; i++) {
-    const ch = slice[i];
-    if (!inString) {
-      if (ch === '"' || ch === "'" || ch === '`') {
-        inString = true;
+  let openedAt = -1;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (!quoteChar) {
+      if (i >= at) return false; // the match starts outside any literal
+      const isApostrophe = ch === "'" && /\w/.test(line[i - 1] ?? '') && /\w/.test(line[i + 1] ?? '');
+      if ((ch === '"' || ch === "'" || ch === '`') && !isApostrophe) {
         quoteChar = ch;
+        openedAt = i;
       }
-    } else {
-      if (ch === '\\') {
-        i++; // skip escaped character
-      } else if (ch === quoteChar) {
-        inString = false;
-        quoteChar = '';
-      }
+    } else if (ch === '\\') {
+      i++; // skip escaped character
+    } else if (ch === quoteChar) {
+      // The literal closes here: the match is inside it only if it opened
+      // before the match and closes after it.
+      if (openedAt < at && i >= matchEnd) return true;
+      quoteChar = '';
     }
   }
-  return inString;
+  return false; // never closed: not a literal
 }
 
 /**
@@ -130,9 +140,18 @@ export function scanToolOutput(content: string): InjectionMatch[] {
   if (!content) return [];
   const matches: InjectionMatch[] = [];
   for (const { category, pattern } of INJECTION_PATTERNS) {
-    const match = pattern.exec(content);
+    // Every occurrence, not only the first: one decoy inside a literal used
+    // to hide a later one in prose.
+    const all = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+    let match: RegExpExecArray | null = null;
+    for (let m = all.exec(content); m; m = all.exec(content)) {
+      if (m[0] === '') all.lastIndex++;
+      if (!isInsideStringLiteral(content, m.index, m.index + m[0].length)) {
+        match = m;
+        break;
+      }
+    }
     if (match) {
-      if (isInsideStringLiteral(content, match.index)) continue;
       const snippet = match[0].trim().slice(0, 80);
       matches.push({ category, snippet });
     }
