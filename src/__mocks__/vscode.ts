@@ -344,7 +344,15 @@ export class InlineCompletionItem {
   ) {}
 }
 
-export class Selection extends Range {}
+// Like the real API: Selection(anchor, active), where active is the cursor end.
+export class Selection extends Range {
+  constructor(
+    public anchor: Position,
+    public active: Position,
+  ) {
+    super(anchor, active);
+  }
+}
 
 export class ThemeColor {
   constructor(public id: string) {}
