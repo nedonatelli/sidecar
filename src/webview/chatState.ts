@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { workspace, Uri, RelativePattern, type ExtensionContext, type Disposable } from 'vscode';
 import { type ChatMessage, getContentText, getContentLength, serializeContent } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
@@ -26,8 +25,6 @@ import { TeamMemoryStore } from '../agent/memory/teamMemory.js';
 import { AuditLog } from '../agent/auditLog.js';
 import type { ContextProviderManager } from '../context/contextProviderManager.js';
 import { EditTimelineStore } from '../agent/editTimeline.js';
-import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 /** Maximum number of messages to keep in memory. */
@@ -134,7 +131,6 @@ export class ChatState {
   currentSessionId: string | null = null;
 
   /** Path to the current chat log tmp file */
-  private chatLogPath: string | null = null;
 
   /**
    * SIDECAR.md content cache. `undefined` = not yet loaded; `null` =
@@ -209,55 +205,6 @@ export class ChatState {
 
   postMessage(message: ExtensionMessage): void {
     this._postMessage(message);
-  }
-
-  /**
-   * Get or create the tmp file path for the current chat log.
-   * Each conversation gets its own file in the OS temp directory.
-   * Format: sidecar-chat-{timestamp}-{random}.jsonl
-   */
-  private async ensureChatLogPath(): Promise<string> {
-    if (!this.chatLogPath) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const tmpDir = path.join(os.tmpdir(), 'sidecar-chatlogs');
-      // Random suffix so two ChatState instances created in the same millisecond
-      // (rapid sessions in prod; parallel workers in tests) never share — and
-      // append to — one another's log file. Timestamp alone (ms granularity) is
-      // not unique enough. Assigned synchronously (before the first await) so
-      // getChatLogPath() is non-null even when logMessage() is fire-and-forget.
-      this.chatLogPath = path.join(tmpDir, `sidecar-chat-${timestamp}-${randomUUID().slice(0, 8)}.jsonl`);
-      await fs.promises.mkdir(tmpDir, { recursive: true });
-    }
-    return this.chatLogPath;
-  }
-
-  /**
-   * Append a message to the chat log tmp file.
-   * Each line is a JSON object with role, content, and timestamp.
-   * Fire-and-forget — callers should `void` the return value.
-   */
-  async logMessage(role: string, content: string): Promise<void> {
-    try {
-      const logPath = await this.ensureChatLogPath();
-      const entry = JSON.stringify({
-        timestamp: new Date().toISOString(),
-        role,
-        content,
-      });
-      await fs.promises.appendFile(logPath, entry + '\n');
-    } catch {
-      // Chat logging is best-effort — never block the user
-    }
-  }
-
-  /** Get the path to the current chat log file, or null if none started. */
-  getChatLogPath(): string | null {
-    return this.chatLogPath;
-  }
-
-  /** Reset the chat log path so a new conversation gets a fresh log file. */
-  resetChatLog(): void {
-    this.chatLogPath = null;
   }
 
   saveHistory(): void {
@@ -450,7 +397,6 @@ export class ChatState {
     this.editTimeline.clear();
     this.currentSessionId = null;
     this.chatGeneration++;
-    this.resetChatLog();
     // Reset workspace file relevance so previously discussed files
     // don't dominate context in the new conversation.
     this.workspaceIndex?.resetRelevance();
@@ -558,7 +504,10 @@ export class ChatState {
     let dir = path.dirname(activeFilePath);
     while (true) {
       const rel = path.relative(rootPath, dir);
-      if (rel === '' || rel.startsWith('..')) break; // reached or passed root
+      // path.relative to another drive (or a UNC path) is absolute, which is
+      // neither '' nor '..': the walk went on to the drive root, reading
+      // SIDECAR.md from folders outside the workspace as project instructions.
+      if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) break; // reached or passed root
       dirs.push(dir);
       const parent = path.dirname(dir);
       if (parent === dir) break; // filesystem root

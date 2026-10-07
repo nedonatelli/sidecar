@@ -359,8 +359,27 @@
     'pre',
     'code',
   ]);
-  const SVG_DANGEROUS_ATTRS = /^on/i;
+  // Event handlers, and data-* attributes: the chat's delegated click handler
+  // acts on data-action / data-code, so markup that survives the tag allowlist
+  // must not carry them.
+  const SVG_DANGEROUS_ATTRS = /^(on|data-)/i;
   const SVG_DANGEROUS_VALS = /javascript:|data:text\/html/i;
+  // Classes the chat's own handlers react to, and styles that can lay an
+  // element over the panel or fetch something.
+  const CHAT_CONTROL_CLASSES = new Set([
+    'code-block',
+    'message',
+    'message-actions',
+    'model-action',
+    'session-delete-btn',
+    'session-item',
+    'tool-call',
+    'image-remove',
+    'code-save-btn',
+    'confirm-btn',
+    'next-step-btn',
+  ]);
+  const SVG_UNSAFE_STYLE = /url\s*\(|expression|@import|position\s*:\s*(fixed|absolute|sticky)/i;
 
   function sanitizeSvg(svgContent) {
     try {
@@ -385,8 +404,15 @@
           }
           // Remove dangerous attributes
           for (const attr of [...node.attributes]) {
-            if (SVG_DANGEROUS_ATTRS.test(attr.name) || SVG_DANGEROUS_VALS.test(attr.value)) {
+            if (
+              SVG_DANGEROUS_ATTRS.test(attr.name) ||
+              SVG_DANGEROUS_VALS.test(attr.value) ||
+              (attr.name === 'style' && SVG_UNSAFE_STYLE.test(attr.value))
+            ) {
               node.removeAttribute(attr.name);
+            } else if (attr.name === 'class') {
+              const kept = attr.value.split(/\s+/).filter((c) => c && !CHAT_CONTROL_CLASSES.has(c));
+              node.setAttribute('class', kept.join(' '));
             }
           }
           // Sanitize href on <a> — only allow fragment links

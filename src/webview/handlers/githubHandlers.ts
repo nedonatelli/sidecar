@@ -6,7 +6,40 @@ import { GitCLI } from '../../github/git.js';
 import { GitHubAPI } from '../../github/api.js';
 import { getGitHubToken } from '../../github/auth.js';
 
+/**
+ * What a GitHub action would change, or null for a read. These run from
+ * phrases typed in chat, which the webview matches loosely ("create release
+ * notes for v1.2" parsed as a release tagged "notes"), so every action that
+ * pushes, publishes or deletes is confirmed first, naming exactly what it does.
+ */
+function sideEffectOf(msg: WebviewMessage): string | null {
+  switch (msg.action) {
+    case 'push':
+      return 'push the current branch to its remote';
+    case 'pull':
+      return 'pull into the current branch';
+    case 'createPR':
+      return `open pull request "${msg.title ?? ''}" (${msg.head ?? '?'} → ${msg.base ?? '?'})`;
+    case 'createIssue':
+      return `create issue "${msg.title ?? ''}"`;
+    case 'createRelease':
+      return `publish release "${msg.tag ?? ''}"${msg.draft ? ' as a draft' : ''} (this creates the tag)`;
+    case 'deleteRelease':
+      return `delete release "${msg.tag ?? ''}"`;
+    default:
+      return null;
+  }
+}
+
 export async function handleGitHubCommand(state: ChatState, msg: WebviewMessage): Promise<void> {
+  const effect = sideEffectOf(msg);
+  if (effect) {
+    const choice = await state.requestConfirm(`SideCar will ${effect}. Continue?`, ['Continue', 'Cancel']);
+    if (choice !== 'Continue') {
+      state.postMessage({ command: 'githubResult', githubAction: msg.action, githubData: 'Cancelled.' });
+      return;
+    }
+  }
   try {
     switch (msg.action) {
       case 'clone': {

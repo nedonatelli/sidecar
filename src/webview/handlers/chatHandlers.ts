@@ -338,7 +338,6 @@ export async function postLoopProcessing(
             .filter((b) => b.type === 'text')
             .map((b) => b.text || '')
             .join('');
-    void state.logMessage('assistant', msgText);
     const trimmed = msgText.trim();
     if (/\?\s*$/.test(trimmed) || /\?\s*```\s*$/.test(trimmed)) {
       const sentences = trimmed.split(/(?<=[.!?])\s+/);
@@ -453,7 +452,6 @@ export async function handleUserMessage(
       pushedUserMessage = { role: 'user', content: messageText };
       recordUserAuthoredText(messageText);
       state.messages.push(pushedUserMessage);
-      void state.logMessage('user', messageText);
     }
     state.saveHistory();
     // The webview numbered its bubbles against the old history; re-render so

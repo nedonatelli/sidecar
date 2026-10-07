@@ -46,7 +46,7 @@ vi.mock('../../github/auth.js', () => ({
 }));
 
 function createMockState() {
-  return { postMessage: vi.fn() };
+  return { postMessage: vi.fn(), requestConfirm: vi.fn().mockResolvedValue('Continue') };
 }
 
 describe('handleGitHubCommand', () => {
@@ -62,6 +62,27 @@ describe('handleGitHubCommand', () => {
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'error', content: expect.stringContaining('repository URL') }),
     );
+  });
+
+  // These run from loosely matched chat phrases ("create release notes for
+  // v1.2" became a release tagged "notes") and pushed, published or deleted
+  // with no confirmation.
+  it.each([
+    [{ action: 'push' }, 'push the current branch'],
+    [{ action: 'createRelease', tag: 'notes' }, 'publish release "notes"'],
+    [{ action: 'deleteRelease', tag: 'v1.0.0' }, 'delete release "v1.0.0"'],
+  ])('asks before %o, and Cancel stops it', async (fields, described) => {
+    state.requestConfirm.mockResolvedValueOnce('Cancel');
+    const { GitCLI } = await import('../../github/git.js');
+    await handleGitHubCommand(state as never, { command: 'github', ...fields } as never);
+    expect(String(state.requestConfirm.mock.calls[0][0])).toContain(described);
+    expect(vi.mocked(GitCLI)).not.toHaveBeenCalled();
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ githubData: 'Cancelled.' }));
+  });
+
+  it('does not ask before a read (listing PRs)', async () => {
+    await handleGitHubCommand(state as never, { command: 'github', action: 'listPRs' } as never);
+    expect(state.requestConfirm).not.toHaveBeenCalled();
   });
 
   it('handles push action', async () => {
