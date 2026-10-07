@@ -256,18 +256,22 @@ function parseTextToolCallsInternal(
   // Bare JSON (pattern 4) is extracted separately with brace-depth
   // tracking because the lazy [\s\S]*?\} regex terminates at the first
   // closing brace, chopping off nested argument objects.
+  // The fence body may not contain a fence: a lazy `[\s\S]*?` ran from an
+  // unclosed `{` in one fence, past its closing ```, into the next fence.
   const combined =
-    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
+    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{(?:(?!```)[\s\S])*?\})\s*\n?\s*```/g;
 
-  // Track which pattern type matched first (for priority: fn > tool_call > json > bare)
+  // The format of the first match that produced a call; later matches in
+  // other formats are the same calls restated. Latching on the first MATCH
+  // instead let an unrelated JSON fence (a config example) latch 'json' and
+  // drop every real <tool_call> after it.
   let firstType: 'fn' | 'tc' | 'json' | 'bare' | null = null;
   let match;
 
   while ((match = combined.exec(text)) !== null) {
     // Pattern 1: <function=name><parameter=key>value</parameter></function>
     if (match[1] !== undefined) {
-      if (firstType === null) firstType = 'fn';
-      if (firstType !== 'fn') continue;
+      if (firstType !== null && firstType !== 'fn') continue;
       const name = match[1];
       if (!isDispatchableName(name, toolNames)) continue;
       const body = match[2];
@@ -277,27 +281,37 @@ function parseTextToolCallsInternal(
       while ((pm = paramPattern.exec(body)) !== null) {
         input[pm[1]] = pm[2].trim();
       }
+      firstType = 'fn';
       spans?.push([match.index, match.index + match[0].length]);
       results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
     }
     // Pattern 2: <tool_call>JSON</tool_call>
     else if (match[3] !== undefined) {
-      if (firstType === null) firstType = 'tc';
-      if (firstType !== 'tc') continue;
+      if (firstType !== null && firstType !== 'tc') continue;
       try {
         const parsed = JSON.parse(match[3]);
-        const name = parsed.name || parsed.tool || parsed.function?.name;
-        const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || {};
-        if (name && isDispatchableName(name, toolNames)) {
-          const input = typeof args === 'string' ? JSON.parse(args) : args;
+        // A model batching calls puts an ARRAY of them in one tag; reading
+        // .name off the array dropped them all.
+        let produced = false;
+        for (const entry of Array.isArray(parsed) ? parsed : [parsed]) {
+          const name = entry?.name || entry?.tool || entry?.function?.name;
+          const args = entry?.arguments || entry?.args || entry?.function?.arguments || entry?.parameters || {};
+          if (name && isDispatchableName(name, toolNames)) {
+            const input = typeof args === 'string' ? JSON.parse(args) : args;
+            results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+            produced = true;
+          }
+        }
+        if (produced) {
+          firstType = 'tc';
           spans?.push([match.index, match.index + match[0].length]);
-          results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
         // Malformed JSON: don't silently drop — emit a marker so the
         // constrained-repair layer can recover it (A5).
         const name = salvageToolName(match[3], toolNames);
         if (name) {
+          firstType = 'tc';
           results.push({
             type: 'tool_use',
             id: `text_tc_${idCounter++}`,
@@ -310,20 +324,21 @@ function parseTextToolCallsInternal(
     }
     // Pattern 3: ```json\n{...}\n```
     else if (match[4] !== undefined) {
-      if (firstType === null) firstType = 'json';
-      if (firstType !== 'json') continue;
+      if (firstType !== null && firstType !== 'json') continue;
       try {
         const parsed = JSON.parse(match[4]);
         const name = parsed.name || parsed.tool || parsed.function;
         const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
+          firstType = 'json';
           spans?.push([match.index, match.index + match[0].length]);
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
         const name = salvageToolName(match[4], toolNames);
         if (name) {
+          firstType = 'json';
           results.push({
             type: 'tool_use',
             id: `text_tc_${idCounter++}`,
