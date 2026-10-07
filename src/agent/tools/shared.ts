@@ -349,6 +349,19 @@ function realpathOrSelf(p: string): string {
 }
 
 /**
+ * Why an Audit Mode entry for `filePath` may not be applied to disk, or null.
+ * The buffer's state file is restored at activation and could have been
+ * written by anyone, so the write tools' rules are applied again here.
+ */
+export function auditPathRefusal(filePath: string): string | null {
+  return (
+    validateFilePath(filePath) ??
+    isProtectedWritePath(filePath) ??
+    (isSensitiveFile(filePath) ? `"${filePath}" is a credential file; it is not written from the audit buffer.` : null)
+  );
+}
+
+/**
  * Files that make another program run commands -- VS Code tasks and settings,
  * MCP server lists, git hook managers, direnv, dev containers, submodules. The
  * agent may still change them, but never without the user confirming the

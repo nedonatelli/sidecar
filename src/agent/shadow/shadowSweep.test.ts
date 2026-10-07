@@ -196,6 +196,46 @@ describe('sweepStaleShadows', () => {
   });
 });
 
+// The sweep runs at activation and deletes recursively. A cloned repository
+// can ship `.sidecar/shadows` as a link; the sweep followed it and deleted the
+// directories it pointed at -- here, a sibling project.
+describe('sweepStaleShadows -- a linked shadows directory', () => {
+  let base: string | null = null;
+  afterEach(() => {
+    if (base) fs.rmSync(base, { recursive: true, force: true });
+    base = null;
+  });
+
+  it.each(['.sidecar/shadows', '.sidecar'])('does not follow a linked %s out of the repository', async (which) => {
+    base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-sweep-link-')));
+    const projects = path.join(base, 'projects');
+    const repo = path.join(projects, 'cloned-repo');
+    const sibling = path.join(projects, 'my-other-project');
+    fs.mkdirSync(repo, { recursive: true });
+    fs.mkdirSync(path.join(sibling, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(sibling, 'src', 'precious.ts'), 'export const work = 1;\n');
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    fs.writeFileSync(path.join(repo, 'README.md'), 'hi\n');
+    execFileSync('git', ['add', '.'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'init'], { cwd: repo });
+    if (which === '.sidecar/shadows') {
+      fs.mkdirSync(path.join(repo, '.sidecar'));
+      fs.symlinkSync(projects, path.join(repo, '.sidecar', 'shadows'), 'junction');
+    } else {
+      // `.sidecar` itself is the link; its `shadows` is the projects folder.
+      const fake = path.join(base, 'fake-sidecar');
+      fs.mkdirSync(fake);
+      fs.symlinkSync(projects, path.join(fake, 'shadows'), 'junction');
+      fs.symlinkSync(fake, path.join(repo, '.sidecar'), 'junction');
+    }
+
+    const result = await sweepStaleShadows(repo);
+
+    expect(fs.existsSync(path.join(sibling, 'src', 'precious.ts'))).toBe(true);
+    expect(result.removedDirs).toEqual([]);
+  });
+});
+
 describe('formatSweepResult', () => {
   it('returns empty string when the result is fully empty', () => {
     expect(formatSweepResult({ prunedWorktrees: [], removedDirs: [], errors: [] })).toBe('');

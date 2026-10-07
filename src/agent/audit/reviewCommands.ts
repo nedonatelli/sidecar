@@ -1,6 +1,7 @@
 import { window, workspace, commands, Uri } from 'vscode';
 import * as path from 'path';
 import { getDefaultAuditBuffer, AuditFlushError, type AuditBuffer, type BufferedChange } from './auditBuffer.js';
+import { realPathRefusal } from '../tools/shared.js';
 import { computeUnifiedDiff, computeHunks, applySelectedHunks, type DiffHunk } from '../diff.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 
@@ -402,6 +403,8 @@ function makeDiskHandlers(rootUri: Uri): {
       }
     },
     writeDisk: async (relPath, content) => {
+      const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
+      if (refusal) throw new Error(refusal);
       const fileUri = Uri.joinPath(rootUri, relPath);
       const dir = path.dirname(relPath);
       if (dir && dir !== '.') {
@@ -410,6 +413,8 @@ function makeDiskHandlers(rootUri: Uri): {
       await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
     },
     deleteDisk: async (relPath) => {
+      const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
+      if (refusal) throw new Error(refusal);
       const fileUri = Uri.joinPath(rootUri, relPath);
       await workspace.fs.delete(fileUri, { useTrash: true });
     },

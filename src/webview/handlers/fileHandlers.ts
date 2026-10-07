@@ -445,12 +445,16 @@ export async function handleAcceptAllChanges(state: ChatState): Promise<void> {
     if (folders && folders.length > 0) {
       const rootUri = folders[0].uri;
       const writeDisk = async (relPath: string, content: string): Promise<void> => {
+        const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
+        if (refusal) throw new Error(refusal);
         const fileUri = Uri.joinPath(rootUri, relPath);
         const dir = path.dirname(relPath);
         if (dir && dir !== '.') await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
         await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
       };
       const deleteDisk = async (relPath: string): Promise<void> => {
+        const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
+        if (refusal) throw new Error(refusal);
         await workspace.fs.delete(Uri.joinPath(rootUri, relPath), { useTrash: true });
       };
       try {
