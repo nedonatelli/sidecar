@@ -16,6 +16,17 @@ describe('ProposedContentProvider', () => {
     expect(provider.provideTextDocumentContent(uri)).toBe('proposed code');
   });
 
+  // #119: Uri.parse read '#' and '?' in a path as fragment/query, so the
+  // lookup missed and the diff preview showed the whole file deleted.
+  it.each(['/src/a#b.ts', '/docs/what?.md', '/c#/x?y#z.cs'])(
+    'serves a proposal whose path contains #/? (%s)',
+    (key) => {
+      const provider = new ProposedContentProvider();
+      const uri = provider.addProposal(key, 'proposed');
+      expect(provider.provideTextDocumentContent(uri)).toBe('proposed');
+    },
+  );
+
   it('removeProposal deletes stored content', () => {
     const provider = new ProposedContentProvider();
     const uri = provider.addProposal('/src/app.ts', 'code');
