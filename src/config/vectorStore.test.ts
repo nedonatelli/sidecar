@@ -764,3 +764,75 @@ describe('LanceVectorStore', () => {
     });
   });
 });
+
+// #113: persist applied compaction after its awaits, so changes made while
+// the files were being written were lost, aliased or resurrected.
+describe('FlatVectorStore persist racing upserts and removes', () => {
+  const json = new Map<string, unknown>();
+  // Each JSON write waits here until the test releases it: the window a race needs.
+  const waiting: Array<() => void> = [];
+  const releaseNext = async () => {
+    while (waiting.length === 0) await new Promise((r) => setTimeout(r, 1));
+    waiting.shift()!();
+  };
+  const gatedDir = {
+    isReady: () => true,
+    getPath: (...segs: string[]) => '/mock-workspace/.sidecar/' + segs.join('/'),
+    readJson: async <T>(p: string): Promise<T | null> => (json.get(p) as T | undefined) ?? null,
+    writeJson: (p: string, data: unknown) =>
+      new Promise<void>((resolve) => {
+        json.set(p, data);
+        waiting.push(resolve);
+      }),
+  } as never;
+  const meta = (path: string) => ({ path, kind: 'fn', hash: path });
+  const store = () =>
+    new FlatVectorStore<TestMeta>(gatedDir, { dimension: DIM, version: 1, binFile: 'c/v.bin', metaFile: 'c/v.json' });
+
+  beforeEach(() => {
+    json.clear();
+    fsState.clear();
+  });
+
+  it('keeps an upsert, a remove and an update made during a compacting persist', async () => {
+    const s = store();
+    await s.upsert({ id: 'a', vector: vec(1, 0, 0, 0), metadata: meta('a') });
+    await s.upsert({ id: 'b', vector: vec(0, 1, 0, 0), metadata: meta('b') });
+    await s.upsert({ id: 'c', vector: vec(0, 0, 1, 0), metadata: meta('c') });
+    await s.remove('a'); // an orphan row, so this persist compacts
+
+    const writing = s.persist();
+    await s.upsert({ id: 'd', vector: vec(0, 0, 0, 1), metadata: meta('d') }); // new
+    await s.remove('b'); // deleted
+    await s.upsert({ id: 'c', vector: vec(1, 1, 0, 0), metadata: meta('c2') }); // updated
+    await releaseNext();
+    await writing;
+
+    expect(s.getMetadata('b')).toBeNull(); // not resurrected
+    expect(Array.from(s.getVector('d')!)).toEqual([0, 0, 0, 1]); // not lost or aliased
+    expect(Array.from(s.getVector('c')!)).toEqual([1, 1, 0, 0]);
+    expect(s.getMetadata('c')?.path).toBe('c2');
+
+    // A second persist writes the current state, and it restores intact.
+    const again = s.persist();
+    await releaseNext();
+    await again;
+    const r = store();
+    await r.restore();
+    expect([...r.entries()].map((e) => e.id).sort()).toEqual(['c', 'd']);
+    expect(Array.from(r.getVector('d')!)).toEqual([0, 0, 0, 1]);
+  });
+
+  it('writes the vectors as they were when persist started', async () => {
+    const s = store();
+    await s.upsert({ id: 'a', vector: vec(1, 0, 0, 0), metadata: meta('a') });
+    const writing = s.persist(); // nothing to compact: the bytes used to be a live view
+    await s.upsert({ id: 'a', vector: vec(0, 1, 0, 0), metadata: meta('a') });
+    await releaseNext();
+    await writing;
+    const r = store();
+    await r.restore();
+    // Metadata and vector come from the same moment.
+    expect(Array.from(r.getVector('a')!)).toEqual([1, 0, 0, 0]);
+  });
+});

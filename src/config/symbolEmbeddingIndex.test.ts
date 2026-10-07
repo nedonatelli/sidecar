@@ -805,6 +805,29 @@ describe('SymbolEmbeddingIndex', () => {
     });
   });
 
+  // #113: dirty was cleared AFTER the store's persist, so a change made while
+  // it wrote was marked saved and lost at the next restart.
+  describe('persist() and changes made while it writes', () => {
+    it('stays dirty when a change lands during the write', async () => {
+      let finish: () => void = () => {};
+      const store = {
+        persist: vi.fn(() => new Promise<void>((r) => (finish = r))),
+        size: () => 0,
+        getDiskBytes: vi.fn().mockResolvedValue(0),
+      } as never;
+      const idx = new SymbolEmbeddingIndex(null, store);
+      const internals = idx as unknown as { dirty: boolean };
+      internals.dirty = true;
+
+      const writing = idx.persist();
+      internals.dirty = true; // an upsert while the store is writing
+      finish();
+      await writing;
+
+      expect(internals.dirty).toBe(true);
+    });
+  });
+
   describe('initialize() restore logging', () => {
     function fakeStore(opts: { size: number; bytes: number }) {
       return {
