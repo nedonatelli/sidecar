@@ -1,4 +1,5 @@
 import { window, workspace, Uri } from 'vscode';
+import { recordUserAuthoredText } from '../../agent/conversationSummarizer.js';
 import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
@@ -74,6 +75,7 @@ export function handleUserMessageWithImages(
     source: { type: 'base64' as const, media_type: img.mediaType as 'image/png', data: img.data },
   }));
   content.push({ type: 'text', text: text || '' });
+  recordUserAuthoredText(text || '');
   state.messages.push({ role: 'user', content });
   state.saveHistory();
 }

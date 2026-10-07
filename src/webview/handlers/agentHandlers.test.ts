@@ -61,6 +61,7 @@ vi.mock('../../agent/conversationSummarizer.js', () => ({
   ConversationSummarizer: class {
     summarize = mockSummarize;
   },
+  recordUserAuthoredText: () => undefined,
 }));
 
 describe('handleMcpStatus', () => {

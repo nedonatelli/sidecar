@@ -33,6 +33,7 @@ import { surfaceNativeToast } from '../errorSurface.js';
 import { healthStatus } from '../../ollama/healthStatus.js';
 import { getWorkspaceRoot, getContextLimit } from '../../config/workspace.js';
 import { runAgentLoop, type AgentOptions } from '../../agent/loop.js';
+import { recordUserAuthoredText } from '../../agent/conversationSummarizer.js';
 import { SteerQueue } from '../../agent/steerQueue.js';
 import type { ApprovalMode } from '../../agent/executor.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
@@ -450,6 +451,7 @@ export async function handleUserMessage(
         superseded = true;
       }
       pushedUserMessage = { role: 'user', content: messageText };
+      recordUserAuthoredText(messageText);
       state.messages.push(pushedUserMessage);
       void state.logMessage('user', messageText);
     }

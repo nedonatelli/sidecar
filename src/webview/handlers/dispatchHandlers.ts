@@ -8,6 +8,7 @@
  * without a real WebviewView or ExtensionContext.
  */
 
+import { recordUserAuthoredText } from '../../agent/conversationSummarizer.js';
 import { commands, env, Uri, window, workspace, ProgressLocation } from 'vscode';
 import { getConfig } from '../../config/settings.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
@@ -635,6 +636,7 @@ export function buildDispatchHandlers(
       const trimmed = (msg.text || '').trim();
       if (!trimmed) return;
       try {
+        recordUserAuthoredText(trimmed);
         queue.enqueue(trimmed, msg.steerUrgency ?? 'nudge');
       } catch (err) {
         const text = err instanceof Error ? err.message : String(err);

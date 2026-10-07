@@ -6,6 +6,7 @@ import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import { getConfig, resolveMode, type SideCarConfig } from '../config/settings.js';
+import { recordUserAuthoredText } from '../agent/conversationSummarizer.js';
 import type { ApprovalMode, ConfirmFn } from '../agent/executor.js';
 
 /**
@@ -162,6 +163,7 @@ export async function resolveRequestContent(request: vscode.ChatRequest): Promis
   }
 
   const basePrompt = request.prompt ?? '';
+  recordUserAuthoredText(basePrompt);
   const withPreamble = cmd ? cmd.preamble(basePrompt) : basePrompt;
   const userText = attachments.length > 0 ? `${withPreamble}\n\n${attachments.join('\n\n')}` : withPreamble;
 

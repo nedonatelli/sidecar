@@ -139,6 +139,28 @@ const STANDING_INSTRUCTION_RE =
  * '['-prefixed loop injections and tool-result carriers. Per-entry and total
  * caps bound the token cost that made unscoped verbatim preservation a wash.
  */
+/**
+ * Text the user typed this session. A user-role message also carries text the
+ * user did not write -- attached and mentioned files, fetched web pages, the
+ * loop's own reprompts and gate output -- and any of it containing "always" or
+ * "never" was latched as a standing rule and saved for later sessions. Only
+ * text recorded here, at the point the user sends it, is latched.
+ */
+const userAuthoredTexts: string[] = [];
+const MAX_USER_AUTHORED = 500;
+
+export function recordUserAuthoredText(text: string): void {
+  const t = text.trim();
+  if (!t || userAuthoredTexts.includes(t)) return;
+  userAuthoredTexts.push(t);
+  if (userAuthoredTexts.length > MAX_USER_AUTHORED) userAuthoredTexts.shift();
+}
+
+/** Test seam. */
+export function __resetUserAuthoredTextsForTests(): void {
+  userAuthoredTexts.length = 0;
+}
+
 export function extractStandingInstructions(
   messages: ChatMessage[],
   opts: { perEntryChars?: number; totalChars?: number; directOnly?: boolean } = {},
@@ -178,7 +200,10 @@ export function extractStandingInstructions(
       continue; // the rest of a summary message is compressed prose, not user intent
     }
     if (text === '' || text.startsWith('[')) continue; // synthetic injections carry no user intent
-    for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
+    // Only what the user typed: the message may hold it plus appended context.
+    const authored = userAuthoredTexts.filter((t) => text.includes(t)).join('\n');
+    if (authored === '') continue;
+    for (const sentence of authored.split(/(?<=[.!?])\s+|\n+/)) {
       const t = sentence.trim();
       if (t.length < 8 || !STANDING_INSTRUCTION_RE.test(t)) continue;
       const entry = t.length > perEntry ? t.slice(0, perEntry) + '…' : t;
