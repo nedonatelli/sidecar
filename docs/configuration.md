@@ -255,12 +255,14 @@ secrets
 # A path from the workspace root (and everything under it)
 config/prod
 
-# Globs: * and ? within one path segment
+# Globs: * and ? within one path segment, ** across segments, [abc] classes
 *.pem
 notes/*.md
+**/*.jpg
+docs/**/internal.md
 ```
 
-One pattern per line; `#` starts a comment, and a trailing `/`, `/*` or `/**` means the directory and everything in it. Matching is case-insensitive. This is a subset of `.gitignore` syntax: negation (`!`) and `**` in the middle of a pattern are not supported. Patterns are merged with the default excludes (`.git`, `.sidecar`, `node_modules`, etc.).
+One pattern per line; `#` starts a comment, and a trailing `/`, `/*` or `/**` means the directory and everything in it. Matching is case-insensitive. This is a subset of `.gitignore` syntax: negation (`!`) is not supported. Patterns are merged with the default excludes (`.git`, `.sidecar`, `node_modules`, etc.). Changes to `.sidecarignore` take effect immediately: files it newly excludes are dropped from the indexes without a reload.
 
 ## Auto-fix
 

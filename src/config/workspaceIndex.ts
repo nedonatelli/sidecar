@@ -359,6 +359,7 @@ export class WorkspaceIndex implements Disposable {
       const watcher = workspace.createFileSystemWatcher(new RelativePattern(root.uri, '**/*'));
       watcher.onDidCreate((uri) => {
         const rel = this.relKey(watchRoot, uri.fsPath);
+        if (rel === '.sidecarignore') void this.reloadIgnore(root.uri);
         if (this.shouldExclude(rel)) return;
         workspace.fs.stat(uri).then(
           (stat) => {
@@ -375,6 +376,7 @@ export class WorkspaceIndex implements Disposable {
       });
       watcher.onDidChange((uri) => {
         const rel = this.relKey(watchRoot, uri.fsPath);
+        if (rel === '.sidecarignore') void this.reloadIgnore(root.uri);
         if (this.shouldExclude(rel)) return;
         this.fileContentCache.delete(rel);
         this.symbolIndexer?.queueUpdate(rel);
@@ -382,6 +384,7 @@ export class WorkspaceIndex implements Disposable {
       });
       watcher.onDidDelete((uri) => {
         const rel = this.relKey(watchRoot, uri.fsPath);
+        if (rel === '.sidecarignore') void this.reloadIgnore(root.uri);
         this.fileContentCache.delete(rel);
         this.files.delete(rel);
         this.pinnedFileCache = null;
@@ -395,6 +398,31 @@ export class WorkspaceIndex implements Disposable {
 
   isReady(): boolean {
     return this.ready;
+  }
+
+  /**
+   * Re-read .sidecarignore after it changes, and drop every indexed file it
+   * now excludes -- from this index, its content cache, the symbol graph and
+   * the embeddings. Patterns added mid-session used to take effect only after
+   * a reload, so newly ignored files kept reaching the prompt.
+   */
+  async reloadIgnore(rootUri: Uri): Promise<void> {
+    this.ignoreMatchers = await loadSidecarIgnore(rootUri);
+    this.symbolIndexer?.setIgnoreMatchers(this.ignoreMatchers);
+    let dropped = 0;
+    for (const rel of [...this.files.keys()]) {
+      if (!this.shouldExclude(rel)) continue;
+      this.files.delete(rel);
+      this.fileContentCache.delete(rel);
+      this.symbolIndexer?.queueDelete(rel);
+      this.embeddingIndex?.removeFile(rel);
+      dropped++;
+    }
+    if (dropped > 0) {
+      this.pinnedFileCache = null;
+      this.scheduleRebuild();
+      logger.info(`[SideCar] .sidecarignore changed: ${dropped} file(s) removed from the index`);
+    }
   }
 
   /**

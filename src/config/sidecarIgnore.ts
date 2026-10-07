@@ -8,12 +8,40 @@ import { workspace, Uri } from 'vscode';
 /** A compiled ignore pattern: matched against the whole path and each segment. */
 export type IgnoreMatcher = (relativePath: string) => boolean;
 
-/** Turn `*` / `?` globs into a regex over one path or segment (no `/` crossing). */
+/**
+ * Turn a .gitignore-style glob into a regex over a path. `*` and `?` stay
+ * within one segment; `**` crosses them (`**\/x` is x at any depth, the root
+ * included); `[abc]` is a character class. `**` used to be two single-segment
+ * stars, so the docs' own `**\/*.jpg` matched one level deep and failed open.
+ */
 function globToRegex(glob: string): RegExp {
-  const body = glob
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]');
+  let body = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*' && glob[i + 1] === '*') {
+      const leadingSlash = glob[i + 2] === '/';
+      body += leadingSlash ? '(?:.*/)?' : '.*';
+      i += leadingSlash ? 2 : 1;
+    } else if (c === '*') {
+      body += '[^/]*';
+    } else if (c === '?') {
+      body += '[^/]';
+    } else if (c === '[') {
+      const end = glob.indexOf(']', i + 1);
+      if (end > i + 1) {
+        const cls = glob
+          .slice(i + 1, end)
+          .replace(/\\/g, '\\\\')
+          .replace(/^!/, '^');
+        body += `[${cls}]`;
+        i = end;
+      } else {
+        body += '\\[';
+      }
+    } else {
+      body += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
   return new RegExp(`^${body}$`, 'i');
 }
 
@@ -33,7 +61,7 @@ export function parseSidecarIgnore(text: string): IgnoreMatcher[] {
       .replace(/^\/+/, '')
       .replace(/\/(\*\*?)?$/, '');
     if (!pattern) continue;
-    if (/[*?]/.test(pattern)) {
+    if (/[*?[]/.test(pattern)) {
       const re = globToRegex(pattern);
       matchers.push((rel) => {
         if (re.test(rel)) return true;

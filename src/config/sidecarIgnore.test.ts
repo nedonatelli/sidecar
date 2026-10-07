@@ -64,3 +64,48 @@ describe('WorkspaceIndex applies .sidecarignore on the full scan', () => {
     }
   });
 });
+
+// `**` was two single-segment stars, so the documented `**/*.jpg` matched one
+// level deep only -- never at the root, never two levels down -- and failed open.
+describe('.gitignore-style ** and [] in .sidecarignore', () => {
+  const ignored = (pattern: string, rel: string) => isSidecarIgnored(rel, parseSidecarIgnore(pattern));
+
+  it.each([
+    ['**/*.jpg', 'photo.jpg'],
+    ['**/*.jpg', 'a/photo.jpg'],
+    ['**/*.jpg', 'a/b/c/photo.jpg'],
+    ['**/secrets', 'deep/er/secrets/key.txt'],
+    ['docs/**/internal.md', 'docs/internal.md'],
+    ['docs/**/internal.md', 'docs/a/b/internal.md'],
+    ['config/*.[jy]ml', 'config/app.yml'],
+  ])('%s ignores %s', (pattern, rel) => {
+    expect(ignored(pattern, rel)).toBe(true);
+  });
+
+  it.each([
+    ['**/*.jpg', 'a/photo.png'],
+    ['docs/**/internal.md', 'src/internal.md'],
+    ['config/*.[jy]ml', 'config/app.xml'],
+  ])('%s does not ignore %s', (pattern, rel) => {
+    expect(ignored(pattern, rel)).toBe(false);
+  });
+});
+
+// Patterns added mid-session used to apply only after a reload.
+describe('a changed .sidecarignore takes effect without a reload', () => {
+  it('drops the files it now excludes from the index', async () => {
+    const index = new WorkspaceIndex(5000);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/src/a.ts' },
+      { fsPath: '/mock-workspace/private/plan.md' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    const read = vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('ENOENT'));
+    await index.initialize(['**/*']);
+    expect([...index.getFiles()].map((f) => f.relativePath).sort()).toEqual(['private/plan.md', 'src/a.ts']);
+
+    read.mockResolvedValue(Buffer.from('private/') as never);
+    await index.reloadIgnore({ fsPath: '/mock-workspace' } as never);
+    expect([...index.getFiles()].map((f) => f.relativePath)).toEqual(['src/a.ts']);
+  });
+});

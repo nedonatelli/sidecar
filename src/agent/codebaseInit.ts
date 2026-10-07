@@ -1,3 +1,4 @@
+import { loadContextFileFilter } from '../config/contextFileFilter.js';
 import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { SideCarClient } from '../ollama/client.js';
@@ -96,14 +97,16 @@ async function readConfigFiles(rootUri: Uri): Promise<Map<string, string>> {
     'Dockerfile',
     'docker-compose.yml',
     'docker-compose.yaml',
-    '.env.example',
   ];
 
   const results = new Map<string, string>();
+  // /init sends these to the model: the same rules as any other context.
+  const mayInclude = await loadContextFileFilter(rootUri);
 
   for (const fileName of configFiles) {
     try {
       const fileUri = Uri.joinPath(rootUri, fileName);
+      if (!mayInclude(fileUri.fsPath)) continue;
       const bytes = await workspace.fs.readFile(fileUri);
       let content = Buffer.from(bytes).toString('utf-8');
       if (content.length > MAX_CONFIG_READ) {
@@ -141,9 +144,12 @@ async function readSampleSourceFiles(rootUri: Uri): Promise<string> {
   const maxSamples = 8;
   const maxPerFile = 2000;
 
+  const mayInclude = await loadContextFileFilter(rootUri);
+
   async function addFile(uri: Uri): Promise<boolean> {
     const relPath = path.relative(rootUri.fsPath, uri.fsPath);
     if (seenPaths.has(relPath)) return false;
+    if (!mayInclude(uri.fsPath)) return false;
     try {
       const stat = await workspace.fs.stat(uri);
       if (stat.size > 50_000) return false;
