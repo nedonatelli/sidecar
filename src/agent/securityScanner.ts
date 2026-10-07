@@ -128,7 +128,16 @@ const VULNERABILITY_PATTERNS: VulnerabilityPattern[] = [
 ];
 
 // Files to skip (binary, generated, deps)
-const SKIP_PATTERNS = /(?:node_modules|\.git|dist|out|\.min\.|\.map$|\.lock$|package-lock)/;
+// Whole path SEGMENTS for the directories: the unanchored `out|dist|\.git`
+// skipped routes/, Layout.tsx, distance.ts and .github/workflows -- where CI
+// credentials are most often hard-coded -- and reported them clean.
+const SKIP_PATTERNS =
+  /(?:^|[\\/])(?:node_modules|\.git|dist|out)(?:[\\/]|$)|\.min\.|\.map$|\.lock$|package-lock\.json$/;
+
+/** True when the scanner does not look at `filePath` at all (build output, lockfiles). */
+export function isScanSkipped(filePath: string): boolean {
+  return SKIP_PATTERNS.test(filePath);
+}
 
 /**
  * Scan file content for secrets and vulnerabilities.
