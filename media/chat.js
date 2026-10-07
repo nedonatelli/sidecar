@@ -410,6 +410,113 @@
     }
   }
 
+  // Tool results flagged as HTML (database tables, render_viz) still carry
+  // text the model chose -- a connection id, a cell, a label. Markup is kept
+  // only from this allowlist: no scripts or handlers, and nothing that could
+  // pose as one of the chat's own controls (buttons, links, data-action,
+  // their classes), since the chat's click handlers act on those.
+  const HTML_ALLOWED_TAGS = new Set([
+    'div',
+    'span',
+    'p',
+    'br',
+    'b',
+    'strong',
+    'em',
+    'i',
+    'code',
+    'pre',
+    'small',
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'tr',
+    'th',
+    'td',
+    'caption',
+    'ul',
+    'ol',
+    'li',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+  ]);
+  const HTML_DROPPED_TAGS = new Set([
+    'script',
+    'style',
+    'iframe',
+    'frame',
+    'object',
+    'embed',
+    'form',
+    'input',
+    'button',
+    'textarea',
+    'select',
+    'option',
+    'a',
+    'img',
+    'link',
+    'meta',
+    'base',
+    'svg',
+    'math',
+    'template',
+    'video',
+    'audio',
+  ]);
+  const HTML_ALLOWED_ATTRS = new Set([
+    'data-col',
+    'data-sort',
+    'data-sortable',
+    'colspan',
+    'rowspan',
+    'title',
+    'style',
+    'class',
+  ]);
+  const HTML_UNSAFE_STYLE = /url\s*\(|expression|@import|position\s*:|z-index/i;
+
+  function sanitizeHtml(html) {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const clean = (node) => {
+        for (const child of [...node.childNodes]) {
+          if (child.nodeType === Node.COMMENT_NODE) {
+            child.remove();
+            continue;
+          }
+          if (child.nodeType !== Node.ELEMENT_NODE) continue;
+          const tag = child.tagName.toLowerCase();
+          if (HTML_DROPPED_TAGS.has(tag)) {
+            child.remove();
+            continue;
+          }
+          clean(child);
+          if (!HTML_ALLOWED_TAGS.has(tag)) {
+            // Unknown wrappers (<tool_output>) keep their content, not themselves.
+            child.replaceWith(...child.childNodes);
+            continue;
+          }
+          for (const attr of [...child.attributes]) {
+            const name = attr.name.toLowerCase();
+            const keep =
+              HTML_ALLOWED_ATTRS.has(name) &&
+              !(name === 'style' && HTML_UNSAFE_STYLE.test(attr.value)) &&
+              !(name === 'class' && !/^(sidecar-[\w-]+\s*)+$/.test(attr.value.trim()));
+            if (!keep) child.removeAttribute(attr.name);
+          }
+        }
+      };
+      clean(doc.body);
+      return doc.body.innerHTML;
+    } catch {
+      return '';
+    }
+  }
+
   modelBtn.addEventListener('click', () => {
     modelPanel.classList.toggle('hidden');
     if (!modelPanel.classList.contains('hidden')) {
@@ -5321,7 +5428,7 @@
               if (resultIsHtml && text.trim().startsWith('<')) {
                 const vizContainer = document.createElement('div');
                 vizContainer.className = 'tool-result-viz';
-                vizContainer.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : text;
+                vizContainer.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : sanitizeHtml(text);
                 matchedBody.appendChild(vizContainer);
               } else {
                 matchedBody.textContent += '\n' + text;
@@ -5391,7 +5498,7 @@
           if (resultIsHtml && text.trim().startsWith('<')) {
             const vizBody = document.createElement('div');
             vizBody.className = 'tool-result-body tool-result-viz';
-            vizBody.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : text;
+            vizBody.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : sanitizeHtml(text);
             details.appendChild(vizBody);
           } else {
             const body = document.createElement('pre');
