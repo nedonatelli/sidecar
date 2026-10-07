@@ -26,6 +26,7 @@ import { isGenericClarification, CANNED_CLARIFICATION } from './executor/generic
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 import { previewEditFile } from './tools/fs.js';
+import { delegatedMcpToolName } from './tools/mcpDelegate.js';
 
 // Re-export ApprovalMode so all existing importers keep working unchanged.
 export type { ApprovalMode } from './executor/permissionsGate.js';
@@ -305,8 +306,20 @@ export async function executeTool(
   }
 
   const config = executorContext?.config ?? getConfig();
-  const { explicitPermission, denied } = await resolveToolPermission(toolUse, executorContext);
-  if (denied) return denied;
+  const resolvedPermission = await resolveToolPermission(toolUse, executorContext);
+  if (resolvedPermission.denied) return resolvedPermission.denied;
+  let explicitPermission = resolvedPermission.explicitPermission;
+  // delegate_to_mcp reaches another tool, whose own rules -- a mode or policy
+  // deny, an 'ask' -- apply to the call as well.
+  const delegatedTool =
+    toolUse.name === 'delegate_to_mcp'
+      ? delegatedMcpToolName(toolUse.input, mcpManager ?? executorContext?.mcpManager)
+      : null;
+  if (delegatedTool) {
+    const target = await resolveToolPermission({ ...toolUse, name: delegatedTool }, executorContext);
+    if (target.denied) return { ...target.denied, tool_use_id: toolUse.id };
+    if (target.explicitPermission === 'ask') explicitPermission = 'ask';
+  }
 
   const irrecoverableDescription = detectIrrecoverable(toolUse);
   const needsApproval = resolveApprovalNeeded({

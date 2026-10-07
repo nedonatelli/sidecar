@@ -1080,7 +1080,7 @@ describe('executeTool', () => {
       // VS Code merges object settings: the workspace's allow wins over the user's deny.
       mockConfig({ toolPermissions: { run_command: 'allow' } });
       const realGetConfiguration = workspace.getConfiguration;
-      vi.spyOn(workspace, 'getConfiguration').mockImplementation(((section?: string) => {
+      const configSpy = vi.spyOn(workspace, 'getConfiguration').mockImplementation(((section?: string) => {
         const base = realGetConfiguration(section);
         return {
           ...base,
@@ -1090,14 +1090,55 @@ describe('executeTool', () => {
               : undefined,
         };
       }) as never);
-      vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Block' as never);
+      const warnSpy = vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Block' as never);
       const result = await executeTool(makeToolUse('run_command', { command: 'echo hi' }), {
         approvalMode: 'autonomous',
       });
       expect(result.is_error).toBe(true);
       expect(String(result.content)).toContain('denied');
       expect(cmdTool.executor).not.toHaveBeenCalled();
+      configSpy.mockRestore();
+      warnSpy.mockRestore();
       resetWorkspaceTrust();
+    });
+  });
+
+  describe("delegate_to_mcp follows the target tool's rules", () => {
+    const delegateTool = {
+      definition: { name: 'delegate_to_mcp', description: '', input_schema: { type: 'object', properties: {} } },
+      executor: vi.fn().mockResolvedValue('delegated'),
+      requiresApproval: true,
+    };
+    const mcpManager = {
+      isServerConnected: (s: string) => s === 'srv',
+      getServerToolNames: () => ['run_task'],
+    };
+    const input = { server: 'srv', tool: 'run_task', task: 'do it' };
+
+    it("a mode 'deny' on the target refuses the delegation", async () => {
+      mockedFindTool.mockReturnValue(delegateTool as never);
+      const result = await executeTool(makeToolUse('delegate_to_mcp', input), {
+        approvalMode: 'autonomous',
+        mcpManager: mcpManager as never,
+        executorContext: { modeToolPermissions: { mcp_srv_run_task: 'deny' } } as never,
+      });
+      expect(result.is_error).toBe(true);
+      expect(delegateTool.executor).not.toHaveBeenCalled();
+    });
+
+    it("an 'ask' on the target asks, even in autonomous mode", async () => {
+      mockedFindTool.mockReturnValue(delegateTool as never);
+      mockConfig({ toolPermissions: { mcp_srv_run_task: 'ask' } });
+      const confirmFn = vi.fn().mockResolvedValue('Deny');
+      const result = await executeTool(makeToolUse('delegate_to_mcp', input), {
+        approvalMode: 'autonomous',
+        mcpManager: mcpManager as never,
+        confirmFn,
+        executorContext: { isChatVisible: () => true } as never,
+      });
+      expect(confirmFn).toHaveBeenCalledTimes(1);
+      expect(result.is_error).toBe(true);
+      expect(delegateTool.executor).not.toHaveBeenCalled();
     });
   });
 });
