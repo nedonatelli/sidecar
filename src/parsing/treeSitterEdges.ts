@@ -97,6 +97,29 @@ function calleeNameOf(callNode: AnyNode): string | null {
 }
 
 /** type_annotation role from its parent node. */
+/**
+ * Pre-order walk with an explicit stack. `enter` may return a function to run
+ * once the node's whole subtree is done (used to pop a scope). The walks were
+ * recursive, and a deeply nested expression (a long chain of `a + b + …` or
+ * nested calls, common in generated code) overflowed the call stack.
+ */
+function walkTree(root: AnyNode, enter: (node: AnyNode) => (() => void) | void): void {
+  const stack: Array<AnyNode | (() => void)> = [root];
+  while (stack.length > 0) {
+    const item = stack.pop()!;
+    if (typeof item === 'function') {
+      item();
+      continue;
+    }
+    const leave = enter(item);
+    if (leave) stack.push(leave);
+    for (let i = item.childCount - 1; i >= 0; i--) {
+      const c = item.child(i);
+      if (c) stack.push(c);
+    }
+  }
+}
+
 function typeUseRole(annotation: AnyNode): ParsedTypeUse['role'] {
   const p = annotation.parent?.type;
   if (p === 'required_parameter' || p === 'optional_parameter') return 'param';
@@ -105,11 +128,9 @@ function typeUseRole(annotation: AnyNode): ParsedTypeUse['role'] {
 }
 
 function collectTypeIdentifiers(node: AnyNode, out: string[]): void {
-  if (node.type === 'type_identifier') out.push(node.text);
-  for (let i = 0; i < node.childCount; i++) {
-    const c = node.child(i);
-    if (c) collectTypeIdentifiers(c, out);
-  }
+  walkTree(node, (n) => {
+    if (n.type === 'type_identifier') out.push(n.text);
+  });
 }
 
 export function extractTsEdges(root: AnyNode): ExtractedEdges {
@@ -119,7 +140,7 @@ export function extractTsEdges(root: AnyNode): ExtractedEdges {
   const scope: string[] = [];
   const current = (): string => scope[scope.length - 1] ?? '<module>';
 
-  const walk = (node: AnyNode): void => {
+  walkTree(root, (node: AnyNode) => {
     const name = scopeName(node);
     if (name) scope.push(name);
 
@@ -155,15 +176,8 @@ export function extractTsEdges(root: AnyNode): ExtractedEdges {
       }
     }
 
-    for (let i = 0; i < node.childCount; i++) {
-      const c = node.child(i);
-      if (c) walk(c);
-    }
-
-    if (name) scope.pop();
-  };
-
-  walk(root);
+    return name ? () => void scope.pop() : undefined;
+  });
   return { calls, typeRelations, typeUses };
 }
 
@@ -184,11 +198,9 @@ function findChildOfType(node: AnyNode, type: string): AnyNode | null {
 /** Collect `identifier` names anywhere under a node (used for Python `type`
  *  wrappers and base-class lists). */
 function collectIdentifiers(node: AnyNode, out: string[]): void {
-  if (node.type === 'identifier') out.push(node.text);
-  for (let i = 0; i < node.childCount; i++) {
-    const c = node.child(i);
-    if (c) collectIdentifiers(c, out);
-  }
+  walkTree(node, (n) => {
+    if (n.type === 'identifier') out.push(n.text);
+  });
 }
 
 function pyScopeName(node: AnyNode): string | null {
@@ -225,7 +237,7 @@ export function extractPyEdges(root: AnyNode): ExtractedEdges {
     for (const t of names) typeUses.push({ userName: current(), typeName: t, role, line });
   };
 
-  const walk = (node: AnyNode): void => {
+  walkTree(root, (node: AnyNode) => {
     const name = pyScopeName(node);
     if (name) scope.push(name);
 
@@ -252,15 +264,8 @@ export function extractPyEdges(root: AnyNode): ExtractedEdges {
       }
     }
 
-    for (let i = 0; i < node.childCount; i++) {
-      const c = node.child(i);
-      if (c) walk(c);
-    }
-
-    if (name) scope.pop();
-  };
-
-  walk(root);
+    return name ? () => void scope.pop() : undefined;
+  });
   return { calls, typeRelations, typeUses };
 }
 
