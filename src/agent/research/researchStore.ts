@@ -53,6 +53,18 @@ function hypoId(): string {
   return `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+/**
+ * A project slug, experiment id or observation file name, as ONE path segment.
+ * They reach the tools as model-chosen arguments, and `../..` in one wrote
+ * and read outside .sidecar/research/.
+ */
+function seg(name: string): string {
+  if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || name.includes('..')) {
+    throw new Error(`Invalid research name "${String(name)}": use letters, digits, '.', '_' or '-'.`);
+  }
+  return name;
+}
+
 export class ResearchStore {
   constructor(private readonly sidecarDir: SidecarDir) {}
 
@@ -72,7 +84,7 @@ export class ResearchStore {
   }
 
   async loadProject(slug: string): Promise<ResearchProject | null> {
-    return this.sidecarDir.readJson<ResearchProject>(`research/${slug}/project.yaml`);
+    return this.sidecarDir.readJson<ResearchProject>(`research/${seg(slug)}/project.yaml`);
   }
 
   async listProjects(): Promise<ResearchProject[]> {
@@ -84,7 +96,8 @@ export class ResearchStore {
       const entries = await workspace.fs.readDirectory(dirUri);
       for (const [name, type] of entries) {
         if (type !== 2) continue; // directories only
-        const project = await this.loadProject(name);
+        // A folder whose name is not a valid slug is not a project.
+        const project = await this.loadProject(name).catch(() => null);
         if (project) projects.push(project);
       }
     } catch {
@@ -135,7 +148,7 @@ export class ResearchStore {
   }
 
   async logExperiment(slug: string, manifest: ExperimentManifest): Promise<void> {
-    await this.sidecarDir.writeJson(`research/${slug}/experiments/${manifest.id}/manifest.yaml`, manifest);
+    await this.sidecarDir.writeJson(`research/${seg(slug)}/experiments/${seg(manifest.id)}/manifest.yaml`, manifest);
     const project = await this.loadProject(slug);
     if (project) {
       project.updatedAt = Date.now();
@@ -144,11 +157,11 @@ export class ResearchStore {
   }
 
   async loadExperiment(slug: string, id: string): Promise<ExperimentManifest | null> {
-    return this.sidecarDir.readJson<ExperimentManifest>(`research/${slug}/experiments/${id}/manifest.yaml`);
+    return this.sidecarDir.readJson<ExperimentManifest>(`research/${seg(slug)}/experiments/${seg(id)}/manifest.yaml`);
   }
 
   async listExperiments(slug: string): Promise<ExperimentManifest[]> {
-    const expPath = this.sidecarDir.getPath('research', slug, 'experiments');
+    const expPath = this.sidecarDir.getPath('research', seg(slug), 'experiments');
     const dirUri = Uri.file(expPath);
     const experiments: ExperimentManifest[] = [];
 
@@ -170,7 +183,7 @@ export class ResearchStore {
     const timestamp = Date.now();
     const filename = `${timestamp}.md`;
     const content = `# Observation — ${new Date(timestamp).toISOString()}\n\n${note}\n`;
-    await this.sidecarDir.writeText(`research/${slug}/observations/${filename}`, content);
+    await this.sidecarDir.writeText(`research/${seg(slug)}/observations/${seg(filename)}`, content);
 
     const project = await this.loadProject(slug);
     if (project) {
@@ -181,12 +194,12 @@ export class ResearchStore {
     return {
       timestamp,
       note,
-      filePath: this.sidecarDir.getPath('research', slug, 'observations', filename),
+      filePath: this.sidecarDir.getPath('research', seg(slug), 'observations', seg(filename)),
     };
   }
 
   async listObservations(slug: string): Promise<ObservationEntry[]> {
-    const obsPath = this.sidecarDir.getPath('research', slug, 'observations');
+    const obsPath = this.sidecarDir.getPath('research', seg(slug), 'observations');
     const dirUri = Uri.file(obsPath);
     const entries: ObservationEntry[] = [];
 
@@ -196,7 +209,7 @@ export class ResearchStore {
         if (type !== 1 || !name.endsWith('.md')) continue;
         const timestamp = parseInt(name.replace('.md', ''), 10);
         if (isNaN(timestamp)) continue;
-        const filePath = this.sidecarDir.getPath('research', slug, 'observations', name);
+        const filePath = this.sidecarDir.getPath('research', seg(slug), 'observations', seg(name));
         try {
           const bytes = await workspace.fs.readFile(Uri.file(filePath));
           const text = Buffer.from(bytes).toString('utf-8');
@@ -215,11 +228,11 @@ export class ResearchStore {
   }
 
   getExperimentPath(slug: string, id: string): string {
-    return this.sidecarDir.getPath('research', slug, 'experiments', id, 'manifest.yaml');
+    return this.sidecarDir.getPath('research', seg(slug), 'experiments', seg(id), 'manifest.yaml');
   }
 
   getObservationPath(slug: string, filename: string): string {
-    return this.sidecarDir.getPath('research', slug, 'observations', filename);
+    return this.sidecarDir.getPath('research', seg(slug), 'observations', seg(filename));
   }
 
   async generateReport(slug: string): Promise<{ markdown: string; filePath: string } | null> {
@@ -318,8 +331,8 @@ export class ResearchStore {
     lines.push('*Generated by SideCar Research Assistant*');
 
     const markdown = lines.join('\n');
-    const filePath = this.sidecarDir.getPath('research', slug, 'report.md');
-    await this.sidecarDir.writeText(`research/${slug}/report.md`, markdown + '\n');
+    const filePath = this.sidecarDir.getPath('research', seg(slug), 'report.md');
+    await this.sidecarDir.writeText(`research/${seg(slug)}/report.md`, markdown + '\n');
 
     return { markdown, filePath };
   }

@@ -341,4 +341,24 @@ describe('ResearchStore', () => {
       expect(result!.filePath).toBe('/sidecar/research/proj/report.md');
     });
   });
+
+  // Slugs, experiment ids and observation names arrive as tool arguments;
+  // `../..` in one read and wrote outside .sidecar/research/.
+  describe('names are single path segments', () => {
+    it.each(['../../../.ssh', '..', 'a/b', 'a\\b', '..\\..\\x', ''])('refuses %j as a slug', async (slug) => {
+      await expect(store.loadProject(slug)).rejects.toThrow(/Invalid research name/);
+      expect(sd.readJson).not.toHaveBeenCalled();
+    });
+
+    it('refuses a traversing experiment id', async () => {
+      await expect(
+        store.logExperiment('proj', { id: '../../../../.git/hooks', command: 'x' } as never),
+      ).rejects.toThrow(/Invalid research name/);
+      expect(sd.writeJson).not.toHaveBeenCalled();
+    });
+
+    it('accepts ordinary names', async () => {
+      await expect(store.loadProject('fir-vs-wavelet')).resolves.toBeNull();
+    });
+  });
 });
