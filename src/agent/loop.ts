@@ -935,6 +935,13 @@ export async function runAgentLoop(
       // looped on an enforce-blocked rewrite — escalate with a strong "edit, don't
       // rewrite" reprompt that surfaces that failure inline so it sees what to fix.
       captureLastFailureOutput(pendingToolUses, toolResults, state);
+      // The steers below push a user message, but this turn's tool results are
+      // not in history yet. Left where they land, the history reads
+      // [assistant tool_use] [user steer] [user tool_result]: OpenAI-compatible
+      // servers reject that with a 400 (and every later request with it), and
+      // Anthropic gets "result unavailable" repairs. They are lifted out here
+      // and re-appended after the results, where afterToolResults hooks put theirs.
+      const steersFrom = state.messages.length;
       maybeEscalateBlockedRewrite(pendingToolUses, toolResults, state, callbacks);
 
       // The mirror: if edit_file keeps FAILING on a file (weak model echoing
@@ -946,6 +953,7 @@ export async function runAgentLoop(
       // the escalation, release the lock after a few blocks so a rewrite-oriented
       // model can rewrite instead of being trapped into a bail.
       maybeReleaseEnforceLock(pendingToolUses, toolResults, state, callbacks);
+      const steers = state.messages.splice(steersFrom);
 
       // Emit structured audit record per tool call.
       if (state.logger) {
@@ -995,6 +1003,7 @@ export async function runAgentLoop(
       // Token accounting and history append for the tool results.
       accountToolTokens(state, pendingToolUses, storedResults);
       pushToolResultsMessage(state, storedResults);
+      state.messages.push(...steers);
 
       // Proactive compression after adding tool results so the next
       // iteration doesn't open over budget.

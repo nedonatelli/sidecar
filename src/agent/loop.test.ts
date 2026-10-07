@@ -1073,3 +1073,70 @@ describe('runAgentLoop — partial message recovery', () => {
     vi.restoreAllMocks();
   });
 });
+
+// #108: the escalation reprompt was pushed between the assistant's tool_use and
+// its tool_result, a history OpenAI-compatible servers reject with a 400.
+describe('runAgentLoop — escalation reprompt ordering', () => {
+  it('puts the rewrite escalation after the tool results it reacts to', async () => {
+    const settings = await import('../config/settings.js');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 5,
+      agentMaxTokens: 100_000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+      promptPruningEnabled: false,
+      toolPermissions: {},
+      hooks: {},
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    let calls = 0;
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      calls++;
+      if (calls === 1) {
+        yield {
+          type: 'tool_use',
+          toolUse: { type: 'tool_use', id: 'w1', name: 'write_file', input: { path: 'gui.py', content: 'x = 1\n' } },
+        };
+        yield { type: 'stop', stopReason: 'tool_use' };
+      } else {
+        yield { type: 'text', text: 'ok' };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      }
+    }
+    const client = {
+      streamChat: stream,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+    const blockedWrite = {
+      definition: MOCK_TOOLS[1],
+      requiresApproval: false,
+      executor: async () => {
+        throw new Error('write_file to `gui.py` was NOT applied. Make this change with edit_file instead.');
+      },
+    };
+
+    const messages = await runAgentLoop(
+      client,
+      [{ role: 'user', content: 'fix gui.py' }],
+      { onText: () => {}, onToolCall: () => {}, onToolResult: () => {}, onDone: () => {} },
+      new AbortController().signal,
+      { extraTools: [blockedWrite] as never, approvalMode: 'autonomous', maxIterations: 5 },
+    );
+
+    const blocks = (m: ChatMessage) => (Array.isArray(m.content) ? m.content : []);
+    const useAt = messages.findIndex((m) => m.role === 'assistant' && blocks(m).some((b) => b.type === 'tool_use'));
+    expect(useAt).toBeGreaterThan(-1);
+    // The message right after the tool_use carries its result...
+    expect(blocks(messages[useAt + 1]).some((b) => b.type === 'tool_result')).toBe(true);
+    // ...and the escalation follows it.
+    const steerAt = messages.findIndex((m) =>
+      blocks(m).some((b) => b.type === 'text' && /STOP calling write_file/.test(b.text)),
+    );
+    expect(steerAt).toBeGreaterThan(useAt + 1);
+
+    vi.restoreAllMocks();
+  });
+});
