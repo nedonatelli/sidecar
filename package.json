@@ -546,6 +546,27 @@
             "minimum": 2,
             "description": "Consecutive edit_file failures on one file before the steer-to-write reprompt fires (when sidecar.editFile.steerToWrite is on)."
           },
+          "sidecar.editStrategy.wholeFileRewrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "Weak-model edit strategy: tell the model to change files by reading them and writing the complete file with write_file, instead of using edit_file. Off by default until A/B-proven."
+          },
+          "sidecar.compaction.durableInstructions": {
+            "type": "boolean",
+            "default": true,
+            "description": "When the conversation is compacted, keep your standing instructions (\"always\", \"never\", \"remember\"...) in a dedicated section so they are not summarized away."
+          },
+          "sidecar.compaction.verbatimUserChars": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "Characters of your messages kept word for word through compaction, so standing instructions survive. 0 disables."
+          },
+          "sidecar.memory.persistInstructions": {
+            "type": "boolean",
+            "default": true,
+            "description": "Save standing instructions kept at compaction to .sidecar/memory/durable-instructions.json and bring them back in later sessions."
+          },
           "sidecar.autoFixOnFailure": {
             "type": "boolean",
             "default": false,
