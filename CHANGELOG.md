@@ -9,6 +9,14 @@ All notable changes to the SideCar extension will be documented in this file.
 - **macOS/Linux: the startup cleanup of processes left over from a crash could, rarely,
   stop an unrelated process** that had just been given a leftover process's ID. It now
   stops checking as soon as the old process is gone.
+- **On Windows, a command that timed out could leave a shell running in the background**
+  that SideCar never closed, keeping your project folder locked. Stopping a hook now also
+  stops everything the hook started.
+- **If your login shell is fish (or another non-bash shell), every `run_command` hung for
+  two minutes.** SideCar now runs commands in bash or zsh when your shell isn't one of them.
+- **A command that ended the shell (`exit 1`, or a failing step with `set -e`) hung for two
+  minutes** before reporting a timeout; it now reports the exit at once.
+- Error output that bypassed the usual redirection was shown twice in the chat.
 
 - **A backend could stay disabled until you changed a setting.** After repeated failures
   SideCar pauses a provider and later sends one test request; if you pressed Stop during
