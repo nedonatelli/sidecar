@@ -164,11 +164,17 @@ export class ProcessRegistry implements Disposable {
         // Process still alive with matching cmdline — kill it to prevent orphans from crashes
         try {
           process.kill(pid, 'SIGTERM');
-          // Wait 1s for graceful exit
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          if (await this.isPidAlive(pid, entry.cmdline)) {
-            process.kill(pid, 'SIGKILL');
+          // Up to 1 s for a graceful exit, checking every 50 ms and stopping
+          // the moment the process is gone. Checking once, a full second
+          // later, gave the OS that long to hand the PID to a NEW process --
+          // which a busy machine does -- and a new process whose command line
+          // starts the same way (another node) was then SIGKILLed.
+          let gone = false;
+          for (let waited = 0; waited < 1000 && !gone; waited += 50) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            gone = !(await this.isPidAlive(pid, entry.cmdline));
           }
+          if (!gone) process.kill(pid, 'SIGKILL');
         } catch {
           // Process already dead or permission denied
         }
