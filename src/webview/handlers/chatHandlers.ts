@@ -32,7 +32,7 @@ import { tokensToChars, estimateTokensFromText } from '../../config/tokenEstimat
 import { surfaceNativeToast } from '../errorSurface.js';
 import { healthStatus } from '../../ollama/healthStatus.js';
 import { getWorkspaceRoot, getContextLimit } from '../../config/workspace.js';
-import { runAgentLoop } from '../../agent/loop.js';
+import { runAgentLoop, type AgentOptions } from '../../agent/loop.js';
 import { SteerQueue } from '../../agent/steerQueue.js';
 import type { ApprovalMode } from '../../agent/executor.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
@@ -667,7 +667,6 @@ export async function handleUserMessage(
     state.forceShadowNextRun = false;
     const loopOptions: Parameters<typeof runAgentLoop>[4] = {
       logger: state.agentLogger,
-      changelog: state.changelog,
       durableMemoryStore: state.durableMemoryStore ?? undefined,
       mcpManager: state.mcpManager,
       approvalMode: effectiveApprovalMode,
@@ -676,34 +675,9 @@ export async function handleUserMessage(
       ...(skillToolOverride && { toolOverride: skillToolOverride }),
       ...(resumePlan && { initialPlan: resumePlan }),
       ...(matchedSkill?.preferredModel && { modelOverride: matchedSkill.preferredModel }),
-      confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
-      isChatVisible: () => state.isChatViewVisible?.() ?? false,
-      diffPreviewFn: state.contentProvider
-        ? async (filePath: string, proposedContent: string) => {
-            const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');
-            const session = await openDiffPreview(
-              filePath,
-              proposedContent,
-              state.contentProvider!,
-              (msg, actions, diffBlock) => state.requestConfirm(msg, actions, { diffBlock }),
-              () => state.isChatViewVisible?.() ?? false,
-            );
-            try {
-              return await session.finalize();
-            } finally {
-              session.dispose();
-            }
-          }
-        : undefined,
-      inlineEditFn: state.inlineEditProvider
-        ? (filePath: string, searchText: string, replaceText: string) =>
-            state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
-        : undefined,
-      clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
+      ...approvalUiOptions(state),
       ...(skillExtraPolicyHooks && { extraPolicyHooks: skillExtraPolicyHooks }),
       modeToolPermissions: resolved.toolPermissions,
-      pendingEdits: state.pendingEdits,
-      editTimeline: state.editTimeline,
       workspaceIndex: state.workspaceIndex ?? undefined,
       steerQueue,
       toolTier: resolveToolTier(turnText),
@@ -885,4 +859,55 @@ export async function handleRegenerateResponse(state: ChatState): Promise<void> 
   state.saveHistory();
 
   await handleUserMessage(state, last.text);
+}
+
+/**
+ * The options through which a run asks the user and records its edits: the
+ * approval card, diff preview, ghost-text edits, clarifying questions, the
+ * review-mode queue and the changelog. Every chat-panel run needs all of them;
+ * without a confirmFn the executor denies every approval, and without
+ * pendingEdits review mode writes straight to disk.
+ */
+export function approvalUiOptions(
+  state: ChatState,
+): Pick<
+  AgentOptions,
+  | 'confirmFn'
+  | 'isChatVisible'
+  | 'diffPreviewFn'
+  | 'inlineEditFn'
+  | 'clarifyFn'
+  | 'pendingEdits'
+  | 'editTimeline'
+  | 'changelog'
+> {
+  return {
+    changelog: state.changelog,
+    pendingEdits: state.pendingEdits,
+    editTimeline: state.editTimeline,
+    confirmFn: (msg, actions, options) => state.requestConfirm(msg, actions, options),
+    isChatVisible: () => state.isChatViewVisible?.() ?? false,
+    diffPreviewFn: state.contentProvider
+      ? async (filePath: string, proposedContent: string) => {
+          const { openDiffPreview } = await import('../../edits/streamingDiffPreview.js');
+          const session = await openDiffPreview(
+            filePath,
+            proposedContent,
+            state.contentProvider!,
+            (msg, actions, diffBlock) => state.requestConfirm(msg, actions, { diffBlock }),
+            () => state.isChatViewVisible?.() ?? false,
+          );
+          try {
+            return await session.finalize();
+          } finally {
+            session.dispose();
+          }
+        }
+      : undefined,
+    inlineEditFn: state.inlineEditProvider
+      ? (filePath: string, searchText: string, replaceText: string) =>
+          state.inlineEditProvider!.proposeEdit(filePath, searchText, replaceText)
+      : undefined,
+    clarifyFn: (question, options, allowCustom) => state.requestClarification(question, options, allowCustom),
+  };
 }
