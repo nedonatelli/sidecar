@@ -78,6 +78,14 @@ function encodePng(pixels: Buffer, width: number, height: number, colorType: num
  * Returns the original buffer unchanged for unsupported formats or if already small.
  * Uses only Node.js built-ins: Buffer + zlib.
  */
+/**
+ * Largest decoded image this will expand: 64 megapixels of RGBA. The header's
+ * width and height decide how much inflate produces, and nothing capped it, so
+ * a tiny crafted PNG in a repo (read via analyze_screenshot) could decompress
+ * to gigabytes and take the extension host down.
+ */
+export const MAX_DECODED_PNG_BYTES = 64 * 1024 * 1024 * 4;
+
 export function resizePngBuffer(buf: Buffer, maxPixels: number): Buffer {
   const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   for (let i = 0; i < 8; i++) if (buf[i] !== PNG_SIG[i]) return buf;
@@ -113,15 +121,20 @@ export function resizePngBuffer(buf: Buffer, maxPixels: number): Buffer {
   }
   if (idatParts.length === 0) return buf;
 
+  const channels = colorType === 6 ? 4 : 3;
+  const stride = 1 + srcWidth * channels;
+  // The decoded size is fixed by the header; refuse anything over the cap
+  // before inflating, and never let inflate produce more than that size.
+  const expected = srcHeight * stride;
+  if (expected > MAX_DECODED_PNG_BYTES) return buf;
+
   let raw: Buffer;
   try {
-    raw = zlib.inflateSync(Buffer.concat(idatParts));
+    raw = zlib.inflateSync(Buffer.concat(idatParts), { maxOutputLength: expected });
   } catch {
     return buf;
   }
 
-  const channels = colorType === 6 ? 4 : 3;
-  const stride = 1 + srcWidth * channels;
   if (raw.length < srcHeight * stride) return buf;
 
   // Reconstruct pixel rows (undo PNG per-row filters).
