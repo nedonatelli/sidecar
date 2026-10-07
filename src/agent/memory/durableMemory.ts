@@ -1,3 +1,4 @@
+import { redactSecrets } from '../securityScanner.js';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { neutralizeInjections } from '../injectionGuard.js';
@@ -185,7 +186,8 @@ export class DurableMemoryStore {
     const conflicts: Array<{ newText: string; existingText: string }> = [];
     const unmatchedUpdates: string[] = [];
     for (const raw of texts) {
-      const text = raw.trim();
+      // A pasted key in a latched sentence must not be written to disk.
+      const text = redactSecrets(raw.trim());
       if (text === '') continue;
       const id = idOf(text);
       const existing = this.entries.find((e) => e.id === id);

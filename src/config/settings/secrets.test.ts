@@ -39,7 +39,7 @@ function makeSecretsStore(initial: Record<string, string> = {}) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeContext(secretsStore = makeSecretsStore()): any {
-  return { secrets: secretsStore };
+  return { secrets: secretsStore, subscriptions: [] };
 }
 
 beforeEach(() => {
@@ -90,7 +90,7 @@ describe('initSecrets', () => {
     const ctx = makeContext();
     vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
       get: vi.fn((key: string, def: unknown) => (key === 'apiKey' ? 'my-plaintext-key' : def)),
-      inspect: vi.fn(),
+      inspect: vi.fn((key: string) => (key === 'apiKey' ? { globalValue: 'my-plaintext-key' } : undefined)),
       update: vi.fn().mockResolvedValue(undefined),
     } as never);
 
@@ -116,7 +116,7 @@ describe('initSecrets', () => {
     const ctx = makeContext();
     vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
       get: vi.fn((key: string, def: unknown) => (key === 'fallbackApiKey' ? 'fb-plain' : def)),
-      inspect: vi.fn(),
+      inspect: vi.fn((key: string) => (key === 'fallbackApiKey' ? { globalValue: 'fb-plain' } : undefined)),
       update: vi.fn().mockResolvedValue(undefined),
     } as never);
 
@@ -250,5 +250,40 @@ describe('_resetSecretsForTests', () => {
     expect(getCachedApiKey()).toBeNull();
     expect(getCachedFallbackApiKey()).toBeNull();
     expect(getSecretContext()).toBeNull();
+  });
+});
+
+// A workspace apiKey comes from the repository: it was copied into the user's
+// global SecretStorage (then used for every provider, in every window) and the
+// workspace plaintext was left in place.
+describe("API key migration takes only the user's own value", () => {
+  it('does not migrate a workspace-only plaintext key', async () => {
+    const ctx = makeContext();
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: vi.fn((key: string, def: unknown) => (key === 'apiKey' ? 'repo-key' : def)),
+      inspect: vi.fn((key: string) => (key === 'apiKey' ? { workspaceValue: 'repo-key' } : undefined)),
+      update: vi.fn().mockResolvedValue(undefined),
+    } as never);
+    await initSecrets(ctx);
+    expect(ctx.secrets.store).not.toHaveBeenCalledWith('sidecar.apiKey', 'repo-key');
+    expect(getCachedApiKey()).not.toBe('repo-key');
+  });
+});
+
+// SecretStorage is shared across windows; a key stored by another window
+// (a backend switch there) left this window's cache stale.
+describe('the cached key follows SecretStorage changes from other windows', () => {
+  it('reloads the key when it changes elsewhere', async () => {
+    const store = makeSecretsStore({ 'sidecar.apiKey': 'old-key' });
+    let listener: ((e: { key: string }) => Promise<void>) | undefined;
+    store.onDidChange = vi.fn((l: (e: { key: string }) => Promise<void>) => {
+      listener = l;
+      return { dispose: vi.fn() };
+    }) as never;
+    await initSecrets(makeContext(store));
+    expect(getCachedApiKey()).toBe('old-key');
+    await store.store('sidecar.apiKey', 'new-key');
+    await listener!({ key: 'sidecar.apiKey' });
+    expect(getCachedApiKey()).toBe('new-key');
   });
 });

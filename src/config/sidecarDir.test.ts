@@ -198,4 +198,17 @@ describe('SidecarDir', () => {
     const result = await dir.listFiles('plans');
     expect(result).toEqual([]);
   });
+
+  // durable-instructions.json holds the user's own sentences: per-user state
+  // that must not be committed. .gitignore files from older versions lack it.
+  it('adds the durable-instructions line to an existing .gitignore that lacks it', async () => {
+    mockFs.stat.mockResolvedValue({ type: 1 });
+    mockFs.readFile.mockResolvedValue(Buffer.from('cache/\nsessions/\n'));
+    mockFs.writeFile.mockClear();
+    await new SidecarDir().initialize();
+    const written = mockFs.writeFile.mock.calls.find((c: unknown[]) =>
+      String((c[0] as { fsPath: string }).fsPath).endsWith('.gitignore'),
+    );
+    expect(String(written?.[1])).toContain('memory/durable-instructions.json');
+  });
 });

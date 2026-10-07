@@ -329,6 +329,23 @@ describe('buildDispatchHandlers', () => {
     expect(state.resolveAllConfirms).toHaveBeenCalledWith('Allow');
   });
 
+  // The dropdown wrote Global only; a workspace agentMode still won, so the UI
+  // showed "cautious" while runs used the workspace's "autonomous".
+  it('changeAgentMode also updates a workspace value that would override it', async () => {
+    const { getConfig } = await import('../../config/settings.js');
+    vi.mocked(getConfig).mockReturnValueOnce({ customModes: [] } as unknown as ReturnType<typeof getConfig>);
+    const vscodeMod = await import('vscode');
+    const update = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(vscodeMod.workspace, 'getConfiguration').mockReturnValue({
+      update,
+      inspect: () => ({ globalValue: 'cautious', workspaceValue: 'autonomous' }),
+      get: () => undefined,
+    } as never);
+    await invoke(handlers, 'changeAgentMode', { agentMode: 'cautious' });
+    expect(update).toHaveBeenCalledWith('agentMode', 'cautious', vscodeMod.ConfigurationTarget.Global);
+    expect(update).toHaveBeenCalledWith('agentMode', 'cautious', vscodeMod.ConfigurationTarget.Workspace);
+  });
+
   // ── confirmResponse / clarifyResponse / cancelInstall ────────────────────
 
   it('confirmResponse delegates to state.resolveConfirm with text when confirmed', async () => {

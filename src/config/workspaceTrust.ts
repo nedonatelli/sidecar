@@ -5,7 +5,15 @@ import { workspace, window } from 'vscode';
  * Each key is a settings section name (e.g., 'hooks', 'toolPermissions', 'mcpServers').
  * Value: 'trusted' | 'blocked' | undefined (not yet asked).
  */
-const trustDecisions = new Map<string, 'trusted' | 'blocked'>();
+/** Decisions per section, each for the exact workspace values it was made for. */
+const trustDecisions = new Map<string, { decision: 'trusted' | 'blocked'; fingerprint: string }>();
+
+/** The workspace's own values for `section`, so a later change is asked about again. */
+function workspaceFingerprint(section: string, extra: string): string {
+  const cfg = workspace.getConfiguration('sidecar');
+  const i = typeof cfg.inspect === 'function' ? cfg.inspect(section) : undefined;
+  return JSON.stringify([i?.workspaceValue ?? null, i?.workspaceFolderValue ?? null, extra]);
+}
 
 /**
  * Check whether a workspace-level configuration section should be trusted.
@@ -27,11 +35,13 @@ const trustDecisions = new Map<string, 'trusted' | 'blocked'>();
 export async function checkWorkspaceConfigTrust(
   section: string,
   warningMessage: string,
-  options: { modal?: boolean; workspaceProvided?: boolean } = {},
+  options: { modal?: boolean; workspaceProvided?: boolean; fingerprint?: string } = {},
 ): Promise<'trusted' | 'blocked'> {
-  // Return cached decision if already asked this session
+  // A cached decision holds only for the values it was made for: an agent (or
+  // a pull) changing .vscode/settings.json or .mcp.json is asked about again.
+  const fingerprint = workspaceFingerprint(section, options.fingerprint ?? '');
   const cached = trustDecisions.get(section);
-  if (cached) return cached;
+  if (cached && cached.fingerprint === fingerprint) return cached.decision;
 
   // Nothing from the workspace means nothing to trust -- but that is NOT
   // cached: a value that arrives later (a git pull, an agent editing
@@ -41,11 +51,11 @@ export async function checkWorkspaceConfigTrust(
   const choice = await window.showWarningMessage(warningMessage, { modal: options.modal ?? false }, 'Allow', 'Block');
 
   if (choice === 'Allow') {
-    trustDecisions.set(section, 'trusted');
+    trustDecisions.set(section, { decision: 'trusted', fingerprint });
     return 'trusted';
   }
   if (choice === 'Block') {
-    trustDecisions.set(section, 'blocked');
+    trustDecisions.set(section, { decision: 'blocked', fingerprint });
     return 'blocked';
   }
   // Dismissed: fail closed without caching, so the user can be re-prompted.

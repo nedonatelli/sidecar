@@ -1,3 +1,4 @@
+import { onApiKeyChanged } from '../config/settings/secrets.js';
 import * as path from 'path';
 import { logger } from '../system/logger.js';
 import { window, workspace, commands, languages, ExtensionContext, Disposable } from 'vscode';
@@ -92,7 +93,12 @@ export function registerEditorFeatures(
   );
 
   const pasteTracker = new AdaptivePasteTracker();
-  context.subscriptions.push(pasteTracker, registerAdaptivePasteCommand(createClient(), pasteTracker));
+  // A client per use: one built here, at activation, carried the key and
+  // backend of that moment -- before SecretStorage loaded, the placeholder.
+  context.subscriptions.push(
+    pasteTracker,
+    registerAdaptivePasteCommand(() => createClient(), pasteTracker),
+  );
   if (config.adaptivePasteEnabled) {
     context.subscriptions.push(
       languages.registerCodeActionsProvider({ scheme: 'file' }, new AdaptivePasteCodeActionProvider(pasteTracker), {
@@ -159,11 +165,17 @@ export function registerEditorFeatures(
         e.affectsConfiguration('sidecar.enableInlineCompletions') ||
         e.affectsConfiguration('sidecar.completionModel') ||
         e.affectsConfiguration('sidecar.completionMaxTokens') ||
-        e.affectsConfiguration('sidecar.completionDebounceMs')
+        e.affectsConfiguration('sidecar.completionDebounceMs') ||
+        // The client follows the backend too: provider, host and chat model.
+        e.affectsConfiguration('sidecar.provider') ||
+        e.affectsConfiguration('sidecar.baseUrl') ||
+        e.affectsConfiguration('sidecar.model')
       ) {
         registerCompletions();
       }
     }),
+    // ...and the key, which loads after activation and can change in any window.
+    onApiKeyChanged(() => registerCompletions()),
   );
 
   // "Install recommended draft" affordance — fire once at startup.

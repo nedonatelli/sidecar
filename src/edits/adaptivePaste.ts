@@ -133,7 +133,10 @@ export function currentPasteRange(document: TextDocument, paste: PasteRecord): R
  * Registers the `sidecar.adaptivePaste.transform` command that drives the
  * interactive transform flow: QuickPick → LLM call → in-place replacement.
  */
-export function registerAdaptivePasteCommand(client: SideCarClient, tracker: AdaptivePasteTracker): Disposable {
+export function registerAdaptivePasteCommand(
+  clientOrFactory: SideCarClient | (() => SideCarClient),
+  tracker: AdaptivePasteTracker,
+): Disposable {
   return commands.registerCommand(
     ADAPTIVE_PASTE_COMMAND,
     async (args?: { paste: PasteRecord; transforms: PasteTransform[] }) => {
@@ -173,6 +176,7 @@ export function registerAdaptivePasteCommand(client: SideCarClient, tracker: Ada
         { location: 15 /* ProgressLocation.Notification */, title: `SideCar: Transforming paste (${chosen.name})…` },
         async () => {
           try {
+            const client = typeof clientOrFactory === 'function' ? clientOrFactory() : clientOrFactory;
             const transformed = await client.completeWithOverrides(
               systemPrompt,
               [{ role: 'user', content: userMessage }],

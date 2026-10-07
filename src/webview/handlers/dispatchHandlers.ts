@@ -380,9 +380,25 @@ export function buildDispatchHandlers(
       const validMode =
         BUILT_IN_MODES.has(msg.agentMode) || modeConfig.customModes.some((m) => m.name === msg.agentMode);
       if (!validMode) return;
-      await import('vscode').then(({ workspace }) =>
-        workspace.getConfiguration('sidecar').update('agentMode', msg.agentMode, true),
-      );
+      // Global is the user's choice everywhere; a workspace value would still
+      // win where one is set, so the UI showed one mode while runs used
+      // another (autonomous, say). Update the workspace value too when there is one.
+      await import('vscode').then(async ({ workspace, ConfigurationTarget }) => {
+        const cfg = workspace.getConfiguration('sidecar');
+        await cfg.update('agentMode', msg.agentMode, ConfigurationTarget.Global);
+        const inspected = cfg.inspect<string>('agentMode');
+        if (inspected?.workspaceValue !== undefined) {
+          await cfg.update('agentMode', msg.agentMode, ConfigurationTarget.Workspace);
+        }
+        if (inspected?.workspaceFolderValue !== undefined) {
+          for (const folder of workspace.workspaceFolders ?? []) {
+            const folderCfg = workspace.getConfiguration('sidecar', folder.uri);
+            if (folderCfg.inspect('agentMode')?.workspaceFolderValue !== undefined) {
+              await folderCfg.update('agentMode', msg.agentMode, ConfigurationTarget.WorkspaceFolder);
+            }
+          }
+        }
+      });
       postMessage({
         command: 'setAgentMode',
         agentMode: msg.agentMode,

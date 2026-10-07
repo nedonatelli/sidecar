@@ -19,6 +19,23 @@ let _secretContext: ExtensionContext | null = null;
 let _cachedApiKey: string | null = null;
 let _cachedFallbackApiKey: string | null = null;
 
+const apiKeyListeners = new Set<() => void>();
+const apiKeyChanged = {
+  fire(): void {
+    for (const l of [...apiKeyListeners]) l();
+  },
+};
+/**
+ * Called when the cached API key changes: secrets loaded at activation, a key
+ * set in this window, or one stored by another window. Long-lived clients
+ * (inline completions, adaptive paste) rebuild on it; built before the
+ * secrets loaded, they kept the placeholder key.
+ */
+export function onApiKeyChanged(listener: () => void): { dispose(): void } {
+  apiKeyListeners.add(listener);
+  return { dispose: () => apiKeyListeners.delete(listener) };
+}
+
 /** Internal accessor for settings.ts to read the cached API key. */
 export function getCachedApiKey(): string | null {
   return _cachedApiKey;
@@ -38,12 +55,15 @@ export async function initSecrets(context: ExtensionContext): Promise<void> {
   _secretContext = context;
   const cfg = workspace.getConfiguration('sidecar');
 
-  // Migrate apiKey: if a non-default plaintext value exists, move it
+  // Migrate apiKey: if the USER's own plaintext value exists, move it. Only
+  // the global value: a workspace value comes from the repository and must not
+  // be copied into the user's global SecretStorage (it would then be sent to
+  // every provider in every window).
   const existing = await context.secrets.get(SECRET_KEY_API);
   if (existing) {
     _cachedApiKey = existing;
   } else {
-    const plaintext = cfg.get<string>('apiKey', 'ollama');
+    const plaintext = cfg.inspect<string>('apiKey')?.globalValue ?? 'ollama';
     if (plaintext && plaintext !== 'ollama') {
       await context.secrets.store(SECRET_KEY_API, plaintext);
       _cachedApiKey = plaintext;
@@ -59,7 +79,7 @@ export async function initSecrets(context: ExtensionContext): Promise<void> {
   if (existingFb) {
     _cachedFallbackApiKey = existingFb;
   } else {
-    const plaintextFb = cfg.get<string>('fallbackApiKey', '');
+    const plaintextFb = cfg.inspect<string>('fallbackApiKey')?.globalValue ?? '';
     if (plaintextFb) {
       await context.secrets.store(SECRET_KEY_FALLBACK_API, plaintextFb);
       _cachedFallbackApiKey = plaintextFb;
@@ -70,6 +90,21 @@ export async function initSecrets(context: ExtensionContext): Promise<void> {
   }
 
   invalidateConfigCache(); // pick up the secrets on next getConfig()
+
+  // SecretStorage is shared by every window. A key stored in another window
+  // (a backend switch there) must replace this window's cached one, or this
+  // window sends the old provider's key to the new provider's host.
+  context.subscriptions.push(
+    context.secrets.onDidChange(async (e) => {
+      if (e.key === SECRET_KEY_API) _cachedApiKey = (await context.secrets.get(SECRET_KEY_API)) ?? 'ollama';
+      else if (e.key === SECRET_KEY_FALLBACK_API)
+        _cachedFallbackApiKey = (await context.secrets.get(SECRET_KEY_FALLBACK_API)) ?? '';
+      else return;
+      invalidateConfigCache();
+      apiKeyChanged.fire();
+    }),
+  );
+  apiKeyChanged.fire();
 }
 
 /** Update the API key in SecretStorage and refresh the cache. Used by the "Set API Key" command. */
@@ -78,6 +113,7 @@ export async function setApiKeySecret(value: string): Promise<void> {
   await _secretContext.secrets.store(SECRET_KEY_API, value);
   _cachedApiKey = value;
   invalidateConfigCache();
+  apiKeyChanged.fire();
 }
 
 /** Update the fallback API key in SecretStorage and refresh the cache. */
@@ -125,6 +161,7 @@ export async function storeActiveApiKey(value: string): Promise<void> {
   await _secretContext.secrets.store(SECRET_KEY_API, value);
   _cachedApiKey = value;
   invalidateConfigCache();
+  apiKeyChanged.fire();
 }
 
 /** Drop cached keys and context — used by test setup. */

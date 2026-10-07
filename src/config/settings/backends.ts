@@ -237,6 +237,9 @@ export async function applyBackendProfile(
   if (profile.secretKey) {
     const stored = await ctx.secrets.get(profile.secretKey);
     if (!stored) {
+      // provider and baseUrl already point at the new host: the previous
+      // provider's key must not stay active, or the next request sends it there.
+      await storeActiveApiKey('');
       invalidateConfigCache();
       return {
         status: 'missing-key',
