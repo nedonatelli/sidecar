@@ -9,6 +9,7 @@ import {
   editFileDef,
   fsTools,
   droppedTopLevelDefinitions,
+  findIntentTarget,
 } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
@@ -2388,5 +2389,20 @@ describe('droppedTopLevelDefinitions', () => {
     expect(
       droppedTopLevelDefinitions('class A:\n    def old(self): pass\n', 'class A:\n    def new(self): pass\n'),
     ).toEqual([]);
+  });
+});
+
+// #109: the window was N non-blank replace lines but N PHYSICAL file lines, so
+// a region with a blank line in it came back short and its tail was duplicated.
+describe('findIntentTarget — regions with blank lines', () => {
+  it('returns the whole region the replacement covers', () => {
+    const file = 'TOTAL = compute_subtotal(items, tax_rate, shipping)\n\nprint(format_currency(TOTAL))\n';
+    const replace = "TOTAL = compute_subtotal(items, tax_rate, shipping, region)\nprint(format_currency(TOTAL, 'USD'))";
+    // Two non-blank lines in, two non-blank lines out. The old result stopped
+    // at the blank line, so the print line was left in place and the
+    // replacement's print line was added after it -- printed twice.
+    expect(findIntentTarget(file, replace)).toBe(
+      'TOTAL = compute_subtotal(items, tax_rate, shipping)\n\nprint(format_currency(TOTAL))',
+    );
   });
 });

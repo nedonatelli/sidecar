@@ -380,7 +380,16 @@ export function findIntentTarget(
   // candidate. Without this, "5 words matched here, 5 there" reads as certainty.
   if (best - runnerUp < minMargin) return null;
 
-  return fileLines.slice(bestIdx, bestIdx + windowSize).join('\n');
+  // Return `windowSize` NON-BLANK lines from the winning start, the unit
+  // `windowSize` is counted in. The scoring window above is that many PHYSICAL
+  // lines, so a region with blank lines in it came back short: only part of
+  // the block was replaced and its tail ended up in the file twice. Scoring is
+  // left as it is, so which region wins (and whether one does) is unchanged.
+  let end = bestIdx;
+  for (let seen = 0; end < fileLines.length && seen < windowSize; end++) {
+    if (fileLines[end].trim()) seen++;
+  }
+  return fileLines.slice(bestIdx, end).join('\n');
 }
 
 /**
