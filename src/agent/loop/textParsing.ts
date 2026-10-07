@@ -196,7 +196,9 @@ export function parseMangledToolName(rawName: string): { name: string; input: Re
  *   1. ≥3 special-token literals (`<|…|>`) — real prose essentially never
  *      contains reserved-token markers.
  *   2. The same 8–64 char chunk repeated ≥10 times consecutively — a
- *      sampler loop, not an answer.
+ *      sampler loop, not an answer. The chunk must hold a letter or digit:
+ *      an 80-character `----` / `====` rule or a table border repeats a
+ *      punctuation chunk 10 times and is ordinary Markdown.
  *
  * Input is capped at 20KB before the repetition scan so a pathological
  * backreference can't stall the loop thread.
@@ -205,7 +207,10 @@ export function isDegenerateText(text: string): boolean {
   const stripped = text.replace(/```[\s\S]*?```/g, '').slice(0, 20_000);
   const specialTokens = stripped.match(/<\|[^|<>]{1,60}\|>/g);
   if (specialTokens && specialTokens.length >= 3) return true;
-  return /([^\s]{8,64}?)\1{9,}/.test(stripped);
+  for (const m of stripped.matchAll(/([^\s]{8,64}?)\1{9,}/g)) {
+    if (/[A-Za-z0-9]/.test(m[1])) return true;
+  }
+  return false;
 }
 
 /**

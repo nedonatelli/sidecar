@@ -224,6 +224,17 @@ describe('parseTextToolCalls', () => {
   });
 
   describe('isDegenerateText', () => {
+    // #108: a Markdown rule or table border repeats an 8-char punctuation chunk
+    // ten times and is not a sampler loop.
+    it('does not flag an 80-character rule line or a table border', () => {
+      expect(isDegenerateText('Results\n' + '-'.repeat(80) + '\n' + '='.repeat(100))).toBe(false);
+      expect(isDegenerateText('|' + '--------|'.repeat(12))).toBe(false);
+    });
+
+    it('still flags a repeated word chunk', () => {
+      expect(isDegenerateText('token123'.repeat(12))).toBe(true);
+    });
+
     it('flags a stream of reserved special-token literals (llama3.2 live failure)', () => {
       const text = Array.from({ length: 20 }, (_, i) => `<|reserved_special_token_${1043 + i}|>`).join('|');
       expect(isDegenerateText(text)).toBe(true);
