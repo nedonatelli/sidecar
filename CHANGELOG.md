@@ -22,6 +22,12 @@ All notable changes to the SideCar extension will be documented in this file.
 - Anthropic's "overloaded" (529) errors are now retried; Ollama errors that will happen
   again (out of memory, unknown model) are reported at once instead of after retries.
 - Large multi-edit tool calls are now counted at their real size against the context budget.
+- **The Google Gemini backend profile pointed at the wrong address** (`/openai` instead of
+  `/v1beta/openai`). Profiles saved with the old address are corrected automatically.
+- **Ollama running on another computer or port was treated as a generic OpenAI server**,
+  losing Ollama-specific handling such as the model's real context size. SideCar now
+  recognizes Ollama's port on any host, and asks any other unrecognized server once
+  whether it is Ollama.
 
 - **Runs on OpenAI-compatible servers could break after a blocked rewrite.** SideCar's
   "stop rewriting this file" reminder was inserted between a tool call and its result,
