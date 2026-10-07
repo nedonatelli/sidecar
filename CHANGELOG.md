@@ -4,6 +4,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **SideCar 0.127.1 failed to start.** Activation threw `'get' on proxy: property 'get' is
+  a read-only and non-configurable data property`, because the filter that keeps a
+  workspace's sensitive settings from applying until you allow them wrapped VS Code's
+  frozen configuration object in a `Proxy`. It no longer does, and SideCar starts again.
+
 ## [0.127.1] - 2026-10-07
 
 A reliability release: the fixes from the October code review for bugs that lose your work
