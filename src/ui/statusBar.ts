@@ -16,7 +16,9 @@ export function escapeMarkdown(text: string): string {
 
 /** An inline code span that untrusted text cannot close early. */
 export function codeSpan(text: string): string {
-  return '`' + text.replace(/`/g, "'") + '`';
+  // One line, no backticks: a newline (above all a blank line) ends the span,
+  // and what follows is parsed as markdown -- a trusted command link included.
+  return '`' + text.replace(/`/g, "'").replace(/[\s\u0000-\u001f\u007f]+/g, ' ') + '`';
 }
 
 export interface StatusBarDeps {

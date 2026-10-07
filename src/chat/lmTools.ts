@@ -8,15 +8,20 @@
  * must match the corresponding entry in the `languageModelTools` contribution
  * in package.json.
  *
- * The implementation delegates directly to the existing TOOL_REGISTRY
- * executors with a minimal ToolExecutorContext so the same code that
- * runs inside SideCar's agent loop runs here too.
+ * Every call goes through executeTool, as a call from SideCar's own loop
+ * does: the user's agent mode and tool permissions, repo policy, the typed
+ * confirmation for destructive commands, hooks and the output fence all
+ * apply. Calling the raw executors skipped all of them, and the tools asked
+ * for no confirmation at all -- write_file and run_command included.
  */
 
 import * as vscode from 'vscode';
 import { TOOL_REGISTRY } from '../agent/tools.js';
 import { getWorkspaceRoot } from '../config/workspace.js';
 import type { ToolExecutorContext } from '../agent/tools/shared.js';
+import { executeTool } from '../agent/executor.js';
+import { getConfig } from '../config/settings.js';
+import { participantApprovalOptions } from './sidecarParticipant.js';
 
 /**
  * The core tool names to expose. Must match `languageModelTools[*].name`
@@ -60,15 +65,23 @@ export function registerLmTools(context: vscode.ExtensionContext): void {
         const cancelSub = token.onCancellationRequested(() => ac.abort());
 
         const outputChunks: string[] = [];
+        // The user's own mode, asking through a modal that shows the full
+        // arguments -- the same approval the @sidecar participant uses.
+        const approval = participantApprovalOptions(getConfig());
         const ctx: ToolExecutorContext = {
           signal: ac.signal,
           cwd: getWorkspaceRoot(),
           onOutput: (chunk) => outputChunks.push(chunk),
+          modeToolPermissions: approval.modeToolPermissions,
         };
 
         try {
-          const result = await entry.executor(options.input, ctx);
-          const text = outputChunks.length > 0 ? outputChunks.join('') + '\n' + result : result;
+          const result = await executeTool(
+            { type: 'tool_use', id: `lm-${toolName}-${Date.now()}`, name: toolName, input: options.input },
+            { approvalMode: approval.approvalMode, confirmFn: approval.confirmFn, executorContext: ctx },
+          );
+          const content = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+          const text = outputChunks.length > 0 ? outputChunks.join('') + '\n' + content : content;
           return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
         } finally {
           cancelSub.dispose();

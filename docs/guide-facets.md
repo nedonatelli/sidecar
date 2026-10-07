@@ -168,15 +168,15 @@ Do not add functionality — only write defensive tests.
 
 ### Frontmatter Field Reference
 
-| Field            | Required | Type                  | Description                                                                                                                                                       |
-| ---------------- | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`             | Yes      | string                | Unique identifier. Must match `/^[a-z0-9][a-z0-9_-]*$/`. Disk facets with the same `id` as a built-in override the built-in.                                      |
-| `displayName`    | Yes      | string                | Human-readable label shown in the QuickPick and review UI.                                                                                                        |
-| `toolAllowlist`  | No       | JSON array of strings | Tool names the facet is permitted to call. Omit to inherit the full orchestrator tool registry. An empty array `[]` means no tools — the facet is a pure thinker. |
-| `preferredModel` | No       | string                | Model pinned for this facet's run. Leave blank to use the global `sidecar.model`.                                                                                 |
-| `skillBundle`    | No       | JSON array of strings | Skill IDs merged into the facet's system prompt. Use skills from `SkillLoader` (built-in or `~/.claude/commands/`, `<workspace>/.sidecar/skills/`).               |
-| `dependsOn`      | No       | JSON array of strings | Facet IDs this facet must wait for. The dispatcher walks a DAG in topological order; cycles are detected at load time and rejected.                               |
-| `rpcSchema`      | No       | JSON object           | Methods this facet exposes to peers. Each key is a method name; each value is an object with optional `params` and `returns` hints.                               |
+| Field            | Required | Type                  | Description                                                                                                                                                                                                                                                |
+| ---------------- | -------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | Yes      | string                | Unique identifier. Must match `/^[a-z0-9][a-z0-9_-]*$/`. Disk facets with the same `id` as a built-in override the built-in.                                                                                                                               |
+| `displayName`    | Yes      | string                | Human-readable label shown in the QuickPick and review UI.                                                                                                                                                                                                 |
+| `toolAllowlist`  | No       | JSON array of strings | Tool names the facet is permitted to call. Omit to inherit the full orchestrator tool registry. An empty array `[]` means no tools — the facet is a pure thinker. The list only narrows the tools; your own `sidecar.toolPermissions` still apply to them. |
+| `preferredModel` | No       | string                | Model pinned for this facet's run. Leave blank to use the global `sidecar.model`.                                                                                                                                                                          |
+| `skillBundle`    | No       | JSON array of strings | Skill IDs merged into the facet's system prompt. Use skills from `SkillLoader` (built-in or `~/.claude/commands/`, `<workspace>/.sidecar/skills/`).                                                                                                        |
+| `dependsOn`      | No       | JSON array of strings | Facet IDs this facet must wait for. The dispatcher walks a DAG in topological order; cycles are detected at load time and rejected.                                                                                                                        |
+| `rpcSchema`      | No       | JSON object           | Methods this facet exposes to peers. Each key is a method name; each value is an object with optional `params` and `returns` hints.                                                                                                                        |
 
 ### Parsing Rules
 

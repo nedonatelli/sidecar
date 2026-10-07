@@ -8,7 +8,16 @@
  *      without spinning up the full executor harness.
  */
 
-export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review';
+/**
+ * `sandboxed` is for runs inside a shadow worktree (forks, facets): the file
+ * tools write only to the shadow, which the user reviews afterwards, so they
+ * run freely; any other tool that needs approval reaches the real environment
+ * (commands, git refs and remotes, databases, MCP) and asks as in cautious.
+ */
+export type ApprovalMode = 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review' | 'sandboxed';
+
+/** File tools whose writes stay inside a shadow worktree when one is active. */
+export const SHADOW_CONTAINED_TOOLS = new Set(['write_file', 'edit_file', 'delete_file']);
 
 /**
  * Tools that go through the diff-preview flow when approval is needed.
@@ -49,6 +58,8 @@ export const NATIVE_MODAL_APPROVAL_TOOLS = new Set([
 export interface ResolveApprovalOptions {
   /** Registered tool flags. */
   tool: { requiresApproval?: boolean; alwaysRequireApproval?: boolean };
+  /** The tool's name, which the `sandboxed` mode needs. */
+  toolName?: string;
   approvalMode: ApprovalMode;
   /** Resolved from modeToolPermissions → toolPermissions, post-trust-check. */
   explicitPermission: 'allow' | 'deny' | 'ask' | undefined;
@@ -64,13 +75,18 @@ export interface ResolveApprovalOptions {
  *  2. `isIrrecoverable` — force approval even in autonomous mode
  *  3. `explicitPermission: 'allow'` — user opted in; skip approval
  *  4. `explicitPermission: 'ask'`  — user opted in to always-ask
- *  5. Fall back to approvalMode × tool.requiresApproval
+ *  5. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
  */
 export function resolveApprovalNeeded(opts: ResolveApprovalOptions): boolean {
-  const { tool, approvalMode, explicitPermission, isIrrecoverable } = opts;
+  const { tool, toolName, approvalMode, explicitPermission, isIrrecoverable } = opts;
   if (tool.alwaysRequireApproval) return true;
   if (isIrrecoverable) return true;
   if (explicitPermission === 'allow') return false;
   if (explicitPermission === 'ask') return true;
-  return approvalMode === 'manual' || (approvalMode === 'cautious' && !!tool.requiresApproval);
+  if (approvalMode === 'sandboxed') return !!tool.requiresApproval && !SHADOW_CONTAINED_TOOLS.has(toolName ?? '');
+  // Review mode queues file writes for review (the review handler intercepts
+  // them before this gate); everything else it asks about like cautious mode.
+  return (
+    approvalMode === 'manual' || ((approvalMode === 'cautious' || approvalMode === 'review') && !!tool.requiresApproval)
+  );
 }

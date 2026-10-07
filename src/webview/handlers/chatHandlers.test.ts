@@ -1157,7 +1157,6 @@ describe('postLoopProcessing', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       postMessage: vi.fn(),
-      logMessage: vi.fn(),
     };
     const updatedMessages = [
       { role: 'user' as const, content: 'hello' },
@@ -1186,7 +1185,6 @@ describe('postLoopProcessing', () => {
         saveHistory: vi.fn(),
         autoSave: vi.fn(),
         postMessage: vi.fn(),
-        logMessage: vi.fn(),
       };
     }
 
@@ -1258,7 +1256,6 @@ describe('postLoopProcessing', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       postMessage: vi.fn(),
-      logMessage: vi.fn(),
     };
     const updatedMessages = [{ role: 'assistant' as const, content: 'Which approach do you prefer?' }];
 
@@ -1276,7 +1273,6 @@ describe('postLoopProcessing', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       postMessage: vi.fn(),
-      logMessage: vi.fn(),
     };
     const updatedMessages = [{ role: 'assistant' as const, content: 'Done. The file has been updated.' }];
 
@@ -1294,7 +1290,6 @@ describe('postLoopProcessing', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       postMessage: vi.fn(),
-      logMessage: vi.fn(),
     };
     const updatedMessages = [
       {
@@ -1320,7 +1315,6 @@ describe('postLoopProcessing', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       postMessage: vi.fn(),
-      logMessage: vi.fn(),
     };
     const updatedMessages = [
       { role: 'user' as const, content: 'first' },
@@ -1347,7 +1341,6 @@ describe('postLoopProcessing', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       postMessage: vi.fn(),
-      logMessage: vi.fn(),
     };
 
     await postLoopProcessing(state as never, [], 0);
@@ -2322,7 +2315,6 @@ describe('handleReconnect', () => {
       messages: overrides.messages ?? [],
       abortController: null as AbortController | null,
       chatGeneration: 0,
-      logMessage: vi.fn(),
       client: {
         // Use anthropic by default so ensureProviderRunning takes the
         // non-local / non-kickstand early-return branch without trying
@@ -2838,7 +2830,6 @@ describe('handleReconnect — with last user message', () => {
       messages,
       abortController: null as AbortController | null,
       chatGeneration: 0,
-      logMessage: vi.fn(),
       currentSteerQueue: null,
       currentSteerDisposer: null,
       cancelCallbacks: null,
@@ -2882,7 +2873,6 @@ describe('handleReconnect — with last user message', () => {
         content: [{ type: 'text', text: 'block message text' }],
       },
     ];
-    const logMessage = vi.fn();
     const state = {
       postMessage: vi.fn(),
       saveHistory: vi.fn(),
@@ -2891,7 +2881,6 @@ describe('handleReconnect — with last user message', () => {
       messages,
       abortController: null as AbortController | null,
       chatGeneration: 0,
-      logMessage,
       currentSteerQueue: null,
       currentSteerDisposer: null,
       cancelCallbacks: null,
@@ -2913,10 +2902,9 @@ describe('handleReconnect — with last user message', () => {
 
     await handleReconnect(state as never);
 
-    // The user message was re-submitted; logMessage('user', ...) should contain the block text
-    const userLog = logMessage.mock.calls.find((c: unknown[]) => c[0] === 'user');
-    expect(userLog).toBeDefined();
-    expect(userLog![1]).toContain('block message text');
+    // The prompt was re-submitted: it is back in the history as the user's text.
+    const resent = messages.find((m) => m.role === 'user' && typeof m.content === 'string');
+    expect(String(resent?.content)).toContain('block message text');
 
     vi.restoreAllMocks();
   });
@@ -2955,7 +2943,6 @@ describe('handleUserMessage — connection failed', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
-      logMessage: vi.fn(),
       abortController: null as AbortController | null,
       chatGeneration: 0,
       pendingPartialAssistant: null,
@@ -3031,7 +3018,6 @@ describe('handleUserMessage — abort prior run', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
-      logMessage: vi.fn(),
       // A prior run is in progress
       abortController: priorAbortController as AbortController | null,
       chatGeneration: 0,
@@ -3096,7 +3082,6 @@ describe('handleUserMessage — budget-blocked path', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
-      logMessage: vi.fn(),
       abortController: null as AbortController | null,
       chatGeneration: 0,
       pendingPartialAssistant: null,
@@ -3169,7 +3154,6 @@ describe('handleUserMessage — budget-blocked path', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
-      logMessage: vi.fn(),
       abortController: null as AbortController | null,
       chatGeneration: 0,
       pendingPartialAssistant: null,
@@ -3224,7 +3208,6 @@ describe('ensureProviderRunning — kickstand path', () => {
       messages: [],
       abortController: null as AbortController | null,
       chatGeneration: 0,
-      logMessage: vi.fn(),
       currentSteerQueue: null,
       currentSteerDisposer: null,
       cancelCallbacks: null,
@@ -3313,7 +3296,6 @@ describe('handleRegenerateResponse — content block array', () => {
         ],
       },
     ];
-    const logMessage = vi.fn();
     const state = {
       messages,
       postMessage: vi.fn(),
@@ -3323,7 +3305,6 @@ describe('handleRegenerateResponse — content block array', () => {
       metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
       abortController: null as AbortController | null,
       chatGeneration: 0,
-      logMessage,
       abort: vi.fn(),
       currentSteerQueue: null,
       currentSteerDisposer: null,
@@ -3345,10 +3326,9 @@ describe('handleRegenerateResponse — content block array', () => {
 
     await handleRegenerateResponse(state as never);
 
-    // logMessage should have been called with the extracted text from the content blocks
-    const userLog = logMessage.mock.calls.find((c: unknown[]) => c[0] === 'user');
-    expect(userLog).toBeDefined();
-    expect(userLog![1]).toContain('block one');
+    // The prompt was re-submitted: it is back in the history as the user's text.
+    const resent = messages.find((m) => m.role === 'user' && typeof m.content === 'string');
+    expect(String(resent?.content)).toContain('block one');
     vi.restoreAllMocks();
   });
 });
@@ -3407,7 +3387,6 @@ describe('handleRegenerateResponse', () => {
       saveHistory: vi.fn(),
       abortController: null,
       chatGeneration: 0,
-      logMessage: vi.fn(),
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
         isLocalOllama: vi.fn().mockReturnValue(false),
@@ -3441,7 +3420,6 @@ describe('handleRegenerateResponse', () => {
       metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
       abortController: null,
       chatGeneration: 0,
-      logMessage: vi.fn(),
       abort: vi.fn(),
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
@@ -3485,7 +3463,6 @@ describe('handleRegenerateResponse', () => {
       metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
       abortController: null,
       chatGeneration: 0,
-      logMessage: vi.fn(),
       abort: vi.fn(),
       client: {
         getProviderType: vi.fn().mockReturnValue('anthropic'),
@@ -3520,7 +3497,6 @@ describe('handleEditMessage', () => {
       abortController: null,
       saveHistory: vi.fn(),
       postMessage: vi.fn(),
-      logMessage: vi.fn().mockResolvedValue(undefined),
     };
   }
 
@@ -3611,7 +3587,6 @@ function makeCatchBlockState(overrides: Record<string, unknown> = {}) {
     saveHistory: vi.fn(),
     autoSave: vi.fn(),
     trimHistory: vi.fn(),
-    logMessage: vi.fn(),
     abortController: null as AbortController | null,
     chatGeneration: 0,
     pendingPartialAssistant: null,
@@ -3866,7 +3841,6 @@ describe('handleUserMessage — superseded run', () => {
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
-      logMessage: vi.fn(),
       abortController: null as AbortController | null,
       chatGeneration: 0,
       pendingPartialAssistant: null,

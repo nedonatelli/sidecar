@@ -2,6 +2,7 @@ import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 import { getConfig } from '../../config/settings.js';
 import { redactSecrets } from '../securityScanner.js';
+import type { MCPManager } from '../mcpManager.js';
 
 // Tool names that signal a server accepts a high-level task description
 // rather than structured function parameters. Checked in order — first
@@ -41,6 +42,22 @@ export function resolveTaskTool(
       `Available tools: ${toolNames.join(', ') || '(none)'}. ` +
       `Use the \`tool\` parameter to specify which tool to call.`,
   };
+}
+
+/**
+ * The MCP tool a delegate_to_mcp call would reach, as `mcp_<server>_<tool>`,
+ * so the executor can apply that tool's own permissions to the call. Null when
+ * the call names no connected server or no tool resolves.
+ */
+export function delegatedMcpToolName(
+  input: Record<string, unknown>,
+  mcpManager: Pick<MCPManager, 'isServerConnected' | 'getServerToolNames'> | undefined,
+): string | null {
+  const server = typeof input.server === 'string' ? input.server.trim() : '';
+  if (!server || !mcpManager?.isServerConnected(server)) return null;
+  const explicitTool = typeof input.tool === 'string' ? input.tool.trim() || undefined : undefined;
+  const resolved = resolveTaskTool(server, mcpManager.getServerToolNames(server), explicitTool);
+  return 'error' in resolved ? null : `mcp_${server}_${resolved.toolName}`;
 }
 
 export async function delegateToMcp(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {

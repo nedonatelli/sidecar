@@ -6,7 +6,7 @@ import type {
   ColumnInfo,
   QueryResult,
 } from './provider.js';
-import { assertReadOnly } from './provider.js';
+import { assertReadOnly, type QueryOptions } from './provider.js';
 
 // ---------------------------------------------------------------------------
 // @duckdb/node-api type shim — only the surface we call at runtime
@@ -84,10 +84,12 @@ export class DuckDbProvider implements DatabaseProvider {
     // An in-memory database cannot be opened read-only, and has nothing on disk
     // to protect; assertReadOnly still refuses ATTACH and every write there.
     const isFile = filePath !== ':memory:' && filePath !== '';
-    this.instance =
-      this.readOnly && isFile
-        ? await mod.DuckDBInstance.create(filePath, { access_mode: 'READ_ONLY' })
-        : await mod.DuckDBInstance.create(filePath);
+    // External access off: DuckDB's table functions (read_text, read_csv,
+    // glob, httpfs URLs) otherwise read any file or URL the extension host can,
+    // through the approval-free db_query, and ATTACH any database.
+    const options: Record<string, string> = { enable_external_access: 'false' };
+    if (this.readOnly && isFile) options.access_mode = 'READ_ONLY';
+    this.instance = await mod.DuckDBInstance.create(filePath, options);
     this.conn = await this.instance.connect();
     this.connected = true;
   }
@@ -227,14 +229,10 @@ export class DuckDbProvider implements DatabaseProvider {
   // query
   // -------------------------------------------------------------------------
 
-  async query(
-    sql: string,
-    _params: unknown[] = [],
-    opts: { limit?: number; timeoutMs?: number } = {},
-  ): Promise<QueryResult> {
+  async query(sql: string, _params: unknown[] = [], opts: QueryOptions = {}): Promise<QueryResult> {
     const conn = this.requireConn();
 
-    if (this.readOnly) {
+    if (this.readOnly || opts.readOnly === true) {
       assertReadOnly(sql);
     }
 

@@ -515,3 +515,21 @@ describe('AuditBuffer', () => {
     });
   });
 });
+
+describe("flush applies the write tools' path rules", () => {
+  it('refuses an entry outside the workspace or on protected state, writing nothing for it', async () => {
+    const buf = new AuditBuffer();
+    buf.restore({
+      entries: [
+        { path: '../outside.txt', op: 'create', content: 'x', timestamp: 1 },
+        { path: '.git/hooks/pre-commit', op: 'create', content: '#!/bin/sh', timestamp: 2 },
+      ],
+      commits: [],
+    });
+    const writeDisk = vi.fn(async () => undefined);
+    const deleteDisk = vi.fn(async () => undefined);
+    await expect(buf.flush(writeDisk, deleteDisk)).rejects.toBeInstanceOf(AuditFlushError);
+    expect(writeDisk).not.toHaveBeenCalled();
+    expect(deleteDisk).not.toHaveBeenCalled();
+  });
+});

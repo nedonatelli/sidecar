@@ -66,3 +66,11 @@ describe('getDiagnostics', () => {
     expect(result).toContain('[Hint]');
   });
 });
+
+// get_diagnostics needs no approval: it opened '..' paths and credential files
+// in an editor and secret-scanned them, reporting which lines held secrets.
+describe('get_diagnostics follows the read rules', () => {
+  it.each(['../outside/creds.ts', '.env', 'certs/server.pem'])('refuses %s', async (path) => {
+    await expect(getDiagnostics({ path })).rejects.toThrow(/traversal|credential|outside the workspace/);
+  });
+});

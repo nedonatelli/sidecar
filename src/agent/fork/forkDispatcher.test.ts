@@ -98,14 +98,25 @@ describe('dispatchForks — happy path', () => {
     }
   });
 
-  it('passes approvalMode: autonomous to every fork', async () => {
+  // The shadow isolates file writes only: commands, git refs and remotes,
+  // databases and MCP reach the real environment, so forks ask for those
+  // unless the user runs autonomous.
+  it.each([
+    ['cautious', 'sandboxed'],
+    ['autonomous', 'autonomous'],
+  ])('a user in %s mode runs forks as %s, with a confirm', async (agentMode, expected) => {
     runAgentLoopInSandboxMock.mockResolvedValue(shadowResult());
 
-    await dispatchForks(makeClient(), makeCallbacks(), baseOptions({ numForks: 2 }));
+    await dispatchForks(
+      makeClient(),
+      makeCallbacks(),
+      baseOptions({ numForks: 2, agentOptions: { config: { agentMode, customModes: [] } as never } }),
+    );
 
     for (const call of runAgentLoopInSandboxMock.mock.calls) {
       const agentOpts = call[4];
-      expect(agentOpts.approvalMode).toBe('autonomous');
+      expect(agentOpts.approvalMode).toBe(expected);
+      expect(typeof agentOpts.confirmFn).toBe('function');
     }
   });
 

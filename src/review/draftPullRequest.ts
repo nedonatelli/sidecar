@@ -1,3 +1,4 @@
+import { resolveWorkspaceReadPath } from '../agent/tools/shared.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { SideCarClient } from '../ollama/client.js';
@@ -261,7 +262,8 @@ async function resolveOriginHeadBranch(cwd: string): Promise<string | null> {
  * otherwise. Checks both the lowercase + uppercase conventional
  * paths GitHub honors.
  */
-async function loadTemplate(cwd: string, mode: DraftPrConfig['template']): Promise<string | null> {
+/** Exported for tests. */
+export async function loadTemplate(cwd: string, mode: DraftPrConfig['template']): Promise<string | null> {
   if (mode === 'ignore') return null;
   if (mode === 'auto') {
     const candidates = ['.github/pull_request_template.md', '.github/PULL_REQUEST_TEMPLATE.md'];
@@ -275,9 +277,12 @@ async function loadTemplate(cwd: string, mode: DraftPrConfig['template']): Promi
     }
     return null;
   }
-  // Explicit path — treat as absolute or cwd-relative.
-  const resolved = path.isAbsolute(mode) ? mode : path.join(cwd, mode);
+  // Explicit path: a workspace file, read under the read rules -- the setting
+  // can come from the workspace, and the content goes to the model and into
+  // the PR body. No absolute paths, nothing outside the workspace, no
+  // credential files.
   try {
+    const resolved = resolveWorkspaceReadPath(mode, cwd);
     return await fs.promises.readFile(resolved, 'utf-8');
   } catch {
     return null;

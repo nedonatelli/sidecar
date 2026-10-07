@@ -6,6 +6,7 @@ import { computeUnifiedDiff } from '../../agent/diff.js';
 import { languageToExtension } from './messageUtils.js';
 import { ShellSession } from '../../terminal/shellSession.js';
 import { getConfig } from '../../config/settings.js';
+import { isProtectedWritePath, isSensitiveFile, realPathRefusal } from '../../agent/tools/shared.js';
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg']);
 
@@ -245,6 +246,19 @@ export async function handleCreateFile(state: ChatState, code: string, filePath:
     state.postMessage({ command: 'error', content: 'Invalid file path.' });
     return;
   }
+  // The path and code come from model output, so the agent's write rules
+  // apply: no SideCar state, no credential files, nothing git would run.
+  const rel = path.relative(rootUri.fsPath, fileUri.fsPath).replace(/\\/g, '/');
+  const refusal =
+    (filePath.includes(':') ? `Invalid file path: ${filePath}` : null) ??
+    isProtectedWritePath(rel) ??
+    (isSensitiveFile(rel) ? `"${filePath}" looks like a credential file; create it yourself.` : null) ??
+    (rel.toLowerCase().split('/').includes('.git') ? `Refusing to create "${filePath}" inside .git.` : null) ??
+    realPathRefusal(rootUri.fsPath, rel, 'write');
+  if (refusal) {
+    state.postMessage({ command: 'error', content: refusal });
+    return;
+  }
 
   let exists = false;
   try {
@@ -431,12 +445,16 @@ export async function handleAcceptAllChanges(state: ChatState): Promise<void> {
     if (folders && folders.length > 0) {
       const rootUri = folders[0].uri;
       const writeDisk = async (relPath: string, content: string): Promise<void> => {
+        const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
+        if (refusal) throw new Error(refusal);
         const fileUri = Uri.joinPath(rootUri, relPath);
         const dir = path.dirname(relPath);
         if (dir && dir !== '.') await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
         await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
       };
       const deleteDisk = async (relPath: string): Promise<void> => {
+        const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
+        if (refusal) throw new Error(refusal);
         await workspace.fs.delete(Uri.joinPath(rootUri, relPath), { useTrash: true });
       };
       try {

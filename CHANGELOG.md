@@ -4,6 +4,72 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+A second review of the whole codebase found more ways for content you did not write — a
+cloned repository, a file or web page the agent reads, model output, or another extension —
+to run commands, write or read files, or send your credentials elsewhere without asking
+you first. All of them are fixed here. Details are in security advisory
+[GHSA-5pw7-rhc2-6v9m](https://github.com/nedonatelli/sidecar/security/advisories/GHSA-5pw7-rhc2-6v9m).
+Update to this version; every earlier version is affected.
+
+- **Approval prompts show exactly what will happen.** Every argument is shown in full (it
+  was cut at 80 characters), and the `@sidecar` dialog shows the command it asks about.
+  The `edit_file` diff preview now shows the edit that is actually written; it could show
+  an empty or different diff.
+- **A repository can no longer loosen your approval settings.** `.sidecar/policy.json` can
+  only restrict tools; `"allow"` in it is ignored. About twenty more workspace settings
+  are ignored until you allow the workspace's settings, among them custom modes, the
+  delegate worker's endpoint, the Bedrock region, database profiles, skill and facet
+  registries, MCP delegation, the injection guard and the shadow-workspace mode. Workspace
+  facets (`.sidecar/facets`) load only after you allow them once. Blocking a workspace's
+  `toolPermissions` keeps your own rules, and a trust decision is asked again when the
+  workspace's values change.
+- **Code fences in answers no longer create files on their own.** A fenced block that
+  names a file shows a **Create file** button instead; creating files under `.git/`,
+  SideCar's state or credential files is refused.
+- **Runs that are not the chat follow your rules too.**
+  - Forks and facets still edit freely inside their shadow, but commands, git, database
+    and MCP tools now ask first unless you use autonomous mode.
+  - `/batch` uses the same approval prompts and review queue as the chat.
+  - Review mode asks before commands, deletes and git operations.
+  - The `delegate_task` worker can no longer run shell commands, and your deny and ask
+    rules apply to it and to `spawn_agent`.
+  - `run_tests` with a custom command and `research_log_experiment` follow
+    `run_command`'s rules.
+  - SideCar's tools used from Copilot (`sidecar_run_command`, `sidecar_write_file`, ...)
+    now follow your agent mode and ask through a dialog.
+  - A deny or ask on an MCP tool also applies when it is reached through
+    `delegate_to_mcp`.
+- **Files are judged by where they really are.** Symbolic links, junctions and Windows
+  short names can no longer lead a read or write outside the workspace or onto a credential
+  file. Writes to files that make other tools run commands (`.vscode/`, `.mcp.json`,
+  `.husky/`, `.pre-commit-config.yaml`, `.envrc`, ...) always ask for typed confirmation.
+- **Credentials and ignored files stay out of the prompt.** `@file:`, mentioned files,
+  documentation search, `/init` and the no-index fallback skip credential files and
+  `.sidecarignore`d files. `grep` skips credential files whatever their case. `get_setting`
+  hides tokens passed as MCP server arguments or in URLs. `.sidecarignore` now supports `**`
+  and `[abc]` and takes effect without a reload.
+- **Outbound requests are checked on the connection itself**, so a DNS-rebinding host can
+  no longer reach your machine or network; `ingest_source` and every request a
+  `screenshot_page` page makes use the same check, including redirects.
+- **`db_query` is read-only by the database's own rules** (a read-only transaction on
+  Postgres and MySQL, SQLite's own write check). DuckDB connections can no longer read
+  files or URLs (`read_csv`, `read_text`, `glob`, `httpfs` and `ATTACH` are off).
+- **Untrusted text stays marked as untrusted** wherever it is re-sent: test output,
+  terminal output, and retrieved documentation and memory. Forks, facets, Auto Mode,
+  scheduled runs and the MCP agent server now carry the rule that tool output is data, not
+  instructions. A tool call the model repeats from a file or web page is no longer run, and
+  only what you typed can become a saved standing instruction.
+- **Other hardening:** chat transcripts are no longer written to the shared temp folder;
+  GitHub actions typed in chat (push, create a release, ...) ask first; switching to a
+  backend profile with no stored key no longer sends the previous provider's key; a key
+  changed in one window reaches the others; the audit buffer and the shadow-workspace
+  cleanup cannot be pointed outside the workspace; the secret scanner no longer skips
+  `.github/` and reports files it could not scan; each SDK tool or hook registration is
+  asked about separately, and SDK hooks no longer receive your keys; the macOS sandbox
+  also protects git hook managers, submodules and new repositories.
+
 ## [0.127.2] - 2026-10-07
 
 Fixes 0.127.1, which failed to start.

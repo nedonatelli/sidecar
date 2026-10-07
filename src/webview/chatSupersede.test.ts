@@ -103,7 +103,6 @@ function makeState(client: unknown) {
     saveHistory: vi.fn(),
     autoSave: vi.fn(),
     trimHistory: vi.fn(),
-    logMessage: vi.fn(),
     abortController: null as AbortController | null,
     chatGeneration: 0,
     forceShadowNextRun: false,

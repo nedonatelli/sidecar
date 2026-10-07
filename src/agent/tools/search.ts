@@ -4,7 +4,14 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { getRoot, resolveRoot, isSensitiveFile, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import {
+  getRoot,
+  resolveRoot,
+  isSensitiveFile,
+  realPathRefusal,
+  type ToolExecutorContext,
+  type RegisteredTool,
+} from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { compressGrepOutput } from './compression.js';
 import { grepArgs, GREP_ENV } from './grepArgs.js';
@@ -260,7 +267,9 @@ export function checkGrepPath(searchPath: string, cwd: string): string | null {
       `all of it, or give a directory within it such as "src/".`
     );
   }
-  if (fs.existsSync(resolved)) return null;
+  // grep follows a symbolic link named on its command line, so an existing
+  // path is judged on where it really leads.
+  if (fs.existsSync(resolved)) return realPathRefusal(cwd, searchPath, 'read');
   if (PATH_PATTERN_CHARS.test(searchPath)) {
     const glob = /^\*\*\//.test(searchPath) ? searchPath : `**/${searchPath.replace(/^(\.?\/)+/, '')}`;
     return (

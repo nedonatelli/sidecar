@@ -6,7 +6,7 @@ import type {
   ColumnInfo,
   QueryResult,
 } from './provider.js';
-import { assertReadOnly } from './provider.js';
+import { assertReadOnly, type QueryOptions } from './provider.js';
 
 // ---------------------------------------------------------------------------
 // mysql2/promise type shim — only the surface we call at runtime
@@ -215,38 +215,40 @@ export class MysqlProvider implements DatabaseProvider {
   // query
   // -------------------------------------------------------------------------
 
-  async query(
-    sql: string,
-    params: unknown[] = [],
-    opts: { limit?: number; timeoutMs?: number } = {},
-  ): Promise<QueryResult> {
+  async query(sql: string, params: unknown[] = [], opts: QueryOptions = {}): Promise<QueryResult> {
     const conn = this.requireConn();
 
-    if (this.readOnly) {
+    const readOnly = this.readOnly || opts.readOnly === true;
+    if (readOnly) {
       assertReadOnly(sql);
+      // The database refuses writes inside a READ ONLY transaction.
+      await conn.query('START TRANSACTION READ ONLY');
     }
 
     const limit = opts.limit ?? 1000;
+    try {
+      // mysql2 supports a timeout option on individual queries
+      // We use the lower-level conn.query with the timeout option via the
+      // options object. mysql2/promise wraps the callback API, so we pass
+      // the timeout as part of the options object.
+      // mysql2 accepts either (sql, values) or a single options object.
+      // Passing an options object lets us include the timeout field.
+      const [rows, fields] =
+        opts.timeoutMs !== undefined
+          ? await conn.query({ sql, values: params, timeout: opts.timeoutMs } as unknown as string, undefined)
+          : await conn.query(sql, params);
 
-    // mysql2 supports a timeout option on individual queries
-    // We use the lower-level conn.query with the timeout option via the
-    // options object. mysql2/promise wraps the callback API, so we pass
-    // the timeout as part of the options object.
-    // mysql2 accepts either (sql, values) or a single options object.
-    // Passing an options object lets us include the timeout field.
-    const [rows, fields] =
-      opts.timeoutMs !== undefined
-        ? await conn.query({ sql, values: params, timeout: opts.timeoutMs } as unknown as string, undefined)
-        : await conn.query(sql, params);
+      const rawRows = rows as Array<Record<string, unknown>>;
+      const truncated = rawRows.length > limit;
+      const slicedRows = truncated ? rawRows.slice(0, limit) : rawRows;
+      const normRows = slicedRows.map(normaliseRow);
 
-    const rawRows = rows as Array<Record<string, unknown>>;
-    const truncated = rawRows.length > limit;
-    const slicedRows = truncated ? rawRows.slice(0, limit) : rawRows;
-    const normRows = slicedRows.map(normaliseRow);
+      const columns = (fields as Array<{ name: string }>).map((f) => f.name);
 
-    const columns = (fields as Array<{ name: string }>).map((f) => f.name);
-
-    return { columns, rows: normRows, rowCount: normRows.length, truncated };
+      return { columns, rows: normRows, rowCount: normRows.length, truncated };
+    } finally {
+      if (readOnly) await conn.query('ROLLBACK').catch(() => undefined);
+    }
   }
 
   // -------------------------------------------------------------------------

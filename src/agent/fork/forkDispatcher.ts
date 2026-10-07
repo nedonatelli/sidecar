@@ -3,6 +3,8 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import { runAgentLoopInSandbox, type SandboxResult } from '../shadow/sandbox.js';
 import { runWithCap, AbortedBeforeStartError } from '../parallelDispatch.js';
+import { sandboxedRunApproval } from '../shadow/sandboxApproval.js';
+import { getConfig } from '../../config/settings.js';
 
 // ---------------------------------------------------------------------------
 // Fork dispatcher — primitive for Fork & Parallel Solve.
@@ -302,9 +304,10 @@ async function runOneFork(
       options.signal,
       {
         ...options.agentOptions,
-        // Autonomous — fork is a non-interactive parallel solve.
-        // Approval still fires for destructive tools that opt in.
-        approvalMode: 'autonomous',
+        // File edits land in the fork's shadow and are reviewed afterwards;
+        // anything that reaches the real environment asks first unless the
+        // user runs autonomous.
+        ...sandboxedRunApproval(options.agentOptions?.config ?? getConfig(), label, options.agentOptions?.confirmFn),
         // Arena / model-comparison: pin this fork to a specific model.
         ...(modelOverride ? { modelOverride } : {}),
       },

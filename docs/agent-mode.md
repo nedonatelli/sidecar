@@ -257,7 +257,7 @@ When the active backend is paid (Anthropic, OpenAI), SideCar exposes a `delegate
 **How it works:**
 
 1. The frontier model calls `delegate_task({task, context?})` when it needs to explore the codebase — "find all callers of `authenticate()`", "summarize how tool execution flows through `src/agent/`", "grep for TODO comments related to caching".
-2. SideCar spawns a fresh `SideCarClient` pointed at `http://localhost:11434` (or the configured `sidecar.delegateTask.workerBaseUrl`) with its own system prompt and a **read-only** tool subset: `read_file`, `grep`, `search_files`, `list_directory`, `get_diagnostics`, `find_references`, `git_diff`/`git_status`/`git_log`, `display_diagram`, and `run_command` limited to read-only command shapes (no `;`, `&&`, redirection or `$VARS`; inspection commands such as `cat`, `grep`, `find`, `ls`, `jq` and read-only `git`, with the flags that write or execute refused).
+2. SideCar spawns a fresh `SideCarClient` pointed at `http://localhost:11434` (or the configured `sidecar.delegateTask.workerBaseUrl`) with its own system prompt and a **read-only** tool subset: `read_file`, `grep`, `search_files`, `list_directory`, `get_diagnostics`, `find_references`, `git_diff`/`git_status`/`git_log` and `display_diagram`. It cannot run shell commands, and your own `sidecar.toolPermissions` deny and ask rules apply to its calls.
 3. The worker runs its own mini agent loop (max 10 iterations) with `autonomous` approval mode and produces a compact structured summary — file paths, symbol names, line numbers, recommendations.
 4. The summary is returned to the orchestrator as the `tool_result`. The orchestrator never sees the raw file contents or grep output.
 5. **The worker's token consumption does not count against the orchestrator's char budget.** Local Ollama is free; the paid model only pays for reasoning and synthesis.
@@ -377,7 +377,7 @@ When a background agent completes, a summary is posted to the main chat so you s
 
 ## Typed Sub-Agent Facets _(new in v0.66)_
 
-Facets are a step up from background agents: named specialists with their own tool allowlist, preferred model, and composed system prompt, dispatched in parallel through the Command Palette. Where `/bg` spawns a generic autonomous agent, `SideCar: Facets: Dispatch Specialists` dispatches a specific _role_ — `security-reviewer`, `test-author`, `latex-writer`, etc. — against a task.
+Facets are a step up from background agents: named specialists with their own tool allowlist, preferred model, and composed system prompt, dispatched in parallel through the Command Palette. Where `/bg` spawns a generic background agent, `SideCar: Facets: Dispatch Specialists` dispatches a specific _role_ — `security-reviewer`, `test-author`, `latex-writer`, etc. — against a task.
 
 Key differences from background agents:
 

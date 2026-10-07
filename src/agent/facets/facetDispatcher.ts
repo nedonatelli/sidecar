@@ -8,6 +8,8 @@ import { FacetRpcBus, generateRpcTools, type RpcHandler, type RpcWireTraceEntry 
 import { runForEachWithCap } from '../parallelDispatch.js';
 import { getToolDefinitionsForTier } from '../tools.js';
 import { logger, kv } from '../../system/logger.js';
+import { sandboxedRunApproval } from '../shadow/sandboxApproval.js';
+import { getConfig } from '../../config/settings.js';
 
 // ---------------------------------------------------------------------------
 // Facet dispatcher.
@@ -163,14 +165,14 @@ export async function dispatchFacet(
       options.agentOptions?.mcpManager,
       options.agentOptions?.config,
     );
-  let toolOverride: ToolDefinition[] | undefined =
-    facet.toolAllowlist && facet.toolAllowlist.length > 0
-      ? buildToolOverride(facet.toolAllowlist, baseCatalog())
-      : undefined;
-
-  let modeToolPermissions: Record<string, 'allow' | 'deny' | 'ask'> | undefined = facet.toolAllowlist
-    ? Object.fromEntries(facet.toolAllowlist.map((n) => [n, 'allow' as const]))
+  // An empty allowlist means no tools, not the whole catalog. The allowlist
+  // only narrows the catalog: it grants no permission, so the user's own deny
+  // and ask rules still apply to the tools it keeps.
+  let toolOverride: ToolDefinition[] | undefined = facet.toolAllowlist
+    ? buildToolOverride(facet.toolAllowlist, baseCatalog())
     : undefined;
+
+  let modeToolPermissions: Record<string, 'allow' | 'deny' | 'ask'> | undefined;
 
   // merge RPC peer tools into the facet's tool
   // surface when a bus is provided. Generated tools are named
@@ -206,10 +208,14 @@ export async function dispatchFacet(
         toolOverride,
         modeToolPermissions: { ...options.agentOptions?.modeToolPermissions, ...modeToolPermissions },
         extraTools,
-        // Autonomous — a facet is a specialist, not a user-interactive
-        // session. Approval still fires for destructive tools that
-        // opt in via `alwaysRequireApproval`.
-        approvalMode: 'autonomous',
+        // File edits land in the facet's shadow and are reviewed afterwards;
+        // anything that reaches the real environment asks first unless the
+        // user runs autonomous.
+        ...sandboxedRunApproval(
+          options.agentOptions?.config ?? getConfig(),
+          `facet ${facet.id}`,
+          options.agentOptions?.confirmFn,
+        ),
         // Pass composed system prompt and preferred model via per-run
         // overrides so concurrent facet runs don't race on the shared
         // client.systemPrompt / client.model fields.

@@ -407,6 +407,22 @@ describe('registerAdaptivePasteCommand', () => {
     expect(tracker.getLastPaste()).toBeNull();
   });
 
+  // The client was built once at activation -- before SecretStorage loaded,
+  // with the placeholder key -- and never rebuilt. A factory is called per use.
+  it('builds its client when it runs, from a factory', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor();
+    vi.spyOn(workspace as typeof workspace & { applyEdit: () => Promise<boolean> }, 'applyEdit').mockResolvedValue(
+      true,
+    );
+    const client = makeClient('const result = {};');
+    const factory = vi.fn(() => client);
+    await captureAndInvoke(factory as never, makeTracker(), { paste: fakePaste, transforms: singleTransform });
+    expect(factory).toHaveBeenCalledOnce();
+    expect(
+      (client as { completeWithOverrides: ReturnType<typeof vi.fn> }).completeWithOverrides,
+    ).toHaveBeenCalledOnce();
+  });
+
   // #119: the paste was edited while the model worked; replacing its old range
   // would overwrite other text.
   it('replaces nothing when the pasted text changed during the transform', async () => {

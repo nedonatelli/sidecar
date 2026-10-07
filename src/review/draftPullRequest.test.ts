@@ -475,3 +475,16 @@ describe('runDraftPullRequest — branch protection awareness', () => {
     expect(previewCall.content).not.toContain('Branch protection');
   });
 });
+
+// sidecar.pr.create.template can come from the workspace; any path it named
+// was read and sent to the model, then offered as the PR body.
+describe('an explicit PR template path stays inside the workspace', () => {
+  it('reads nothing outside the workspace, absolute or credential', async () => {
+    const { loadTemplate } = await import('./draftPullRequest.js');
+    const cwd = process.cwd();
+    expect(await loadTemplate(cwd, '../../etc/passwd')).toBeNull();
+    expect(await loadTemplate(cwd, process.platform === 'win32' ? 'C:/Windows/win.ini' : '/etc/passwd')).toBeNull();
+    expect(await loadTemplate(cwd, '.env')).toBeNull();
+    expect(await loadTemplate(cwd, 'package.json')).toContain('"name"');
+  });
+});

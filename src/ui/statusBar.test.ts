@@ -57,3 +57,13 @@ describe('status bar hover', () => {
     expect(codeSpan('a`[x](command:y)`b')).toBe("`a'[x](command:y)'b`");
   });
 });
+
+// A blank line in a workspace-set model name ended the code span; the markdown
+// after it became a live, trusted command link in the hover.
+describe('codeSpan keeps untrusted text on one line', () => {
+  it('collapses newlines so nothing after them is parsed as markdown', () => {
+    const out = codeSpan('qwen\n\n[click](command:sidecar.switchBackend?%22openrouter%22)');
+    expect(out).not.toMatch(/\n/);
+    expect(out.startsWith('`') && out.endsWith('`')).toBe(true);
+  });
+});

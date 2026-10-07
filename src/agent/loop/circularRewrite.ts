@@ -1,3 +1,4 @@
+import { neutralizeInjections } from '../injectionGuard.js';
 import * as crypto from 'crypto';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
@@ -209,7 +210,9 @@ export function captureLastFailureOutput(
     if (!res) continue;
     const text = typeof res.content === 'string' ? res.content : '';
     if (!text || !FAILURE_MARKER_RE.test(text)) continue;
-    state.lastFailureOutput = cleanOutput(text);
+    // Re-sent later inside a user-role reprompt, outside the tool-result
+    // fence; test names and assertion text can come from the repository.
+    state.lastFailureOutput = neutralizeInjections(cleanOutput(text), 'test/diagnostic output').text;
   }
 }
 

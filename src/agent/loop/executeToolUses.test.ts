@@ -21,6 +21,7 @@ import type { ToolDefinition } from '../tools/shared.js';
 
 vi.mock('../executor.js', () => ({
   executeTool: vi.fn(),
+  resolveToolPermission: vi.fn(async () => ({ explicitPermission: undefined, denied: null })),
 }));
 vi.mock('../subagent.js', () => ({
   spawnSubAgent: vi.fn(),
@@ -34,7 +35,7 @@ vi.mock('./toolBudget.js', () => ({
 }));
 
 import { executeToolUses } from './executeToolUses.js';
-import { executeTool } from '../executor.js';
+import { executeTool, resolveToolPermission } from '../executor.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import { checkToolBudget } from './toolBudget.js';
@@ -214,6 +215,60 @@ describe('executeToolUses — dispatch routing', () => {
     );
     expect(runLocalWorker).toHaveBeenCalledOnce();
     expect(state.totalChars).toBe(1000); // UNCHARGED
+  });
+
+  // Both are dispatched here, not through executeTool, and used to skip every
+  // permission rule: a user's or policy 'deny', an 'ask', manual mode.
+  it.each(['delegate_task', 'spawn_agent'])('a denied %s is refused, not dispatched', async (name) => {
+    vi.mocked(resolveToolPermission).mockResolvedValueOnce({
+      explicitPermission: 'deny',
+      denied: { type: 'tool_result', tool_use_id: 'x', content: `Tool "${name}" is denied by policy.`, is_error: true },
+    });
+    const results = await executeToolUses(
+      catalogState(),
+      [use(name, { task: 'read big file' })],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    expect(runLocalWorker).not.toHaveBeenCalled();
+    expect(spawnSubAgent).not.toHaveBeenCalled();
+    expect(results[0].is_error).toBe(true);
+  });
+
+  it('manual mode asks before delegating, and a Deny stops it', async () => {
+    const confirmFn = vi.fn().mockResolvedValue('Deny');
+    const results = await executeToolUses(
+      catalogState({ approvalMode: 'manual' }),
+      [use('delegate_task', { task: 'read big file' })],
+      {} as SideCarClient,
+      { confirmFn } as unknown as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    expect(confirmFn).toHaveBeenCalledOnce();
+    expect(String(confirmFn.mock.calls[0][0])).toContain('read big file');
+    expect(runLocalWorker).not.toHaveBeenCalled();
+    expect(results[0].is_error).toBe(true);
+  });
+
+  it("passes the parent's mode rules, confirm and workspace to the worker", async () => {
+    vi.mocked(runLocalWorker).mockResolvedValueOnce({ output: 'ok', success: true, charsConsumed: 0, model: 'm' });
+    const confirmFn = vi.fn();
+    await executeToolUses(
+      catalogState(),
+      [use('delegate_task', { task: 't' })],
+      {} as SideCarClient,
+      { confirmFn, modeToolPermissions: { grep: 'deny' }, cwdOverride: '/shadow' } as unknown as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    expect(vi.mocked(runLocalWorker).mock.calls[0][4]).toMatchObject({
+      confirmFn,
+      modeToolPermissions: { grep: 'deny' },
+      cwdOverride: '/shadow',
+    });
   });
 });
 

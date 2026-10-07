@@ -53,6 +53,7 @@ export class SidecarDir {
     'screenshots/',
     'thinking/',
     'pids.json',
+    'memory/durable-instructions.json',
     '',
   ].join('\n');
 
@@ -78,6 +79,17 @@ export class SidecarDir {
     const gitignoreUri = Uri.joinPath(dirUri, '.gitignore');
     try {
       await workspace.fs.stat(gitignoreUri);
+      // An existing .gitignore from an older version lacks the durable
+      // instructions file -- the user's own sentences, which must not be
+      // committed. Add the line once.
+      const current = Buffer.from(await workspace.fs.readFile(gitignoreUri)).toString('utf-8');
+      if (!current.split(/\r?\n/).includes('memory/durable-instructions.json')) {
+        const sep = current.endsWith('\n') || current === '' ? '' : '\n';
+        await workspace.fs.writeFile(
+          gitignoreUri,
+          Buffer.from(`${current}${sep}memory/durable-instructions.json\n`, 'utf-8'),
+        );
+      }
     } catch {
       await workspace.fs.writeFile(gitignoreUri, Buffer.from(SidecarDir.GITIGNORE_CONTENT, 'utf-8'));
     }

@@ -11,7 +11,14 @@ export interface RepoPolicy {
 
 const PERM_ORDER: Record<ToolPermLevel, number> = { allow: 0, ask: 1, deny: 2 };
 
-export function mergePermLevel(user: ToolPermLevel | undefined, policy: ToolPermLevel): ToolPermLevel {
+/**
+ * Apply a repo policy level on top of the user's own level. The policy file is
+ * checked into the repository, so it may only tighten: `'allow'` grants
+ * nothing, and an unset user level stays unset (it means "follow the approval
+ * mode", which an `'allow'` would otherwise skip).
+ */
+export function mergePermLevel(user: ToolPermLevel | undefined, policy: ToolPermLevel): ToolPermLevel | undefined {
+  if (policy === 'allow') return user;
   if (user === undefined) return policy;
   return PERM_ORDER[user] >= PERM_ORDER[policy] ? user : policy;
 }
@@ -51,5 +58,14 @@ export async function loadRepoPolicy(workspaceRoot: string): Promise<RepoPolicy 
     return null;
   }
 
-  return parsed as RepoPolicy;
+  // Keep only the restricting levels. 'allow' would grant nothing anyway, and
+  // an unknown value must not be compared as if it were a level.
+  const toolPermissions: Record<string, ToolPermLevel> = {};
+  const rawPerms = (parsed as Record<string, unknown>).toolPermissions;
+  if (typeof rawPerms === 'object' && rawPerms !== null) {
+    for (const [tool, level] of Object.entries(rawPerms)) {
+      if (level === 'ask' || level === 'deny') toolPermissions[tool] = level;
+    }
+  }
+  return { version: 1, toolPermissions };
 }

@@ -19,12 +19,22 @@ export function grepArgs(pattern: string, where: string): string[] {
     '--exclude-dir=.git',
     '--include=*',
     // After --include: when the two disagree, grep lets the LAST match win.
-    ...SECRET_FILE_GLOBS.map((g) => `--exclude=${g}`),
+    ...SECRET_FILE_GLOBS.map((g) => `--exclude=${caseInsensitiveGlob(g)}`),
     '-e',
     pattern,
     '--',
     where,
   ];
+}
+
+/**
+ * grep matches --exclude globs case-sensitively, while read_file's credential
+ * rule ignores case: `Server.KEY` or `.ENV` was refused by read_file and
+ * printed by grep. Each letter becomes a two-case bracket (`*.pem` ->
+ * `*.[pP][eE][mM]`).
+ */
+export function caseInsensitiveGlob(glob: string): string {
+  return glob.replace(/[a-z]/gi, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
 }
 
 /**

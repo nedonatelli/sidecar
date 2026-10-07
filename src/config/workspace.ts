@@ -2,8 +2,10 @@ import { workspace, commands, Uri, CancellationToken, SymbolInformation } from '
 import * as path from 'path';
 import { getConfig } from './settings.js';
 import { unescapeHtml } from '../util/html.js';
-import { isSensitiveFile } from '../agent/tools/shared.js';
-import { classifyHostLiteral, urlBlockReason } from '../util/netGuard.js';
+import { isSensitiveFile, realWorkspaceRelative } from '../agent/tools/shared.js';
+import { loadSidecarIgnore, isSidecarIgnored, type IgnoreMatcher } from './sidecarIgnore.js';
+import { loadContextFileFilter } from './contextFileFilter.js';
+import { classifyHostLiteral, fetchGuarded, type GuardedResponse } from '../util/netGuard.js';
 
 export interface WorkspaceFile {
   relativePath: string;
@@ -25,6 +27,7 @@ export async function getWorkspaceContext(
 
   const files: WorkspaceFile[] = [];
   const rootPath = workspaceFolders[0].uri.fsPath;
+  const mayInclude = await loadContextFileFilter(workspaceFolders[0].uri);
   for (const pattern of patterns) {
     if (files.length >= maxFiles) break;
     if (token?.isCancellationRequested) break;
@@ -39,6 +42,7 @@ export async function getWorkspaceContext(
     for (const uri of uris) {
       if (files.length >= maxFiles) break;
       if (token?.isCancellationRequested) break;
+      if (!mayInclude(uri.fsPath)) continue;
 
       try {
         const stat = await workspace.fs.stat(uri);
@@ -96,6 +100,20 @@ export function getContextLimit(): number {
   return workspace.getConfiguration('sidecar').get<number>('contextLimit', 0);
 }
 
+/**
+ * Why a file referenced in chat text may not be inlined into the prompt, or
+ * null when it may. The text can include files someone else wrote, so the
+ * file is judged by where it really is: inside the workspace, not a credential
+ * file under any name, and not excluded by .sidecarignore.
+ */
+function inlineRefusal(rootPath: string, relPath: string, ignore: readonly IgnoreMatcher[]): string | null {
+  const real = realWorkspaceRelative(rootPath, relPath);
+  if (real === null) return 'outside the workspace — not attached';
+  if (isSensitiveFile(relPath) || isSensitiveFile(real)) return 'credential file — not attached';
+  if (isSidecarIgnored(real, ignore)) return 'excluded by .sidecarignore — not attached';
+  return null;
+}
+
 export async function resolveAtReferences(text: string): Promise<string> {
   const workspaceFolders = workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) return text;
@@ -105,6 +123,7 @@ export async function resolveAtReferences(text: string): Promise<string> {
   const attachments: string[] = [];
 
   const rootPath = root.fsPath;
+  let ignore: IgnoreMatcher[] | undefined;
 
   /** Resolve a relative path and verify it stays within the workspace root. */
   function resolveWithinWorkspace(relativePath: string): string | null {
@@ -120,6 +139,12 @@ export async function resolveAtReferences(text: string): Promise<string> {
     const resolved = resolveWithinWorkspace(filePath);
     if (!resolved) {
       attachments.push(`### @file:${filePath}\n⚠️ Path traversal blocked — must be within workspace`);
+      continue;
+    }
+    ignore ??= await loadSidecarIgnore(root);
+    const refusal = inlineRefusal(rootPath, filePath, ignore);
+    if (refusal) {
+      attachments.push(`### @file:${filePath}\n⚠️ ${refusal}`);
       continue;
     }
     try {
@@ -201,6 +226,7 @@ export async function resolveFileReferences(text: string): Promise<string> {
   let match;
   const attached: { filePath: string; content: string }[] = [];
   const seen = new Set<string>();
+  let ignore: IgnoreMatcher[] | undefined;
 
   while ((match = filePathRegex.exec(text)) !== null) {
     const candidate = match[1].trim();
@@ -211,8 +237,11 @@ export async function resolveFileReferences(text: string): Promise<string> {
     // workspace only (Uri.joinPath resolves `../` right out of it), and never
     // a credential file.
     const base = path.resolve(root.fsPath);
-    const resolved = path.resolve(base, candidate.replace(/^\/+/, ''));
+    const relCandidate = candidate.replace(/^\/+/, '');
+    const resolved = path.resolve(base, relCandidate);
     if (!resolved.startsWith(base + path.sep) || isSensitiveFile(resolved)) continue;
+    ignore ??= await loadSidecarIgnore(root);
+    if (inlineRefusal(base, relCandidate, ignore)) continue;
     try {
       const fileUri = Uri.file(resolved);
       const stat = await workspace.fs.stat(fileUri);
@@ -260,17 +289,19 @@ export function isPrivateUrl(urlStr: string): boolean {
  * put in the prompt. Follows at most 3 redirects, re-checking each Location
  * (DNS included); returns null when any hop is blocked.
  */
-async function fetchPublic(url: string, init: RequestInit): Promise<Response | null> {
-  let current = url;
-  for (let hop = 0; hop <= 3; hop++) {
-    if (await urlBlockReason(current)) return null;
-    if (!isAllowedOutboundHost(current)) return null;
-    const response = await fetch(current, { ...init, redirect: 'manual' });
-    const location = response.status >= 300 && response.status < 400 ? response.headers.get('location') : null;
-    if (!location) return response;
-    current = new URL(location, current).toString();
+async function fetchPublic(url: string, headers: Record<string, string>): Promise<GuardedResponse | null> {
+  try {
+    // The address is checked on the connection itself (no DNS rebinding), and
+    // every redirect hop is checked again, outbound allowlist included.
+    return await fetchGuarded(url, {
+      headers,
+      timeoutMs: URL_FETCH_TIMEOUT,
+      maxRedirects: 3,
+      checkUrl: (hop) => (isAllowedOutboundHost(hop) ? null : 'not in sidecar.outboundAllowlist'),
+    });
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /**
@@ -332,14 +363,11 @@ export async function resolveUrlReferences(text: string): Promise<string> {
     if (isPrivateUrl(url)) continue; // SSRF protection
     if (!isAllowedOutboundHost(url)) continue; // outbound allowlist (when configured)
     try {
-      const response = await fetchPublic(url, {
-        signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),
-        headers: { 'User-Agent': 'SideCar-VSCode/1.0' },
-      });
-      if (!response?.ok) continue;
-      const contentType = response.headers.get('content-type') || '';
+      const response = await fetchPublic(url, { 'User-Agent': 'SideCar-VSCode/1.0' });
+      if (!response || response.status < 200 || response.status >= 300) continue;
+      const contentType = response.headers['content-type'] || '';
       if (!contentType.includes('text/html') && !contentType.includes('text/plain')) continue;
-      const html = await response.text();
+      const html = response.body.toString('utf-8');
       const readable = extractReadableContent(html).slice(0, MAX_URL_CONTENT);
       if (readable.length > 50) {
         attachments.push(`### ${url}\n\`\`\`\n${readable}\n\`\`\``);

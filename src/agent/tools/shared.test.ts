@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
 import { workspace } from 'vscode';
-import { grepArgs } from './grepArgs.js';
+import { grepArgs, caseInsensitiveGlob } from './grepArgs.js';
 import {
   resolveWorkspaceReadPath,
   resolveRoot,
@@ -223,9 +223,17 @@ describe('grepArgs: credential files are never searched', () => {
     const args = grepArgs('KEY', '.');
     const include = args.indexOf('--include=*');
     for (const g of ['.env', '.env.*', '*.pem', 'id_rsa*', '*credentials.json']) {
-      const at = args.indexOf(`--exclude=${g}`);
+      const at = args.indexOf(`--exclude=${caseInsensitiveGlob(g)}`);
       expect(at, g).toBeGreaterThan(include);
     }
     expect(args.slice(-3)).toEqual(['KEY', '--', '.']);
+  });
+});
+
+// grep's --exclude is case-sensitive; read_file's credential rule is not.
+describe('grep excludes credential files whatever their case', () => {
+  it('turns each glob into a two-case bracket pattern', () => {
+    expect(caseInsensitiveGlob('*.pem')).toBe('*.[pP][eE][mM]');
+    expect(caseInsensitiveGlob('.env')).toBe('.[eE][nN][vV]');
   });
 });

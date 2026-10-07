@@ -155,6 +155,24 @@ describe('createWorkspaceAuditBufferPersistence', () => {
       commits: [{ message: 'valid: good', timestamp: 99 }],
     });
   });
+
+  // .sidecar/audit-buffer/state.json sits in the workspace, so a cloned repo
+  // can ship one; restore + Accept applied its entries with no path checks.
+  it('drops entries the write tools would refuse, and keeps the rest', async () => {
+    const persistence = createWorkspaceAuditBufferPersistence();
+    await persistence.save({
+      entries: [
+        { path: 'src/a.ts', op: 'modify', content: 'ok', timestamp: 1 },
+        { path: '../outside.txt', op: 'create', content: 'x', timestamp: 2 },
+        { path: '.git/hooks/pre-commit', op: 'create', content: '#!/bin/sh', timestamp: 3 },
+        { path: '.env', op: 'delete', timestamp: 4 },
+        { path: '.sidecar/memory/agent-memories.json', op: 'create', content: '[]', timestamp: 5 },
+      ],
+      commits: [],
+    });
+    const loaded = await persistence.load();
+    expect(loaded?.entries.map((e) => e.path)).toEqual(['src/a.ts']);
+  });
 });
 
 describe('AuditBuffer + persistence integration', () => {

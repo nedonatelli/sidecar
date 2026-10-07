@@ -165,7 +165,9 @@ export const researchTools: RegisteredTool[] = [
       let outputTail = '';
 
       try {
-        const runtime = getDefaultToolRuntime();
+        // The run's own shell: in a shadow, fork or background run that is the
+        // per-run runtime rooted at its worktree, not the main workspace's.
+        const runtime = context?.toolRuntime ?? getDefaultToolRuntime();
         const shell = runtime.getShellSession();
         const result = await shell.execute(command, { signal: context?.signal });
         exitCode = result.exitCode ?? 0;

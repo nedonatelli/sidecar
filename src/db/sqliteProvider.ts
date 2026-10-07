@@ -6,7 +6,7 @@ import type {
   ColumnInfo,
   QueryResult,
 } from './provider.js';
-import { assertReadOnly } from './provider.js';
+import { assertReadOnly, type QueryOptions } from './provider.js';
 
 const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -23,6 +23,8 @@ function validateIdentifier(name: string, label: string): void {
 
 interface BetterSqlite3Statement {
   all(...params: unknown[]): unknown[];
+  /** True when the statement does not write (sqlite3_stmt_readonly). */
+  readonly readonly: boolean;
 }
 
 interface BetterSqlite3Database {
@@ -202,18 +204,20 @@ export class SqliteProvider implements DatabaseProvider {
   // query
   // -------------------------------------------------------------------------
 
-  async query(
-    sql: string,
-    params: unknown[] = [],
-    opts: { limit?: number; timeoutMs?: number } = {},
-  ): Promise<QueryResult> {
+  async query(sql: string, params: unknown[] = [], opts: QueryOptions = {}): Promise<QueryResult> {
     const db = this.requireDb();
 
-    if (this.readOnly) {
+    const readOnly = this.readOnly || opts.readOnly === true;
+    if (readOnly) {
       assertReadOnly(sql);
     }
 
     const limit = opts.limit ?? 1000;
+    // SQLite itself reports whether a statement can write (sqlite3_stmt_readonly),
+    // which covers what a text check cannot: PRAGMA forms, functions, triggers.
+    if (readOnly && !db.prepare(sql).readonly) {
+      throw new Error('Read-only violation: SQLite reports that this statement can write. Use db_execute.');
+    }
 
     // better-sqlite3 is synchronous — wrap in async but note that it blocks
     // the event loop for the duration of the query. The practical timeout

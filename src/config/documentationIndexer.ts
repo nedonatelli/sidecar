@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import { logger } from '../system/logger.js';
 import * as path from 'path';
+import { loadContextFileFilter } from './contextFileFilter.js';
 import { INDEX_EXCLUDE_PATTERN, INDEX_MAX_FILES_PER_PATTERN, indexScanTruncated } from './indexExcludes.js';
 
 /**
@@ -90,7 +91,9 @@ export class DocumentationIndexer {
     }
 
     // Index each documentation file
+    const mayInclude = await loadContextFileFilter(rootUri);
     for (const fileUri of docFiles) {
+      if (!mayInclude(fileUri.fsPath)) continue;
       try {
         await this.indexFile(fileUri, rootUri);
       } catch (error) {

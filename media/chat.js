@@ -359,8 +359,27 @@
     'pre',
     'code',
   ]);
-  const SVG_DANGEROUS_ATTRS = /^on/i;
+  // Event handlers, and data-* attributes: the chat's delegated click handler
+  // acts on data-action / data-code, so markup that survives the tag allowlist
+  // must not carry them.
+  const SVG_DANGEROUS_ATTRS = /^(on|data-)/i;
   const SVG_DANGEROUS_VALS = /javascript:|data:text\/html/i;
+  // Classes the chat's own handlers react to, and styles that can lay an
+  // element over the panel or fetch something.
+  const CHAT_CONTROL_CLASSES = new Set([
+    'code-block',
+    'message',
+    'message-actions',
+    'model-action',
+    'session-delete-btn',
+    'session-item',
+    'tool-call',
+    'image-remove',
+    'code-save-btn',
+    'confirm-btn',
+    'next-step-btn',
+  ]);
+  const SVG_UNSAFE_STYLE = /url\s*\(|expression|@import|position\s*:\s*(fixed|absolute|sticky)/i;
 
   function sanitizeSvg(svgContent) {
     try {
@@ -385,8 +404,15 @@
           }
           // Remove dangerous attributes
           for (const attr of [...node.attributes]) {
-            if (SVG_DANGEROUS_ATTRS.test(attr.name) || SVG_DANGEROUS_VALS.test(attr.value)) {
+            if (
+              SVG_DANGEROUS_ATTRS.test(attr.name) ||
+              SVG_DANGEROUS_VALS.test(attr.value) ||
+              (attr.name === 'style' && SVG_UNSAFE_STYLE.test(attr.value))
+            ) {
               node.removeAttribute(attr.name);
+            } else if (attr.name === 'class') {
+              const kept = attr.value.split(/\s+/).filter((c) => c && !CHAT_CONTROL_CLASSES.has(c));
+              node.setAttribute('class', kept.join(' '));
             }
           }
           // Sanitize href on <a> — only allow fragment links
@@ -407,6 +433,113 @@
       return new XMLSerializer().serializeToString(doc.documentElement);
     } catch {
       return ''; // If anything goes wrong, return empty SVG
+    }
+  }
+
+  // Tool results flagged as HTML (database tables, render_viz) still carry
+  // text the model chose -- a connection id, a cell, a label. Markup is kept
+  // only from this allowlist: no scripts or handlers, and nothing that could
+  // pose as one of the chat's own controls (buttons, links, data-action,
+  // their classes), since the chat's click handlers act on those.
+  const HTML_ALLOWED_TAGS = new Set([
+    'div',
+    'span',
+    'p',
+    'br',
+    'b',
+    'strong',
+    'em',
+    'i',
+    'code',
+    'pre',
+    'small',
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'tr',
+    'th',
+    'td',
+    'caption',
+    'ul',
+    'ol',
+    'li',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+  ]);
+  const HTML_DROPPED_TAGS = new Set([
+    'script',
+    'style',
+    'iframe',
+    'frame',
+    'object',
+    'embed',
+    'form',
+    'input',
+    'button',
+    'textarea',
+    'select',
+    'option',
+    'a',
+    'img',
+    'link',
+    'meta',
+    'base',
+    'svg',
+    'math',
+    'template',
+    'video',
+    'audio',
+  ]);
+  const HTML_ALLOWED_ATTRS = new Set([
+    'data-col',
+    'data-sort',
+    'data-sortable',
+    'colspan',
+    'rowspan',
+    'title',
+    'style',
+    'class',
+  ]);
+  const HTML_UNSAFE_STYLE = /url\s*\(|expression|@import|position\s*:|z-index/i;
+
+  function sanitizeHtml(html) {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const clean = (node) => {
+        for (const child of [...node.childNodes]) {
+          if (child.nodeType === Node.COMMENT_NODE) {
+            child.remove();
+            continue;
+          }
+          if (child.nodeType !== Node.ELEMENT_NODE) continue;
+          const tag = child.tagName.toLowerCase();
+          if (HTML_DROPPED_TAGS.has(tag)) {
+            child.remove();
+            continue;
+          }
+          clean(child);
+          if (!HTML_ALLOWED_TAGS.has(tag)) {
+            // Unknown wrappers (<tool_output>) keep their content, not themselves.
+            child.replaceWith(...child.childNodes);
+            continue;
+          }
+          for (const attr of [...child.attributes]) {
+            const name = attr.name.toLowerCase();
+            const keep =
+              HTML_ALLOWED_ATTRS.has(name) &&
+              !(name === 'style' && HTML_UNSAFE_STYLE.test(attr.value)) &&
+              !(name === 'class' && !/^(sidecar-[\w-]+\s*)+$/.test(attr.value.trim()));
+            if (!keep) child.removeAttribute(attr.name);
+          }
+        }
+      };
+      clean(doc.body);
+      return doc.body.innerHTML;
+    } catch {
+      return '';
     }
   }
 
@@ -2338,7 +2471,11 @@
     }
   }
 
-  const createdFiles = new Set();
+  // The text after a fence's language word is taken as a file path only when
+  // it looks like one: `c#` or `js {1,3}` are not paths.
+  function looksLikeFencePath(p) {
+    return /^[\w@.\-/\\]+$/.test(p) && /[./\\]/.test(p) && !/^\.+$/.test(p);
+  }
 
   // ---------------------------------------------------------------------------
   // Tool display helpers — clean names and icons like Claude Code / Copilot
@@ -2725,20 +2862,6 @@
       header.className = 'code-block-header';
       header.appendChild(document.createTextNode(filePath || lang || 'code'));
 
-      if (filePath && supportsTools) {
-        // If tools supported and has file path, create file silently (don't show in webview)
-        if (!createdFiles.has(filePath)) {
-          createdFiles.add(filePath);
-          vscode.postMessage({ command: 'createFile', code, filePath });
-        }
-        const notice = document.createElement('div');
-        notice.className = 'file-created-notice';
-        notice.textContent = '\u2713 Created ' + filePath;
-        fragment.appendChild(notice);
-        lastIndex = match.index + match[0].length;
-        continue;
-      }
-
       // For chat-only models or code blocks without file paths, always show the code block
       const isShell = ['sh', 'bash', 'shell', 'zsh'].includes(lang.toLowerCase());
       if (isShell) {
@@ -2761,6 +2884,20 @@
         });
       });
       header.appendChild(copyCodeBtn);
+
+      // A fence that names a file offers to create it, never automatically:
+      // the text is model output, and neither a render nor a history replay
+      // may write to the workspace.
+      if (supportsTools && looksLikeFencePath(filePath)) {
+        const createBtn = document.createElement('button');
+        createBtn.className = 'code-save-btn code-create-btn';
+        createBtn.textContent = 'Create file';
+        createBtn.title = 'Create ' + filePath + ' with this code';
+        createBtn.dataset.action = 'create';
+        createBtn.dataset.code = code;
+        createBtn.dataset.path = filePath;
+        header.appendChild(createBtn);
+      }
 
       const saveBtn = document.createElement('button');
       saveBtn.className = 'code-save-btn';
@@ -4029,6 +4166,8 @@
       btn.disabled = true;
     } else if (action === 'save') {
       vscode.postMessage({ command: 'saveCodeBlock', code: btn.dataset.code, language: btn.dataset.lang });
+    } else if (action === 'create') {
+      vscode.postMessage({ command: 'createFile', code: btn.dataset.code, filePath: btn.dataset.path });
     }
   });
 
@@ -5315,7 +5454,7 @@
               if (resultIsHtml && text.trim().startsWith('<')) {
                 const vizContainer = document.createElement('div');
                 vizContainer.className = 'tool-result-viz';
-                vizContainer.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : text;
+                vizContainer.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : sanitizeHtml(text);
                 matchedBody.appendChild(vizContainer);
               } else {
                 matchedBody.textContent += '\n' + text;
@@ -5385,7 +5524,7 @@
           if (resultIsHtml && text.trim().startsWith('<')) {
             const vizBody = document.createElement('div');
             vizBody.className = 'tool-result-body tool-result-viz';
-            vizBody.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : text;
+            vizBody.innerHTML = text.includes('<svg') ? sanitizeSvg(text) : sanitizeHtml(text);
             details.appendChild(vizBody);
           } else {
             const body = document.createElement('pre');

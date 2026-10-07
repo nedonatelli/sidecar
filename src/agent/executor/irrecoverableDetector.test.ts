@@ -59,3 +59,17 @@ describe('detectIrrecoverable', () => {
   it('returns null for non-run_command tool', () => expect(detectIrrecoverable(tool('read_file'))).toBeNull());
   it('returns null for write_file', () => expect(detectIrrecoverable(tool('write_file'))).toBeNull());
 });
+
+// run_tests and research_log_experiment take a free-form command; the
+// type-to-CONFIRM gate saw only run_command.
+describe('every tool that runs a shell command', () => {
+  it.each(['run_tests', 'research_log_experiment'])('%s with a destructive command is flagged', (name) => {
+    for (const command of ['rm -rf ~/project', 'git push --force origin main', 'git reset --hard HEAD~3']) {
+      expect(detectIrrecoverable({ type: 'tool_use', id: 'x', name, input: { command } } as never)).not.toBeNull();
+    }
+  });
+
+  it('run_tests without a command (auto-detected runner) is not flagged', () => {
+    expect(detectIrrecoverable({ type: 'tool_use', id: 'x', name: 'run_tests', input: {} } as never)).toBeNull();
+  });
+});

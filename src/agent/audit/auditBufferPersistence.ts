@@ -1,6 +1,7 @@
 import { workspace, Uri } from 'vscode';
 import { logger } from '../../system/logger.js';
 import type { AuditBufferPersistence, BufferedChange, BufferedCommit } from './auditBuffer.js';
+import { auditPathRefusal } from '../tools/shared.js';
 
 /**
  * Filesystem-backed persistence for `AuditBuffer` . Saves
@@ -160,11 +161,18 @@ function resolveStateUri(): Uri | null {
 function isBufferedChange(x: unknown): x is BufferedChange {
   if (!x || typeof x !== 'object') return false;
   const r = x as Record<string, unknown>;
-  return (
-    typeof r.path === 'string' &&
-    (r.op === 'create' || r.op === 'modify' || r.op === 'delete') &&
-    typeof r.timestamp === 'number'
-  );
+  if (
+    typeof r.path !== 'string' ||
+    !(r.op === 'create' || r.op === 'modify' || r.op === 'delete') ||
+    typeof r.timestamp !== 'number'
+  ) {
+    return false;
+  }
+  // The state file sits in the workspace, so a cloned repo can ship one: an
+  // entry the write tools would refuse (`../`, protected, credential) is dropped.
+  const refusal = auditPathRefusal(r.path);
+  if (refusal) logger.warn(`[AuditBuffer persistence] dropped entry: ${refusal}`);
+  return refusal === null;
 }
 
 function isBufferedCommit(x: unknown): x is BufferedCommit {

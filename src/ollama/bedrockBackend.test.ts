@@ -20,6 +20,13 @@ describe('bedrock endpoint helpers', () => {
     );
     expect(bedrockControlOrigin('us-gov-west-1', true)).toBe('https://bedrock-fips.us-gov-west-1.amazonaws.com');
   });
+
+  it('refuses a region that would change the host the credentials go to', () => {
+    for (const region of ['evil.example/x', 'x@evil.example', 'us-east-1.evil.example', 'evil.example:443#', '']) {
+      expect(() => bedrockRuntimeOrigin(region)).toThrow(/Invalid Bedrock region/);
+      expect(() => bedrockControlOrigin(region)).toThrow(/Invalid Bedrock region/);
+    }
+  });
 });
 
 // Build one AWS event-stream chunk frame wrapping an Anthropic event.

@@ -179,6 +179,9 @@ async function initAuditBufferRecovery(): Promise<void> {
     await persistence.clear();
     return;
   }
+  // Only an explicit Review restores: a dismissed or ignored notice leaves the
+  // state on disk, to be asked about again next time.
+  if (choice !== 'Review') return;
   buf.restore(recovered);
 }
 

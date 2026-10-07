@@ -10,8 +10,9 @@ import * as path from 'path';
 import type { ChatState } from '../chatState.js';
 import { getConfig, resolveMode } from '../../config/settings.js';
 import { parsePlanFromText } from '../../agent/plans/externalPlan.js';
-import { handleUserMessage } from './chatHandlers.js';
+import { handleUserMessage, approvalUiOptions } from './chatHandlers.js';
 import { parseBatchInput, runBatch } from '../../agent/batch.js';
+import { recordUserAuthoredText } from '../../agent/conversationSummarizer.js';
 import { generateSpec, saveSpec } from '../../agent/specDriven.js';
 import { generateInit } from '../../agent/codebaseInit.js';
 import { generateDocumentation } from '../../agent/docGenerator.js';
@@ -43,6 +44,7 @@ export async function handleExecutePlan(state: ChatState): Promise<void> {
 
 export async function handleRevisePlan(state: ChatState, feedback: string): Promise<void> {
   if (state.pendingPlanMessages.length === 0) return;
+  recordUserAuthoredText(feedback);
   state.pendingPlanMessages.push({ role: 'user', content: `Revise the plan based on this feedback: ${feedback}` });
   state.messages = state.pendingPlanMessages;
   state.pendingPlan = null;
@@ -67,6 +69,7 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
   state.abortController = abortController;
 
   const config = getConfig();
+  const resolved = resolveMode(config.agentMode, config.customModes);
   state.client.updateConnection(config.baseUrl, config.apiKey);
   state.client.updateModel(config.model);
 
@@ -83,10 +86,15 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
         });
       },
       abortController.signal,
+      // The same approval UI, review queue and mode rules as a chat run: with
+      // none of them, review-mode writes landed on disk unreviewed and every
+      // cautious-mode approval was auto-denied.
       {
         logger: state.agentLogger,
         mcpManager: state.mcpManager,
-        approvalMode: resolveMode(config.agentMode, config.customModes).approvalBehavior,
+        approvalMode: resolved.approvalBehavior,
+        modeToolPermissions: resolved.toolPermissions,
+        ...approvalUiOptions(state),
       },
     );
 

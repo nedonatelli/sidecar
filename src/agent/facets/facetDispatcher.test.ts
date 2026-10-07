@@ -176,30 +176,42 @@ describe('dispatchFacet — success path', () => {
     expect(names).not.toContain('run_command');
   });
 
-  it('sets modeToolPermissions to "allow" for every allowlisted tool', async () => {
+  it('the allowlist narrows the catalog but grants no permission', async () => {
+    // Turning the allowlist into 'allow' entries overrode the user's own deny
+    // and ask rules for those tools.
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
-    const client = makeClient();
     const f = facet({ id: 'dsp', toolAllowlist: ['read_file', 'grep'] });
-    await dispatchFacet(client, f, makeCallbacks(), {
+    await dispatchFacet(makeClient(), f, makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
+      agentOptions: { modeToolPermissions: { grep: 'deny' } },
     });
-    const perms = runAgentLoopInSandboxMock.mock.calls[0][4].modeToolPermissions as Record<string, string>;
-    expect(perms.read_file).toBe('allow');
-    expect(perms.grep).toBe('allow');
-    expect(perms.write_file).toBeUndefined();
+    const opts = runAgentLoopInSandboxMock.mock.calls[0][4];
+    expect(opts.modeToolPermissions).toEqual({ grep: 'deny' });
   });
 
-  it('forces approvalMode: "autonomous"', async () => {
+  it('an empty allowlist gives the facet no tools, not the whole catalog', async () => {
     runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
-    const client = makeClient();
+    const f = facet({ id: 'dsp', toolAllowlist: [] });
+    await dispatchFacet(makeClient(), f, makeCallbacks(), { task: 'x', signal: new AbortController().signal });
+    expect(runAgentLoopInSandboxMock.mock.calls[0][4].toolOverride).toEqual([]);
+  });
+
+  it.each([
+    ['cautious', 'sandboxed'],
+    ['manual', 'sandboxed'],
+    ['autonomous', 'autonomous'],
+  ])('a user in %s mode runs facets as %s', async (agentMode, expected) => {
+    runAgentLoopInSandboxMock.mockResolvedValue({ mode: 'shadow', applied: true });
     const f = facet({ id: 'dsp' });
-    await dispatchFacet(client, f, makeCallbacks(), {
+    await dispatchFacet(makeClient(), f, makeCallbacks(), {
       task: 'x',
       signal: new AbortController().signal,
-      agentOptions: { approvalMode: 'cautious' },
+      agentOptions: { config: { agentMode, customModes: [] } as never },
     });
-    expect(runAgentLoopInSandboxMock.mock.calls[0][4].approvalMode).toBe('autonomous');
+    const opts = runAgentLoopInSandboxMock.mock.calls[0][4];
+    expect(opts.approvalMode).toBe(expected);
+    expect(typeof opts.confirmFn).toBe('function');
   });
 
   it('captures output text emitted via callbacks.onText', async () => {

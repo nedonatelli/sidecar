@@ -1,3 +1,4 @@
+import { redactSecrets as patternRedact } from '../securityScanner.js';
 import { workspace, ConfigurationTarget, extensions } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { formatToolError, type RegisteredTool } from './shared.js';
@@ -181,14 +182,39 @@ const SECRET_MAPS = new Set(['env', 'headers']);
 const URL_PASSWORD = /(\w[\w+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/g;
 
 const REDACTED = '[redacted]';
+/** A credential in a URL's query string (`?api_key=...`, `&token=...`). */
+const URL_QUERY_SECRET =
+  /([?&](?:api[-_]?key|key|token|access[-_]?token|auth|secret|password|sig|signature)=)[^&#\s]+/gi;
+/** An `Authorization: Bearer x` / `X-Api-Key: x` header passed as one string. */
+const HEADER_SECRET = /^(\s*(?:authorization|proxy-authorization|x-[\w-]*(?:key|token|secret)|api[-_]?key)\s*:\s*).+$/i;
+/** A command-line flag whose NEXT argument is a credential (`--api-key X`, `--header "Authorization: ..."`). */
+const SECRET_FLAG = /^--?(?:api[-_]?key|token|access[-_]?token|secret|password|auth|header|bearer)$/i;
+
+function redactString(value: string): string {
+  if (HEADER_SECRET.test(value)) return value.replace(HEADER_SECRET, `$1${REDACTED}`);
+  return patternRedact(
+    value
+      .replace(URL_PASSWORD, `$1${REDACTED}@`)
+      .replace(URL_QUERY_SECRET, `$1${REDACTED}`)
+      // `--api-key=X` in a single argument
+      .replace(/^(--?(?:api[-_]?key|token|access[-_]?token|secret|password|auth)=).+$/i, `$1${REDACTED}`),
+  );
+}
 
 function redactSecrets(value: unknown, name = ''): unknown {
   if (typeof value === 'string') {
     // A credential is a string; `requireAuth: true` under the same name is not.
     if (SECRET_NAME.test(name) && value !== '') return REDACTED;
-    return value.replace(URL_PASSWORD, `$1${REDACTED}@`);
+    return redactString(value);
   }
-  if (Array.isArray(value)) return value.map((v) => redactSecrets(v));
+  if (Array.isArray(value)) {
+    // MCP server `args`: the value after a credential flag is the credential.
+    return value.map((v, i) =>
+      i > 0 && typeof value[i - 1] === 'string' && SECRET_FLAG.test(value[i - 1] as string) && typeof v === 'string'
+        ? REDACTED
+        : redactSecrets(v),
+    );
+  }
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {

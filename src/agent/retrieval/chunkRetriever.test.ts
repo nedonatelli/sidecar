@@ -40,7 +40,7 @@ describe('ChunkRetriever', () => {
         // Corpus embed hangs forever — simulates thousands of pending chunks.
         embed: vi.fn().mockImplementation(() => new Promise<never>(() => undefined)),
       };
-      vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/README.md')] as never);
+      vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/README.md')] as never);
       vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('# Title\n\nprose body') as never);
 
       const retriever = new ChunkRetriever(ei as never);
@@ -87,7 +87,7 @@ describe('ChunkRetriever', () => {
     const ei = makeEmbeddingIndex();
     const content = '## Getting Started\n\nRun npm install to set up the project.';
 
-    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/README.md')]);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/README.md')]);
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(content) as never);
 
     const retriever = new ChunkRetriever(ei as never);
@@ -103,7 +103,7 @@ describe('ChunkRetriever', () => {
     const sharedVec = new Float32Array(384).fill(0.5);
     ei.embed.mockResolvedValue(sharedVec);
 
-    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/NOTES.txt')]);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/NOTES.txt')]);
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(
       Buffer.from('Useful prose documentation for testing retrieval.') as never,
     );
@@ -124,7 +124,7 @@ describe('ChunkRetriever', () => {
     const ei = makeEmbeddingIndex();
     const content = 'Stable content that does not change between calls.';
 
-    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/stable.md')]);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/stable.md')]);
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(content) as never);
 
     const retriever = new ChunkRetriever(ei as never);
@@ -140,10 +140,13 @@ describe('ChunkRetriever', () => {
   it('re-embeds a file when content changes', async () => {
     const ei = makeEmbeddingIndex();
 
-    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/changing.md')]);
-    vi.spyOn(workspace.fs, 'readFile')
-      .mockResolvedValueOnce(Buffer.from('Original content here.') as never)
-      .mockResolvedValue(Buffer.from('Updated content — now different, new hash.') as never);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/changing.md')]);
+    // .sidecarignore is read through the same API; only the document changes.
+    let docReads = 0;
+    vi.spyOn(workspace.fs, 'readFile').mockImplementation((async (uri: { fsPath: string }) => {
+      if (uri.fsPath.endsWith('.sidecarignore')) throw new Error('ENOENT');
+      return Buffer.from(docReads++ === 0 ? 'Original content here.' : 'Updated content — now different, new hash.');
+    }) as never);
 
     const retriever = new ChunkRetriever(ei as never);
     await retriever.retrieve('content', 5);
@@ -157,7 +160,7 @@ describe('ChunkRetriever', () => {
 
   it('skips unreadable files gracefully', async () => {
     const ei = makeEmbeddingIndex();
-    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/bad.md')]);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/bad.md')]);
     vi.spyOn(workspace.fs, 'readFile').mockRejectedValue(new Error('EACCES'));
 
     const retriever = new ChunkRetriever(ei as never);
@@ -167,14 +170,18 @@ describe('ChunkRetriever', () => {
   it('deduplicates the same URI returned by multiple patterns', async () => {
     const ei = makeEmbeddingIndex();
     // findFiles always returns the same URI regardless of pattern.
-    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/README.md')]);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/README.md')]);
     const readFileSpy = vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('Content.') as never);
 
     const retriever = new ChunkRetriever(ei as never);
     await retriever.retrieve('content', 5);
 
-    // readFile should fire exactly once despite 4 patterns returning the same URI.
-    expect(readFileSpy).toHaveBeenCalledTimes(1);
+    // README.md is read exactly once despite 4 patterns returning the same URI
+    // (.sidecarignore is read through the same API, once).
+    const docReads = readFileSpy.mock.calls.filter(
+      (c) => !String((c[0] as { fsPath: string }).fsPath).endsWith('.sidecarignore'),
+    );
+    expect(docReads).toHaveLength(1);
   });
 
   it('returns empty array when embed returns null for query', async () => {
@@ -184,7 +191,7 @@ describe('ChunkRetriever', () => {
     ei.embed.mockResolvedValueOnce(sharedVec); // chunk embed
     ei.embed.mockResolvedValueOnce(null); // query embed
 
-    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/ws/guide.md')]);
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([fakeUri('/mock-workspace/guide.md')]);
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(
       Buffer.from('Guide text content here for retrieval testing.') as never,
     );
@@ -195,5 +202,27 @@ describe('ChunkRetriever', () => {
     ei.embed.mockResolvedValue(null);
     const hits = await retriever.retrieve('guide', 5);
     expect(hits).toEqual([]);
+  });
+
+  // .sidecarignore and the credential-file rule used to apply only to the
+  // workspace index; this retriever read every matching file regardless.
+  it("skips .sidecarignore'd and credential files", async () => {
+    const ei = makeEmbeddingIndex();
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      fakeUri('/mock-workspace/private/notes.md'),
+      fakeUri('/mock-workspace/token.json'),
+      fakeUri('/mock-workspace/guide.md'),
+    ]);
+    const readFileSpy = vi
+      .spyOn(workspace.fs, 'readFile')
+      .mockImplementation((async (uri: { fsPath: string }) =>
+        Buffer.from(uri.fsPath.endsWith('.sidecarignore') ? 'private/' : 'Some text.')) as never);
+
+    await new ChunkRetriever(ei as never).retrieve('text', 5);
+
+    const read = readFileSpy.mock.calls
+      .map((c) => String((c[0] as { fsPath: string }).fsPath).replace(/\\/g, '/'))
+      .filter((p) => !p.endsWith('.sidecarignore'));
+    expect(read).toEqual(['/mock-workspace/guide.md']);
   });
 });

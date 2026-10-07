@@ -24,7 +24,6 @@ function makeState(overrides: Partial<ChatState> = {}): ChatState {
   return {
     postMessage: vi.fn(),
     messages: [],
-    logMessage: vi.fn(),
     requestConfirm: vi.fn(),
     metricsCollector: {
       recordToolStart: vi.fn(),
@@ -134,7 +133,7 @@ describe('createAgentCallbacks — onToolCall', () => {
     expect(commands.indexOf('assistantMessage')).toBeLessThan(commands.indexOf('toolCall'));
   });
 
-  it('emits a tool_use summary + logs + records tool start', () => {
+  it('emits a tool_use summary + records tool start', () => {
     const state = makeState();
     const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onToolCall('read_file', { path: 'src/a.ts' }, 'tu1');
@@ -144,7 +143,6 @@ describe('createAgentCallbacks — onToolCall', () => {
       toolCallId: 'tu1',
       content: 'read_file(path: src/a.ts)',
     });
-    expect(state.logMessage).toHaveBeenCalledWith('tool', 'read_file(path: src/a.ts)');
     expect(state.metricsCollector.recordToolStart).toHaveBeenCalled();
   });
 

@@ -96,7 +96,9 @@ describe('applyBackendProfile', () => {
 
     expect(result.status).toBe('missing-key');
     expect(settings.invalidateConfigCache).toHaveBeenCalled();
-    expect(secrets.storeActiveApiKey).not.toHaveBeenCalled();
+    // provider and baseUrl now point at the new host: the previous provider's
+    // key must not stay active and be sent there.
+    expect(secrets.storeActiveApiKey).toHaveBeenCalledWith('');
   });
 
   it('resets the active key to the "ollama" sentinel for a keyless local profile', async () => {

@@ -30,7 +30,11 @@ export async function connectMcpServers(mcpManager: MCPManager): Promise<void> {
       'SideCar: This workspace defines MCP server configs that may spawn external processes. Only trust these from repositories you control.',
       // A project .mcp.json is workspace content even though it is not a
       // setting; without this the prompt only fired for settings-defined servers.
-      { modal: true, workspaceProvided: Object.keys(projectServers).length > 0 },
+      {
+        modal: true,
+        workspaceProvided: Object.keys(projectServers).length > 0,
+        fingerprint: JSON.stringify(projectServers),
+      },
     );
     if (trust === 'blocked') {
       logger.info('[SideCar] Workspace MCP servers blocked by user');

@@ -144,6 +144,20 @@ describe('codebaseInit', () => {
       expect(result).toContain('package.json');
     });
 
+    // /init sends these files to the model; it read .env.example (a
+    // credential-file name) and ignored .sidecarignore.
+    it("does not read credential files or .sidecarignore'd config", async () => {
+      mockWorkspace.fs.readFile = vi.fn().mockImplementation((uri: any) => {
+        if (uri.fsPath.endsWith('.sidecarignore')) return Promise.resolve(Buffer.from('Dockerfile\n'));
+        if (uri.fsPath.endsWith('package.json')) return Promise.resolve(Buffer.from('{"name":"p"}'));
+        return Promise.resolve(Buffer.from('SECRET_FROM_' + uri.fsPath.split(/[\\/]/).pop()));
+      });
+      const result = await buildInitContext(null);
+      expect(result).not.toContain('SECRET_FROM_.env.example');
+      expect(result).not.toContain('SECRET_FROM_Dockerfile');
+      expect(result).toContain('SECRET_FROM_README.md'); // ordinary files still read
+    });
+
     it('detects project name from pyproject.toml', async () => {
       const pyproject = 'name = "my-python-app"\nversion = "0.1.0"';
       mockWorkspace.fs.readFile = vi.fn().mockImplementation((uri: any) => {

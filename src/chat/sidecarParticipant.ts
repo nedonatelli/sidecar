@@ -6,6 +6,7 @@ import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import { getConfig, resolveMode, type SideCarConfig } from '../config/settings.js';
+import { recordUserAuthoredText } from '../agent/conversationSummarizer.js';
 import type { ApprovalMode, ConfirmFn } from '../agent/executor.js';
 
 /**
@@ -31,9 +32,15 @@ export function participantApprovalOptions(config: Pick<SideCarConfig, 'agentMod
   return {
     approvalMode,
     modeToolPermissions: resolved.toolPermissions,
-    confirmFn: async (message, actions) => {
-      const plain = message.replace(/[*_`#>]/g, '').trim();
-      return vscode.window.showWarningMessage(`SideCar (@sidecar): ${plain}`, { modal: true }, ...actions);
+    // Only bold markers are stripped: the message and the detail carry the
+    // command and paths being approved, which must be shown exactly.
+    confirmFn: async (message, actions, options) => {
+      const plain = message.replace(/\*\*/g, '').trim();
+      return vscode.window.showWarningMessage(
+        `SideCar (@sidecar): ${plain}`,
+        { modal: true, detail: options?.detail },
+        ...actions,
+      );
     },
   };
 }
@@ -156,6 +163,7 @@ export async function resolveRequestContent(request: vscode.ChatRequest): Promis
   }
 
   const basePrompt = request.prompt ?? '';
+  recordUserAuthoredText(basePrompt);
   const withPreamble = cmd ? cmd.preamble(basePrompt) : basePrompt;
   const userText = attachments.length > 0 ? `${withPreamble}\n\n${attachments.join('\n\n')}` : withPreamble;
 

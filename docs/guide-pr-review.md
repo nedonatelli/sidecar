@@ -80,7 +80,7 @@ Run `/init` once to generate a starter SIDECAR.md if you don't have one yet.
 
 For a focused security audit, dispatch the built-in `security-reviewer` facet instead of running a plain `/review`. The `security-reviewer` facet uses a security-specialist persona, a security-tuned tool allowlist, and runs in its own Shadow Workspace so nothing touches your main tree.
 
-From the Command Palette, run `SideCar: Facets: Dispatch Specialists`. Select `security-reviewer` from the multi-select QuickPick, enter the task (e.g. "security review of src/api/"), and press Enter. The facet runs autonomously and produces a diff review at the end.
+From the Command Palette, run `SideCar: Facets: Dispatch Specialists`. Select `security-reviewer` from the multi-select QuickPick, enter the task (e.g. "security review of src/api/"), and press Enter. The facet works in its own shadow workspace — asking before any command or other action outside it, unless your agent mode is autonomous — and produces a diff review at the end.
 
 For a combined general + security pass in one batch:
 

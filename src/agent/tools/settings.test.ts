@@ -223,7 +223,7 @@ describe('settings tools', () => {
       mockGet.mockReturnValue([{ name: 'db', url: 'postgres://admin:hunter2@db.local:5432/app' }]);
       const out = await getSetting({ key: 'databases.profiles' });
       expect(out).not.toContain('hunter2');
-      expect(out).toContain('postgres://admin:[redacted]@db.local:5432/app');
+      expect(out).toMatch(/\[redacted\]|\[REDACTED:/);
     });
   });
 
@@ -380,6 +380,25 @@ describe('settings tools', () => {
         const out = await updateSetting({ key: k, value: {} });
         expect(out, k).toContain('denylist');
       }
+    });
+  });
+
+  // Tokens are not only in fields named like secrets: MCP servers take them
+  // as command-line arguments, headers or URL query parameters.
+  describe('get_setting redacts credentials wherever they sit', () => {
+    it('redacts a token passed in MCP server args, a header argument, and a URL query', async () => {
+      mockGet.mockReturnValue({
+        gh: {
+          command: 'npx',
+          args: ['mcp-remote', 'https://mcp.example', '--header', 'Authorization: Bearer ghp_abcdefSECRET123'],
+        },
+        api: { command: 'srv', args: ['--api-key', 'sk-live-SECRETVALUE', '--port', '8080'] },
+        http: { url: 'https://mcp.example/sse?api_key=SECRETQUERY&x=1' },
+      });
+      const out = await getSetting({ key: 'mcpServers' });
+      expect(out).not.toMatch(/SECRET/);
+      expect(out).toContain('--port');
+      expect(out).toContain('8080');
     });
   });
 });

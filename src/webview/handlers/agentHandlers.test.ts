@@ -61,6 +61,7 @@ vi.mock('../../agent/conversationSummarizer.js', () => ({
   ConversationSummarizer: class {
     summarize = mockSummarize;
   },
+  recordUserAuthoredText: () => undefined,
 }));
 
 describe('handleMcpStatus', () => {
@@ -803,6 +804,33 @@ describe('handleBatch', () => {
     expect(starts.length).toBe(1);
     expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
     expect(runBatch).toHaveBeenCalled();
+  });
+
+  // /batch used to pass only a logger, the MCP manager and the approval mode:
+  // review-mode writes hit disk unreviewed, and with no confirmFn every
+  // cautious-mode approval was denied.
+  it("runs the batch with the chat run's approval UI, review queue and mode rules", async () => {
+    const { parseBatchInput, runBatch } = await import('../../agent/batch.js');
+    vi.mocked(parseBatchInput).mockReturnValueOnce({ mode: 'sequential', tasks: [{ id: 0, prompt: 't' }] } as never);
+    vi.mocked(runBatch).mockResolvedValueOnce([] as never);
+    const mod = await import('./agentHandlers.js');
+    const pendingEdits = {};
+    const changelog = {};
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn() },
+      postMessage: vi.fn(),
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      requestClarification: vi.fn(),
+      pendingEdits,
+      changelog,
+    };
+    await mod.handleBatch(state as never, 't');
+    const options = vi.mocked(runBatch).mock.calls.at(-1)![5]!;
+    expect(options.pendingEdits).toBe(pendingEdits);
+    expect(options.changelog).toBe(changelog);
+    expect(options.modeToolPermissions).toBeDefined();
+    expect(await options.confirmFn!('ok?', ['Allow', 'Deny'])).toBe('Allow');
+    expect(state.requestConfirm).toHaveBeenCalled();
   });
 
   it('reports a batch interruption as AbortError without surfacing a generic failure', async () => {

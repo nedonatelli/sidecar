@@ -1,13 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock fetch at module level before any imports that use it
+// URL fetching goes through netGuard's fetchGuarded (which owns the network
+// and its address checks, tested in netGuard.test.ts). Here it is replaced by
+// an adapter over a fetch-shaped mock, so these tests cover what
+// resolveUrlReferences does with a response.
 const fetchMock = vi.fn();
-vi.stubGlobal('fetch', fetchMock);
+vi.mock('../util/netGuard.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../util/netGuard.js')>();
+  return {
+    ...actual,
+    fetchGuarded: vi.fn(async (url: string, opts: { checkUrl?: (u: string) => string | null }) => {
+      const blocked = opts?.checkUrl?.(url);
+      if (blocked) throw new actual.BlockedUrlError(blocked);
+      const r = await fetchMock(url, opts);
+      const text = r?.text ? await r.text() : '';
+      return {
+        status: r?.status ?? (r?.ok ? 200 : 500),
+        headers: { 'content-type': r?.headers?.get?.('content-type') ?? '' },
+        body: Buffer.from(text),
+        url,
+      };
+    }),
+  };
+});
 // URL fetching resolves hostnames before fetching (SSRF guard); keep tests
 // off the real network. Every name resolves to a public address.
 vi.mock('dns/promises', () => ({ lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]) }));
 
 import {
+  getWorkspaceContext,
   extractPinReferences,
   resolveUrlReferences,
   getWorkspaceRoot,
@@ -53,18 +74,14 @@ describe('resolveUrlReferences', () => {
     fetchMock.mockReset();
   });
 
-  // fetch follows redirects by default; a public page answering 302 to the
-  // metadata service must not have that body put in the prompt.
-  it('does not follow a redirect to a private or metadata address', async () => {
-    fetchMock.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 302,
-      headers: { get: (k: string) => (k === 'location' ? 'http://169.254.169.254/latest/meta-data/' : null) },
-    }));
-    const result = await resolveUrlReferences('see https://example.com/redirect');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: 'manual' });
-    expect(result).not.toContain('Web Page Context');
+  // Redirects are followed inside fetchGuarded, each hop checked there (see
+  // netGuard.test.ts); this caller bounds them and adds its own allowlist check.
+  it('fetches through the guarded fetch with a redirect cap', async () => {
+    const { fetchGuarded } = await import('../util/netGuard.js');
+    fetchMock.mockImplementationOnce(async () => ({ ok: false, status: 404 }));
+    await resolveUrlReferences('see https://example.com/redirect');
+    expect(vi.mocked(fetchGuarded).mock.calls.at(-1)?.[1]).toMatchObject({ maxRedirects: 3 });
+    expect(typeof vi.mocked(fetchGuarded).mock.calls.at(-1)?.[1]?.checkUrl).toBe('function');
   });
 
   it('does not fetch a mapped-IPv6 or 127/8 address at all', async () => {
@@ -324,5 +341,27 @@ describe('matchAllowlistHost', () => {
   it('ignores empty / whitespace-only entries', () => {
     expect(matchAllowlistHost('github.com', ['', '   ', 'github.com'])).toBe(true);
     expect(matchAllowlistHost('attacker.xyz', ['', '   '])).toBe(false);
+  });
+});
+
+// The no-index fallback put the first files matching sidecar.filePatterns into
+// the system prompt whole -- with no .sidecarignore and no credential check.
+describe('getWorkspaceContext (no-index fallback)', () => {
+  it("leaves out credential files and .sidecarignore'd files", async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/config/credentials.json' },
+      { fsPath: '/mock-workspace/private/plan.yaml' },
+      { fsPath: '/mock-workspace/src/app.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockImplementation((async (uri: { fsPath: string }) => {
+      if (uri.fsPath.endsWith('.sidecarignore')) return Buffer.from('private/');
+      return Buffer.from(uri.fsPath.endsWith('app.ts') ? 'export const app = 1;' : 'SECRET_VALUE');
+    }) as never);
+
+    const context = await getWorkspaceContext(['**/*'], 10);
+    expect(context).toContain('export const app = 1;');
+    expect(context).not.toContain('SECRET_VALUE');
+    vi.restoreAllMocks();
   });
 });

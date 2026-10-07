@@ -18,6 +18,7 @@
  */
 
 import { logger } from '../../system/logger.js';
+import { auditPathRefusal } from '../tools/shared.js';
 export type BufferedOp = 'create' | 'modify' | 'delete';
 
 export interface BufferedChange {
@@ -382,6 +383,8 @@ export class AuditBuffer {
 
     for (const entry of targetEntries) {
       try {
+        const refusal = auditPathRefusal(entry.path);
+        if (refusal) throw new Error(refusal);
         if (entry.op === 'delete') {
           await deleteDisk(entry.path);
           rollback.push(async () => {

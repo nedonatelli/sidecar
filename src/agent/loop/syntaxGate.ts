@@ -24,7 +24,10 @@
 // ---------------------------------------------------------------------------
 
 const PARSE_CHECKERS: ReadonlyArray<{ ext: RegExp; cmd: (quoted: string) => string }> = [
-  { ext: /\.py$/i, cmd: (q) => `python3 -m py_compile ${q} 2>&1` },
+  // -I (isolated): `-m` would otherwise put the working directory first on
+  // sys.path, so a repository's own py_compile.py would run instead of the
+  // standard library's, with no approval, on the first Python edit.
+  { ext: /\.py$/i, cmd: (q) => `python3 -I -m py_compile ${q} 2>&1` },
   { ext: /\.(js|cjs|mjs)$/i, cmd: (q) => `node --check ${q} 2>&1` },
 ];
 

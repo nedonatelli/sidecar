@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import { parseFacetFile, FacetValidationError, type FacetDefinition } from './facetLoader.js';
 import { buildFacetRegistry, mergeWithBuiltInFacets, type FacetRegistry } from './facetRegistry.js';
+import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 
 // ---------------------------------------------------------------------------
 // Facet disk loader .
@@ -24,7 +25,7 @@ import { buildFacetRegistry, mergeWithBuiltInFacets, type FacetRegistry } from '
 
 export interface LoadFacetError {
   readonly filePath: string;
-  readonly reason: FacetValidationError['reason'] | 'io-error';
+  readonly reason: FacetValidationError['reason'] | 'io-error' | 'untrusted';
   readonly message: string;
 }
 
@@ -42,7 +43,21 @@ export interface LoadFacetsOptions {
   readonly workspaceRoot?: string;
   /** Test/injection seam — replaces real fs reads with an in-memory map. */
   readonly fsOverride?: FacetFsOverride;
+  /**
+   * Whether to use the workspace's own facets. They come from the repository
+   * and can replace a built-in facet's prompt and tool list, so by default the
+   * user is asked once, like other workspace-supplied configuration.
+   */
+  readonly trustProjectFacets?: () => Promise<boolean>;
 }
+
+const askProjectFacetTrust = async (): Promise<boolean> =>
+  (await checkWorkspaceConfigTrust(
+    'facets',
+    'SideCar: This workspace defines its own facets (.sidecar/facets). They can replace built-in facets, ' +
+      'including their instructions and tools. Only trust these from repositories you control.',
+    { modal: true, workspaceProvided: true },
+  )) === 'trusted';
 
 /**
  * Filesystem abstraction. Real extension uses `workspace.fs`; tests
@@ -75,9 +90,20 @@ export async function loadFacetRegistry(options: LoadFacetsOptions): Promise<Loa
   const workspaceDir = options.workspaceRoot ? path.join(options.workspaceRoot, '.sidecar', 'facets') : undefined;
 
   if (workspaceDir) {
-    for (const absPath of await listMarkdownFiles(fs, workspaceDir, errors)) {
-      const facet = await tryParse(fs, absPath, 'project', errors);
-      if (facet) parsed.push(facet);
+    const projectFiles = await listMarkdownFiles(fs, workspaceDir, errors);
+    if (projectFiles.length > 0 && !(await (options.trustProjectFacets ?? askProjectFacetTrust)())) {
+      for (const absPath of projectFiles) {
+        errors.push({
+          filePath: absPath,
+          reason: 'untrusted',
+          message: 'Workspace facets were not allowed for this workspace, so this file was not loaded.',
+        });
+      }
+    } else {
+      for (const absPath of projectFiles) {
+        const facet = await tryParse(fs, absPath, 'project', errors);
+        if (facet) parsed.push(facet);
+      }
     }
   }
 

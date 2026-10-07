@@ -348,6 +348,11 @@ export class SymbolIndexer implements Disposable {
 
   /** Remove a file from the graph (and from the symbol-embedding
    *  index when one is wired). */
+  /** New .sidecarignore patterns (the workspace index drops the files they exclude). */
+  setIgnoreMatchers(matchers: IgnoreMatcher[]): void {
+    this.ignoreMatchers = matchers;
+  }
+
   removeFileFromGraph(relativePath: string): void {
     this.graph.removeFile(relativePath);
     this.symbolEmbeddings?.removeFile(relativePath);

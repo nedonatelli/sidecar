@@ -43,6 +43,14 @@ async function tryRealpath(p: string): Promise<string> {
   return fs.promises.realpath(p).catch(() => p);
 }
 
+async function isLink(p: string): Promise<boolean> {
+  try {
+    return (await fs.promises.lstat(p)).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 /** Return true if the path exists (follows symlinks). */
 async function pathExists(p: string): Promise<boolean> {
   return fs.promises.access(p).then(
@@ -127,6 +135,19 @@ export async function sweepStaleShadows(mainRoot: string): Promise<SweepResult> 
 
   // --- Class (b): directory-without-worktree-metadata. ---
   if (!(await pathExists(shadowsRoot))) return result;
+  // The sweep deletes recursively, and `.sidecar/` can come from a cloned
+  // repository: if `.sidecar` or `.sidecar/shadows` is a link, it would
+  // enumerate and delete whatever the link points at. Sweep only the real
+  // directory inside the repository.
+  const expectedRoot = path.join(await tryRealpath(mainRoot), '.sidecar', 'shadows');
+  if (
+    (await isLink(path.join(mainRoot, '.sidecar'))) ||
+    (await isLink(shadowsRoot)) ||
+    path.resolve(await tryRealpath(shadowsRoot)) !== path.resolve(expectedRoot)
+  ) {
+    result.errors.push({ path: shadowsRoot, message: 'not a plain directory inside the repository; not swept' });
+    return result;
+  }
 
   let onDisk: string[];
   try {
@@ -140,11 +161,12 @@ export async function sweepStaleShadows(mainRoot: string): Promise<SweepResult> 
     const full = path.join(shadowsRoot, name);
     let stat: fs.Stats;
     try {
-      stat = await fs.promises.stat(full);
+      // lstat: a link inside shadows/ is not a shadow and is never followed.
+      stat = await fs.promises.lstat(full);
     } catch {
       continue;
     }
-    if (!stat.isDirectory()) continue;
+    if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
     if (liveShadowPaths.has(path.resolve(full))) continue;
     const real = await tryRealpath(full);
     if (liveShadowPaths.has(real)) continue;

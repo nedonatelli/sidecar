@@ -33,16 +33,6 @@ function createState(): ChatState {
 }
 
 describe('ChatState', () => {
-  // Chat logs land in os.tmpdir()/sidecar-chatlogs. Wipe it after every test so an
-  // assertion that throws before its inline unlink can't leave a file behind for a
-  // later run to trip over (this file is the only writer of that dir).
-  afterEach(() => {
-    const fs = require('fs');
-    const os = require('os');
-    const path = require('path');
-    fs.rmSync(path.join(os.tmpdir(), 'sidecar-chatlogs'), { recursive: true, force: true });
-  });
-
   it('initializes with empty messages', () => {
     const state = createState();
     expect(state.messages).toEqual([]);
@@ -195,78 +185,13 @@ describe('ChatState', () => {
     expect(content[0].type).toBe('tool_result');
   });
 
-  it('logMessage writes to a tmp file', async () => {
-    const state = createState();
-    await state.logMessage('user', 'test message');
-
-    const logPath = state.getChatLogPath();
-    expect(logPath).not.toBeNull();
-    expect(logPath).toContain('sidecar-chat-');
-
-    // Read the file and verify content
-    const fs = require('fs');
-    const content = fs.readFileSync(logPath!, 'utf-8');
-    const entry = JSON.parse(content.trim());
-    expect(entry.role).toBe('user');
-    expect(entry.content).toBe('test message');
-    expect(entry.timestamp).toBeDefined();
-
-    // Cleanup
-    fs.unlinkSync(logPath!);
-  });
-
-  it('logMessage appends multiple entries', async () => {
-    const state = createState();
-    await state.logMessage('user', 'first');
-    await state.logMessage('assistant', 'second');
-
-    const logPath = state.getChatLogPath()!;
-    const fs = require('fs');
-    const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n');
-    expect(lines).toHaveLength(2);
-
-    const first = JSON.parse(lines[0]);
-    const second = JSON.parse(lines[1]);
-    expect(first.role).toBe('user');
-    expect(second.role).toBe('assistant');
-
-    fs.unlinkSync(logPath);
-  });
-
-  it('getChatLogPath returns null before any logging', () => {
-    const state = createState();
-    expect(state.getChatLogPath()).toBeNull();
-  });
-
-  it('resetChatLog clears the path so next log gets a new file', async () => {
-    const state = createState();
-    state.logMessage('user', 'first conversation');
-    const firstPath = state.getChatLogPath();
-
-    state.resetChatLog();
-    expect(state.getChatLogPath()).toBeNull();
-
-    // Small delay to ensure the timestamp-based filename differs
-    await new Promise((r) => setTimeout(r, 5));
-
-    state.logMessage('user', 'second conversation');
-    const secondPath = state.getChatLogPath();
-    expect(secondPath).not.toBe(firstPath);
-
-    // Cleanup
-    const fs = require('fs');
-    if (firstPath && fs.existsSync(firstPath)) fs.unlinkSync(firstPath);
-    if (secondPath && fs.existsSync(secondPath)) fs.unlinkSync(secondPath);
-  });
-
-  it('clearChat resets the chat log', async () => {
-    const state = createState();
-    await state.logMessage('user', 'will be cleared');
-    expect(state.getChatLogPath()).not.toBeNull();
-
-    mockPostMessage.mockClear();
-    state.clearChat();
-    expect(state.getChatLogPath()).toBeNull();
+  // Every prompt, answer and tool call was appended to a world-readable file
+  // in the shared temp directory, never read and never deleted. Nothing reads
+  // a transcript from there, so nothing writes one.
+  it('keeps no transcript in the temp directory', () => {
+    const state = createState() as unknown as Record<string, unknown>;
+    expect(state.logMessage).toBeUndefined();
+    expect(state.getChatLogPath).toBeUndefined();
   });
 
   it('trimHistory respects message count limit', () => {
@@ -456,6 +381,19 @@ describe('ChatState', () => {
       const state = createState();
       const result = await state.loadPerDirSidecarMd('/mock-workspace/file.ts');
       expect(result).toEqual([]);
+      state.dispose();
+    });
+
+    // On Windows, path.relative to another drive is absolute -- neither '' nor
+    // '..' -- and the walk went on to the drive root, reading every SIDECAR.md
+    // on the way as the trusted project's instructions.
+    it.runIf(process.platform === 'win32')('reads nothing for a file on another drive', async () => {
+      const { workspace } = await import('vscode');
+      const read = vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('# planted') as never);
+      const state = createState();
+      const result = await state.loadPerDirSidecarMd('Z:\\downloads\\untrusted\\notes.ts');
+      expect(result).toEqual([]);
+      expect(read).not.toHaveBeenCalled();
       state.dispose();
     });
 

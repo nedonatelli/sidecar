@@ -2789,12 +2789,6 @@ body {
   padding: 0;
 }
 
-.file-created-notice {
-  color: var(--vscode-charts-green, #4ec9b0);
-  font-size: 12px;
-  padding: 4px 0;
-}
-
 /* GitHub result cards */
 .gh-result {
   max-width: 100%;

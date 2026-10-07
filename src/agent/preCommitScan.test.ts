@@ -86,11 +86,14 @@ describe('scanStagedFiles (with exec mock)', () => {
     expect(result.scannedCount).toBe(0);
   });
 
-  it('skips files when git show fails', async () => {
+  // A file git could not show was counted as scanned, and the command then
+  // reported it clean.
+  it('reports a file it could not read as unscanned, not as scanned', async () => {
     mockExecOk('src/binary.bin\n');
     mockExecFail(); // git show fails for this file
     const result = await scanStagedFiles();
-    expect(result.scannedCount).toBe(1);
+    expect(result.scannedCount).toBe(0);
+    expect(result.unscanned).toEqual(['src/binary.bin']);
     expect(result.issues).toEqual([]);
   });
 });

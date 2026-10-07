@@ -14,7 +14,7 @@ import { reportSecurityIssues, reportStubs } from './sidecarDiagnostics.js';
 import { scanToolOutput, buildInjectionWarning } from './injectionScanner.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import { withFileLock } from './fileLock.js';
-import { detectIrrecoverable } from './executor/irrecoverableDetector.js';
+import { detectIrrecoverable, shellCommandOf } from './executor/irrecoverableDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
@@ -25,6 +25,8 @@ import { recordBounce, clearBounces, escalationSuffix } from './executor/bounceE
 import { isGenericClarification, CANNED_CLARIFICATION } from './executor/genericClarification.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
+import { previewEditFile } from './tools/fs.js';
+import { delegatedMcpToolName } from './tools/mcpDelegate.js';
 
 // Re-export ApprovalMode so all existing importers keep working unchanged.
 export type { ApprovalMode } from './executor/permissionsGate.js';
@@ -304,47 +306,33 @@ export async function executeTool(
   }
 
   const config = executorContext?.config ?? getConfig();
-  // --- Per-tool permissions: mode-level overrides win over global ---
-  const permissions = config.toolPermissions;
-  const modePermissions = executorContext?.modeToolPermissions;
-  let explicitPermission: 'allow' | 'deny' | 'ask' | undefined =
-    modePermissions?.[toolUse.name] ?? permissions[toolUse.name];
-
-  // Warn once per session if tool permissions are defined at workspace level (supply-chain risk)
-  if (explicitPermission) {
-    const trust = await checkWorkspaceConfigTrust(
-      'toolPermissions',
-      'SideCar: This workspace defines tool permission overrides (e.g. auto-allow write_file). Only trust these from repositories you control.',
-      { modal: true },
-    );
-    if (trust === 'blocked') {
-      explicitPermission = undefined;
-    }
+  const resolvedPermission = await resolveToolPermission(toolUse, executorContext);
+  if (resolvedPermission.denied) return resolvedPermission.denied;
+  let explicitPermission = resolvedPermission.explicitPermission;
+  // delegate_to_mcp reaches another tool, whose own rules -- a mode or policy
+  // deny, an 'ask' -- apply to the call as well.
+  const delegatedTool =
+    toolUse.name === 'delegate_to_mcp'
+      ? delegatedMcpToolName(toolUse.input, mcpManager ?? executorContext?.mcpManager)
+      : null;
+  if (delegatedTool) {
+    const target = await resolveToolPermission({ ...toolUse, name: delegatedTool }, executorContext);
+    if (target.denied) return { ...target.denied, tool_use_id: toolUse.id };
+    if (target.explicitPermission === 'ask') explicitPermission = 'ask';
   }
-
-  // Repo policy (.sidecar/policy.json) applies restrictions on top of user settings.
-  // Policy is restrictions-only so it bypasses the workspace trust gate.
-  const repoPolicy = getActivePolicy();
-  const policyPerm = repoPolicy?.toolPermissions?.[toolUse.name];
-  const fromPolicy = policyPerm === 'deny' && (explicitPermission ?? 'allow') !== 'deny';
-  if (policyPerm) {
-    explicitPermission = mergePermLevel(explicitPermission, policyPerm);
-  }
-
-  if (explicitPermission === 'deny') {
-    return {
-      type: 'tool_result',
-      tool_use_id: toolUse.id,
-      content: fromPolicy
-        ? `Tool "${toolUse.name}" is denied by repo policy (.sidecar/policy.json).`
-        : `Tool "${toolUse.name}" is denied by policy.`,
-      is_error: true,
-    };
+  // A tool that runs a free-form shell command (run_tests with `command`,
+  // research_log_experiment) is a run_command too: the user's deny or ask on
+  // run_command applies to it.
+  if (toolUse.name !== 'run_command' && shellCommandOf(toolUse) !== null) {
+    const asShell = await resolveToolPermission({ ...toolUse, name: 'run_command' }, executorContext);
+    if (asShell.denied) return { ...asShell.denied, tool_use_id: toolUse.id };
+    if (asShell.explicitPermission === 'ask' && explicitPermission !== 'deny') explicitPermission = 'ask';
   }
 
   const irrecoverableDescription = detectIrrecoverable(toolUse);
   const needsApproval = resolveApprovalNeeded({
     tool,
+    toolName: toolUse.name,
     approvalMode,
     explicitPermission,
     isIrrecoverable: irrecoverableDescription !== null,
@@ -407,29 +395,22 @@ export async function executeTool(
       };
     }
 
-    // For write tools with diff preview available, show a visual diff
+    // For write tools with diff preview available, show a visual diff. An
+    // edit_file preview runs the tool's own resolution (tolerance tiers,
+    // replace_all, within), so the approved diff is the edit that lands; when
+    // it cannot be computed, the raw arguments are shown instead.
+    let proposedContent: string | null = null;
     if (diffPreviewFn && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
+      proposedContent =
+        toolUse.name === 'edit_file'
+          ? await previewEditFile(toolUse.input, executorContext)
+          : (toolUse.input.content as string) || '';
+    }
+    if (proposedContent !== null) {
       const filePath = toolUse.input.path as string;
-      let proposedContent: string;
-
-      if (toolUse.name === 'edit_file') {
-        // Compute proposed content from search/replace
-        try {
-          const fileUri = Uri.joinPath(workspace.workspaceFolders![0].uri, filePath);
-          const bytes = await workspace.fs.readFile(fileUri);
-          const original = Buffer.from(bytes).toString('utf-8');
-          proposedContent = original.replace(toolUse.input.search as string, toolUse.input.replace as string);
-        } catch {
-          proposedContent = toolUse.input.replace as string;
-        }
-      } else {
-        // write_file — proposed content is the full new content
-        proposedContent = (toolUse.input.content as string) || '';
-      }
-
       // Use streaming diff preview if available (opens diff editor inline),
       // otherwise fall back to regular diff (modal dialog)
-      const previewFn = streamingDiffPreviewFn || diffPreviewFn;
+      const previewFn = (streamingDiffPreviewFn || diffPreviewFn)!;
       const diffChoice = await previewFn(filePath, proposedContent);
 
       if (diffChoice !== 'accept') {
@@ -441,13 +422,12 @@ export async function executeTool(
         };
       }
     } else {
-      // Non-write tools or no diff preview — use inline confirm
+      // Non-write tools or no diff preview — use inline confirm. Every
+      // argument is shown in full: what the user cannot see, they have not
+      // approved.
       const inputSummary = Object.entries(toolUse.input)
-        .map(([k, v]) => {
-          const val = typeof v === 'string' && v.length > 80 ? v.slice(0, 80) + '...' : String(v);
-          return `${k}: ${val}`;
-        })
-        .join(', ');
+        .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+        .join('\n');
 
       const confirm = confirmFn || (async (_msg: string, _actions: string[]) => 'Deny');
       // Escalate to a native modal ONLY when the inline card would go unseen
@@ -456,13 +436,14 @@ export async function executeTool(
       // operations are gated separately by detectIrrecoverable's type-to-CONFIRM
       // step, which runs regardless of this branch.
       const chatVisible = executorContext?.isChatVisible?.() ?? false;
-      const useModal = NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name) && !chatVisible;
+      const useModal =
+        (NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name) || shellCommandOf(toolUse) !== null) && !chatVisible;
       const choice = useModal
         ? await confirm(`Allow SideCar to run ${toolUse.name}?`, ['Allow', 'Deny'], {
             modal: true,
             detail: inputSummary,
           })
-        : await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
+        : await confirm(`SideCar wants to use **${toolUse.name}**:\n${inputSummary}`, ['Allow', 'Deny']);
 
       if (choice !== 'Allow') {
         return {
@@ -675,6 +656,68 @@ export async function executeTool(
  * heuristic classifier and, if injection patterns match, prepends a
  * warning banner inside the wrapper.
  */
+/**
+ * The permission level that applies to a tool call: the mode's, else the
+ * user's settings (workspace values only once trusted), tightened by the repo
+ * policy. `denied` is the result to return when the level is 'deny'. Exported
+ * for the loop, which dispatches delegate_task and spawn_agent itself.
+ */
+export async function resolveToolPermission(
+  toolUse: ToolUseContentBlock,
+  executorContext?: ToolExecutorContext,
+): Promise<{ explicitPermission: 'allow' | 'deny' | 'ask' | undefined; denied: ToolResultContentBlock | null }> {
+  const config = executorContext?.config ?? getConfig();
+  // --- Per-tool permissions: mode-level overrides win over global ---
+  const modePermissions = executorContext?.modeToolPermissions;
+  let explicitPermission: 'allow' | 'deny' | 'ask' | undefined =
+    modePermissions?.[toolUse.name] ?? config.toolPermissions[toolUse.name];
+
+  // Warn once per session if tool permissions are defined at workspace level (supply-chain risk)
+  if (explicitPermission) {
+    const trust = await checkWorkspaceConfigTrust(
+      'toolPermissions',
+      'SideCar: This workspace defines tool permission overrides (e.g. auto-allow write_file). Only trust these from repositories you control.',
+      { modal: true },
+    );
+    if (trust === 'blocked') {
+      // Block discards only the workspace's values. The mode's and the user's
+      // own settings still apply -- above all their 'deny' and 'ask' rules.
+      explicitPermission = modePermissions?.[toolUse.name] ?? userToolPermissions()[toolUse.name];
+    }
+  }
+
+  // Repo policy (.sidecar/policy.json) applies restrictions on top of user settings.
+  // Policy is restrictions-only so it bypasses the workspace trust gate.
+  const policyPerm = getActivePolicy()?.toolPermissions?.[toolUse.name];
+  const fromPolicy = policyPerm === 'deny' && (explicitPermission ?? 'allow') !== 'deny';
+  if (policyPerm) {
+    explicitPermission = mergePermLevel(explicitPermission, policyPerm);
+  }
+
+  if (explicitPermission !== 'deny') return { explicitPermission, denied: null };
+  return {
+    explicitPermission,
+    denied: {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: fromPolicy
+        ? `Tool "${toolUse.name}" is denied by repo policy (.sidecar/policy.json).`
+        : `Tool "${toolUse.name}" is denied by policy.`,
+      is_error: true,
+    },
+  };
+}
+
+/** The user's own (global) tool permissions, without any workspace values. */
+function userToolPermissions(): Record<string, 'allow' | 'deny' | 'ask'> {
+  const cfg = workspace.getConfiguration('sidecar');
+  const inspected =
+    typeof cfg.inspect === 'function'
+      ? cfg.inspect<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions')
+      : undefined;
+  return inspected?.globalValue ?? {};
+}
+
 function wrapToolOutput(toolName: string, content: string, logger?: AgentLogger): string {
   const safe = content.replace(/<\/tool_output/g, '</ tool_output');
   const matches = scanToolOutput(safe);

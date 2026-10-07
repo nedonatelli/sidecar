@@ -15,6 +15,10 @@ describe('parseCheckCommand', () => {
     expect(parseCheckCommand('a.mjs')).toContain('node --check');
   });
 
+  it("runs py_compile isolated, so a repository's own py_compile.py cannot shadow it", () => {
+    expect(parseCheckCommand('src/calc.py')).toMatch(/^python3 -I -m py_compile /);
+  });
+
   it('returns null for languages without a cheap per-file check (TS covered elsewhere)', () => {
     expect(parseCheckCommand('src/loop.ts')).toBeNull();
     expect(parseCheckCommand('README.md')).toBeNull();

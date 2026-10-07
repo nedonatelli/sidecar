@@ -10,6 +10,7 @@ import { readFileStreaming } from './streamingFileReader.js';
 import { getConfig } from './settings.js';
 import { getCurrentContextRules, applyContextRules } from './structuredContextRules.js';
 import { loadSidecarIgnore, isSidecarIgnored, type IgnoreMatcher } from './sidecarIgnore.js';
+import { isSensitiveFile, realWorkspaceRelative } from '../agent/tools/shared.js';
 import { tokenize } from './workspaceIndex/tokenize.js';
 import type { FileNode, RankedFile } from './workspaceIndex/types.js';
 import {
@@ -242,11 +243,15 @@ export class WorkspaceIndex implements Disposable {
       const cache = await this.sidecarDir.readJson<IndexCache>(INDEX_CACHE_FILE);
       if (cache && cache.version === INDEX_VERSION && cache.files) {
         for (const f of cache.files) {
-          if (this.shouldExclude(f.path)) continue;
+          // The cache file sits in the workspace, so a cloned repo can ship
+          // one: its paths must be plain workspace paths, and its scores are
+          // recomputed rather than trusted (a stored 1000 outranked every
+          // real file).
+          if (typeof f.path !== 'string' || this.shouldExclude(f.path)) continue;
           this.files.set(f.path, {
             relativePath: f.path,
             sizeBytes: f.size,
-            relevanceScore: f.score,
+            relevanceScore: this.baseScore(f.path),
           });
         }
         this.treeDirty = true;
@@ -354,6 +359,7 @@ export class WorkspaceIndex implements Disposable {
       const watcher = workspace.createFileSystemWatcher(new RelativePattern(root.uri, '**/*'));
       watcher.onDidCreate((uri) => {
         const rel = this.relKey(watchRoot, uri.fsPath);
+        if (rel === '.sidecarignore') void this.reloadIgnore(root.uri);
         if (this.shouldExclude(rel)) return;
         workspace.fs.stat(uri).then(
           (stat) => {
@@ -370,6 +376,7 @@ export class WorkspaceIndex implements Disposable {
       });
       watcher.onDidChange((uri) => {
         const rel = this.relKey(watchRoot, uri.fsPath);
+        if (rel === '.sidecarignore') void this.reloadIgnore(root.uri);
         if (this.shouldExclude(rel)) return;
         this.fileContentCache.delete(rel);
         this.symbolIndexer?.queueUpdate(rel);
@@ -377,6 +384,7 @@ export class WorkspaceIndex implements Disposable {
       });
       watcher.onDidDelete((uri) => {
         const rel = this.relKey(watchRoot, uri.fsPath);
+        if (rel === '.sidecarignore') void this.reloadIgnore(root.uri);
         this.fileContentCache.delete(rel);
         this.files.delete(rel);
         this.pinnedFileCache = null;
@@ -390,6 +398,31 @@ export class WorkspaceIndex implements Disposable {
 
   isReady(): boolean {
     return this.ready;
+  }
+
+  /**
+   * Re-read .sidecarignore after it changes, and drop every indexed file it
+   * now excludes -- from this index, its content cache, the symbol graph and
+   * the embeddings. Patterns added mid-session used to take effect only after
+   * a reload, so newly ignored files kept reaching the prompt.
+   */
+  async reloadIgnore(rootUri: Uri): Promise<void> {
+    this.ignoreMatchers = await loadSidecarIgnore(rootUri);
+    this.symbolIndexer?.setIgnoreMatchers(this.ignoreMatchers);
+    let dropped = 0;
+    for (const rel of [...this.files.keys()]) {
+      if (!this.shouldExclude(rel)) continue;
+      this.files.delete(rel);
+      this.fileContentCache.delete(rel);
+      this.symbolIndexer?.queueDelete(rel);
+      this.embeddingIndex?.removeFile(rel);
+      dropped++;
+    }
+    if (dropped > 0) {
+      this.pinnedFileCache = null;
+      this.scheduleRebuild();
+      logger.info(`[SideCar] .sidecarignore changed: ${dropped} file(s) removed from the index`);
+    }
   }
 
   /**
@@ -448,6 +481,10 @@ export class WorkspaceIndex implements Disposable {
     if (!folders || folders.length === 0) return null;
     const cached = this.fileContentCache.get(relativePath);
     if (cached) return cached;
+    // Read only what is really inside the workspace -- not through a link out
+    // of it, and not a credential file under another name.
+    const real = this.shouldExclude(relativePath) ? null : realWorkspaceRelative(folders[0].uri.fsPath, relativePath);
+    if (real === null || isSensitiveFile(real)) return null;
     try {
       const config = getConfig();
       const fileUri = Uri.joinPath(folders[0].uri, relativePath);
@@ -911,6 +948,10 @@ export class WorkspaceIndex implements Disposable {
   }
 
   private shouldExclude(relativePath: string): boolean {
+    // Not a plain path inside the workspace, or a credential file: never
+    // indexed, so never ranked into the prompt.
+    if (!relativePath || path.isAbsolute(relativePath) || /(^|[\\/])\.\.([\\/]|$)/.test(relativePath)) return true;
+    if (relativePath.includes(':') || isSensitiveFile(relativePath)) return true;
     const parts = relativePath.split('/');
     const defaultExcludes = new Set<string>(DEFAULT_EXCLUDES);
     // Check default directory excludes

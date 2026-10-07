@@ -47,6 +47,12 @@ describe('mergePermLevel', () => {
     expect(mergePermLevel('ask', 'allow')).toBe('ask');
   });
 
+  it('never loosens: a policy "allow" leaves the user level as it was', () => {
+    expect(mergePermLevel(undefined, 'allow')).toBeUndefined();
+    expect(mergePermLevel('ask', 'allow')).toBe('ask');
+    expect(mergePermLevel('deny', 'allow')).toBe('deny');
+  });
+
   it('is idempotent when both sides are equal', () => {
     const levels: ToolPermLevel[] = ['allow', 'ask', 'deny'];
     for (const l of levels) {
@@ -116,6 +122,17 @@ describe('loadRepoPolicy', () => {
     mockReadFile.mockResolvedValue(JSON.stringify(policy));
     const result = await loadRepoPolicy('/workspace');
     expect(result).toEqual(policy);
+  });
+
+  it('keeps only "ask" and "deny" levels: "allow" and unknown values are dropped', async () => {
+    mockReadFile.mockResolvedValue(
+      JSON.stringify({
+        version: 1,
+        toolPermissions: { run_command: 'allow', write_file: 'ALLOW', git_push: 'deny', delete_file: 'ask' },
+      }),
+    );
+    const result = await loadRepoPolicy('/workspace');
+    expect(result).toEqual({ version: 1, toolPermissions: { git_push: 'deny', delete_file: 'ask' } });
   });
 
   it('reads from the correct path', async () => {

@@ -94,7 +94,6 @@ export function createAgentCallbacks(
         })
         .join(', ');
       state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: `${name}(${summary})` });
-      void state.logMessage('tool', `${name}(${summary})`);
       state.metricsCollector.recordToolStart();
       state.auditLog?.recordToolCall(name, input, id, currentIteration);
       if (verbose) {

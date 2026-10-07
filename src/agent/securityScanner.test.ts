@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scanContent, formatIssues, redactSecrets, SECRET_PATTERNS_VERSION } from './securityScanner.js';
+import { scanContent, formatIssues, redactSecrets, SECRET_PATTERNS_VERSION, isScanSkipped } from './securityScanner.js';
 
 describe('scanContent', () => {
   describe('secret detection', () => {
@@ -361,4 +361,26 @@ describe('expanded secret catalog', () => {
       expect(redactSecrets(text)).toBe(text);
     });
   });
+});
+
+// The skip list matched substrings: 'out' in routes/ and Layout.tsx, 'dist'
+// in distance.ts, '.git' in .github/ -- and reported those files clean.
+describe('scanContent skips only build output, not look-alike names', () => {
+  const secret = 'const key = "AKIAIOSFODNN7EXAMPLE";';
+  it.each([
+    '.github/workflows/deploy.yml',
+    'src/routes/api.ts',
+    'src/Layout.tsx',
+    'src/distance.ts',
+    'about/checkout.js',
+  ])('scans %s', (p) => {
+    expect(scanContent(secret, p).length).toBeGreaterThan(0);
+  });
+
+  it.each(['node_modules/x/index.js', 'dist/bundle.js', 'out/extension.js', 'a/.git/config', 'app.min.js'])(
+    'still skips %s',
+    (p) => {
+      expect(isScanSkipped(p)).toBe(true);
+    },
+  );
 });
