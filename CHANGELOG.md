@@ -4,6 +4,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.127.2] - 2026-10-07
+
+Fixes 0.127.1, which failed to start.
+
 ### Fixed
 
 - **SideCar 0.127.1 failed to start.** Activation threw `'get' on proxy: property 'get' is
