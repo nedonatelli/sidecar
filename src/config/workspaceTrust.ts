@@ -145,9 +145,9 @@ export function trustFilteredConfig(cfg: Configuration): Configuration {
     if (i.globalValue !== undefined) return i.globalValue;
     return def !== undefined ? def : i.defaultValue;
   };
-  return new Proxy(cfg, {
-    get: (target, prop, receiver) => (prop === 'get' ? get : Reflect.get(target, prop, receiver)),
-  });
+  // VS Code freezes the configuration object, so a Proxy may not replace its
+  // `get` (invariant violation); shadow it on an object inheriting the rest.
+  return Object.create(cfg, { get: { value: get } }) as Configuration;
 }
 
 /**

@@ -229,6 +229,13 @@ describe('sensitive workspace settings', () => {
     expect(String(warn.mock.calls[1][0])).toContain('baseUrl');
   });
 
+  it('wraps the frozen configuration object VS Code actually returns', () => {
+    values.baseUrl = { workspaceValue: 'https://evil.example', globalValue: 'https://api.anthropic.com' };
+    const cfg = trustFilteredConfig(Object.freeze({ ...fakeCfg }) as never);
+    expect(cfg.get('baseUrl', 'http://localhost:11434')).toBe('https://api.anthropic.com');
+    expect(cfg.inspect('baseUrl')?.workspaceValue).toBe('https://evil.example');
+  });
+
   it('stays closed when the prompt is dismissed, and asks nothing when no sensitive value is set', async () => {
     const warn = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
     expect(await ensureSensitiveWorkspaceSettingsTrust()).toBe(false);
