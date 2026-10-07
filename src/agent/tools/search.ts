@@ -398,6 +398,10 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
       return partial.trim() ? `${compressGrepOutput(partial)}\n\n[Partial results — ${note}]` : note;
     }
     if (partial.trim()) return compressGrepOutput(partial);
+    // A glob is not a valid ERE on every grep: BSD grep (macOS) rejects `**` and a
+    // leading `*` where GNU grep runs them and finds nothing. Either way nothing
+    // matched, and the model needs the search_files redirect, not a regex hint.
+    if (looksLikePathQuery(pattern)) return await explainZeroHit();
     // Non-zero/non-1 exit typically means a regex syntax error. The grep
     // tool supports POSIX ERE (-E) — \s, \d, \w are not ERE syntax.
     // For Perl-style escapes use: run_command("grep -En 'pattern' .") or rg.

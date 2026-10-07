@@ -100,6 +100,14 @@ describe('grep — what a zero-hit search reports', () => {
     expect(out).toMatch(/CONTENTS, not names/);
   });
 
+  it('redirects a path-shaped pattern that grep rejects as a regex', async () => {
+    // Every grep rejects an unmatched `[`, so this exercises on Linux the path
+    // macOS takes for `admin_utils/**`.
+    const out = await grep({ pattern: '[old/admin_utils' }, ctx());
+    expect(out).toContain('search_files(pattern="**/*admin_utils*")');
+    expect(out).not.toMatch(/Grep error/);
+  });
+
   it('suggests a glob on the file NAME, not the slashes squeezed out of a full path', async () => {
     // Stripping every `/` turned `django/contrib/admin/checks.py` into
     // `**/*djangocontribadminchecks*`, which matches nothing — the redirect
