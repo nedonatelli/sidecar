@@ -27,6 +27,8 @@
 //  that embeds chunks for semantic scoring.
 // ---------------------------------------------------------------------------
 
+import { globToRegExp } from '../util/glob.js';
+
 export type SectionPriority = 'always' | 'scoped' | 'low';
 
 export interface SidecarMdSection {
@@ -174,17 +176,8 @@ function globToRegex(glob: string): RegExp {
   // Trailing slash: include everything inside.
   if (pattern.endsWith('/')) pattern += '**';
 
-  // Escape regex metacharacters EXCEPT `*` and `?` which we substitute
-  // next. The order matters — escape first, then rewrite.
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  // Replace `**` first (two-char token) then `*` and `?`.
-  const re = escaped
-    .replace(/\*\*/g, '__DOUBLESTAR__')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]')
-    .replace(/__DOUBLESTAR__/g, '.*');
-
-  return new RegExp(`^${re}$`);
+  // Shared translator: `src/<star><star>/<star>.ts` must match `src/x.ts` too.
+  return globToRegExp(pattern);
 }
 
 /**
