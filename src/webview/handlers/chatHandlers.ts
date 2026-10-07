@@ -387,6 +387,21 @@ export interface UserMessageOptions {
    * the new message as the user moving on.
    */
   continuesFailedTurn?: boolean;
+  /**
+   * This run carries out or revises a plan the user approved, so it must not
+   * plan again: in plan mode it runs as cautious. Applies to this run only.
+   */
+  leavePlanMode?: boolean;
+}
+
+/**
+ * The agent mode a run uses. Leaving plan mode used to be done by writing
+ * agentMode to the user's GLOBAL settings and back: a workspace value shadowed
+ * the write (so the run planned again), and the write-back undid a mode the
+ * user picked while the run was going.
+ */
+export function runAgentMode(configuredMode: string, options: UserMessageOptions): string {
+  return options.leavePlanMode && configuredMode === 'plan' ? 'cautious' : configuredMode;
 }
 
 export async function handleUserMessage(
@@ -535,7 +550,9 @@ export async function handleUserMessage(
       state.client.setTurnOverride(sentinel.override);
     }
 
-    const resolved = resolveMode(config.agentMode, config.customModes);
+    const agentMode = runAgentMode(config.agentMode, options);
+    const runConfig = agentMode === config.agentMode ? config : { ...config, agentMode };
+    const resolved = resolveMode(agentMode, config.customModes);
 
     let effectiveApprovalMode: ApprovalMode = resolved.approvalBehavior;
     if (effectiveApprovalMode !== 'plan' && shouldAutoEnablePlanMode(turnText, state.messages.length)) {
@@ -550,7 +567,7 @@ export async function handleUserMessage(
 
     const { systemPrompt, contextLength, matchedSkill } = await buildSystemPromptForRun(
       state,
-      config,
+      runConfig,
       turnText,
       effectiveApprovalMode,
       resolved.systemPrompt,

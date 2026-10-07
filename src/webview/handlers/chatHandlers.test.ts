@@ -14,6 +14,7 @@ import {
   isDeferredAnswer,
   isContinuationRequest,
   postLoopProcessing,
+  runAgentMode,
   handleCreateFile,
   handleMoveFile,
   handleExportChat,
@@ -1134,6 +1135,14 @@ describe('buildBaseSystemPrompt', () => {
 // ---------------------------------------------------------------------------
 // postLoopProcessing
 // ---------------------------------------------------------------------------
+describe('runAgentMode', () => {
+  it('runs plan mode as cautious only when the run leaves plan mode', () => {
+    expect(runAgentMode('plan', { leavePlanMode: true })).toBe('cautious');
+    expect(runAgentMode('plan', {})).toBe('plan');
+    expect(runAgentMode('autonomous', { leavePlanMode: true })).toBe('autonomous');
+  });
+});
+
 describe('postLoopProcessing', () => {
   it('merges agent output with state messages', async () => {
     const state = {
