@@ -71,9 +71,15 @@ export function createSdkApi(context: ExtensionContext, version: string): SideCa
 // ---------------------------------------------------------------------------
 
 function approve(extensionId: string, what: string): Promise<boolean> {
-  let decision = decisions.get(extensionId);
+  // The caller's id comes from a stack frame, which a caller can forge. So a
+  // decision covers one registration (that id AND that tool or hook), and an
+  // unidentified caller is asked every time: one "Allow" no longer lets any
+  // other code -- or every unidentified caller -- register anything.
+  const key = `${extensionId}\u0000${what}`;
+  let decision = extensionId === 'unknown' ? undefined : decisions.get(key);
   if (!decision) {
-    const who = extensionId === 'unknown' ? 'An unidentified extension' : `Extension "${extensionId}"`;
+    const who =
+      extensionId === 'unknown' ? 'An unidentified extension' : `An extension identifying itself as "${extensionId}"`;
     decision = Promise.resolve(
       window.showWarningMessage(
         `${who} wants to ${what} in SideCar. Only allow extensions you trust.`,
@@ -84,7 +90,7 @@ function approve(extensionId: string, what: string): Promise<boolean> {
       (choice) => choice === 'Allow',
       () => false,
     );
-    decisions.set(extensionId, decision);
+    if (extensionId !== 'unknown') decisions.set(key, decision);
   }
   return decision;
 }

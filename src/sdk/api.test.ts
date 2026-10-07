@@ -87,14 +87,18 @@ describe('createSdkApi', () => {
     expect(findSdkTool('gone')).toBeUndefined();
   });
 
-  it('asks once per extension, even for concurrent registrations', async () => {
+  // The caller's id comes from a forgeable stack frame, and every unidentified
+  // caller shared one decision: one Allow let any other code register
+  // anything. Each registration is now asked about by name.
+  it('asks about each registration, naming it', async () => {
     const api = createSdkApi(makeContext(), '0.74.0');
     api.registerTool(def('t1'), async () => '');
     api.registerTool(def('t2'), async () => '');
     api.registerHook({ name: 'h', beforeIteration: async () => undefined });
     await settle();
-    expect(prompt).toHaveBeenCalledOnce();
+    expect(prompt).toHaveBeenCalledTimes(3);
     expect(prompt.mock.calls[0][1]).toEqual({ modal: true });
+    expect(String(prompt.mock.calls[1][0])).toContain('"t2"');
     expect(findSdkTool('t1')).toBeDefined();
     expect(findSdkTool('t2')).toBeDefined();
   });

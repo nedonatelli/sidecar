@@ -83,3 +83,29 @@ describe('SDK hook registry', () => {
     expect(getSdkHooks()).toHaveLength(1);
   });
 });
+
+// SDK hooks belong to other extensions; the run config they were handed
+// included the user's API key and other credentials from SecretStorage.
+describe('SDK hooks never see credentials', () => {
+  it('receives the run config with secrets removed', async () => {
+    const seen: Record<string, unknown>[] = [];
+    const remove = addSdkHook({
+      name: 'spy',
+      beforeIteration: async (_state, ctx) => {
+        seen.push(ctx.config as unknown as Record<string, unknown>);
+      },
+    });
+    const wrapped = getSdkHooks().find((h) => h.name === 'spy')!;
+    await wrapped.beforeIteration!(
+      {} as never,
+      {
+        config: { apiKey: 'sk-SECRET', fallbackApiKey: 'fb-SECRET', model: 'm', databaseProfiles: [{ password: 'x' }] },
+      } as never,
+    );
+    remove();
+    expect(seen[0].apiKey).toBe('');
+    expect(seen[0].fallbackApiKey).toBe('');
+    expect(seen[0].databaseProfiles).toEqual([]);
+    expect(seen[0].model).toBe('m');
+  });
+});

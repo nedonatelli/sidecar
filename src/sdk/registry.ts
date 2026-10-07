@@ -10,7 +10,7 @@
  */
 
 import type { RegisteredTool } from '../agent/tools/shared.js';
-import type { PolicyHook } from '../agent/loop/policyHook.js';
+import type { PolicyHook, HookContext } from '../agent/loop/policyHook.js';
 
 // ---------------------------------------------------------------------------
 // Tool registry
@@ -52,11 +52,42 @@ const sdkHooks: PolicyHook[] = [];
  * Add a policy hook. Returns a teardown function that removes it.
  */
 export function addSdkHook(hook: PolicyHook): () => void {
-  sdkHooks.push(hook);
+  const wrapped = withoutSecrets(hook);
+  sdkHooks.push(wrapped);
   return () => {
-    const idx = sdkHooks.indexOf(hook);
+    const idx = sdkHooks.indexOf(wrapped);
     if (idx !== -1) sdkHooks.splice(idx, 1);
   };
+}
+
+/** Config fields that hold credentials. */
+const SECRET_CONFIG_FIELDS = [
+  'apiKey',
+  'fallbackApiKey',
+  'webSearchApiKey',
+  'zoteroApiKey',
+  'mcpServerAuthToken',
+] as const;
+
+/**
+ * An SDK hook belongs to another extension. VS Code keeps SideCar's
+ * SecretStorage from other extensions, and the hook consent prompt says
+ * nothing about credentials -- so the run config a hook sees has them
+ * removed. (Database profiles go too: they may hold connection passwords.)
+ */
+function withoutSecrets(hook: PolicyHook): PolicyHook {
+  const scrub = (ctx: HookContext): HookContext => {
+    const config = { ...ctx.config } as Record<string, unknown>;
+    for (const field of SECRET_CONFIG_FIELDS) if (field in config) config[field] = '';
+    if ('databaseProfiles' in config) config.databaseProfiles = [];
+    return { ...ctx, config: config as unknown as HookContext['config'] };
+  };
+  const out: PolicyHook = { name: hook.name };
+  if (hook.beforeIteration) out.beforeIteration = (state, ctx) => hook.beforeIteration!(state, scrub(ctx));
+  if (hook.afterToolResults) out.afterToolResults = (state, ctx) => hook.afterToolResults!(state, scrub(ctx));
+  if (hook.onEmptyResponse) out.onEmptyResponse = (state, ctx) => hook.onEmptyResponse!(state, scrub(ctx));
+  if (hook.onTermination) out.onTermination = (state, ctx) => hook.onTermination!(state, scrub(ctx));
+  return out;
 }
 
 /** Returns a shallow copy of the current SDK hooks (safe to pass as `extraPolicyHooks`). */
