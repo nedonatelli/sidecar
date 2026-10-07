@@ -454,3 +454,40 @@ describeWindows("ShellSession on Windows — output is the command's, and only t
     expect(failed.exitCode).toBe(3);
   }, 30_000);
 });
+
+// #114: lifecycle bugs that hit every platform. These run under whichever
+// shell the session picks (bash / zsh; Git Bash or cmd.exe on Windows).
+describe('ShellSession lifecycle (#114)', () => {
+  let session: ShellSession;
+  afterEach(() => session?.dispose());
+
+  const sleepCmd = (secs: number) =>
+    os.platform() === 'win32' && !/bash/i.test(process.env.SIDECAR_SHELL ?? 'bash')
+      ? `ping -n ${secs + 1} 127.0.0.1 >NUL`
+      : `sleep ${secs}`;
+
+  it('reports a shell that exits during a command at once, with its exit code', async () => {
+    session = new ShellSession(os.tmpdir());
+    const started = Date.now();
+    const result = await session.execute('exit 3', { timeout: 20_000 });
+    expect(Date.now() - started).toBeLessThan(10_000); // not the idle timeout
+    expect(result.exitCode).toBe(3);
+    expect(result.stdout).toContain('The shell exited during this command');
+    // The next command gets a fresh shell.
+    expect((await session.execute('echo again')).stdout).toContain('again');
+  }, 30_000);
+
+  it("does not lose the replacement shell when a timed-out shell's exit arrives late", async () => {
+    session = new ShellSession(os.tmpdir());
+    const timedOut = await session.execute(sleepCmd(5), { timeout: 300 });
+    expect(timedOut.timedOut).toBe(true);
+    // Start the replacement right away, before the old shell's exit lands.
+    expect((await session.execute('echo second')).stdout).toContain('second');
+    const replacement = (session as unknown as { proc: { pid: number } | null }).proc;
+    expect(replacement).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 1500)); // let the old shell's exit fire
+    // Still the same, live replacement -- not forgotten (and later orphaned).
+    expect((session as unknown as { proc: { pid: number } | null }).proc?.pid).toBe(replacement!.pid);
+    expect(session.isAlive).toBe(true);
+  }, 30_000);
+});

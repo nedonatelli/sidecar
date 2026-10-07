@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { Disposable } from 'vscode';
 import { writeFileAtomic } from '../system/atomicWrite.js';
+import { killProcessTree } from '../system/killProcessTree.js';
 
 /**
  * Wraps a ChildProcess with a deterministic kill chain:
@@ -61,16 +62,29 @@ export class ManagedChildProcess implements Disposable {
         return false;
       };
 
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const exitHandler = () => {
         clearTimeout(timer);
         resolve();
       };
       proc.once('exit', exitHandler);
 
+      // Windows: take the whole tree. proc.kill() is TerminateProcess on the
+      // hook process alone, so whatever it started (a test runner, a dev
+      // server, the shell's children) kept running and kept files locked.
+      if (killProcessTree(proc.pid, os.platform() === 'win32')) {
+        // taskkill /F is final; just don't wait forever for the exit event.
+        timer = setTimeout(() => {
+          proc.removeListener('exit', exitHandler);
+          resolve();
+        }, 1000);
+        return;
+      }
+
       // Stage 0: graceful kill (SIGTERM on Unix, TerminateProcess on Windows)
       proc.kill();
 
-      let timer = setTimeout(() => {
+      timer = setTimeout(() => {
         if (checkExit()) return;
         // Stage 1: explicit SIGTERM
         proc.kill('SIGTERM');

@@ -1,4 +1,4 @@
-import { spawn, execFileSync, type ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { logger } from '../system/logger.js';
 import { randomBytes } from 'crypto';
 import * as os from 'os';
@@ -80,6 +80,27 @@ export function resolveWindowsShell(): string {
   return process.env.COMSPEC || 'cmd.exe';
 }
 
+/**
+ * The shell to run commands in on macOS / Linux. The command protocol (brace
+ * grouping, `$?`, the bash/zsh hardening prefix, --norc / -f) needs bash or
+ * zsh. $SHELL was used whatever it was, so a fish (or dash, nushell, tcsh)
+ * login shell got bash flags and syntax and EVERY run_command hung to the
+ * 120 s idle timeout. $SHELL is used when it is bash or zsh; otherwise bash or
+ * zsh from the usual locations; /bin/sh only as a last resort.
+ */
+export function resolvePosixShell(envShell: string | undefined = process.env.SHELL): string {
+  if (envShell && /(^|\/)(bash|zsh|zsh5)$/.test(envShell)) return envShell;
+  const candidates = [
+    '/bin/bash',
+    '/usr/bin/bash',
+    '/usr/local/bin/bash',
+    '/opt/homebrew/bin/bash',
+    '/bin/zsh',
+    '/usr/bin/zsh',
+  ];
+  return candidates.find((c) => fs.existsSync(c)) ?? '/bin/sh';
+}
+
 /** True when `shellPath` speaks POSIX — decides the command protocol, not the platform. */
 function isPosixShell(shellPath: string): boolean {
   return /(^|[\\/])(bash|sh|zsh|dash)(\.exe)?$/i.test(shellPath);
@@ -117,6 +138,9 @@ function hardeningPrefixFor(shellPath: string): string {
     // stderr in case the shell has no aliases/functions to unset.
     return "unalias -m '*' 2>/dev/null; unfunction -m '*' 2>/dev/null; ";
   }
+  // Plain sh (the last-resort fallback): no process substitution, so only the
+  // alias reset applies.
+  if (!/(^|[\\/])bash(\.exe)?$/i.test(shellPath)) return 'unalias -a 2>/dev/null; ';
   // bash (default): `shopt -u expand_aliases` is defense-in-depth on the
   // alias path (non-interactive shells already default to it off).
   // `compgen -A function` lists user-defined functions one per line,
@@ -135,44 +159,10 @@ function hardeningPrefixFor(shellPath: string): string {
  * Uses a long-lived shell process with sentinel-based command completion detection.
  * Output streams incrementally via the onOutput callback.
  */
-/**
- * Kill a process AND everything it spawned. Windows only; returns false when it
- * did not handle the kill so the caller falls back to signals.
- *
- * Killing a process on Windows does not touch its children. The shell session is
- * long-lived and `run_command` runs everything inside it, so a python or node
- * the model started outlives the shell we killed -- with its working directory
- * still held open. Measured on a SWE-bench harness: 50 orphaned shells per run,
- * and clone directories that Windows then refused to delete because a live
- * process still had its cwd inside them. Orphaned venv pythons from those runs
- * were still resident days later.
- *
- * Nothing graceful is lost by using /F. Windows has no SIGTERM: Node's
- * `proc.kill('SIGTERM')` already calls TerminateProcess, so the existing path is
- * a forced kill that merely misses the children. `taskkill /T` is the same
- * bluntness applied to the whole tree.
- *
- * Synchronous on purpose. Callers tear down a shell and then immediately touch
- * the directory it was sitting in; returning before the tree is actually gone is
- * what left those directories undeletable.
- *
- * @param exec injection seam for tests — the default shells out to taskkill.
- */
-export function killProcessTree(
-  pid: number | undefined,
-  isWindows: boolean,
-  exec: (cmd: string, args: string[]) => void = (cmd, args) =>
-    execFileSync(cmd, args, { stdio: 'ignore', timeout: 5000 }),
-): boolean {
-  if (!isWindows || !pid) return false;
-  try {
-    exec('taskkill', ['/pid', String(pid), '/T', '/F']);
-    return true;
-  } catch {
-    // Already dead, or taskkill unavailable. The signal path still runs.
-    return false;
-  }
-}
+// Lives in system/killProcessTree.ts so processLifecycle can use it without an
+// import cycle; re-exported here for existing importers.
+export { killProcessTree } from '../system/killProcessTree.js';
+import { killProcessTree } from '../system/killProcessTree.js';
 
 export class ShellSession {
   private proc: ChildProcess | null = null;
@@ -207,7 +197,7 @@ export class ShellSession {
     this.env = { ...(process.env as Record<string, string>), ...env };
     this.maxOutputSize = maxOutputSize;
     this.isWindows = os.platform() === 'win32';
-    this.shellPath = this.isWindows ? resolveWindowsShell() : process.env.SHELL || '/bin/bash';
+    this.shellPath = this.isWindows ? resolveWindowsShell() : resolvePosixShell();
     // The PROTOCOL follows the shell, not the platform: on Windows running Git
     // Bash we need POSIX quoting and redirection, not cmd's.
     this.usesPosixShell = isPosixShell(this.shellPath);
@@ -239,8 +229,10 @@ export class ShellSession {
       args = ['/Q'];
     } else if (shellPath.endsWith('/zsh') || shellPath.endsWith('/zsh5')) {
       args = ['-f'];
-    } else {
+    } else if (/(^|[\\/])bash(\.exe)?$/i.test(shellPath)) {
       args = ['--norc', '--noprofile'];
+    } else {
+      args = []; // plain sh reads no rc files when not interactive
     }
 
     let spawnCmd = shellPath;
@@ -249,26 +241,32 @@ export class ShellSession {
       ({ cmd: spawnCmd, args: spawnArgs } = wrapWithSeatbelt(shellPath, args, this.cwd));
     }
 
-    this.proc = spawn(spawnCmd, spawnArgs, {
+    const proc = spawn(spawnCmd, spawnArgs, {
       cwd: this.cwd,
       env: this.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    this.proc = proc;
 
-    this.proc.on('error', (err) => {
+    // Only forget the shell if it is still the CURRENT one. A timed-out shell
+    // is replaced at once; its late 'exit' used to null this.proc anyway,
+    // dropping the REPLACEMENT -- which then was never killed (on Windows it
+    // held the workspace folder open) while another shell was spawned.
+    proc.on('error', (err) => {
       logger.error('[ShellSession] Process error:', err.message);
-      this.proc = null;
+      if (this.proc === proc) this.proc = null;
     });
 
-    this.proc.on('exit', () => {
+    proc.on('exit', () => {
+      if (this.proc !== proc) return;
       this.proc = null;
       this.ready = null;
     });
 
     // Only cmd.exe prints a banner; bash with --norc --noprofile prints nothing.
-    this.ready = this.isWindows && !this.usesPosixShell ? this.flushStartupBanner(this.proc) : Promise.resolve();
+    this.ready = this.isWindows && !this.usesPosixShell ? this.flushStartupBanner(proc) : Promise.resolve();
 
-    return this.proc;
+    return proc;
   }
 
   /**
@@ -452,7 +450,24 @@ export class ShellSession {
         signal?.removeEventListener('abort', onAbort);
         if (proc.stdout) proc.stdout.removeListener('data', onData);
         if (proc.stderr) proc.stderr.removeListener('data', onStderrData);
+        proc.removeListener('close', onShellExit);
       };
+
+      // The shell itself exited mid-command (`exit 1`, `set -e` plus a failing
+      // step, a crash): no sentinel will ever come. This used to wait out the
+      // 120 s idle timer and then report "timed out" with exit -1.
+      const onShellExit = (code: number | null, sig: NodeJS.Signals | null) => {
+        if (buffer) {
+          output += buffer;
+          onOutput?.(buffer);
+          buffer = '';
+        }
+        const status = code ?? -1;
+        notice = `\n\n⚠️ The shell exited during this command (${sig ? `signal ${sig}` : `exit code ${status}`}); a new shell will start for the next command, so cd / export state from before is gone.`;
+        finish(status);
+      };
+      // 'close', not 'exit': it fires after stdout has ended, so no output is lost.
+      proc.once('close', onShellExit);
 
       // Buffer for detecting sentinel split across chunks
       let buffer = '';
@@ -508,7 +523,13 @@ export class ShellSession {
       };
 
       const onData = (data: Buffer) => {
-        const text = data.toString();
+        ingest(data.toString());
+      };
+
+      // stdout and any stderr that escapes the `2>&1` go through one path:
+      // stderr used to be appended to the buffer (which streams on its way to
+      // `output`) AND streamed directly, so it reached the chat twice.
+      const ingest = (text: string) => {
         armIdle();
         buffer += text;
 
@@ -550,12 +571,7 @@ export class ShellSession {
       const onStderrData = (data: Buffer) => {
         // Stderr goes through the 2>&1 redirect, but just in case
         // some output leaks to stderr directly, capture it
-        const text = data.toString();
-        armIdle();
-        buffer += text;
-        if (!checkSentinel()) {
-          onOutput?.(text);
-        }
+        ingest(data.toString());
       };
 
       proc.stdout?.on('data', onData);
