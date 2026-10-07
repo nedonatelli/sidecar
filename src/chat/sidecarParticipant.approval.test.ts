@@ -30,7 +30,24 @@ describe('participantApprovalOptions', () => {
     const warn = vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue('Allow' as never);
     const { confirmFn } = participantApprovalOptions({ agentMode: 'cautious', customModes: [] });
     expect(await confirmFn('Run **`rm -rf build`**?', ['Allow', 'Deny'])).toBe('Allow');
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('rm -rf build'), { modal: true }, 'Allow', 'Deny');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('rm -rf build'),
+      { modal: true, detail: undefined },
+      'Allow',
+      'Deny',
+    );
+  });
+
+  it('shows the command it is approving: the detail is kept and paths are not altered', async () => {
+    const warn = vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue('Deny' as never);
+    const { confirmFn } = participantApprovalOptions({ agentMode: 'cautious', customModes: [] });
+    await confirmFn('Allow SideCar to run run_command?', ['Allow', 'Deny'], {
+      modal: true,
+      detail: 'command: git push --force origin main',
+    });
+    expect(warn.mock.calls.at(-1)?.[1]).toEqual({ modal: true, detail: 'command: git push --force origin main' });
+    await confirmFn('SideCar wants to use **write_file**:\npath: src/__init__.py > out', ['Allow', 'Deny']);
+    expect(String(warn.mock.calls.at(-1)?.[0])).toContain('src/__init__.py > out');
   });
 });
 

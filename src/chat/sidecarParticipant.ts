@@ -31,9 +31,15 @@ export function participantApprovalOptions(config: Pick<SideCarConfig, 'agentMod
   return {
     approvalMode,
     modeToolPermissions: resolved.toolPermissions,
-    confirmFn: async (message, actions) => {
-      const plain = message.replace(/[*_`#>]/g, '').trim();
-      return vscode.window.showWarningMessage(`SideCar (@sidecar): ${plain}`, { modal: true }, ...actions);
+    // Only bold markers are stripped: the message and the detail carry the
+    // command and paths being approved, which must be shown exactly.
+    confirmFn: async (message, actions, options) => {
+      const plain = message.replace(/\*\*/g, '').trim();
+      return vscode.window.showWarningMessage(
+        `SideCar (@sidecar): ${plain}`,
+        { modal: true, detail: options?.detail },
+        ...actions,
+      );
     },
   };
 }

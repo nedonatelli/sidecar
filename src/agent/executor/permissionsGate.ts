@@ -64,7 +64,7 @@ export interface ResolveApprovalOptions {
  *  2. `isIrrecoverable` — force approval even in autonomous mode
  *  3. `explicitPermission: 'allow'` — user opted in; skip approval
  *  4. `explicitPermission: 'ask'`  — user opted in to always-ask
- *  5. Fall back to approvalMode × tool.requiresApproval
+ *  5. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
  */
 export function resolveApprovalNeeded(opts: ResolveApprovalOptions): boolean {
   const { tool, approvalMode, explicitPermission, isIrrecoverable } = opts;
@@ -72,5 +72,9 @@ export function resolveApprovalNeeded(opts: ResolveApprovalOptions): boolean {
   if (isIrrecoverable) return true;
   if (explicitPermission === 'allow') return false;
   if (explicitPermission === 'ask') return true;
-  return approvalMode === 'manual' || (approvalMode === 'cautious' && !!tool.requiresApproval);
+  // Review mode queues file writes for review (the review handler intercepts
+  // them before this gate); everything else it asks about like cautious mode.
+  return (
+    approvalMode === 'manual' || ((approvalMode === 'cautious' || approvalMode === 'review') && !!tool.requiresApproval)
+  );
 }

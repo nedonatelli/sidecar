@@ -25,6 +25,7 @@ import { recordBounce, clearBounces, escalationSuffix } from './executor/bounceE
 import { isGenericClarification, CANNED_CLARIFICATION } from './executor/genericClarification.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
+import { previewEditFile } from './tools/fs.js';
 
 // Re-export ApprovalMode so all existing importers keep working unchanged.
 export type { ApprovalMode } from './executor/permissionsGate.js';
@@ -318,7 +319,9 @@ export async function executeTool(
       { modal: true },
     );
     if (trust === 'blocked') {
-      explicitPermission = undefined;
+      // Block discards only the workspace's values. The mode's and the user's
+      // own settings still apply -- above all their 'deny' and 'ask' rules.
+      explicitPermission = modePermissions?.[toolUse.name] ?? userToolPermissions()[toolUse.name];
     }
   }
 
@@ -407,29 +410,22 @@ export async function executeTool(
       };
     }
 
-    // For write tools with diff preview available, show a visual diff
+    // For write tools with diff preview available, show a visual diff. An
+    // edit_file preview runs the tool's own resolution (tolerance tiers,
+    // replace_all, within), so the approved diff is the edit that lands; when
+    // it cannot be computed, the raw arguments are shown instead.
+    let proposedContent: string | null = null;
     if (diffPreviewFn && WRITE_TOOLS.has(toolUse.name) && toolUse.input.path) {
+      proposedContent =
+        toolUse.name === 'edit_file'
+          ? await previewEditFile(toolUse.input, executorContext)
+          : (toolUse.input.content as string) || '';
+    }
+    if (proposedContent !== null) {
       const filePath = toolUse.input.path as string;
-      let proposedContent: string;
-
-      if (toolUse.name === 'edit_file') {
-        // Compute proposed content from search/replace
-        try {
-          const fileUri = Uri.joinPath(workspace.workspaceFolders![0].uri, filePath);
-          const bytes = await workspace.fs.readFile(fileUri);
-          const original = Buffer.from(bytes).toString('utf-8');
-          proposedContent = original.replace(toolUse.input.search as string, toolUse.input.replace as string);
-        } catch {
-          proposedContent = toolUse.input.replace as string;
-        }
-      } else {
-        // write_file — proposed content is the full new content
-        proposedContent = (toolUse.input.content as string) || '';
-      }
-
       // Use streaming diff preview if available (opens diff editor inline),
       // otherwise fall back to regular diff (modal dialog)
-      const previewFn = streamingDiffPreviewFn || diffPreviewFn;
+      const previewFn = (streamingDiffPreviewFn || diffPreviewFn)!;
       const diffChoice = await previewFn(filePath, proposedContent);
 
       if (diffChoice !== 'accept') {
@@ -441,13 +437,12 @@ export async function executeTool(
         };
       }
     } else {
-      // Non-write tools or no diff preview — use inline confirm
+      // Non-write tools or no diff preview — use inline confirm. Every
+      // argument is shown in full: what the user cannot see, they have not
+      // approved.
       const inputSummary = Object.entries(toolUse.input)
-        .map(([k, v]) => {
-          const val = typeof v === 'string' && v.length > 80 ? v.slice(0, 80) + '...' : String(v);
-          return `${k}: ${val}`;
-        })
-        .join(', ');
+        .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+        .join('\n');
 
       const confirm = confirmFn || (async (_msg: string, _actions: string[]) => 'Deny');
       // Escalate to a native modal ONLY when the inline card would go unseen
@@ -462,7 +457,7 @@ export async function executeTool(
             modal: true,
             detail: inputSummary,
           })
-        : await confirm(`SideCar wants to use **${toolUse.name}**(${inputSummary})`, ['Allow', 'Deny']);
+        : await confirm(`SideCar wants to use **${toolUse.name}**:\n${inputSummary}`, ['Allow', 'Deny']);
 
       if (choice !== 'Allow') {
         return {
@@ -675,6 +670,16 @@ export async function executeTool(
  * heuristic classifier and, if injection patterns match, prepends a
  * warning banner inside the wrapper.
  */
+/** The user's own (global) tool permissions, without any workspace values. */
+function userToolPermissions(): Record<string, 'allow' | 'deny' | 'ask'> {
+  const cfg = workspace.getConfiguration('sidecar');
+  const inspected =
+    typeof cfg.inspect === 'function'
+      ? cfg.inspect<Record<string, 'allow' | 'deny' | 'ask'>>('toolPermissions')
+      : undefined;
+  return inspected?.globalValue ?? {};
+}
+
 function wrapToolOutput(toolName: string, content: string, logger?: AgentLogger): string {
   const safe = content.replace(/<\/tool_output/g, '</ tool_output');
   const matches = scanToolOutput(safe);

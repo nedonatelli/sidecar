@@ -1563,6 +1563,40 @@ function buildStalePrefix(filePath: string, context?: ToolExecutorContext): stri
     : '';
 }
 
+/**
+ * What edit_file would write for this call, for the approval preview: the
+ * same base text and the same resolution the tool itself applies, so the diff
+ * the user approves is the edit that lands. Null when the call does not take
+ * that path (a missing field, a search that does not resolve); the caller then
+ * shows the raw arguments instead of a diff.
+ */
+export async function previewEditFile(
+  input: Record<string, unknown>,
+  context?: ToolExecutorContext,
+): Promise<string | null> {
+  const { path: filePath, search, replace } = input;
+  if (typeof filePath !== 'string' || typeof search !== 'string' || typeof replace !== 'string') return null;
+  if (search === replace) return null;
+  const base = isAuditModeActive(context)
+    ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
+    : await readDiskViaWorkspace(context, filePath);
+  if (base === undefined) return null;
+  try {
+    // No context: a preview must not count toward the repeated-failure state.
+    const resolved = await resolveEditedText({
+      filePath,
+      text: base,
+      search,
+      replace,
+      replaceAll: input.replace_all === true,
+      within: typeof input.within === 'string' ? input.within : undefined,
+    });
+    return resolved.newText;
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveEditedText(params: {
   filePath: string;
   text: string;
