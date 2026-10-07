@@ -558,6 +558,9 @@ export async function runAgentLoop(
         // re-issuing is safe — a flaky remote endpoint no longer zeroes the run
         // over one dropped connection. Aborts and HTTP errors are not retried.
         let streamAttempt = 0;
+        // A failed attempt's streamed text already went into totalChars; the
+        // retry streams the turn again, so it must not be counted twice.
+        const charsBeforeTurn = state.totalChars;
         for (;;) {
           try {
             rawTurn = await streamOneTurn(
@@ -579,14 +582,29 @@ export async function runAgentLoop(
               throw streamErr;
             }
             streamAttempt++;
+            state.totalChars = charsBeforeTurn;
             const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
             state.logger?.warn(
               `Turn request failed transiently (${detail}) — retry ${streamAttempt}/${MAX_TURN_STREAM_RETRIES}`,
             );
+            // Anything the failed attempt already streamed stays on screen and
+            // is NOT kept; say so, since the retry streams the turn again.
             callbacks.onText(
-              `\n\n⚠️ Network hiccup — retrying request (${streamAttempt}/${MAX_TURN_STREAM_RETRIES})...\n`,
+              `\n\n⚠️ Network hiccup — retrying request (${streamAttempt}/${MAX_TURN_STREAM_RETRIES}); ` +
+                `any partial response above is discarded...\n`,
             );
-            await new Promise((resolve) => setTimeout(resolve, 1500 * streamAttempt));
+            // Stop during the backoff ends the run now, not after the wait.
+            if (turnController.signal.aborted) throw streamErr;
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(done, 1500 * streamAttempt);
+              function done() {
+                clearTimeout(timer);
+                turnController.signal.removeEventListener('abort', done);
+                resolve();
+              }
+              turnController.signal.addEventListener('abort', done, { once: true });
+            });
+            if (turnController.signal.aborted) throw streamErr;
           }
         }
       } finally {

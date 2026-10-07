@@ -537,6 +537,36 @@ describe('runAgentLoop', () => {
     vi.restoreAllMocks();
   }, 15_000);
 
+  // #108: the backoff before a retry ignored Stop.
+  it.each(['at once', 'during'] as const)('ends promptly when stopped %s the retry backoff', async (mode) => {
+    let calls = 0;
+    async function* flaky(): AsyncGenerator<StreamEvent> {
+      calls++;
+      throw Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } });
+    }
+    const ac = new AbortController();
+    const cb = makeCallbacks();
+    const onText = cb.onText;
+    cb.onText = (t: string) => {
+      onText(t);
+      if (t.includes('Network hiccup')) setTimeout(() => ac.abort(), mode === 'during' ? 100 : 0);
+    };
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const started = Date.now();
+    await runAgentLoop(makeMockClient(flaky), [{ role: 'user', content: 'hi' }], cb, ac.signal).catch(() => {});
+
+    expect(Date.now() - started).toBeLessThan(1000); // the first backoff is 1.5 s
+    expect(calls).toBe(1); // and no retry was sent after Stop
+    vi.restoreAllMocks();
+  });
+
   it('reprompts ONCE on an empty turn, then stops when silence recurs', async () => {
     // A turn with no text and no tool calls used to end the run immediately —
     // three models terminated real eval runs that way right after a
