@@ -1,4 +1,5 @@
 import { workspace } from 'vscode';
+import * as path from 'path';
 import { logger } from '../../system/logger.js';
 import type { PolicyHook, HookContext, HookResult } from '../loop/policyHook.js';
 import type { LoopState } from '../loop/state.js';
@@ -38,9 +39,33 @@ export interface RegressionGuardConfig {
    *  Default 5. Counter resets on any success. */
   maxAttempts?: number;
   /** Optional override for the guard's working directory. Defaults to
-   *  the workspace folder. Accepts `${workspaceFolder}` as a literal —
-   *  left as-is since we already run in the workspace cwd by default. */
+   *  the run's tree (the workspace folder, or the Shadow Workspace / fork
+   *  the run is in). Relative paths and `${workspaceFolder}` resolve
+   *  against that tree; see guardWorkingDir. */
   workingDir?: string;
+}
+
+/**
+ * Where a guard runs. A run in a Shadow Workspace or fork (`cwdOverride`)
+ * has its edits there, so the guard must run there too: against the main
+ * tree it tested code the run never changed. A `workingDir` inside the main
+ * tree is mapped to the same place in the run's tree; a relative one (or
+ * `${workspaceFolder}`) is resolved against the run's tree.
+ */
+export function guardWorkingDir(
+  workingDir: string | undefined,
+  mainRoot: string | undefined,
+  cwdOverride: string | undefined,
+): string | undefined {
+  const base = cwdOverride ?? mainRoot;
+  if (!workingDir) return base;
+  const dir = workingDir.replace('${workspaceFolder}', base ?? '');
+  if (!path.isAbsolute(dir)) return base ? path.join(base, dir) : dir;
+  if (cwdOverride && mainRoot) {
+    const rel = path.relative(mainRoot, dir);
+    if (!rel.startsWith('..') && !path.isAbsolute(rel)) return path.join(cwdOverride, rel);
+  }
+  return dir;
 }
 
 /** Tool names that contribute to the "post-write" trigger's "did this
@@ -177,14 +202,21 @@ export class RegressionGuardHook implements PolicyHook {
     }
 
     // Execute.
-    const cwd = this.guard.workingDir || workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const cwd = guardWorkingDir(
+      this.guard.workingDir,
+      workspace.workspaceFolders?.[0]?.uri.fsPath,
+      ctx.options.cwdOverride,
+    );
     if (!cwd) return; // no workspace folder, nothing to gate against
     const timeout = this.guard.timeoutMs ?? 30_000;
     const session = new ShellSession(cwd, undefined, undefined, getConfig().sandboxEnabled);
     let exitCode: number;
     let stdout: string;
     try {
-      const result = await session.execute(this.guard.command, { timeout });
+      // The run's signal: Stop used to leave a guard (a full test suite, say)
+      // running to its timeout.
+      const result = await session.execute(this.guard.command, { timeout, signal: ctx.signal });
+      if (ctx.signal.aborted) return;
       exitCode = result.exitCode;
       stdout = result.stdout;
     } catch (err) {

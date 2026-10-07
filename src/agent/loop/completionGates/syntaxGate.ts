@@ -59,7 +59,9 @@ export async function maybeInjectSyntaxGate(
     return 'skip';
   }
 
-  const root = getRoot();
+  // In a shadow or fork run the edited files live under cwdOverride; checking
+  // the main tree's copies (which the run never touched) passed broken files.
+  const root = state.cwdOverride ?? getRoot();
   try {
     // Run the parse-check through the agent's terminal-first executor (the
     // same path run_tests uses), NOT a raw ShellSession. A raw ShellSession

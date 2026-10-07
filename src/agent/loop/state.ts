@@ -73,6 +73,12 @@ export interface LoopState {
   readonly startTime: number;
   readonly runId: string;
   /**
+   * The run's working tree when it is not the workspace (Shadow Workspace,
+   * fork), from `options.cwdOverride`. Checks that read files from disk must
+   * use it: the main tree does not have the run's edits.
+   */
+  readonly cwdOverride?: string;
+  /**
    * Config snapshot captured at loop entry from `options.config ?? getConfig()`.
    * Stored here so every submodule reads the same values for the duration of
    * a run and tests can inject a mock config via AgentOptions without stubbing
@@ -377,6 +383,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
   return {
     startTime: Date.now(),
     runId: crypto.randomUUID(),
+    cwdOverride: options.cwdOverride,
     config: options.config ?? getConfig(),
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
     // 128K, matching LOCAL_CONTEXT_CAP and the default local model's native

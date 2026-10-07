@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { workspace } from 'vscode';
+import * as path from 'path';
 import type { LoopState } from '../loop/state.js';
 import type { HookContext } from '../loop/policyHook.js';
 import type { ToolUseContentBlock, ChatMessage } from '../../ollama/types.js';
@@ -31,7 +32,12 @@ vi.mock('../../config/settings.js', () => ({
   getConfig: () => ({ sandboxEnabled: true }),
 }));
 
-import { RegressionGuardHook, buildRegressionGuardHooks, validateGuard } from './regressionGuardHook.js';
+import {
+  RegressionGuardHook,
+  buildRegressionGuardHooks,
+  validateGuard,
+  guardWorkingDir,
+} from './regressionGuardHook.js';
 
 // ---------------------------------------------------------------------------
 // Small helpers for assembling the HookContext / LoopState shapes that
@@ -395,5 +401,45 @@ describe('buildRegressionGuardHooks', () => {
     await hooks[0].afterToolResults!(state, ctx);
     expect(state.messages).toHaveLength(0);
     expect(onTextSpy).toHaveBeenCalledWith(expect.stringContaining('advisory'));
+  });
+});
+
+// #108: guards ran against the main tree in shadow/fork runs, and Stop did
+// not reach a running guard.
+describe('regression guards in a shadow or fork run', () => {
+  const main = path.resolve('/repo');
+  const shadow = path.resolve('/shadows/run-1');
+
+  it('runs in the run tree, mapping workingDir into it', () => {
+    expect(guardWorkingDir(undefined, main, undefined)).toBe(main);
+    expect(guardWorkingDir(undefined, main, shadow)).toBe(shadow);
+    expect(guardWorkingDir(path.join(main, 'pkg'), main, shadow)).toBe(path.join(shadow, 'pkg'));
+    expect(guardWorkingDir('pkg', main, shadow)).toBe(path.join(shadow, 'pkg'));
+    expect(guardWorkingDir('${workspaceFolder}', main, shadow)).toBe(shadow);
+    // Outside the main tree: left alone.
+    const elsewhere = path.resolve('/opt/tools');
+    expect(guardWorkingDir(elsewhere, main, shadow)).toBe(elsewhere);
+  });
+
+  it("starts the guard shell in the run's tree and passes the run's signal", async () => {
+    shellExecuteMock.mockReset().mockResolvedValue({ exitCode: 0, stdout: 'ok', timedOut: false });
+    shellCtorMock.mockClear();
+    const hook = new RegressionGuardHook({ name: 'g', command: 'c', trigger: 'post-write' });
+    const ctx = { ...makeCtx([writeFileToolUse('src/foo.ts')]), options: { cwdOverride: shadow } };
+    await hook.afterToolResults(makeState(), ctx);
+    expect(shellCtorMock.mock.calls[0][0]).toBe(shadow);
+    expect(shellExecuteMock.mock.calls[0][1]).toMatchObject({ signal: ctx.signal });
+  });
+
+  it('does not count or report a guard the user stopped', async () => {
+    const ac = new AbortController();
+    shellExecuteMock.mockReset().mockImplementation(async () => {
+      ac.abort();
+      return { exitCode: 130, stdout: '', timedOut: false };
+    });
+    const hook = new RegressionGuardHook({ name: 'g', command: 'c', trigger: 'post-write' });
+    const state = makeState();
+    await hook.afterToolResults(state, { ...makeCtx([writeFileToolUse('src/foo.ts')]), signal: ac.signal });
+    expect(state.messages).toHaveLength(0);
   });
 });
