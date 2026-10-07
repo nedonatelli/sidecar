@@ -116,6 +116,22 @@ describe('editWouldBreakSyntax', () => {
   });
 });
 
+// #109: error counts stopped at 20, so a file with 20+ errors compared 20
+// before vs 20 after and every edit passed as "not worse".
+describe('editWouldBreakSyntax — files with many existing errors', () => {
+  const broken = (n: number) => Array.from({ length: n }, (_, i) => `const v${i} = (;\n`).join('');
+
+  it('still refuses an edit that adds errors to a file that has 25', async () => {
+    const result = await editWouldBreakSyntax('a.ts', broken(25), broken(30));
+    expect(result.refuse).toBe(true);
+  });
+
+  it('reports two capped counts as unchecked, not "not worse"', async () => {
+    const result = await editWouldBreakSyntax('a.ts', broken(1100), broken(1200));
+    expect(result).toEqual({ refuse: false, verdict: 'unchecked' });
+  });
+});
+
 describe('tryLiteralEscapeRecovery (code-as-text escape contamination)', () => {
   it('decodes the llama3.2 calculator shape — literal \\n between statements — when the decode parses', async () => {
     // Verbatim failure shape from the steer A/B (r1-on): content arrived as an
@@ -151,6 +167,16 @@ describe('tryLiteralEscapeRecovery (code-as-text escape contamination)', () => {
     const recovered = await tryLiteralEscapeRecovery('a.py', before, after);
     expect(recovered).not.toBeNull();
     expect(recovered).not.toBe(before);
+  });
+
+  // #109: decoding the whole file rewrote escapes that were already in it.
+  it('leaves escapes outside the edited text alone', async () => {
+    // File bytes: sep = "\\n".join(parts) -- an escaped backslash then n.
+    // Decoded, that is a backslash-newline line continuation, which still parses.
+    const before = 'sep = "\\\\n".join(parts)\n';
+    const after = before + 'def f():\\n    return 1\n';
+    const recovered = await tryLiteralEscapeRecovery('a.py', before, after);
+    expect(recovered).toBe(before + 'def f():\n    return 1\n');
   });
 
   it('returns null when the content has no literal escapes', async () => {
