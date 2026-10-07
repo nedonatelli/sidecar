@@ -32,6 +32,11 @@ function sbplEscape(p: string): string {
 export function buildSandboxProfile(workspacePath: string, homeDir = os.homedir()): string {
   const ws = sbplEscape(workspacePath);
   const home = sbplEscape(homeDir);
+  // The workspace path as a regex, for the rules that match any depth. SBPL
+  // #"..." regex literals take single backslashes (as Apple's own profiles
+  // do), so this is regex-escaped only; a path holding a quote cannot be
+  // written into one and gets no regex rules -- the literal rules still apply.
+  const wsRe = workspacePath.includes('"') ? null : workspacePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   return `(version 1)
 (deny default)
@@ -114,6 +119,27 @@ export function buildSandboxProfile(workspacePath: string, homeDir = os.homedir(
   (subpath "${ws}/.vscode")
   (literal "${ws}/.mcp.json")
   (literal "${ws}/.sidecar/settings.json"))
+
+; Hook managers keep their commands in work-tree files that git's own hooks
+; run (husky via core.hooksPath, the pre-commit framework, lefthook), and
+; .gitmodules can name an update command. Submodules have their own config
+; and hooks under .git/modules.
+(deny file-write*
+  (subpath "${ws}/.husky")
+  (subpath "${ws}/.githooks")
+  (literal "${ws}/.pre-commit-config.yaml")
+  (literal "${ws}/.pre-commit-config.yml")
+  (literal "${ws}/lefthook.yml")
+  (literal "${ws}/lefthook.yaml")
+  (literal "${ws}/.lefthook.yml")
+  (literal "${ws}/.gitmodules")${wsRe === null ? '' : `\n  (regex #"^${wsRe}/\\.git/modules/.*/(config|hooks(/.*)?)$")`})
+
+; A repository is only protected where it is: a NEW one created in a
+; subfolder (or the root .git replaced by a directory or gitdir file of the
+; command's making) brings its own config -- core.fsmonitor runs when VS
+; Code's git, outside this sandbox, runs status there.
+(deny file-write*
+  (literal "${ws}/.git")${wsRe === null ? '' : `\n  (regex #"^${wsRe}/.+/\\.git(/.*)?$")`})
 
 ; PATH directories inside the writable caches: a shim placed there outlives
 ; the sandbox and runs the next time the user types the command.

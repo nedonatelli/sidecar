@@ -161,6 +161,34 @@ describe('buildSandboxProfile carve-outs', () => {
     expect(lastIndex('(deny file-write*')).toBeGreaterThan(lastIndex('(allow file-write*'));
   });
 
+  // git also runs hooks from work-tree files (husky, pre-commit, lefthook),
+  // submodules carry their own config and hooks, and a NEW repository made in
+  // a subfolder brings an fsmonitor that VS Code's git runs outside the sandbox.
+  it('denies hook-manager files, submodule config and hooks, and new repositories', () => {
+    for (const rule of [
+      `(subpath "${ws}/.husky")`,
+      `(literal "${ws}/.pre-commit-config.yaml")`,
+      `(literal "${ws}/lefthook.yml")`,
+      `(literal "${ws}/.gitmodules")`,
+      `(literal "${ws}/.git")`,
+      String.raw`(regex #"^/Users/dev/my-project/\.git/modules/.*/(config|hooks(/.*)?)$")`,
+      String.raw`(regex #"^/Users/dev/my-project/.+/\.git(/.*)?$")`,
+    ]) {
+      expect(lastIndex(rule), rule).toBeGreaterThan(lastIndex(`(subpath "${ws}"))`));
+    }
+  });
+
+  it('regex-escapes the workspace path, with single backslashes', () => {
+    const p = buildSandboxProfile('/Users/dev/my.app', home);
+    expect(p).toContain(String.raw`(regex #"^/Users/dev/my\.app/.+/\.git(/.*)?$")`);
+  });
+
+  it('writes no regex rule for a path holding a quote, keeping the literal rules', () => {
+    const p = buildSandboxProfile('/Users/dev/we"ird', home);
+    expect(p).not.toContain('(regex #');
+    expect(p).toContain('/.husky")');
+  });
+
   it('denies writes to PATH directories inside the writable caches', () => {
     for (const dir of ['.local/bin', '.cargo/bin', 'go/bin']) {
       expect(profile).toContain(`(subpath "${home}/${dir}")`);
