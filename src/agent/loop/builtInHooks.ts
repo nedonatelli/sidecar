@@ -54,7 +54,7 @@ const isolateRewriteHook: PolicyHook = {
   name: 'isolateRewrite',
   async afterToolResults(state: LoopState, ctx: HookContext): Promise<HookResult> {
     if (!ctx.pendingToolUses) return { mutated: false };
-    const mutated = applyIsolateRewriteNudge(state, ctx.pendingToolUses, ctx.callbacks);
+    const mutated = applyIsolateRewriteNudge(state, ctx.pendingToolUses, ctx.callbacks, ctx.toolResults);
     return { mutated };
   },
 };
