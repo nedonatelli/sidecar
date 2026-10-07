@@ -19,6 +19,7 @@ import { getRoot } from './shared.js';
 // ---------------------------------------------------------------------------
 export class ToolRuntime {
   private shell: ShellSession | null = null;
+  private shellSandboxed = false;
   symbolGraph: SymbolGraph | null = null;
   /** Project Knowledge Index symbol-embedding store. Wired
    *  when `sidecar.projectKnowledge.enabled` is on; null otherwise. */
@@ -45,8 +46,13 @@ export class ToolRuntime {
    * followed by `pwd` reports the new cwd.
    */
   getShellSession(injectedConfig?: SideCarConfig): ShellSession {
-    if (this.shell && this.shell.isAlive) return this.shell;
     const config = injectedConfig ?? getConfig();
+    if (this.shell && this.shell.isAlive) {
+      if (this.shellSandboxed === config.sandboxEnabled) return this.shell;
+      // sandbox-exec wraps the shell at spawn, so a toggled sidecar.sandbox.enabled
+      // only takes effect in a new shell. Background commands on the old one die with it.
+      this.shell.dispose();
+    }
     // Bound shell capture near what the model will actually see. The prompt-pruner
     // truncates each tool result to ~promptPruningMaxToolResultTokens before it
     // reaches the model, so capturing far more stdout than that just wastes memory —
@@ -58,6 +64,7 @@ export class ToolRuntime {
     const autoCap = Math.max(512 * 1024, tokensToChars(config.promptPruningMaxToolResultTokens) * 16);
     const maxOutput = config.shellMaxOutputMB > 0 ? config.shellMaxOutputMB * 1024 * 1024 : autoCap;
     this.shell = new ShellSession(this.cwdOverride ?? getRoot(), this.envOverride, maxOutput, config.sandboxEnabled);
+    this.shellSandboxed = config.sandboxEnabled;
     return this.shell;
   }
 

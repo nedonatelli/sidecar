@@ -8,8 +8,12 @@ import type { ToolUseContentBlock, ChatMessage } from '../../ollama/types.js';
 // depend on bash/zsh being present. Each test configures what the
 // session's execute() returns.
 const shellExecuteMock = vi.fn();
+const shellCtorMock = vi.fn();
 vi.mock('../../terminal/shellSession.js', () => ({
   ShellSession: class {
+    constructor(...args: unknown[]) {
+      shellCtorMock(...args);
+    }
     execute = shellExecuteMock;
     dispose = vi.fn();
   },
@@ -21,6 +25,10 @@ vi.mock('../../terminal/shellSession.js', () => ({
 const trustMock = vi.fn();
 vi.mock('../../config/workspaceTrust.js', () => ({
   checkWorkspaceConfigTrust: (...args: unknown[]) => trustMock(...args),
+}));
+
+vi.mock('../../config/settings.js', () => ({
+  getConfig: () => ({ sandboxEnabled: true }),
 }));
 
 import { RegressionGuardHook, buildRegressionGuardHooks, validateGuard } from './regressionGuardHook.js';
@@ -149,6 +157,15 @@ describe('RegressionGuardHook.afterToolResults', () => {
       await hook.afterToolResults(state, makeCtx([writeFileToolUse('src/foo.ts')]));
       expect(shellExecuteMock).toHaveBeenCalledOnce();
       expect(state.messages).toHaveLength(0);
+    });
+
+    it('sandboxes the guard shell per sidecar.sandbox.enabled', async () => {
+      shellExecuteMock.mockResolvedValue({ exitCode: 0, stdout: 'ok', timedOut: false });
+      shellCtorMock.mockClear();
+      const hook = new RegressionGuardHook({ name: 'g', command: 'c', trigger: 'post-write' });
+      await hook.afterToolResults(makeState(), makeCtx([writeFileToolUse('src/foo.ts')]));
+      expect(shellCtorMock).toHaveBeenCalledOnce();
+      expect(shellCtorMock.mock.calls[0][3]).toBe(true);
     });
 
     it('injects a synthetic user message when blocking and exit is non-zero', async () => {

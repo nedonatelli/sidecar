@@ -3,6 +3,7 @@ import { logger } from '../../system/logger.js';
 import type { PolicyHook, HookContext, HookResult } from '../loop/policyHook.js';
 import type { LoopState } from '../loop/state.js';
 import { ShellSession } from '../../terminal/shellSession.js';
+import { getConfig } from '../../config/settings.js';
 import { matchGlob } from '../../config/structuredContextRules.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
@@ -179,7 +180,7 @@ export class RegressionGuardHook implements PolicyHook {
     const cwd = this.guard.workingDir || workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!cwd) return; // no workspace folder, nothing to gate against
     const timeout = this.guard.timeoutMs ?? 30_000;
-    const session = new ShellSession(cwd);
+    const session = new ShellSession(cwd, undefined, undefined, getConfig().sandboxEnabled);
     let exitCode: number;
     let stdout: string;
     try {

@@ -68,9 +68,13 @@ function usePlatformNativeUriJoin(): void {
 
 const mockShellExecute = vi.fn();
 const mockShellDispose = vi.fn();
+const mockShellCtor = vi.fn();
 vi.mock('../../terminal/shellSession.js', () => {
   return {
     ShellSession: class {
+      constructor(...args: unknown[]) {
+        mockShellCtor(...args);
+      }
       execute(...args: unknown[]) {
         return mockShellExecute(...args);
       }
@@ -1769,6 +1773,19 @@ describe('handleRunCommand', () => {
     const result = await handleRunCommand(state as never, 'echo hello');
     expect(result).toBe('shell output');
     expect(mockShellDispose).toHaveBeenCalled();
+  });
+
+  it('sandboxes the ShellSession fallback per sidecar.sandbox.enabled', async () => {
+    mockShellExecute.mockResolvedValue({ stdout: 'shell output', exitCode: 0, timedOut: false });
+    mockShellCtor.mockClear();
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+    };
+    await handleRunCommand(state as never, 'echo hello');
+    expect(mockShellCtor).toHaveBeenCalledOnce();
+    expect(mockShellCtor.mock.calls[0][3]).toBe(true);
   });
 
   it('returns (no output) when ShellSession stdout is empty', async () => {
