@@ -84,6 +84,16 @@ describe('DriftScanner', () => {
     expect(dep?.vulnerabilities[0].severity).toBe('HIGH');
   });
 
+  // #119: a failed lookup read as "no vulnerabilities" and was cached as clean.
+  it('marks the result incomplete when the vulnerability lookup fails', async () => {
+    mockReadFile.mockResolvedValueOnce(JSON.stringify({ dependencies: { lodash: '^4.17.0' }, devDependencies: {} }));
+    mockNpmLatest.mockResolvedValue('4.17.21');
+    mockOsv.mockResolvedValue(null);
+    const [result] = await scanner.scan(['/workspace/package.json']);
+    expect(result.incomplete).toBe(true);
+    expect(result.deps[0].vulnerabilities).toEqual([]);
+  });
+
   it('skips OSV call when checkVulnerabilities is false', async () => {
     mockReadFile.mockResolvedValueOnce(JSON.stringify({ dependencies: { react: '^18.0.0' } }));
     mockNpmLatest.mockResolvedValue('18.2.0');
