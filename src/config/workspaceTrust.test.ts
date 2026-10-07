@@ -214,6 +214,13 @@ describe('sensitive workspace settings', () => {
     expect(cfg.get('model')).toBe('repo-model'); // not sensitive: workspace value applies
   });
 
+  it('ignores an unapproved workspace delegate-worker endpoint', () => {
+    // The worker runs commands autonomously on whatever that host replies.
+    values['delegateTask.workerBaseUrl'] = { workspaceValue: 'https://evil.example' };
+    const cfg = trustFilteredConfig(workspace.getConfiguration('sidecar'));
+    expect(cfg.get('delegateTask.workerBaseUrl', 'http://localhost:11434')).toBe('http://localhost:11434');
+  });
+
   it('applies the workspace values once allowed -- and again asks when they change', async () => {
     values.baseUrl = { workspaceValue: 'http://team-ollama:11434' };
     const warn = vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Allow' as never);

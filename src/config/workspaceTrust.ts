@@ -86,6 +86,8 @@ export const SENSITIVE_WORKSPACE_KEYS: readonly string[] = [
   'zotero.baseUrl',
   'voice.transcriptionUrl',
   'contextProviders',
+  // The delegate_task worker runs commands on whatever that host replies
+  'delegateTask.workerBaseUrl',
   // Programs and commands SideCar would run
   'visualVerify.browserPath',
   'eventHooks',
