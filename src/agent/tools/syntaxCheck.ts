@@ -140,6 +140,11 @@ export interface SyntaxCheckResult {
   /** True only when the check RAN and found the content unparseable. */
   broken: boolean;
   errorCount: number;
+  /**
+   * The count hit the collection cap, so it is a floor, not the real number.
+   * Two capped counts cannot be compared.
+   */
+  saturated?: boolean;
   firstErrorLine?: number;
   /** False when the check could not run — the edit is unverified, not unsafe. */
   checked: boolean;
@@ -149,12 +154,21 @@ const UNCHECKED: SyntaxCheckResult = { broken: false, errorCount: 0, checked: fa
 
 const asBool = (v: boolean | (() => boolean) | undefined): boolean => (typeof v === 'function' ? v() : v === true);
 
+/**
+ * How many parse errors are counted before giving up. The guard compares
+ * counts before and after an edit, so the cap must sit far above the phantom
+ * errors a grammar gap leaves in valid files: at the old cap of 20, a file
+ * with 20 of them read 20 before and 20 after ANY edit, and the guard let
+ * everything through as "not worse".
+ */
+const MAX_COUNTED_ERRORS = 1000;
+
 /** Depth-first collect of ERROR / MISSING nodes, bounded so a huge tree can't stall an edit. */
-function collectErrors(root: TsNode, limit = 20): TsNode[] {
+function collectErrors(root: TsNode, limit = MAX_COUNTED_ERRORS): { found: TsNode[]; complete: boolean } {
   const found: TsNode[] = [];
   const stack: TsNode[] = [root];
   let visited = 0;
-  while (stack.length > 0 && found.length < limit && visited < 50_000) {
+  while (stack.length > 0 && found.length < limit && visited < 200_000) {
     const node = stack.pop()!;
     visited++;
     if (node.type === 'ERROR' || asBool(node.isMissing)) {
@@ -167,7 +181,7 @@ function collectErrors(root: TsNode, limit = 20): TsNode[] {
       if (child) stack.push(child);
     }
   }
-  return found;
+  return { found, complete: stack.length === 0 };
 }
 
 async function checkSyntaxUnbounded(filePath: string, content: string): Promise<SyntaxCheckResult> {
@@ -181,7 +195,7 @@ async function checkSyntaxUnbounded(filePath: string, content: string): Promise<
   const tree = parser.parse(content);
   if (!tree?.rootNode) return UNCHECKED;
 
-  const errors = collectErrors(tree.rootNode);
+  const { found: errors, complete } = collectErrors(tree.rootNode);
   let count = errors.length;
   let firstLine = errors[0]?.startPosition?.row !== undefined ? errors[0].startPosition!.row + 1 : undefined;
 
@@ -204,6 +218,7 @@ async function checkSyntaxUnbounded(filePath: string, content: string): Promise<
   return {
     broken: count > 0,
     errorCount: count,
+    ...(complete ? {} : { saturated: true }),
     ...(firstLine !== undefined ? { firstErrorLine: firstLine } : {}),
     checked: true,
   };
@@ -272,6 +287,9 @@ export async function editWouldBreakSyntax(
   // to work. Grammars will always lag the language; the rule must not.
   // Not refused, but NOT clean either: the file parses no worse than it did.
   // Reporting this as 'ok' would claim a guarantee the gate did not make.
+  // Both counts capped: neither number is real, so there is nothing to
+  // compare. Allowed, and reported as unchecked rather than "not worse".
+  if (afterCheck.saturated && beforeCheck.saturated) return { refuse: false, verdict: 'unchecked' };
   if (afterCheck.errorCount <= beforeCheck.errorCount) return { refuse: false, verdict: 'not-worse' };
 
   const introduced = afterCheck.errorCount - beforeCheck.errorCount;
@@ -315,8 +333,25 @@ export async function tryLiteralEscapeRecovery(
   before: string,
   after: string,
 ): Promise<string | null> {
-  if (!/\\[nt]/.test(after)) return null;
-  const normalized = after.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  // Decode only the text the edit changed: the span between the prefix and the
+  // suffix `before` and `after` share. Decoding the whole file also rewrote
+  // escapes that were already there, and some of those still parse once
+  // decoded -- Python's `"\\n".join(...)` becomes a backslash-newline line
+  // continuation -- so an unrelated string literal changed silently.
+  let pre = 0;
+  while (pre < before.length && pre < after.length && before[pre] === after[pre]) pre++;
+  let suf = 0;
+  while (
+    suf < before.length - pre &&
+    suf < after.length - pre &&
+    before[before.length - 1 - suf] === after[after.length - 1 - suf]
+  ) {
+    suf++;
+  }
+  const changed = after.slice(pre, after.length - suf);
+  if (!/\\[nt]/.test(changed)) return null;
+  const normalized =
+    after.slice(0, pre) + changed.replace(/\\n/g, '\n').replace(/\\t/g, '\t') + after.slice(after.length - suf);
   if (normalized === after) return null;
   // The decode must not UNDO the edit. When an edit's whole purpose is to put a
   // literal `\n` into source — code that manipulates escape sequences, which is

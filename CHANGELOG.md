@@ -45,6 +45,27 @@ All notable changes to the SideCar extension will be documented in this file.
   ended in an escaped backslash (`"C:\\"`).
 - **Tool names from other agents (`cat`, `bash`, `create_file`) were refused** instead of
   being mapped to SideCar's own tools, when the mapped tool is available.
+- **`replace_all` renamed parts of longer words.** Replacing `greet` everywhere also turned
+  `greeting` into `helloing`. Occurrences inside a longer word are now left alone (and
+  named in the result), and `replace_all` gets the same safety checks as a single edit.
+- **`replace_all` reported occurrences it hadn't changed.** When copies of the search text
+  differed in indentation, only those identical to the first were replaced, yet all were
+  counted. Every occurrence is now replaced, each re-indented to fit where it sits.
+- **An inferred edit could duplicate the end of a block.** When the model's search text
+  didn't match and SideCar worked out the intended region itself, a blank line inside that
+  region cut it short, and the rest of the block appeared twice.
+- **Escape-sequence recovery changed unrelated strings.** Fixing an edit sent with literal
+  `\n` sequences also decoded ones already in the file. Only the edited text is decoded now.
+- **The syntax check stopped protecting files with 20 or more parse errors.** Some valid
+  files show that many because of gaps in the parsers, and in those every edit was allowed.
+- **Compact `read_file` mode hid real code.** A `/*` inside a string hid everything up to the
+  next `*/`, and every line starting with `#` was dropped — including `#include`,
+  `#[derive]` and CSS `#id` rules. Only real comments in the file's own language are
+  removed now.
+- **Edits behaved differently in audit and review modes.** `within` was ignored in audit
+  mode, and both `within` and `replace_all` were ignored in review mode.
+- **An edit whose search text began at a line break could leave a stray carriage return**
+  in files with Windows (CRLF) line endings.
 
 ## [0.127.0] - 2026-10-06
 

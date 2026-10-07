@@ -17,7 +17,14 @@ import { isAuditModeActive } from './auditHelper.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 import { computeLineDiff } from './diffUtils.js';
 import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
-import { findEditMatch, matchToleranceNote, applyEol, detectEol, type MatchTier } from './editMatch.js';
+import {
+  findEditMatch,
+  findEditMatches,
+  matchToleranceNote,
+  applyEol,
+  detectEol,
+  type MatchTier,
+} from './editMatch.js';
 import { delimiterBalance, balanceEquals } from '../delimiters.js';
 
 /**
@@ -373,7 +380,16 @@ export function findIntentTarget(
   // candidate. Without this, "5 words matched here, 5 there" reads as certainty.
   if (best - runnerUp < minMargin) return null;
 
-  return fileLines.slice(bestIdx, bestIdx + windowSize).join('\n');
+  // Return `windowSize` NON-BLANK lines from the winning start, the unit
+  // `windowSize` is counted in. The scoring window above is that many PHYSICAL
+  // lines, so a region with blank lines in it came back short: only part of
+  // the block was replaced and its tail ended up in the file twice. Scoring is
+  // left as it is, so which region wins (and whether one does) is unchanged.
+  let end = bestIdx;
+  for (let seen = 0; end < fileLines.length && seen < windowSize; end++) {
+    if (fileLines[end].trim()) seen++;
+  }
+  return fileLines.slice(bestIdx, end).join('\n');
 }
 
 /**
@@ -625,7 +641,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
         throw new Error(`Error: File not found (${filePath}) — deleted in Audit Buffer pending review.`);
       }
       const text = bufState.content ?? '';
-      return applyReadView(text, mode, startLine, endLine);
+      return applyReadView(text, mode, startLine, endLine, filePath);
     }
     // Not buffered — fall through to real disk.
   }
@@ -726,7 +742,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   // A read refreshes the model's memory of the file: it is no longer stale
   // with respect to its own earlier edits.
   context?.editedSinceRead?.delete(readKey);
-  return applyReadView(text, mode, startLine, endLine);
+  return applyReadView(text, mode, startLine, endLine, filePath);
 }
 
 /** Coerce a line-number input (number or numeric string, as weak models send
@@ -742,7 +758,13 @@ function toLineNum(v: unknown): number | undefined {
  * line-number prefix, so the slice can be copied verbatim into an edit_file
  * `search`. Without a range, mode selects full/compact/outline.
  */
-export function applyReadView(text: string, mode: string | undefined, startLine?: number, endLine?: number): string {
+export function applyReadView(
+  text: string,
+  mode: string | undefined,
+  startLine?: number,
+  endLine?: number,
+  filePath = '',
+): string {
   if (startLine !== undefined || endLine !== undefined) {
     const lines = text.split('\n');
     const start = Math.max(1, startLine ?? 1);
@@ -755,7 +777,7 @@ export function applyReadView(text: string, mode: string | undefined, startLine?
     }
     return lines.slice(start - 1, end).join('\n');
   }
-  if (mode === 'compact') return compactSourceFile(text);
+  if (mode === 'compact') return compactSourceFile(text, filePath);
   if (mode === 'outline') return outlineSourceFile(text);
   return text;
 }
@@ -1267,6 +1289,9 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       search,
       replace,
       replaceAll,
+      // Audit mode gets the same locator as a direct edit; without it a
+      // `within` call was resolved against the whole file (#109).
+      within,
       stalePrefix: buildStalePrefix(filePath, context),
       context,
     });
@@ -1823,24 +1848,50 @@ export async function resolveEditedText(params: {
     );
   }
   if (match.count > 1) {
-    // replace_all: the caller wants EVERY occurrence changed. Splice all copies
-    // of the exact matched bytes in one pass (String.split/join, so no `$&`/`$1`
-    // regex expansion), then run the same syntax guard a single splice gets.
+    // replace_all: the caller wants EVERY occurrence changed. Each occurrence
+    // is spliced at its own span with its own adapted replacement (a tolerance
+    // tier can match occurrences that differ in whitespace; splitting on the
+    // first one's bytes left those untouched but counted them as replaced),
+    // by offset so `$&`/`$1` in model text stay literal. It gets the guards a
+    // single edit gets: an occurrence inside a longer word (`greet` in
+    // `greeting`) is a different name and is left alone, and the result must
+    // parse and must not shadow a top-level definition.
     if (replaceAll) {
-      const matchedExact = text.slice(match.start, match.end);
-      const newTextAll = text.split(matchedExact).join(applyEol(replace, detectEol(text).eol));
+      const all = findEditMatches(text, search, replace);
+      const whole = all.filter((m) => tokenSplit(text, m.start, m.end) === null);
+      const inWords = all.length - whole.length;
+      if (whole.length === 0) {
+        recordEditFailure(context, filePath, search, replace);
+        throw new Error(
+          `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — every one of the ${all.length} ` +
+            `occurrences of your search is part of a longer word, so replacing them would splice into tokens. ` +
+            `The file was NOT modified. Search for whole identifiers or lines.`,
+        );
+      }
+      let newTextAll = text;
+      for (const m of [...whole].reverse()) {
+        newTextAll = newTextAll.slice(0, m.start) + m.replacement + newTextAll.slice(m.end);
+      }
       const allSyntax = await editWouldBreakSyntax(filePath, text, newTextAll);
       if (allSyntax.refuse) {
         recordEditFailure(context, filePath, search, replace);
         throw new Error(`${unreadPrefix}${allSyntax.message}`);
       }
+      const dupAll = introducedTopLevelDuplicate(text, newTextAll);
+      if (dupAll) {
+        recordEditFailure(context, filePath, search, replace);
+        throw new Error(`${unreadPrefix}${shadowDefinitionError(filePath, dupAll)}`);
+      }
       clearEditFailure(context, filePath);
+      const skippedNote = inWords
+        ? `; ${inWords} more inside longer words (e.g. \`${wordAround(text, all.find((m) => !whole.includes(m))!)}\`) left unchanged`
+        : '';
       return {
         newText: newTextAll,
-        summary: `File edited: ${filePath} (replace_all — ${match.count} occurrences replaced)`,
+        summary: `File edited: ${filePath} (replace_all — ${whole.length} occurrences replaced${skippedNote})`,
         syntax: allSyntax.verdict,
         tier: match.tier,
-        prefixNote: '',
+        prefixNote: matchToleranceNote(match, filePath, text),
         suffixNote: '',
       };
     }
@@ -1879,15 +1930,12 @@ export async function resolveEditedText(params: {
   // the defect is lexical, not structural. Requiring the match to align with
   // token boundaries also blocks the classic rename hazard (search `greet`
   // silently mangling `greeting`).
-  const isWordChar = (c: string | undefined) => c !== undefined && /\w/.test(c);
   const matchStart = match.start;
   const matchEnd = match.end;
   const matchedText = text.slice(matchStart, matchEnd);
-  const splitsStart = isWordChar(text[matchStart - 1]) && isWordChar(matchedText[0]);
-  const splitsEnd = isWordChar(matchedText[matchedText.length - 1]) && isWordChar(text[matchEnd]);
-  if (splitsStart || splitsEnd) {
+  const edge = tokenSplit(text, matchStart, matchEnd);
+  if (edge) {
     recordEditFailure(context, filePath, search, replace);
-    const edge = splitsStart && splitsEnd ? 'starts and ends' : splitsStart ? 'starts' : 'ends';
     const context40 = text.slice(Math.max(0, matchStart - 20), Math.min(text.length, matchEnd + 20));
     throw new Error(
       `Error: edit_file refused this edit to ${filePath} — the search string ${edge} in the middle of a ` +
@@ -1979,13 +2027,7 @@ export async function resolveEditedText(params: {
   const dup = introducedTopLevelDuplicate(text, newText);
   if (dup) {
     recordEditFailure(context, filePath, search, replace);
-    throw new Error(
-      `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — it would define \`${dup.name}\` at the ` +
-        `top level ${dup.lines.length} times (lines ${dup.lines.join(', ')}), which it isn't in the current file. ` +
-        `The LAST top-level definition wins, so adding a second \`${dup.name}\` is usually a no-op — the existing ` +
-        `line overrides the one you added. To CHANGE an existing top-level \`${dup.name}\`, put its CURRENT line ` +
-        `in \`search\` and the new version in \`replace\` (do not add a second definition). The file was NOT modified.`,
-    );
+    throw new Error(`${unreadPrefix}${shadowDefinitionError(filePath, dup)}`);
   }
 
   return {
@@ -2029,6 +2071,35 @@ function topLevelDefs(text: string): Map<string, number[]> {
       add(m[1], i + 1);
   }
   return defs;
+}
+
+/** Which edge of `text[start, end)` cuts through a word, or null when the span
+ *  starts and ends on token boundaries. */
+function tokenSplit(text: string, start: number, end: number): 'starts' | 'ends' | 'starts and ends' | null {
+  const isWordChar = (c: string | undefined) => c !== undefined && /\w/.test(c);
+  const splitsStart = isWordChar(text[start - 1]) && isWordChar(text[start]);
+  const splitsEnd = end > start && isWordChar(text[end - 1]) && isWordChar(text[end]);
+  return splitsStart && splitsEnd ? 'starts and ends' : splitsStart ? 'starts' : splitsEnd ? 'ends' : null;
+}
+
+/** The whole word containing a match, for naming a skipped occurrence. */
+function wordAround(text: string, m: { start: number; end: number }): string {
+  let s = m.start;
+  let e = m.end;
+  while (s > 0 && /\w/.test(text[s - 1])) s--;
+  while (e < text.length && /\w/.test(text[e])) e++;
+  return text.slice(s, e).trim();
+}
+
+/** The refusal for an edit that would add a second top-level definition. */
+function shadowDefinitionError(filePath: string, dup: { name: string; lines: number[] }): string {
+  return (
+    `Error: edit_file refused this edit to ${filePath} — it would define \`${dup.name}\` at the ` +
+    `top level ${dup.lines.length} times (lines ${dup.lines.join(', ')}), which it isn't in the current file. ` +
+    `The LAST top-level definition wins, so adding a second \`${dup.name}\` is usually a no-op — the existing ` +
+    `line overrides the one you added. To CHANGE an existing top-level \`${dup.name}\`, put its CURRENT line ` +
+    `in \`search\` and the new version in \`replace\` (do not add a second definition). The file was NOT modified.`
+  );
 }
 
 /** A top-level name the edit newly duplicated: present ≥2× in `newText` and more

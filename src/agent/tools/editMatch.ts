@@ -121,19 +121,6 @@ function canonicalize(text: string, tier: MatchTier): { canon: string; map: numb
   return { canon: out.join(''), map };
 }
 
-/** Non-overlapping occurrences of `needle` in `haystack`. */
-function countOccurrences(haystack: string, needle: string): number {
-  if (needle === '') return 0;
-  let n = 0;
-  let from = 0;
-  for (;;) {
-    const at = haystack.indexOf(needle, from);
-    if (at === -1) return n;
-    n++;
-    from = at + needle.length;
-  }
-}
-
 const leadingWhitespace = (s: string): string => /^[ \t]*/.exec(s)?.[0] ?? '';
 
 /**
@@ -161,64 +148,82 @@ function reindent(replacement: string, searchIndent: string, fileIndent: string,
  * falls through to the intent-based fuzzy recovery.
  */
 export function findEditMatch(text: string, search: string, replace: string): EditMatch | null {
-  if (search === '') return null;
+  return findEditMatches(text, search, replace)[0] ?? null;
+}
+
+/**
+ * Every non-overlapping occurrence of `search` at the first tier that matches,
+ * in file order, each with its own span and its own adapted replacement (on
+ * the `indent` tier every occurrence is re-indented to ITS indentation).
+ * `count` on each is the total. Empty when no tier matches.
+ *
+ * replace_all needs all of them: splitting on the first match's exact bytes
+ * left any occurrence the tier had matched with different whitespace
+ * untouched, while the summary still counted it as replaced.
+ */
+export function findEditMatches(text: string, search: string, replace: string): EditMatch[] {
+  if (search === '') return [];
   const { eol } = detectEol(text);
   const adapted = applyEol(replace, eol);
 
   /**
-   * Absorb the `\r` the span begins just after.
-   *
-   * A search starting with `\n` matches the second half of a `\r\n` pair, so
-   * the span opens between the two. The replacement carries its own `\r\n`
-   * from `applyEol`, which would leave the file's original `\r` stranded in
-   * front of it as `\r\r\n`. Only widen when the replacement actually starts
-   * with that `\r`, so the character removed is the one being re-supplied.
+   * Absorb the `\r` the span begins just after. A search starting with `\n`
+   * matches the second half of a `\r\n` pair, so the span opens between the
+   * two; replacing from there left the file's `\r` stranded (as `\r\r\n` in
+   * front of a replacement that starts with a line break, or as a lone `\r`
+   * in front of one that does not). The `\r` belongs to the line break the
+   * search is replacing, so it goes with it.
    */
   const absorbSplitCrlf = (start: number): number =>
-    start > 0 && text[start] === '\n' && text[start - 1] === '\r' && adapted.startsWith('\r\n') ? start - 1 : start;
+    start > 0 && text[start] === '\n' && text[start - 1] === '\r' ? start - 1 : start;
 
-  const exactCount = countOccurrences(text, search);
-  if (exactCount > 0) {
-    const matchAt = text.indexOf(search);
-    const start = absorbSplitCrlf(matchAt);
-    return { start, end: matchAt + search.length, count: exactCount, tier: 'exact', replacement: adapted };
+  const exact: EditMatch[] = [];
+  for (let from = 0; ; ) {
+    const at = text.indexOf(search, from);
+    if (at === -1) break;
+    exact.push({ start: absorbSplitCrlf(at), end: at + search.length, count: 0, tier: 'exact', replacement: adapted });
+    from = at + search.length;
   }
+  if (exact.length > 0) return exact.map((m) => ({ ...m, count: exact.length }));
 
   for (const tier of ['eol', 'trailing-space', 'indent'] as const) {
     const { canon, map } = canonicalize(text, tier);
     const canonSearch = canonicalize(search, tier).canon;
     if (canonSearch === '') continue;
-    const count = countOccurrences(canon, canonSearch);
-    if (count === 0) continue;
+    const found: EditMatch[] = [];
+    for (let from = 0; ; ) {
+      const ci = canon.indexOf(canonSearch, from);
+      if (ci === -1) break;
+      from = ci + canonSearch.length;
+      let start = map[ci];
+      let end = map[ci + canonSearch.length - 1] + 1;
+      const startsAtLine = ci === 0 || canon[ci - 1] === '\n';
+      const endsAtLine = ci + canonSearch.length === canon.length || canon[ci + canonSearch.length] === '\n';
 
-    const ci = canon.indexOf(canonSearch);
-    let start = map[ci];
-    let end = map[ci + canonSearch.length - 1] + 1;
-    const startsAtLine = ci === 0 || canon[ci - 1] === '\n';
-    const endsAtLine = ci + canonSearch.length === canon.length || canon[ci + canonSearch.length] === '\n';
+      // The tier ignored characters at the edges of the match; pull them back
+      // into the span so they are replaced rather than left stranded beside the
+      // new text (a `bar   ` where the file had `foo   `, or the old indentation
+      // in front of a re-indented block).
+      if (endsAtLine) {
+        while (end < text.length && (text[end] === ' ' || text[end] === '\t')) end++;
+      }
+      if (tier === 'indent' && startsAtLine) {
+        while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) start--;
+      }
+      start = absorbSplitCrlf(start);
 
-    // The tier ignored characters at the edges of the match; pull them back
-    // into the span so they are replaced rather than left stranded beside the
-    // new text (a `bar   ` where the file had `foo   `, or the old indentation
-    // in front of a re-indented block).
-    if (endsAtLine) {
-      while (end < text.length && (text[end] === ' ' || text[end] === '\t')) end++;
+      let replacement = adapted;
+      if (tier === 'indent' && startsAtLine) {
+        const fileIndent = leadingWhitespace(text.slice(start));
+        const searchIndent = leadingWhitespace(search);
+        replacement = reindent(adapted, searchIndent, fileIndent, eol);
+      }
+      found.push({ start, end, count: 0, tier, replacement });
     }
-    if (tier === 'indent' && startsAtLine) {
-      while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) start--;
-    }
-    start = absorbSplitCrlf(start);
-
-    let replacement = adapted;
-    if (tier === 'indent' && startsAtLine) {
-      const fileIndent = leadingWhitespace(text.slice(start));
-      const searchIndent = leadingWhitespace(search);
-      replacement = reindent(adapted, searchIndent, fileIndent, eol);
-    }
-    return { start, end, count, tier, replacement };
+    if (found.length > 0) return found.map((m) => ({ ...m, count: found.length }));
   }
 
-  return null;
+  return [];
 }
 
 /**
