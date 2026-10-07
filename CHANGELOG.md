@@ -6,6 +6,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The project knowledge index could save a damaged copy of itself.** Changes made while
+  it was being written to disk could be lost, attached to the wrong symbol, or bring back
+  entries that had been deleted — and a change made during a save was then treated as
+  saved. Saves now write a consistent snapshot.
+
 - **macOS/Linux: the startup cleanup of processes left over from a crash could, rarely,
   stop an unrelated process** that had just been given a leftover process's ID. It now
   stops checking as soon as the old process is gone.
