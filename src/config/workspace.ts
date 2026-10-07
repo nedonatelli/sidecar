@@ -5,7 +5,7 @@ import { unescapeHtml } from '../util/html.js';
 import { isSensitiveFile, realWorkspaceRelative } from '../agent/tools/shared.js';
 import { loadSidecarIgnore, isSidecarIgnored, type IgnoreMatcher } from './sidecarIgnore.js';
 import { loadContextFileFilter } from './contextFileFilter.js';
-import { classifyHostLiteral, urlBlockReason } from '../util/netGuard.js';
+import { classifyHostLiteral, fetchGuarded, type GuardedResponse } from '../util/netGuard.js';
 
 export interface WorkspaceFile {
   relativePath: string;
@@ -289,17 +289,19 @@ export function isPrivateUrl(urlStr: string): boolean {
  * put in the prompt. Follows at most 3 redirects, re-checking each Location
  * (DNS included); returns null when any hop is blocked.
  */
-async function fetchPublic(url: string, init: RequestInit): Promise<Response | null> {
-  let current = url;
-  for (let hop = 0; hop <= 3; hop++) {
-    if (await urlBlockReason(current)) return null;
-    if (!isAllowedOutboundHost(current)) return null;
-    const response = await fetch(current, { ...init, redirect: 'manual' });
-    const location = response.status >= 300 && response.status < 400 ? response.headers.get('location') : null;
-    if (!location) return response;
-    current = new URL(location, current).toString();
+async function fetchPublic(url: string, headers: Record<string, string>): Promise<GuardedResponse | null> {
+  try {
+    // The address is checked on the connection itself (no DNS rebinding), and
+    // every redirect hop is checked again, outbound allowlist included.
+    return await fetchGuarded(url, {
+      headers,
+      timeoutMs: URL_FETCH_TIMEOUT,
+      maxRedirects: 3,
+      checkUrl: (hop) => (isAllowedOutboundHost(hop) ? null : 'not in sidecar.outboundAllowlist'),
+    });
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /**
@@ -361,14 +363,11 @@ export async function resolveUrlReferences(text: string): Promise<string> {
     if (isPrivateUrl(url)) continue; // SSRF protection
     if (!isAllowedOutboundHost(url)) continue; // outbound allowlist (when configured)
     try {
-      const response = await fetchPublic(url, {
-        signal: AbortSignal.timeout(URL_FETCH_TIMEOUT),
-        headers: { 'User-Agent': 'SideCar-VSCode/1.0' },
-      });
-      if (!response?.ok) continue;
-      const contentType = response.headers.get('content-type') || '';
+      const response = await fetchPublic(url, { 'User-Agent': 'SideCar-VSCode/1.0' });
+      if (!response || response.status < 200 || response.status >= 300) continue;
+      const contentType = response.headers['content-type'] || '';
       if (!contentType.includes('text/html') && !contentType.includes('text/plain')) continue;
-      const html = await response.text();
+      const html = response.body.toString('utf-8');
       const readable = extractReadableContent(html).slice(0, MAX_URL_CONTENT);
       if (readable.length > 50) {
         attachments.push(`### ${url}\n\`\`\`\n${readable}\n\`\`\``);

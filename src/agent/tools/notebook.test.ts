@@ -23,8 +23,13 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-// Mock fetch for web URL ingestion
-vi.stubGlobal('fetch', vi.fn());
+// Web URL ingestion goes through netGuard's fetchGuarded, which owns the
+// network and its address checks (tested in netGuard.test.ts).
+const fetchGuardedMock = vi.hoisted(() => vi.fn());
+vi.mock('../../util/netGuard.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../util/netGuard.js')>()),
+  fetchGuarded: fetchGuardedMock,
+}));
 
 import { notebookTools, listIngestedSources, clearIngestedSources } from './notebook.js';
 import type { SideCarConfig } from '../../config/settings.js';
@@ -81,15 +86,23 @@ describe('ingest_source', () => {
 
   it('fetches a web URL and ingests it', async () => {
     const mockHtml = '<title>Test Page</title><p>Some article content here. '.repeat(10) + '</p>';
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      text: async () => mockHtml,
-    } as Response);
+    fetchGuardedMock.mockResolvedValueOnce({ status: 200, headers: {}, body: Buffer.from(mockHtml), url: '' });
 
     const tool = findTool('ingest_source');
     const result = await tool.executor({ source: 'https://example.com/article' }, { config: mockConfig() } as never);
     expect(result).toContain('id="src-1"');
     expect(listIngestedSources()).toHaveLength(1);
+    // The shared guard, not this tool's old hostname-string check, decides.
+    expect(fetchGuardedMock).toHaveBeenCalledWith('https://example.com/article', expect.anything());
+  });
+
+  it('does not ingest a URL the guard refuses (a private address, a rebinding name, a redirect)', async () => {
+    const { BlockedUrlError } = await import('../../util/netGuard.js');
+    fetchGuardedMock.mockRejectedValueOnce(new BlockedUrlError('loopback addresses are blocked (127.0.0.2)'));
+    const tool = findTool('ingest_source');
+    const result = await tool.executor({ source: 'http://127.0.0.2/admin' }, { config: mockConfig() } as never);
+    expect(result).toMatch(/blocked/);
+    expect(listIngestedSources()).toHaveLength(0);
   });
 });
 

@@ -14,7 +14,7 @@ import { commands, Uri, env } from 'vscode';
 import { resizePngBuffer } from './pngUtils.js';
 import { getConfig } from '../../config/settings.js';
 import { launchBrowser } from './browserLaunch.js';
-import { urlBlockReason } from '../../util/netGuard.js';
+import { urlBlockReason, fetchGuarded } from '../../util/netGuard.js';
 import { getRoot } from './shared.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
@@ -120,13 +120,29 @@ async function screenshotPage(input: Record<string, unknown>, _context?: ToolExe
       return `Error: ${launchErr instanceof Error ? launchErr.message : String(launchErr)}`;
     }
     page = await browser.newPage();
-    // Every request the page makes -- subresources and scripted fetches too --
-    // passes the same address check as the URL itself.
+    // Every request the page makes -- navigations, subframes, subresources and
+    // scripted fetches -- is made HERE, through the guarded fetch, and handed
+    // back to the browser. Letting the browser continue a checked request let
+    // it resolve the name again (DNS rebinding) and follow redirects unchecked.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await page.route('**/*', async (route: any) => {
-      const reqUrl: string = route.request().url();
+      const req = route.request();
+      const reqUrl: string = req.url();
       if (!/^https?:/i.test(reqUrl)) return route.continue(); // data:, blob: -- no network
-      return (await urlBlockReason(reqUrl, allowedHosts)) ? route.abort('blockedbyclient') : route.continue();
+      try {
+        const res = await fetchGuarded(reqUrl, {
+          method: req.method(),
+          headers: req.headers(),
+          body: req.postDataBuffer() ?? undefined,
+          allowedHosts,
+          maxRedirects: 5,
+          maxBytes: 20 * 1024 * 1024,
+          timeoutMs: 30_000,
+        });
+        return route.fulfill({ status: res.status, headers: res.headers, body: res.body });
+      } catch {
+        return route.abort('blockedbyclient');
+      }
     });
 
     const width = Math.min(viewportRaw?.width ?? 1280, MAX_VIEWPORT_WIDTH);

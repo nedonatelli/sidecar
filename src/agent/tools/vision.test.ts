@@ -654,6 +654,54 @@ describe('visualVerifyAllowedDomains forwarded to URL validator', () => {
     60_000,
   );
 
+  // Every request the page makes now goes through the guarded fetch: a subframe
+  // or subresource from a blocked address is never requested, and an allowed
+  // page still renders and is captured.
+  it.skipIf(!fs.existsSync('C:/Program Files/Google/Chrome/Application/chrome.exe'))(
+    'captures an allowed page, and never requests a blocked subframe',
+    async () => {
+      const http = await import('http');
+      const blockedHits: string[] = [];
+      const blocked = http.createServer((req, res) => {
+        blockedHits.push(req.url ?? '');
+        res.end('<h1>internal admin</h1>');
+      });
+      await new Promise<void>((resolve) => blocked.listen(0, '127.0.0.2', resolve));
+      const blockedPort = (blocked.address() as net.AddressInfo).port;
+      const page = http.createServer((_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.end(`<h1>dev page</h1><iframe src="http://127.0.0.2:${blockedPort}/admin"></iframe>`);
+      });
+      await new Promise<void>((resolve) => page.listen(0, '127.0.0.1', resolve));
+      const pagePort = (page.address() as net.AddressInfo).port;
+      // The capture is written under the workspace root, so give it a real one.
+      const { workspace, Uri } = await import('vscode');
+      const savedFolders = workspace.workspaceFolders;
+      const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shot-'));
+      // (this describe stubs fs.promises.mkdir, so the capture folder is made here)
+      fs.mkdirSync(path.join(tmpRoot, '.sidecar', 'screenshots'), { recursive: true });
+      (workspace as { workspaceFolders: unknown }).workspaceFolders = [
+        { uri: Uri.file(tmpRoot), name: 'ws', index: 0 },
+      ];
+      try {
+        const { visionTools } = await import('./vision.js');
+        const tool = visionTools.find((t) => t.definition.name === 'screenshot_page')!;
+        const context = {
+          config: { visualVerifyAllowedDomains: ['127.0.0.1'], visualVerifyBrowser: 'chrome' },
+        } as never;
+        const result = await tool.executor({ url: `http://127.0.0.1:${pagePort}/` }, context);
+        expect(String(result)).not.toMatch(/^Error:/);
+        expect(blockedHits).toEqual([]);
+      } finally {
+        (workspace as { workspaceFolders: unknown }).workspaceFolders = savedFolders;
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+        page.close();
+        blocked.close();
+      }
+    },
+    60_000,
+  );
+
   it('describes "nothing answered" failures as a dev server that is not running', () => {
     const refused = new Error('page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/\nCall log: ...');
     expect(describeScreenshotFailure('http://localhost:3000', refused)).toBe(

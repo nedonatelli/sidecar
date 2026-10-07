@@ -11,6 +11,9 @@
 // resolved before use, and callers re-check every redirect hop.
 
 import * as net from 'net';
+import * as dns from 'dns';
+import * as http from 'http';
+import * as https from 'https';
 import { lookup } from 'dns/promises';
 
 export type AddressClass = 'public' | 'loopback' | 'private' | 'link-local' | 'unspecified';
@@ -128,4 +131,152 @@ export function blockReasonFor(cls: AddressClass, host: string, allowedHosts: re
     return host === a || host.endsWith(`.${a}`);
   });
   return allowed ? null : `${cls} addresses are blocked (${host})`;
+}
+
+// ---------------------------------------------------------------------------
+// Fetching with the check bound to the connection
+// ---------------------------------------------------------------------------
+//
+// urlBlockReason resolves a name and returns a verdict, but the request that
+// follows resolves the name AGAIN. A rebinding DNS server (TTL 0) answers the
+// check with a public address and the connection with 127.0.0.1 or
+// 169.254.169.254, and both pass. fetchGuarded checks the address the socket
+// actually connects to: its lookup is the one the connection uses.
+
+export interface GuardedResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: Buffer;
+  /** The URL that produced this response, after redirects. */
+  url: string;
+}
+
+export interface GuardedFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: Buffer | string;
+  /** Loopback/private hosts allowed (a local dev server); never link-local. */
+  allowedHosts?: readonly string[];
+  /** Extra per-hop check (an outbound allowlist); a string blocks the hop. */
+  checkUrl?: (url: string) => string | null;
+  maxRedirects?: number;
+  maxBytes?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export class BlockedUrlError extends Error {}
+
+/** A dns.lookup that refuses any address the policy blocks. */
+export function guardedLookup(allowedHosts: readonly string[] = []): net.LookupFunction {
+  return (hostname, options, callback) => {
+    dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+      const cb = callback as (e: Error | null, a?: string | dns.LookupAddress[], f?: number) => void;
+      if (err) return cb(err);
+      const list = addresses as dns.LookupAddress[];
+      for (const { address } of list) {
+        const why = blockReasonFor(classifyAddress(address), normalizeHost(hostname), allowedHosts);
+        if (why) return cb(new BlockedUrlError(why));
+      }
+      if (list.length === 0) return cb(new Error(`no address for ${hostname}`));
+      if ((options as dns.LookupOptions).all) return cb(null, list);
+      return cb(null, list[0].address, list[0].family);
+    });
+  };
+}
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * Fetch `rawUrl`, refusing any hop whose connection goes to a blocked
+ * address. Redirects are followed here, each hop checked the same way.
+ * Throws BlockedUrlError when a hop is refused.
+ */
+export async function fetchGuarded(rawUrl: string, opts: GuardedFetchOptions = {}): Promise<GuardedResponse> {
+  const allowedHosts = opts.allowedHosts ?? [];
+  const maxRedirects = opts.maxRedirects ?? 3;
+  let current = rawUrl;
+  let method = (opts.method ?? 'GET').toUpperCase();
+  let body = opts.body;
+  for (let hop = 0; ; hop++) {
+    let url: URL;
+    try {
+      url = new URL(current);
+    } catch {
+      throw new BlockedUrlError(`invalid URL: ${current}`);
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new BlockedUrlError(`only http:// and https:// URLs are allowed (got "${url.protocol}")`);
+    }
+    // An IP literal never reaches the lookup, so it is judged here; it cannot rebind.
+    const host = normalizeHost(url.hostname);
+    const literal = classifyHostLiteral(host);
+    if (literal !== 'name') {
+      const why = blockReasonFor(literal, host, allowedHosts);
+      if (why) throw new BlockedUrlError(why);
+    }
+    const extra = opts.checkUrl?.(current);
+    if (extra) throw new BlockedUrlError(extra);
+
+    const res = await requestOnce(url, method, opts.headers ?? {}, body, allowedHosts, opts);
+    const location = REDIRECT_STATUSES.has(res.status) ? res.headers['location'] : undefined;
+    if (!location) return res;
+    if (hop >= maxRedirects) throw new BlockedUrlError(`too many redirects (${maxRedirects})`);
+    current = new URL(location, current).toString();
+    if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === 'POST')) {
+      method = 'GET';
+      body = undefined;
+    }
+  }
+}
+
+function requestOnce(
+  url: URL,
+  method: string,
+  headers: Record<string, string>,
+  body: Buffer | string | undefined,
+  allowedHosts: readonly string[],
+  opts: GuardedFetchOptions,
+): Promise<GuardedResponse> {
+  const maxBytes = opts.maxBytes ?? 5 * 1024 * 1024;
+  const mod = url.protocol === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = mod.request(
+      url,
+      {
+        method,
+        // The body is passed through as received; ask for it unencoded.
+        headers: { ...headers, 'accept-encoding': 'identity' },
+        lookup: guardedLookup(allowedHosts),
+        // A fresh connection per request: a pooled socket was resolved earlier.
+        agent: false,
+        timeout: opts.timeoutMs ?? 15_000,
+        signal: opts.signal,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on('data', (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > maxBytes) {
+            req.destroy(new Error(`response larger than ${maxBytes} bytes`));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        res.on('end', () => {
+          const out: Record<string, string> = {};
+          for (const [k, v] of Object.entries(res.headers)) {
+            if (v !== undefined) out[k] = Array.isArray(v) ? v.join(', ') : v;
+          }
+          resolve({ status: res.statusCode ?? 0, headers: out, body: Buffer.concat(chunks), url: url.toString() });
+        });
+        res.on('error', reject);
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('request timed out')));
+    req.on('error', reject);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
 }
