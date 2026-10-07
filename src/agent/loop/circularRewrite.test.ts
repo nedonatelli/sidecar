@@ -218,6 +218,20 @@ describe('maybeEscalateBlockedRewrite', () => {
     content: 'File written: gui.py',
   });
 
+  // #108: the verify-before-rewrite block also says "was NOT applied", and got
+  // the enforce-edit escalation (wrong advice, and it spent the file's latch).
+  it('does not treat a verify-before-rewrite block as an enforce-edit block', () => {
+    const state = stubLoopState();
+    const verifyBlock: ToolResultContentBlock = {
+      type: 'tool_result',
+      tool_use_id: 'id',
+      content: "This write was NOT applied. You've rewritten `gui.py` 4 times without running or checking it once",
+    };
+    expect(maybeEscalateBlockedRewrite([write('gui.py', 'x')], [verifyBlock], state, stubCallbacks())).toBe(false);
+    expect(state.messages).toHaveLength(0);
+    expect(state.escalatedRewriteByFile.has('gui.py')).toBe(false);
+  });
+
   it('injects one escalation reprompt with the failing output when a write was enforce-blocked', () => {
     const state = stubLoopState();
     state.lastFailureOutput = 'TclError: cannot use geometry manager grid inside .';
