@@ -3,7 +3,7 @@ import * as path from 'path';
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool, ToolExecutorContext } from './shared.js';
 import { scanFile, formatIssues } from '../securityScanner.js';
-import { getRoot, getRootUri } from './shared.js';
+import { getRoot, getRootUri, validateFilePath, isSensitiveFile, realPathRefusal } from './shared.js';
 
 // Diagnostics tool: merges VS Code's language-server diagnostics with
 // SideCar's security scanner. Exported as a function (not just via the
@@ -158,6 +158,13 @@ export async function getDiagnostics(input: Record<string, unknown>, context?: T
   const root = getRoot();
 
   if (filePath) {
+    // Approval-free, so the read rules apply: inside the workspace (by its
+    // real path) and never a credential file.
+    const refusal =
+      validateFilePath(filePath) ??
+      (isSensitiveFile(filePath) ? `"${filePath}" is a credential file; the agent may not inspect it.` : null) ??
+      realPathRefusal(getRootUri().fsPath, filePath, 'read');
+    if (refusal) throw new Error(refusal);
     const fileUri = Uri.joinPath(getRootUri(), filePath);
     // Ask for the file to be analyzed before reading the cache. Disabled by
     // config for anyone who would rather have a useless tool than a tab that
