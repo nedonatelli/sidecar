@@ -404,6 +404,27 @@ function toOllamaMessages(messages: ChatMessage[], systemPrompt: string): Ollama
  * NDJSON line `{"error": "…"}`. Those lines were parsed as empty chunks and
  * skipped: the real error was lost and the turn recorded as a success.
  */
+/**
+ * Ollama 500s that will fail the same way however often they are retried:
+ * not enough memory to load the model, a model output it cannot parse as a
+ * tool call, a broken template, an unknown model or tool, an unsupported
+ * feature. Retrying
+ * these three times only delayed the error by the backoff.
+ */
+const DETERMINISTIC_OLLAMA_ERROR =
+  /requires more system memory|error parsing tool call|template|not found|does not support|invalid (?:option|parameter|request)/i;
+
+/** fetchWithRetry hook: retry an Ollama error status only if it may be transient. */
+async function ollamaErrorIsRetryable(response: Response): Promise<boolean> {
+  let text = '';
+  try {
+    text = await response.clone().text();
+  } catch {
+    return true; // can't tell: keep the default (retry)
+  }
+  return !DETERMINISTIC_OLLAMA_ERROR.test(text);
+}
+
 function throwIfStreamError(chunk: unknown): void {
   const err = (chunk as { error?: unknown } | null)?.error;
   if (typeof err === 'string' && err) throw new Error(`Ollama error: ${err}`);
@@ -522,7 +543,7 @@ export class OllamaBackend implements ApiBackend {
         body: JSON.stringify(body),
         signal,
       },
-      { label: 'ollama' },
+      { label: 'ollama', retry: { isRetryable: ollamaErrorIsRetryable } },
     );
 
     if (!response.ok) {
@@ -819,7 +840,7 @@ export class OllamaBackend implements ApiBackend {
         body: JSON.stringify(body),
         signal,
       },
-      { label: 'ollama' },
+      { label: 'ollama', retry: { isRetryable: ollamaErrorIsRetryable } },
     );
 
     if (!response.ok) {

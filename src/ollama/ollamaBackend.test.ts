@@ -692,6 +692,29 @@ describe('OllamaBackend', () => {
       }).rejects.toThrow('Ollama request failed: 400');
     });
 
+    // #111: deterministic 500s were retried three times, delaying the error.
+    it('does not retry a 500 that will recur', async () => {
+      process.env.SIDECAR_OLLAMA_NUM_CTX = '65536';
+      try {
+        const body = '{"error":"model requires more system memory (20 GiB) than is available"}';
+        const res = {
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: new Headers(),
+          text: async () => body,
+        };
+        mockFetch.mockResolvedValue({ ...res, clone: () => res });
+        const drain = async () => {
+          for await (const _ of backend.streamChat('m', '', [{ role: 'user', content: 'hi' }])) void _;
+        };
+        await expect(drain()).rejects.toThrow('requires more system memory');
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+      } finally {
+        delete process.env.SIDECAR_OLLAMA_NUM_CTX;
+      }
+    });
+
     it('yields a warning text event when Ollama 500s with tool-not-found', async () => {
       mockFetch.mockResolvedValue({
         ok: false,
