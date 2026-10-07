@@ -52,13 +52,13 @@ export function registerDepsFeature(context: ExtensionContext): void {
       // cleanly and record an error result).
     }
 
-    const results = await scanner.scan([manifestPath], {
-      checkVulnerabilities: cfg.depsCheckVulnerabilities,
-      // Cap the background scan so a wedged registry can't hang activation work.
-      signal: AbortSignal.timeout(30_000),
-    });
+    // Cap the background scan so a wedged registry can't hang activation work.
+    const signal = AbortSignal.timeout(30_000);
+    const results = await scanner.scan([manifestPath], { checkVulnerabilities: cfg.depsCheckVulnerabilities, signal });
     const result = results[0];
-    if (result && mtimeMs !== undefined) {
+    // A scan the timeout cut short, or whose vulnerability lookup failed, is
+    // not a clean scan: caching it hid real findings for the cache's hour.
+    if (result && mtimeMs !== undefined && !result.incomplete && !signal.aborted) {
       scanCache[manifestPath] = { mtimeMs, scannedAt: Date.now(), result };
       void context.workspaceState.update(SCAN_CACHE_KEY, scanCache);
     }

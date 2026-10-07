@@ -30,4 +30,10 @@ export interface ManifestScanResult {
   ecosystem: DepEcosystem;
   deps: DepResult[];
   error?: string;
+  /**
+   * Part of the scan could not be done (the vulnerability lookup failed or
+   * timed out), so "no vulnerabilities" here means "not checked". Such a
+   * result must not be cached as a clean scan.
+   */
+  incomplete?: boolean;
 }

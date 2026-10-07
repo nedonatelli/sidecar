@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { window, workspace, commands, Selection, Position } from 'vscode';
-import { handleInlineChat } from './inlineChatProvider.js';
+import { handleInlineChat, inlineTargetUnchanged } from './inlineChatProvider.js';
 import type { SideCarClient } from '../ollama/client.js';
 
 // ---------------------------------------------------------------------------
@@ -298,5 +298,28 @@ describe('handleInlineChat — prompt content', () => {
 
     // Should not throw — clamping prevents negative line indices
     await expect(handleInlineChat(client, provider as never)).resolves.toBeUndefined();
+  });
+});
+
+// #119: the result was applied to the selection captured before the model ran,
+// even if the user had edited the file since.
+describe('inlineTargetUnchanged', () => {
+  const sel = new Selection(new Position(1, 0), new Position(1, 5));
+  const doc = (lines: string[]) => ({
+    lineCount: lines.length,
+    lineAt: (n: number) => ({ text: lines[n] }),
+    getText: (r?: { start: { line: number; character: number }; end: { character: number } }) =>
+      r ? lines[r.start.line].slice(r.start.character, r.end.character) : lines.join('\n'),
+  });
+
+  it('accepts an untouched selection and refuses one that changed', () => {
+    expect(inlineTargetUnchanged(doc(['a', 'hello world']) as never, sel, 'hello', 'hello world', true)).toBe(true);
+    expect(inlineTargetUnchanged(doc(['new', 'a', 'hello']) as never, sel, 'hello', 'hello world', true)).toBe(false);
+  });
+
+  it('refuses an insertion when the cursor line changed', () => {
+    const cursor = new Selection(new Position(1, 2), new Position(1, 2));
+    expect(inlineTargetUnchanged(doc(['a', 'xyz']) as never, cursor, '', 'xyz', false)).toBe(true);
+    expect(inlineTargetUnchanged(doc(['a', 'xyzw']) as never, cursor, '', 'xyz', false)).toBe(false);
   });
 });

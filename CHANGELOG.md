@@ -27,6 +27,22 @@ All notable changes to the SideCar extension will be documented in this file.
   model routing, and checks that look at what you asked for, sometimes read SideCar's own
   reminders or an earlier task instead of your request; and a refused write was later
   reported as "already written".
+- **Resolving merge conflicts joined lines together.** The last line of each resolved
+  block was glued to the line after the conflict.
+- **The Fork and Facet review panel buttons did nothing.** Accept, Reject, Skip, Apply and
+  Dismiss were all blocked by the panel's security policy; they work now.
+- **Adaptive paste and inline chat could overwrite the wrong code.** If the file changed
+  while SideCar was working, the result went where the original text used to be. They now
+  find the text again, or apply nothing and tell you.
+- **Diff previews showed the whole file deleted** for files with `#` or `?` in their path.
+- **Doc sync flagged correct `@param` tags** on functions that take a callback (`=>` in a
+  parameter type), and its quick fix deleted them; README sync flagged calls that left out
+  optional arguments.
+- **Dependency scans showed every vulnerability's severity as "UNKNOWN"**, and a scan that
+  timed out was remembered as clean for an hour.
+- **`src/**/*.ts`-style patterns missed files directly inside `src/`** in model-routing
+  rules, SIDECAR.md `@paths` and regression-guard scopes.
+- Changing a completion setting no longer leaks a background listener each time.
 
 - **A message with an image reached the model as an empty prompt.** Both the image and
   your text were dropped on every backend; they are now sent as written.

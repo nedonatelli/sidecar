@@ -13,7 +13,10 @@ export class ProposedContentProvider implements TextDocumentContentProvider {
   }
 
   addProposal(key: string, proposedContent: string): Uri {
-    const uri = Uri.parse(`sidecar-proposed:${key}`);
+    // Uri.from, not Uri.parse: parse reads '#' and '?' in a file path as the
+    // fragment and query, so uri.path no longer matched the stored key, the
+    // proposal read as empty, and the diff showed the whole file deleted.
+    const uri = Uri.from({ scheme: 'sidecar-proposed', path: key });
     this.content.set(key, proposedContent);
     this._onDidChange.fire(uri);
     return uri;

@@ -25,6 +25,7 @@
  * roadmap's "Role taxonomy" section for the canonical list.
  */
 import { logger } from '../system/logger.js';
+import { globToRegExp } from '../util/glob.js';
 
 export type RoutableRole =
   | 'chat'
@@ -258,14 +259,8 @@ export function computeComplexity(signals: RouteSignals): 'low' | 'medium' | 'hi
  * `src/physics/<star><star>`, and `<star>.tsx`.
  */
 function globMatch(pattern: string, text: string): boolean {
-  // Escape regex metacharacters except `*`, then turn `**` into `.*`
-  // and single `*` into `[^/]*`. Order matters — `**` first.
-  const rx = pattern
-    .replace(/[.+^$|()[\]{}\\]/g, '\\$&')
-    .replace(/\*\*/g, '§§')
-    .replace(/\*/g, '[^/]*')
-    .replace(/§§/g, '.*');
-  return new RegExp('^' + rx + '$').test(text);
+  // Shared translator: `src/<star><star>/<star>.ts` must match `src/x.ts` too.
+  return globToRegExp(pattern).test(text);
 }
 
 /**

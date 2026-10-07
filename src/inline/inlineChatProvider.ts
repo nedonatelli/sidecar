@@ -28,6 +28,9 @@ export async function handleInlineChat(
   const selection = editor.selection;
   const selectedText = editor.document.getText(selection);
   const hasSelection = !selection.isEmpty;
+  // What the edit targets, captured now: the user can keep typing while the
+  // model generates and while the diff is open.
+  const cursorLineText = editor.document.lineAt(selection.active.line).text;
 
   // Show input box for instruction
   const instruction = await window.showInputBox({
@@ -137,8 +140,32 @@ Respond with ONLY the code to insert, no explanation, no code fences.`;
   proposedContentProvider.removeProposal(afterKey);
 
   if (choice === 'Accept') {
+    if (!inlineTargetUnchanged(editor.document, selection, selectedText, cursorLineText, hasSelection)) {
+      window.showWarningMessage(
+        'SideCar: The code this edit was for changed while it was being generated, so nothing was applied.',
+      );
+      return;
+    }
     await applyInlineEdit(editor, selection, result, hasSelection);
   }
+}
+
+/**
+ * True when the text an inline edit targets is still what it was when the
+ * user asked. The selection (or cursor) is captured before the model runs and
+ * the result is applied after the user reviews it; edits in between used to
+ * shift the text, and the replacement landed on whatever was there instead.
+ */
+export function inlineTargetUnchanged(
+  document: { getText(range?: Range): string; lineCount: number; lineAt(line: number): { text: string } },
+  selection: Selection,
+  selectedText: string,
+  cursorLineText: string,
+  isReplace: boolean,
+): boolean {
+  if (isReplace) return document.getText(selection) === selectedText;
+  const line = selection.active.line;
+  return line < document.lineCount && document.lineAt(line).text === cursorLineText;
 }
 
 async function applyInlineEdit(

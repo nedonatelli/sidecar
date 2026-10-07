@@ -45,7 +45,14 @@ export function applyResolutions(
   for (const block of sorted) {
     const resolved = resolutions.get(block.index);
     if (resolved === undefined) continue;
-    result = result.slice(0, block.startOffset) + resolved + result.slice(block.endOffset);
+    // The span ends with the `>>>>>>>` line's line break, and resolutions
+    // arrive trimmed, so the resolved block's last line was glued to the line
+    // after the conflict. Put the span's own line ending back. An empty
+    // resolution (drop the block) still removes the whole span.
+    const span = result.slice(block.startOffset, block.endOffset);
+    const eol = span.endsWith('\r\n') ? '\r\n' : span.endsWith('\n') ? '\n' : '';
+    const text = resolved !== '' && eol && !resolved.endsWith('\n') ? resolved + eol : resolved;
+    result = result.slice(0, block.startOffset) + text + result.slice(block.endOffset);
   }
 
   return result;

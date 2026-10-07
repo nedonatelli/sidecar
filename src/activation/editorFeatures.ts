@@ -43,6 +43,17 @@ interface CodeActionArgs {
  * and the scheduled-task runner.
  * Extracted from extension.ts to keep the entry point under 150 lines.
  */
+/**
+ * Register an inline-completion provider and return ONE disposable for both
+ * the registration and the provider. The provider owns a document-change
+ * listener; disposing only the registration leaked a listener (and a
+ * subscriptions entry) every time a completion setting changed.
+ */
+export function registerCompletionProvider(provider: SideCarCompletionProvider): Disposable {
+  const registration = languages.registerInlineCompletionItemProvider({ pattern: '**' }, provider);
+  return { dispose: () => (registration.dispose(), provider.dispose()) };
+}
+
 export function registerEditorFeatures(
   context: ExtensionContext,
   config: SideCarConfig,
@@ -134,9 +145,9 @@ export function registerEditorFeatures(
       liveConfig.completionDebounceMs,
     );
 
-    completionDisposable = languages.registerInlineCompletionItemProvider({ pattern: '**' }, completionProvider);
-    context.subscriptions.push(completionDisposable);
+    completionDisposable = registerCompletionProvider(completionProvider);
   }
+  context.subscriptions.push({ dispose: () => completionDisposable?.dispose() });
 
   if (config.enableInlineCompletions) {
     registerCompletions();

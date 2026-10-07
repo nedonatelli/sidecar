@@ -61,8 +61,13 @@ export function splitTopLevel(input: string, sep: string): string[] {
   let buf = '';
   for (let i = 0; i < input.length; i++) {
     const ch = input[i];
+    // The `>` of an arrow (`=>`) closes nothing. Counting it drove depth
+    // below zero, so every later comma failed to split: in
+    // `(cb: (x: T) => void, opts)` the two params merged into one, `@param
+    // opts` was flagged as orphaned, and the quick fix deleted it.
+    const arrow = ch === '>' && input[i - 1] === '=';
     if (ch === '(' || ch === '[' || ch === '{' || ch === '<') depth++;
-    else if (ch === ')' || ch === ']' || ch === '}' || ch === '>') depth--;
+    else if ((ch === ')' || ch === ']' || ch === '}' || ch === '>') && !arrow) depth = Math.max(0, depth - 1);
     if (ch === sep && depth === 0) {
       parts.push(buf);
       buf = '';
@@ -80,9 +85,14 @@ export function splitTopLevel(input: string, sep: string): string[] {
  * was encountered (in which case the caller should skip diagnosing that
  * function — we can't confidently map destructured shapes onto JSDoc tags).
  */
-export function parseParamList(paramList: string): { names: string[]; hasDestructuredOrRest: boolean } {
+export function parseParamList(paramList: string): {
+  names: string[];
+  hasDestructuredOrRest: boolean;
+  /** Parameters before the first optional (`x?: T`) or defaulted (`x = 1`) one. */
+  requiredCount: number;
+} {
   const trimmed = paramList.trim();
-  if (trimmed === '') return { names: [], hasDestructuredOrRest: false };
+  if (trimmed === '') return { names: [], hasDestructuredOrRest: false, requiredCount: 0 };
 
   const parts = splitTopLevel(trimmed, ',')
     .map((p) => p.trim())
@@ -90,6 +100,7 @@ export function parseParamList(paramList: string): { names: string[]; hasDestruc
 
   const names: string[] = [];
   let hasDestructuredOrRest = false;
+  let requiredCount: number | undefined;
 
   for (const part of parts) {
     if (part.startsWith('...')) {
@@ -103,10 +114,14 @@ export function parseParamList(paramList: string): { names: string[]; hasDestruc
     // Strip leading `this:` parameter (TS self-typing) so it isn't mistaken for a real param.
     if (/^this\s*:/.test(part)) continue;
     const m = part.match(/^(\w+)/);
-    if (m) names.push(m[1]);
+    if (m) {
+      names.push(m[1]);
+      const optional = /^\w+\s*\?/.test(part) || splitTopLevel(part, '=').length > 1;
+      if (optional && requiredCount === undefined) requiredCount = names.length - 1;
+    }
   }
 
-  return { names, hasDestructuredOrRest };
+  return { names, hasDestructuredOrRest, requiredCount: requiredCount ?? names.length };
 }
 
 // ---------------------------------------------------------------------------

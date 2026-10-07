@@ -162,6 +162,13 @@ describe('ModelRouter.route', () => {
     expect(router.route({ role: 'agent-loop', files: ['src/ui/button.ts'] }).model).toBe('base');
   });
 
+  // #119: a **/ in a rule glob required an intermediate directory.
+  it('matches **/ at any depth, including none', () => {
+    const router = new ModelRouter([{ when: 'agent-loop.files~=src/**/*.ts', model: 'ts' }], 'base');
+    expect(router.route({ role: 'agent-loop', files: ['src/x.ts'] }).model).toBe('ts');
+    expect(router.route({ role: 'agent-loop', files: ['src/a/b/x.ts'] }).model).toBe('ts');
+  });
+
   it('flags swap=true when the decision changes the active model', () => {
     const router = new ModelRouter(rules, 'default-model');
     const first = router.route({ role: 'chat', prompt: 'hello' });

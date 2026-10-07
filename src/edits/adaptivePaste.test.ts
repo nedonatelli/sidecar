@@ -4,8 +4,9 @@ import {
   AdaptivePasteTracker,
   AdaptivePasteCodeActionProvider,
   registerAdaptivePasteCommand,
+  currentPasteRange,
 } from './adaptivePaste.js';
-import { workspace, window, commands } from 'vscode';
+import { workspace, window, commands, Position, Range } from 'vscode';
 import { getConfig } from '../config/settings.js';
 
 vi.mock('../config/settings.js', () => ({
@@ -348,11 +349,15 @@ describe('registerAdaptivePasteCommand', () => {
     } as never;
   }
 
-  function fakeEditor(uri = PASTE_URI, languageId = 'typescript') {
+  // The document holds the pasted text where it was pasted, unless told otherwise.
+  function fakeEditor(uri = PASTE_URI, languageId = 'typescript', text = 'x'.repeat(30)) {
     return {
       document: {
         uri: { toString: () => uri },
         languageId,
+        getText: (r?: { start: { character: number }; end: { character: number } }) =>
+          r ? text.slice(r.start.character, r.end.character) : text,
+        positionAt: (o: number) => ({ line: 0, character: o }),
       },
     };
   }
@@ -400,6 +405,22 @@ describe('registerAdaptivePasteCommand', () => {
     ).toHaveBeenCalledOnce();
     expect(applyEdit).toHaveBeenCalledOnce();
     expect(tracker.getLastPaste()).toBeNull();
+  });
+
+  // #119: the paste was edited while the model worked; replacing its old range
+  // would overwrite other text.
+  it('replaces nothing when the pasted text changed during the transform', async () => {
+    (window as { activeTextEditor: unknown }).activeTextEditor = fakeEditor(PASTE_URI, 'typescript', 'y'.repeat(30));
+    const applyEdit = vi
+      .spyOn(workspace as typeof workspace & { applyEdit: () => Promise<boolean> }, 'applyEdit')
+      .mockResolvedValue(true);
+    const warn = vi.spyOn(window, 'showWarningMessage');
+    await captureAndInvoke(makeClient('const result = {};'), makeTracker(), {
+      paste: fakePaste,
+      transforms: singleTransform,
+    });
+    expect(applyEdit).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('changed or moved'));
   });
 
   it('shows QuickPick and uses selected transform when multiple transforms available', async () => {
@@ -484,5 +505,38 @@ describe('registerAdaptivePasteCommand', () => {
     await captureAndInvoke(client, tracker, { paste: fakePaste, transforms: singleTransform });
 
     expect(showError).toHaveBeenCalledWith(expect.stringContaining('LLM failed'));
+  });
+});
+
+// #119: the transform replaced the range recorded at paste time, so an edit
+// above it in the meantime made it overwrite the wrong text.
+describe('currentPasteRange', () => {
+  // A one-line document over a string, offsets as character positions.
+  function doc(text: string) {
+    return {
+      getText: (r?: Range) => (r ? text.slice(r.start.character, r.end.character) : text),
+      positionAt: (offset: number) => new Position(0, offset),
+    } as unknown as import('vscode').TextDocument;
+  }
+  const record = (text: string, start: number) => ({
+    text,
+    range: new Range(new Position(0, start), new Position(0, start + text.length)),
+    documentUri: 'file:///a.ts',
+    languageId: 'typescript',
+  });
+
+  it('keeps the recorded range while it still holds the paste', () => {
+    const p = record('PASTED', 4);
+    expect(currentPasteRange(doc('abc PASTED xyz'), p)).toBe(p.range);
+  });
+
+  it('follows the paste when text was inserted above it', () => {
+    const r = currentPasteRange(doc('new line\nabc PASTED xyz'), record('PASTED', 4));
+    expect([r?.start.character, r?.end.character]).toEqual([13, 19]);
+  });
+
+  it('refuses when the paste is gone or appears more than once', () => {
+    expect(currentPasteRange(doc('abc edited xyz'), record('PASTED', 4))).toBeNull();
+    expect(currentPasteRange(doc('PASTED PASTED'), record('PASTED', 4))).toBeNull();
   });
 });

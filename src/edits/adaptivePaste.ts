@@ -115,6 +115,21 @@ export class AdaptivePasteCodeActionProvider implements CodeActionProvider {
 }
 
 /**
+ * Where the pasted text is NOW. The recorded range is from the moment of the
+ * paste; any edit above it since then (including while the model was
+ * transforming it) shifts the text, and replacing the stale range overwrote
+ * whatever had moved into it. Returns the recorded range if it still holds
+ * the pasted text, else the text's single current location, else null.
+ */
+export function currentPasteRange(document: TextDocument, paste: PasteRecord): Range | null {
+  if (document.getText(paste.range) === paste.text) return paste.range;
+  const all = document.getText();
+  const at = all.indexOf(paste.text);
+  if (at === -1 || all.indexOf(paste.text, at + 1) !== -1) return null;
+  return new Range(document.positionAt(at), document.positionAt(at + paste.text.length));
+}
+
+/**
  * Registers the `sidecar.adaptivePaste.transform` command that drives the
  * interactive transform flow: QuickPick → LLM call → in-place replacement.
  */
@@ -171,8 +186,15 @@ export function registerAdaptivePasteCommand(client: SideCarClient, tracker: Ada
               return;
             }
 
+            const target = currentPasteRange(editor.document, paste);
+            if (!target) {
+              void window.showWarningMessage(
+                'SideCar: The pasted text changed or moved while transforming, so nothing was replaced.',
+              );
+              return;
+            }
             const edit = new WorkspaceEdit();
-            edit.replace(editor.document.uri, paste.range, transformed.trim());
+            edit.replace(editor.document.uri, target, transformed.trim());
             await workspace.applyEdit(edit);
             tracker.clearLastPaste();
           } catch (err) {
