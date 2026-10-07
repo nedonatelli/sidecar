@@ -265,7 +265,7 @@ Each finding: severity (Critical / High / Medium / Low), location (file:line), d
 End with a summary table.
 ```
 
-This facet overrides the built-in `security-reviewer` with your team's specific threat model. Since `id: security-reviewer` matches a built-in facet ID, it replaces the built-in for everyone who opens this repo.
+This facet overrides the built-in `security-reviewer` with your team's specific threat model. Since `id: security-reviewer` matches a built-in facet ID, it replaces the built-in for everyone who opens this repo. Because facets come from the repository, each developer is asked once whether to use this workspace's facets; until they allow it, the built-ins apply.
 
 To dispatch it: `SideCar: Facets: Dispatch Specialists` from the Command Palette, select `Security Reviewer`, enter the task.
 

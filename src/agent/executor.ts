@@ -311,6 +311,7 @@ export async function executeTool(
   const irrecoverableDescription = detectIrrecoverable(toolUse);
   const needsApproval = resolveApprovalNeeded({
     tool,
+    toolName: toolUse.name,
     approvalMode,
     explicitPermission,
     isIrrecoverable: irrecoverableDescription !== null,

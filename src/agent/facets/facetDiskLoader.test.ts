@@ -48,6 +48,7 @@ describe('loadFacetRegistry — built-ins only', () => {
   it('silently handles a missing .sidecar/facets/ directory (no error)', async () => {
     const outcome = await loadFacetRegistry({
       workspaceRoot: '/workspace',
+      trustProjectFacets: async () => true,
       fsOverride: fs({}, {}),
     });
     expect(outcome.errors).toEqual([]);
@@ -59,6 +60,7 @@ describe('loadFacetRegistry — project facets (.sidecar/facets)', () => {
   it('loads every .md file from the workspace facets dir', async () => {
     const outcome = await loadFacetRegistry({
       workspaceRoot: '/workspace',
+      trustProjectFacets: async () => true,
       fsOverride: fs(
         {
           '/workspace/.sidecar/facets/a.md': validFacet('custom-a', 'Custom A'),
@@ -72,9 +74,41 @@ describe('loadFacetRegistry — project facets (.sidecar/facets)', () => {
     expect(outcome.registry.get('custom-b')?.displayName).toBe('Custom B');
   });
 
+  it("without the user's consent, workspace facets are not loaded and cannot replace a built-in", async () => {
+    // A cloned repo's .sidecar/facets/general-coder.md replaced the built-in
+    // facet's prompt and tool list, with no prompt.
+    const builtin = builtInFacets().find((f) => f.id === 'general-coder')!;
+    const outcome = await loadFacetRegistry({
+      workspaceRoot: '/workspace',
+      trustProjectFacets: async () => false,
+      fsOverride: fs(
+        {
+          '/workspace/.sidecar/facets/gc.md': validFacet('general-coder', 'Repo Coder'),
+          '/workspace/.sidecar/facets/a.md': validFacet('custom-a', 'Custom A'),
+        },
+        { '/workspace/.sidecar/facets': ['gc.md', 'a.md'] },
+      ),
+    });
+    expect(outcome.registry.get('general-coder')?.displayName).toBe(builtin.displayName);
+    expect(outcome.registry.get('custom-a')).toBeUndefined();
+    expect(outcome.errors.map((e) => e.reason)).toEqual(['untrusted', 'untrusted']);
+  });
+
+  it('asks through the workspace-trust prompt by default, and a dismissal loads nothing', async () => {
+    const outcome = await loadFacetRegistry({
+      workspaceRoot: '/workspace',
+      fsOverride: fs(
+        { '/workspace/.sidecar/facets/a.md': validFacet('custom-a', 'Custom A') },
+        { '/workspace/.sidecar/facets': ['a.md'] },
+      ),
+    });
+    expect(outcome.registry.get('custom-a')).toBeUndefined();
+  });
+
   it('ignores non-markdown entries in the directory', async () => {
     const outcome = await loadFacetRegistry({
       workspaceRoot: '/workspace',
+      trustProjectFacets: async () => true,
       fsOverride: fs(
         { '/workspace/.sidecar/facets/a.md': validFacet('x', 'X') },
         { '/workspace/.sidecar/facets': ['a.md', 'notes.txt', 'x.json'] },
@@ -87,6 +121,7 @@ describe('loadFacetRegistry — project facets (.sidecar/facets)', () => {
   it('records a per-file error for a malformed facet but still loads the others', async () => {
     const outcome = await loadFacetRegistry({
       workspaceRoot: '/workspace',
+      trustProjectFacets: async () => true,
       fsOverride: fs(
         {
           '/workspace/.sidecar/facets/good.md': validFacet('good', 'Good'),
@@ -104,6 +139,7 @@ describe('loadFacetRegistry — project facets (.sidecar/facets)', () => {
   it('marks project facets with source: project', async () => {
     const outcome = await loadFacetRegistry({
       workspaceRoot: '/workspace',
+      trustProjectFacets: async () => true,
       fsOverride: fs(
         { '/workspace/.sidecar/facets/p.md': validFacet('p', 'P') },
         { '/workspace/.sidecar/facets': ['p.md'] },
@@ -150,6 +186,7 @@ describe('loadFacetRegistry — merge precedence', () => {
   it('rejects two disk facets sharing an id; keeps first, errors on second', async () => {
     const outcome = await loadFacetRegistry({
       workspaceRoot: '/ws',
+      trustProjectFacets: async () => true,
       registryPaths: ['/extra.md'],
       fsOverride: fs(
         {

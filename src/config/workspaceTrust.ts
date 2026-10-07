@@ -100,6 +100,7 @@ export const SENSITIVE_WORKSPACE_KEYS: readonly string[] = [
   'skills.teamRegistries', // cloned, and their skills loaded into the prompt
   'skills.userRegistry',
   'skills.trustedRegistries', // skips the registry consent prompt
+  'facets.registry', // facet files: their own prompts and tool lists
   // Approval and isolation
   'agentMode',
   'customModes', // a mode carries its own approval level and tool permissions

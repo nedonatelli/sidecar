@@ -115,3 +115,29 @@ describe('NATIVE_MODAL_APPROVAL_TOOLS', () => {
     expect(NATIVE_MODAL_APPROVAL_TOOLS.has('write_file')).toBe(false);
   });
 });
+
+describe('sandboxed mode (forks and facets in a shadow worktree)', () => {
+  const needs = (toolName: string, tool: { requiresApproval?: boolean }) =>
+    resolveApprovalNeeded({
+      tool,
+      toolName,
+      approvalMode: 'sandboxed',
+      explicitPermission: undefined,
+      isIrrecoverable: false,
+    });
+
+  it('file tools write to the shadow without asking', () => {
+    for (const name of ['write_file', 'edit_file', 'delete_file'])
+      expect(needs(name, { requiresApproval: true })).toBe(false);
+  });
+
+  it('tools that reach the real environment ask', () => {
+    for (const name of ['run_command', 'git_push', 'git_stash', 'db_execute', 'mcp_github_create_issue']) {
+      expect(needs(name, { requiresApproval: true })).toBe(true);
+    }
+  });
+
+  it('read-only tools do not ask', () => {
+    expect(needs('read_file', { requiresApproval: false })).toBe(false);
+  });
+});

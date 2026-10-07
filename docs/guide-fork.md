@@ -71,7 +71,7 @@ Run `SideCar: Fork & Compare` (`Cmd+Shift+P` / `Ctrl+Shift+P`). This prompts you
 
 ### What happens during the run
 
-Each fork runs with `approvalMode: 'autonomous'` — the agent writes freely inside its shadow without pausing for per-file approval. You review the entire result in one pass at the end. This is intentional: pausing each fork mid-run for approvals would block all N branches and defeat the parallel speedup.
+Each fork writes files freely inside its shadow without pausing for per-file approval, and you review the entire result in one pass at the end — pausing each fork for every edit would block all N branches and defeat the parallel speedup. The shadow isolates file writes only, so a tool that reaches outside it (a shell command, a git push or stash, a database write, an MCP tool) still asks first, unless your agent mode is autonomous. The same applies to facets.
 
 If you need to stop the batch early, close the VS Code notification or use the active agent controls. Forks that complete before the abort record their diffs and can still be reviewed; forks that are aborted before starting are reported as `aborted-before-start` in the review.
 
