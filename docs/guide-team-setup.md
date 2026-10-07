@@ -366,21 +366,21 @@ The policy file uses `version: 1` and a `toolPermissions` map:
   "toolPermissions": {
     "git_push": "deny",
     "run_command": "ask",
-    "delete_file": "ask",
-    "web_search": "allow"
+    "delete_file": "ask"
   }
 }
 ```
 
 Permission levels:
 
-| Level   | Behavior                                                           |
-| ------- | ------------------------------------------------------------------ |
-| `allow` | Always permitted without prompting                                 |
-| `ask`   | Requires per-call approval (same as the default cautious behavior) |
-| `deny`  | Never permitted — the tool is removed from the agent's tool list   |
+| Level  | Behavior                                                           |
+| ------ | ------------------------------------------------------------------ |
+| `ask`  | Requires per-call approval (same as the default cautious behavior) |
+| `deny` | Never permitted — the tool is removed from the agent's tool list   |
 
 Policy permission levels are **additive with the user's settings**: the more restrictive level always wins. If a developer's user settings have `git_push: ask` but the policy says `deny`, the effective level is `deny`.
+
+A policy can only restrict. Because the file comes from the repository, `allow` (or any other value) is ignored: it cannot remove an approval prompt that the developer's own settings or agent mode would show. To auto-approve a tool, use `sidecar.toolPermissions` in your own settings.
 
 ### Example: safe defaults for a team repo
 
