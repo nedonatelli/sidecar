@@ -88,6 +88,12 @@ describe('parseSidecarMd — @paths sentinel', () => {
 });
 
 describe('pathMatchesAnyGlob', () => {
+  // #119: **/ required an intermediate directory.
+  it('matches **/ at any depth, including none', () => {
+    expect(pathMatchesAnyGlob('src/x.ts', ['src/**/*.ts'])).toBe(true);
+    expect(pathMatchesAnyGlob('src/a/x.ts', ['src/**/*.ts'])).toBe(true);
+  });
+
   it('returns false for an empty glob list', () => {
     expect(pathMatchesAnyGlob('src/foo.ts', [])).toBe(false);
   });

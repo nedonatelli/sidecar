@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { writeFile, editFile, readFile, applyReadView, editFileDef, fsTools } from './fs.js';
+import {
+  writeFile,
+  editFile,
+  readFile,
+  applyReadView,
+  editFileDef,
+  fsTools,
+  droppedTopLevelDefinitions,
+  findIntentTarget,
+} from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
 import { workspace } from 'vscode';
@@ -1222,6 +1231,61 @@ describe('editFile replace_all', () => {
   });
 });
 
+// #109: replace_all skipped the guards a single edit gets, and on a tolerance
+// tier it only replaced occurrences byte-identical to the first.
+describe('editFile replace_all guards and tolerance', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function run(file: string, input: Record<string, unknown>) {
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'agent' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(file) as never);
+    const written: string[] = [];
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_uri, content) => {
+      written.push(Buffer.from(content as Uint8Array).toString('utf-8'));
+    });
+    const result = editFile({ path: 'src/x.ts', replace_all: true, ...input }, {
+      filesReadThisTurn: new Set(['src/x.ts']),
+    } as never);
+    return { result, written };
+  }
+
+  it('leaves occurrences inside longer words alone and says so', async () => {
+    const file = 'greet();\nconst greeting = 1;\ngreet();\n';
+    const { result, written } = await run(file, { search: 'greet', replace: 'hello' });
+    expect(await result).toMatch(/2 occurrences replaced; 1 more inside longer words \(e\.g\. `greeting`\)/);
+    expect(written).toEqual(['hello();\nconst greeting = 1;\nhello();\n']);
+  });
+
+  it('refuses when every occurrence is inside a longer word', async () => {
+    const { result, written } = await run('const greeting = 1;\nconst greeter = 2;\n', {
+      search: 'greet',
+      replace: 'hello',
+    });
+    await expect(result).rejects.toThrow(/part of a longer word/);
+    expect(written).toEqual([]);
+  });
+
+  it('re-indents and replaces every occurrence a tolerance tier matched', async () => {
+    const file =
+      'function a() {\n  if (x) {\n    run();\n  }\n}\nfunction b() {\n      if (x) {\n        run();\n      }\n}\n';
+    const { result, written } = await run(file, {
+      search: 'if (x) {\n  run();\n}',
+      replace: 'if (x) {\n  go();\n}',
+    });
+    expect(await result).toMatch(/2 occurrences replaced/);
+    expect(written).toEqual([
+      'function a() {\n  if (x) {\n    go();\n  }\n}\nfunction b() {\n      if (x) {\n        go();\n      }\n}\n',
+    ]);
+  });
+
+  it('refuses a replace_all that would shadow a top-level definition', async () => {
+    const { result, written } = await run('X = 1\nY = 2\nZ = 2\n', { search: '= 2', replace: '= 2\nX = 3' });
+    await expect(result).rejects.toThrow(/define `X` at the top level/);
+    expect(written).toEqual([]);
+  });
+});
+
 describe('editFile shadow-definition guard', () => {
   afterEach(() => vi.restoreAllMocks());
   // The django-10914 failure shape: a setting already exists as `= None`, and the
@@ -2270,5 +2334,115 @@ describe('edit_file — structured outcome flags', () => {
     const msg = await editMsg({ path: 'm.py', search: 'nowhere in the file', replace: 'x' }, ctx());
     expect(msg).not.toContain('File edited');
     expect(outcomes()).toHaveLength(0);
+  });
+});
+
+// #107: fence-write coercion turns a printed code block into write_file. A
+// block holding only the new function parsed fine and replaced the whole file.
+describe('write_file synthesized from a printed fence', () => {
+  const calculator = 'def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n';
+  const snippet = 'def multiply(a, b):\n    return a * b\n';
+
+  async function setup(existing: string) {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(existing) as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    return vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refuses a snippet that would delete what the file defines', async () => {
+    const write = await setup(calculator);
+    await expect(
+      writeFile({ path: 'calculator.py', content: snippet }, { synthesizedFromFence: true }),
+    ).rejects.toThrow(/missing add, subtract/);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('writes a fence that holds the whole file plus the change', async () => {
+    const write = await setup(calculator);
+    const result = await writeFile(
+      { path: 'calculator.py', content: calculator + '\n\n' + snippet },
+      { synthesizedFromFence: true },
+    );
+    expect(result).toBe('File written: calculator.py');
+    expect(write).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a write the model called itself to the model's judgement", async () => {
+    const write = await setup(calculator);
+    await writeFile({ path: 'calculator.py', content: snippet }, {});
+    expect(write).toHaveBeenCalledOnce();
+  });
+});
+
+describe('droppedTopLevelDefinitions', () => {
+  it('finds top-level definitions across languages that the new content lacks', () => {
+    const ts = 'export function a() {}\nexport const b = 1;\nclass C {\n  method() {}\n}\n';
+    expect(droppedTopLevelDefinitions(ts, 'export function a() {}')).toEqual(['b', 'C']);
+    const go = 'func (s *Server) Start() {}\nfunc helper() {}\ntype Server struct{}\n';
+    expect(droppedTopLevelDefinitions(go, 'func helper() {}')).toEqual(['Start', 'Server']);
+  });
+
+  it('ignores indented definitions, which a rewritten body may rename', () => {
+    expect(
+      droppedTopLevelDefinitions('class A:\n    def old(self): pass\n', 'class A:\n    def new(self): pass\n'),
+    ).toEqual([]);
+  });
+});
+
+// #109: the window was N non-blank replace lines but N PHYSICAL file lines, so
+// a region with a blank line in it came back short and its tail was duplicated.
+describe('findIntentTarget — regions with blank lines', () => {
+  it('returns the whole region the replacement covers', () => {
+    const file = 'TOTAL = compute_subtotal(items, tax_rate, shipping)\n\nprint(format_currency(TOTAL))\n';
+    const replace = "TOTAL = compute_subtotal(items, tax_rate, shipping, region)\nprint(format_currency(TOTAL, 'USD'))";
+    // Two non-blank lines in, two non-blank lines out. The old result stopped
+    // at the blank line, so the print line was left in place and the
+    // replacement's print line was added after it -- printed twice.
+    expect(findIntentTarget(file, replace)).toBe(
+      'TOTAL = compute_subtotal(items, tax_rate, shipping)\n\nprint(format_currency(TOTAL))',
+    );
+  });
+});
+
+// #109: the audit-mode edit path did not pass `within`.
+describe('editFile audit mode with within', () => {
+  afterEach(() => {
+    __setDefaultAuditBufferForTests(null);
+    vi.restoreAllMocks();
+  });
+
+  it('edits the occurrence after the locator', async () => {
+    const buf = new AuditBuffer();
+    __setDefaultAuditBufferForTests(buf);
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ agentMode: 'audit' } as never);
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('## One\nvalue\n## Two\nvalue\n') as never);
+    const context = { config: { agentMode: 'audit' } as never, filesReadThisTurn: new Set(['notes.md']) };
+
+    await editFile({ path: 'notes.md', search: 'value', replace: 'changed', within: '## Two' }, context as never);
+
+    expect(buf.read('notes.md').content).toBe('## One\nvalue\n## Two\nchanged\n');
+  });
+});
+
+// #108: the content hash was recorded before the syntax guard refused a write.
+describe('write_file circular-write history', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('does not record a write the syntax guard refused', async () => {
+    const { workspace } = await import('vscode');
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('export const a = 1;\n') as never);
+    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
+    vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
+    const writeHistoryByFile = new Map<string, Set<string>>();
+    const broken = 'export const a = (;\n';
+
+    await expect(writeFile({ path: 'a.ts', content: broken }, { writeHistoryByFile })).rejects.toThrow(/refused/);
+    expect(writeHistoryByFile.get('a.ts')?.size ?? 0).toBe(0);
+    // The retry gets the same syntax refusal, not "byte-identical to a version you already wrote".
+    await expect(writeFile({ path: 'a.ts', content: broken }, { writeHistoryByFile })).rejects.toThrow(/refused/);
   });
 });

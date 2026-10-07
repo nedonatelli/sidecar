@@ -5,8 +5,8 @@ import { sidecarFetch } from './sidecarFetch.js';
 /**
  * Google Gemini backend via the OpenAI-compatible endpoint.
  *
- * Gemini exposes a drop-in /openai/v1/chat/completions surface at
- * generativelanguage.googleapis.com/openai — same wire format as OpenAI,
+ * Gemini exposes a drop-in /chat/completions surface at
+ * generativelanguage.googleapis.com/v1beta/openai — same wire format as OpenAI,
  * same Bearer-token auth. No custom headers or body fields required.
  * A thin subclass is enough; all stream parsing reuses OpenAIBackend.
  *
@@ -15,9 +15,25 @@ import { sidecarFetch } from './sidecarFetch.js';
  *   apiKey:  your Google AI Studio key
  *   model:   'gemini-2.0-flash' | 'gemini-1.5-pro' | ...
  */
+
+/**
+ * The OpenAI-compatible root for a Gemini base URL. SideCar's own Gemini
+ * profile shipped as `https://generativelanguage.googleapis.com/openai`,
+ * missing the `/v1beta` segment, so every request from it went to a path
+ * that does not exist. Saved settings still hold that URL, so the bare host
+ * and the old `/openai` form are mapped to `/v1beta/openai`; any other path
+ * (a proxy, a future version) is used as given.
+ */
+export function geminiApiRoot(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  return /^https?:\/\/generativelanguage\.googleapis\.com(?:\/openai)?$/i.test(trimmed)
+    ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+    : trimmed;
+}
+
 export class GeminiBackend extends OpenAIBackend {
   constructor(baseUrl: string, apiKey: string, rateLimits: RateLimitStore = new RateLimitStore()) {
-    super(baseUrl, apiKey, rateLimits);
+    super(geminiApiRoot(baseUrl), apiKey, rateLimits);
   }
 
   // Google's OpenAI-compatible endpoint lives at /v1beta/openai/chat/completions,

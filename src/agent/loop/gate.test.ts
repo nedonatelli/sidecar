@@ -690,3 +690,21 @@ describe('maybeInjectCompletionGate — red-check refusal (scaffold 5.0.0)', () 
     expect(outcome).toBe('skip');
   });
 });
+
+// #108: in a shadow/fork run the syntax gate read the main tree's copy of an
+// edited file -- which the run never touched -- and passed a broken file.
+describe('maybeInjectSyntaxGate in a shadow run', () => {
+  it("checks the file in the run's tree", async () => {
+    const { workspace } = await import('vscode');
+    const path = await import('path');
+    const shadow = path.resolve('/shadows/run-1');
+    vi.spyOn(workspace.fs, 'readFile').mockImplementation(async (uri: { fsPath: string }) =>
+      Buffer.from(uri.fsPath.startsWith(shadow) ? 'export const x = (;\n' : 'export const x = 1;\n'),
+    );
+    const gateState = { editedFiles: new Set(['src/a.ts']), gateInjections: 0 } as unknown as LoopState['gateState'];
+    const state = stubLoopState({ gateState, cwdOverride: shadow } as never);
+    const out = await maybeInjectSyntaxGate(state, stubConfig(), new AbortController().signal, stubCallbacks());
+    expect(out).toBe('injected');
+    vi.restoreAllMocks();
+  });
+});

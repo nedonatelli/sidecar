@@ -318,3 +318,37 @@ describe('evaluateRatchetAtTermination', () => {
     expect(await fs.read('printing/latex.py')).toBe(garbled);
   });
 });
+
+// #108: growth was total size after minus total size at the boundary, and
+// originals were keyed by the raw path spelling.
+describe('keep-best ratchet: growth and path keys', () => {
+  it('counts a small edit to a big file first touched after the boundary as small', async () => {
+    const big = 'x'.repeat(40_000);
+    const fs = new FakeFs({ 'app.ts': 'fix', 'big.ts': big + '\n// one line' });
+    const r = initRatchetRunState(true, 4096);
+    r.boundaryCaptured = true;
+    r.preScaffoldFiles = new Set(['app.ts']);
+    r.boundaryContent = new Map([['app.ts', 'fix']]);
+    r.boundarySignal = {
+      projectTestsPassed: false,
+      passingTestFiles: new Set(),
+      patchBytes: 3,
+      verificationAttempted: true,
+    };
+    r.originals = new Map([['big.ts', big]]); // existed before the run
+    const state = fakeState(r, { editedFiles: new Set(['app.ts', 'big.ts']) });
+    const onText = vi.fn();
+    await evaluateRatchetAtTermination(state, fs, noopCallbacks(onText));
+    expect(await fs.read('big.ts')).toBe(big + '\n// one line'); // 11 bytes grew, under 4096: kept
+    expect(onText).not.toHaveBeenCalled();
+  });
+
+  it('stores originals under the same key the revert looks them up by', async () => {
+    const fs = new FakeFs({ './src/a.ts': 'ORIGINAL' });
+    const r = initRatchetRunState(true, 0);
+    const state = fakeState(r);
+    await captureRatchetOriginals(state, [toolUse('write_file', { path: './src/a.ts', content: 'new' })], fs);
+    expect([...r.originals.keys()]).toEqual(['src/a.ts']);
+    expect(r.originals.get('src/a.ts')).toBe('ORIGINAL');
+  });
+});

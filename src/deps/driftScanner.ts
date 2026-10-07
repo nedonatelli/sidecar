@@ -128,6 +128,7 @@ export class DriftScanner {
       }
 
       // Batch OSV vulnerability check
+      let incomplete = false;
       if (opts.checkVulnerabilities !== false) {
         const queries: OsvQuery[] = depResults
           .filter((d) => d.currentVersion && d.currentVersion !== '0.0.0')
@@ -135,17 +136,18 @@ export class DriftScanner {
 
         if (queries.length > 0) {
           const vulnResults = await osvBatchQuery(queries, opts.signal);
+          if (vulnResults === null) incomplete = true;
           let qi = 0;
           for (const dep of depResults) {
             if (dep.currentVersion && dep.currentVersion !== '0.0.0') {
-              dep.vulnerabilities = vulnResults[qi] ?? [];
+              dep.vulnerabilities = vulnResults?.[qi] ?? [];
               qi++;
             }
           }
         }
       }
 
-      results.push({ manifestPath, ecosystem, deps: depResults });
+      results.push({ manifestPath, ecosystem, deps: depResults, ...(incomplete ? { incomplete } : {}) });
     }
 
     const allDeps = results.flatMap((r) => r.deps);

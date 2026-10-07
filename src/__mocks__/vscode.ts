@@ -6,7 +6,11 @@ export const Uri = {
   parse: (str: string) => {
     const colonIdx = str.indexOf(':');
     const scheme = colonIdx > 0 ? str.slice(0, colonIdx) : 'file';
-    const pathPart = colonIdx > 0 ? str.slice(colonIdx + 1) : str;
+    // Like the real parser, '?' starts the query and '#' the fragment; neither
+    // is part of the path.
+    const rest = colonIdx > 0 ? str.slice(colonIdx + 1) : str;
+    const cut = rest.search(/[?#]/);
+    const pathPart = cut >= 0 ? rest.slice(0, cut) : rest;
     // Extract authority (host:port) for http/https URIs — matches VS Code Uri behaviour.
     let authority = '';
     if ((scheme === 'https' || scheme === 'http') && pathPart.startsWith('//')) {
@@ -16,6 +20,14 @@ export const Uri = {
     }
     return { fsPath: pathPart, scheme, path: pathPart, authority };
   },
+  from: (parts: { scheme: string; path?: string; authority?: string; query?: string; fragment?: string }) => ({
+    fsPath: parts.path ?? '',
+    scheme: parts.scheme,
+    path: parts.path ?? '',
+    authority: parts.authority ?? '',
+    query: parts.query ?? '',
+    fragment: parts.fragment ?? '',
+  }),
   joinPath: (base: { fsPath: string }, ...segments: string[]) => {
     const joined = [base.fsPath, ...segments].join('/');
     return { fsPath: joined, scheme: 'file', path: joined };
@@ -344,7 +356,15 @@ export class InlineCompletionItem {
   ) {}
 }
 
-export class Selection extends Range {}
+// Like the real API: Selection(anchor, active), where active is the cursor end.
+export class Selection extends Range {
+  constructor(
+    public anchor: Position,
+    public active: Position,
+  ) {
+    super(anchor, active);
+  }
+}
 
 export class ThemeColor {
   constructor(public id: string) {}

@@ -211,6 +211,76 @@ describe('chat webview message dispatcher', () => {
       expect(postMessage).toHaveBeenCalledWith({ command: 'deleteMessage', index: 4 });
     });
 
+    function bubbleIndices(): Array<string | undefined> {
+      return Array.from(messagesEl.querySelectorAll('.message')).map((el) => (el as HTMLElement).dataset.msgIndex);
+    }
+    const fourMessages = [
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+      { role: 'assistant', content: 'd' },
+    ];
+
+    // #110: done's count alone left every earlier bubble pointing at the old
+    // positions once pruning dropped turns from the front, and the streamed
+    // answer had no index at all.
+    it('re-stamps every bubble from syncMessageIndices after a turn', () => {
+      postToWebview({ command: 'init', messages: fourMessages });
+      postToWebview({ command: 'addUserMessage', content: 'e' }); // stamped 4
+      postToWebview({ command: 'assistantMessage', content: 'answer' });
+      postToWebview({ command: 'done', messageCount: 5 });
+      // History is now [c, d, e, tool_use, tool_result, answer]: two messages
+      // pruned from the front, the answer at 5.
+      postToWebview({ command: 'syncMessageIndices', messageCount: 6, shift: 2, turnStart: 5, lastAssistantIndex: 5 });
+
+      expect(bubbleIndices()).toEqual([undefined, undefined, '0', '1', '2', '5']);
+      postToWebview({ command: 'addUserMessage', content: 'next' });
+      expect(lastUserBubbleIndex()).toBe('6');
+    });
+
+    it('renumbers later bubbles when a message is deleted', () => {
+      postToWebview({ command: 'init', messages: fourMessages });
+      const first = messagesEl.querySelector('.message.user') as HTMLElement;
+      (first.querySelector('.message-delete-btn') as HTMLButtonElement).click();
+
+      expect(postMessage).toHaveBeenCalledWith({ command: 'deleteMessage', index: 0 });
+      expect(bubbleIndices()).toEqual(['0', '1', '2']);
+      postToWebview({ command: 'addUserMessage', content: 'next' });
+      expect(lastUserBubbleIndex()).toBe('3');
+    });
+
+    it('keeps the bubble and its numbering when deleting during a run', () => {
+      postToWebview({ command: 'init', messages: fourMessages });
+      postToWebview({ command: 'setLoading', isLoading: true });
+      const first = messagesEl.querySelector('.message.user') as HTMLElement;
+      (first.querySelector('.message-delete-btn') as HTMLButtonElement).click();
+
+      // The extension refuses a delete mid-run, so nothing changes here.
+      expect(postMessage).toHaveBeenCalledWith({ command: 'deleteMessage', index: 0 });
+      expect(messagesEl.contains(first)).toBe(true);
+      // (setLoading appended a typing indicator after the four bubbles.)
+      expect(bubbleIndices().slice(0, 4)).toEqual(['0', '1', '2', '3']);
+    });
+
+    // #110: String.replace with a string treats $& / $' in the new text as patterns.
+    it('inserts regenerated text literally, $ patterns and all', () => {
+      postToWebview({
+        command: 'init',
+        messages: [
+          { role: 'user', content: 'q' },
+          { role: 'assistant', content: 'old part' },
+        ],
+      });
+      postToWebview({
+        command: 'regenSectionResult',
+        msgIndex: 1,
+        originalText: 'old part',
+        newText: "costs $& and $' now",
+      });
+      const answer = messagesEl.querySelector('.message.assistant[data-msg-index="1"]') as HTMLElement;
+      expect(answer.dataset.rawContent).toBe("costs $& and $' now");
+    });
+
     it('leaves the counter untouched when done carries no messageCount', () => {
       postToWebview({ command: 'init', messages: [{ role: 'user', content: 'hi' }] });
       postToWebview({ command: 'addUserMessage', content: 'task' }); // index 1

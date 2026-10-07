@@ -266,16 +266,66 @@ async function buildSystemPromptForRun(
 // Post-loop processing
 // ---------------------------------------------------------------------------
 
+/**
+ * Tell the webview where its bubbles now sit in state.messages. It numbers
+ * them with a local counter, and the extension takes that number as a direct
+ * index for edit, delete and regenerate. A turn breaks it three ways: it
+ * appends tool entries the counter never saw, pruning before the loop drops
+ * old turns from the front, and trimHistory drops more.
+ *
+ * `loopPrompt` is the user message the loop started from, at index
+ * `loopStartCount - 1`. When it is no longer there, the loop compacted
+ * history and nothing maps one to one, so the webview re-renders instead.
+ */
+function syncWebviewIndices(
+  state: ChatState,
+  updatedMessages: ChatMessage[],
+  prePruneMessageCount: number,
+  turn: { loopStartCount: number; loopPrompt: ChatMessage },
+  trimmed: number,
+): void {
+  const atPrompt = updatedMessages[turn.loopStartCount - 1];
+  const promptInPlace =
+    atPrompt === turn.loopPrompt ||
+    // In-loop compression copies a message it shrinks; same role and text is still the prompt.
+    (atPrompt?.role === turn.loopPrompt.role &&
+      getContentText(atPrompt.content) === getContentText(turn.loopPrompt.content));
+  if (!promptInPlace) {
+    state.postMessage({ command: 'init', messages: state.messages });
+    return;
+  }
+  const turnFrom = turn.loopStartCount - trimmed;
+  let lastAssistantIndex: number | undefined;
+  for (let i = state.messages.length - 1; i >= Math.max(0, turnFrom); i--) {
+    const m = state.messages[i];
+    if (m.role === 'assistant' && getContentText(m.content).trim()) {
+      lastAssistantIndex = i;
+      break;
+    }
+  }
+  state.postMessage({
+    command: 'syncMessageIndices',
+    messageCount: state.messages.length,
+    shift: prePruneMessageCount - turn.loopStartCount + trimmed,
+    turnStart: prePruneMessageCount,
+    lastAssistantIndex,
+  });
+}
+
 export async function postLoopProcessing(
   state: ChatState,
   updatedMessages: ChatMessage[],
   prePruneMessageCount: number,
+  turn?: { loopStartCount: number; loopPrompt: ChatMessage },
 ): Promise<void> {
   const newUserMessages = state.messages.slice(prePruneMessageCount);
   state.messages = [...updatedMessages, ...newUserMessages];
+  const mergedLength = state.messages.length;
   state.trimHistory();
   state.saveHistory();
   state.autoSave();
+  if (turn)
+    syncWebviewIndices(state, updatedMessages, prePruneMessageCount, turn, mergedLength - state.messages.length);
 
   state.pendingQuestion = null;
   const lastMsg = state.messages[state.messages.length - 1];
@@ -337,6 +387,21 @@ export interface UserMessageOptions {
    * the new message as the user moving on.
    */
   continuesFailedTurn?: boolean;
+  /**
+   * This run carries out or revises a plan the user approved, so it must not
+   * plan again: in plan mode it runs as cautious. Applies to this run only.
+   */
+  leavePlanMode?: boolean;
+}
+
+/**
+ * The agent mode a run uses. Leaving plan mode used to be done by writing
+ * agentMode to the user's GLOBAL settings and back: a workspace value shadowed
+ * the write (so the run planned again), and the write-back undid a mode the
+ * user picked while the run was going.
+ */
+export function runAgentMode(configuredMode: string, options: UserMessageOptions): string {
+  return options.leavePlanMode && configuredMode === 'plan' ? 'cautious' : configuredMode;
 }
 
 export async function handleUserMessage(
@@ -409,7 +474,14 @@ export async function handleUserMessage(
 
   state.pendingPartialAssistant = null;
   state.postMessage({ command: 'setLoading', isLoading: true });
-  state.abortController = new AbortController();
+  // This run's own controller. state.abortController is shared: a message
+  // sent while this run is still unwinding replaces it, so every check below
+  // (and the cleanup in `finally`) goes through `runController` instead.
+  const runController = new AbortController();
+  state.abortController = runController;
+  // True once a newer run has taken over the shared run state. A session load
+  // nulls abortController instead, and has already done its own teardown.
+  const supersededByNewerRun = () => state.abortController !== null && state.abortController !== runController;
 
   // Steer queue: one instance per agent run. Subscribes to mutations so
   // the webview strip UI re-renders from a single authoritative source.
@@ -437,6 +509,9 @@ export async function handleUserMessage(
   try {
     const config = getConfig();
     const started = await connectWithRetry(state);
+    // Stopped or replaced while connecting: the newer run (or session) owns
+    // the panel now, so this one must not go on to build a prompt and run.
+    if (runController.signal.aborted) return;
 
     if (!started) {
       state.postMessage(
@@ -475,7 +550,9 @@ export async function handleUserMessage(
       state.client.setTurnOverride(sentinel.override);
     }
 
-    const resolved = resolveMode(config.agentMode, config.customModes);
+    const agentMode = runAgentMode(config.agentMode, options);
+    const runConfig = agentMode === config.agentMode ? config : { ...config, agentMode };
+    const resolved = resolveMode(agentMode, config.customModes);
 
     let effectiveApprovalMode: ApprovalMode = resolved.approvalBehavior;
     if (effectiveApprovalMode !== 'plan' && shouldAutoEnablePlanMode(turnText, state.messages.length)) {
@@ -490,11 +567,11 @@ export async function handleUserMessage(
 
     const { systemPrompt, contextLength, matchedSkill } = await buildSystemPromptForRun(
       state,
-      config,
+      runConfig,
       turnText,
       effectiveApprovalMode,
       resolved.systemPrompt,
-      state.abortController.signal,
+      runController.signal,
     );
     state.client.updateSystemPrompt(systemPrompt);
 
@@ -523,6 +600,8 @@ export async function handleUserMessage(
     const effectiveMaxTokens = Math.max(rawMaxTokens - systemPromptTokens, Math.floor(rawMaxTokens / 2));
 
     await enrichAndPruneMessages(chatMessages, config, systemPrompt, effectiveMaxTokens, state, config.verboseMode);
+    // Where the turn starts in the (possibly pruned) history the loop gets.
+    const turn = { loopStartCount: chatMessages.length, loopPrompt: chatMessages[chatMessages.length - 1] };
 
     if (config.verboseMode) {
       state.postMessage({ command: 'verboseLog', content: systemPrompt, verboseLabel: 'System Prompt' });
@@ -644,26 +723,20 @@ export async function handleUserMessage(
         state.client,
         chatMessages,
         agentCbs,
-        state.abortController.signal,
+        runController.signal,
         loopOptions,
         { forceShadow },
       );
       updatedMessages = sandboxResult.messages ?? chatMessages;
     } else {
-      updatedMessages = await runAgentLoop(
-        state.client,
-        chatMessages,
-        agentCbs,
-        state.abortController.signal,
-        loopOptions,
-      );
+      updatedMessages = await runAgentLoop(state.client, chatMessages, agentCbs, runController.signal, loopOptions);
     }
 
     if (state.chatGeneration !== generationAtStart) {
       return;
     }
 
-    await postLoopProcessing(state, updatedMessages, prePruneMessageCount);
+    await postLoopProcessing(state, updatedMessages, prePruneMessageCount, turn);
 
     state.postMessage({ command: 'setLoading', isLoading: false });
     healthStatus.setOk();
@@ -679,6 +752,8 @@ export async function handleUserMessage(
     state.autoSave();
 
     if (err instanceof Error && err.name === 'AbortError') {
+      // A newer run's spinner and bubbles are on screen; don't end them.
+      if (supersededByNewerRun()) return;
       state.postMessage({ command: 'done', messageCount: state.messages.length });
       state.postMessage({ command: 'setLoading', isLoading: false });
       return;
@@ -701,10 +776,6 @@ export async function handleUserMessage(
     });
     void surfaceNativeToast(errorMessage, classified);
   } finally {
-    recordRunCost(state);
-    state.metricsCollector.endRun();
-    state.abortController = null;
-    state.cancelCallbacks = null;
     // Call the locally-captured disposer directly. Reading state.currentSteerDisposer
     // here would race with a session load that already replaced it with a new
     // session's disposer, causing the new session's listener to be torn down.
@@ -712,12 +783,23 @@ export async function handleUserMessage(
     if (state.currentSteerDisposer === steerDisposer) {
       state.currentSteerDisposer = null;
     }
-    state.currentSteerQueue = null;
-    state.editCancelFns = null;
-    state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });
-    state.postMessage({ command: 'setLoading', isLoading: false });
-    // Clear any sentinel pin so the next user message routes normally.
-    state.client.setTurnOverride(null);
+    // Everything below is shared run state. When the user sent another message
+    // while this run was unwinding, it belongs to that run: resetting it here
+    // hid its spinner, disabled its steering, dropped its cancel hooks and
+    // cleared its @model pin. (This run's metrics are dropped too, rather than
+    // ending the newer run's.)
+    if (!supersededByNewerRun()) {
+      recordRunCost(state);
+      state.metricsCollector.endRun();
+      state.abortController = null;
+      state.cancelCallbacks = null;
+      state.currentSteerQueue = null;
+      state.editCancelFns = null;
+      state.postMessage({ command: 'steerQueueUpdate', steerQueue: [], steerEnabled: false });
+      state.postMessage({ command: 'setLoading', isLoading: false });
+      // Clear any sentinel pin so the next user message routes normally.
+      state.client.setTurnOverride(null);
+    }
   }
 }
 

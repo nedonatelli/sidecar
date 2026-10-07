@@ -190,11 +190,26 @@ describe('WorkspaceIndex', () => {
     index.removePin('nonexistent.ts'); // no-op
   });
 
-  it('setPinnedPaths replaces all pins', () => {
-    index.addPin('src/a.ts');
-    index.setPinnedPaths(['src/b.ts', 'src/c.ts']);
-    // The old pin (a.ts) should be gone, replaced by b.ts and c.ts
-    // We verify via getRelevantContext output
+  // #110: the chat calls setPinnedPaths(settings) before every message, and
+  // it used to replace the @pin:path pins too, so a pin lasted one message.
+  it('setPinnedPaths replaces the settings pins and keeps @pin pins', async () => {
+    vi.spyOn(workspace, 'findFiles').mockResolvedValue([
+      { fsPath: '/mock-workspace/src/a.ts' },
+      { fsPath: '/mock-workspace/src/b.ts' },
+      { fsPath: '/mock-workspace/src/c.ts' },
+    ] as never);
+    vi.spyOn(workspace.fs, 'stat').mockResolvedValue({ type: 1, size: 100 } as never);
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('content') as never);
+    await index.initialize(['**/*.ts']);
+
+    index.setPinnedPaths(['src/b.ts']);
+    index.addPin('src/a.ts'); // @pin:src/a.ts in one message
+    index.setPinnedPaths(['src/c.ts']); // the next message re-applies settings
+
+    const section = await index.getPinnedFilesSection();
+    expect(section).toContain('a.ts');
+    expect(section).toContain('c.ts');
+    expect(section).not.toContain('b.ts');
   });
 
   it('pinned files appear in Pinned Files section', async () => {

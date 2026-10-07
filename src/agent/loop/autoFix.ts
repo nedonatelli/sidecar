@@ -44,10 +44,16 @@ export async function applyAutoFix(
 ): Promise<boolean> {
   if (!config.autoFixOnFailure) return false;
 
-  const writtenFiles = pendingToolUses
-    .filter((tu) => tu.name === 'write_file' || tu.name === 'edit_file')
-    .map((tu) => (tu.input.path || tu.input.file_path) as string)
-    .filter(Boolean);
+  // De-duplicated: two edits to one file this turn checked its diagnostics
+  // twice, listed its errors twice, and spent two of its retries.
+  const writtenFiles = [
+    ...new Set(
+      pendingToolUses
+        .filter((tu) => tu.name === 'write_file' || tu.name === 'edit_file')
+        .map((tu) => (tu.input.path || tu.input.file_path) as string)
+        .filter(Boolean),
+    ),
+  ];
 
   const eligibleFiles = writtenFiles.filter((f) => (state.autoFixRetriesByFile.get(f) || 0) < config.autoFixMaxRetries);
   if (eligibleFiles.length === 0) return false;

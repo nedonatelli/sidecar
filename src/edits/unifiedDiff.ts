@@ -1,6 +1,8 @@
 // Pure line-based unified diff. No external dependencies.
 // Capped at MAX_LINES per side to keep the chat card readable.
 
+import { diffLines } from '../util/lineDiff.js';
+
 const MAX_LINES = 300;
 const CONTEXT = 3;
 
@@ -55,35 +57,11 @@ export function computeUnifiedDiff(original: string, proposed: string): string {
 // ---------------------------------------------------------------------------
 
 function buildHunks(a: string[], b: string[]): Hunk[] {
-  // DP LCS table — O(m*n) time and space, fine for ≤300 lines.
-  const m = a.length;
-  const n = b.length;
-  const dp: Uint16Array[] = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-
-  // Backtrack to produce edit script.
-  const ops: Hunk[] = [];
-  let i = m,
-    j = n;
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
-      ops.unshift({ op: 'equal', line: a[i - 1] });
-      i--;
-      j--;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      ops.unshift({ op: 'insert', line: b[j - 1] });
-      j--;
-    } else {
-      ops.unshift({ op: 'delete', line: a[i - 1] });
-      i--;
-    }
-  }
-  return ops;
+  // Shared bounded diff: the full O(m*n) Uint16 table this used to build made
+  // diffStats -- called on files over MAX_LINES, so with no size limit at all
+  // -- exhaust memory on large files and overflow past 65,535 lines.
+  const kind = { equal: 'equal', add: 'insert', del: 'delete' } as const;
+  return diffLines(a, b).map((o) => ({ op: kind[o.type], line: o.line }));
 }
 
 function formatHunks(hunks: Hunk[], context: number): string {

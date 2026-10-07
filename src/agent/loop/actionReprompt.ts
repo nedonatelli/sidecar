@@ -26,6 +26,7 @@ import { hasEditShapedCodeBlock } from './unappliedEdit.js';
 // ---------------------------------------------------------------------------
 
 import { MAX_ACTION_REPROMPTS } from '../../config/constants.js';
+import { isLibraryName } from '../fileRefs.js';
 
 /**
  * Verbs that MUTATE the workspace. Strictly separate from the read-only verbs
@@ -51,7 +52,12 @@ const DECLINED_ACTION_RE =
 
 /** File path patterns that indicate workspace files are involved. */
 const FILE_PATH_RE =
-  /\b\w+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cpp|c|rb|sh|yaml|yml|json|toml)\b|(?:src|tests?|lib|pkg|cmd)\/\S+/;
+  /\b\w+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cpp|c|rb|sh|yaml|yml|json|toml)\b|(?:src|tests?|lib|pkg|cmd)\/\S+/g;
+
+/** Workspace-file references in `text`, minus library names like "Node.js". */
+function fileReferences(text: string): string[] {
+  return [...text.matchAll(FILE_PATH_RE)].map((m) => m[0]).filter((ref) => !isLibraryName(ref));
+}
 
 /**
  * Matches model text that announces intent to act but contains no tool call —
@@ -113,7 +119,7 @@ export function lastUserMessageText(messages: ChatMessage[]): string {
  * the user wants something done, not just explained.
  */
 export function isActionRequest(text: string): boolean {
-  return ACTION_VERB_RE.test(text) && FILE_PATH_RE.test(text);
+  return ACTION_VERB_RE.test(text) && fileReferences(text).length > 0;
 }
 
 /**
@@ -189,7 +195,7 @@ export function recentResultsShowWorkAlreadyDone(messages: ChatMessage[]): boole
  * reported as absent.
  */
 export function isMutationRequest(text: string): boolean {
-  return MUTATION_VERB_RE.test(text) && FILE_PATH_RE.test(text);
+  return MUTATION_VERB_RE.test(text) && fileReferences(text).length > 0;
 }
 
 /** Successful read-shaped tool results, matched inside the `<tool_output>` wrapper. */
@@ -328,8 +334,7 @@ export function hasFakeToolOutput(text: string): boolean {
 /** First workspace-file reference in `text`, or null — names the write target
  *  in the code-as-text reprompt so the model gets a concrete call to make. */
 function extractTargetPath(text: string): string | null {
-  const m = FILE_PATH_RE.exec(text);
-  return m ? m[0] : null;
+  return fileReferences(text)[0] ?? null;
 }
 
 /**
@@ -364,7 +369,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   const wordingEnabled = state.config.codeAsTextRecoveryEnabled === true;
   const codeAsText = wordingEnabled && hasEditShapedCodeBlock(fullText);
   const fakeOutput = wordingEnabled && hasFakeToolOutput(fullText);
-  const userText = lastUserMessageText(state.messages);
+  const userText = state.userRequestText ?? lastUserMessageText(state.messages);
   const triggered = isActionRequest(userText) || looksLikeDeferredAction(fullText);
   if (!triggered) return false;
 

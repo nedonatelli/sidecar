@@ -164,13 +164,27 @@ export function getContentLength(content: string | ContentBlock[]): number {
 
 /** Estimate the character size of a tool input object without JSON.stringify. */
 function estimateInputSize(input: Record<string, unknown>): number {
-  let size = 0;
-  for (const v of Object.values(input)) {
-    if (typeof v === 'string') size += v.length;
-    else if (typeof v === 'number' || typeof v === 'boolean') size += 8;
-    else if (v !== null && v !== undefined) size += String(v).length;
+  // Top-level argument names are not counted (as before); nested keys are.
+  return Object.values(input).reduce((n: number, v) => n + estimateValueSize(v, 1), 0);
+}
+
+/**
+ * Size of one value, recursing into arrays and objects. String(v) on an
+ * object is "[object Object]" -- 15 characters -- so a multi-edit input whose
+ * edits array held kilobytes of code counted as almost nothing, and the
+ * budget never saw it.
+ */
+function estimateValueSize(v: unknown, depth: number): number {
+  if (typeof v === 'string') return v.length;
+  if (typeof v === 'number' || typeof v === 'boolean') return 8;
+  if (v === null || v === undefined || depth > 8) return 0;
+  if (Array.isArray(v)) return v.reduce((n: number, x) => n + estimateValueSize(x, depth + 1), 0);
+  if (typeof v === 'object') {
+    let size = 0;
+    for (const [k, x] of Object.entries(v)) size += k.length + estimateValueSize(x, depth + 1);
+    return size;
   }
-  return size;
+  return String(v).length;
 }
 
 // Stream events emitted by the client

@@ -178,6 +178,28 @@ describe('handleReviewModeTool — edit_file', () => {
     expect(result!.content).toContain('read_file');
   });
 
+  // #109: review mode dropped replace_all and within.
+  it('honours replace_all and within like a direct edit', async () => {
+    const pending = (newContent: string) =>
+      makePendingStore([{ filePath: `${ROOT}/m.md`, originalContent: 'base', newContent }]);
+
+    const all = pending('LIMIT a\nLIMIT b\n');
+    const r1 = await handleReviewModeTool(
+      makeToolUse('edit_file', { path: 'm.md', search: 'LIMIT', replace: 'MAX', replace_all: true }),
+      all,
+    );
+    expect(r1!.is_error).toBeUndefined();
+    expect((all.record as ReturnType<typeof vi.fn>).mock.calls[0][2]).toBe('MAX a\nMAX b\n');
+
+    const near = pending('## One\nvalue\n## Two\nvalue\n');
+    const r2 = await handleReviewModeTool(
+      makeToolUse('edit_file', { path: 'm.md', search: 'value', replace: 'changed', within: '## Two' }),
+      near,
+    );
+    expect(r2!.is_error).toBeUndefined();
+    expect((near.record as ReturnType<typeof vi.fn>).mock.calls[0][2]).toBe('## One\nvalue\n## Two\nchanged\n');
+  });
+
   it('does not expand $-patterns in the replacement text', async () => {
     // The local matcher used the STRING form of String.prototype.replace, so
     // `$&` in the replacement expanded to the matched text and `$'` to the

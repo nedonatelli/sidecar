@@ -208,6 +208,12 @@ export interface ToolExecutorContext {
    * Absent when `sidecar.plan.externalized` is off (the tool errors politely).
    */
   planRef?: { plan: import('../plans/externalPlan.js').ExternalPlan | null };
+  /**
+   * The call was not made by the model: the loop synthesized it from a code
+   * fence the model printed (fence-write coercion). write_file then refuses
+   * content that would delete definitions the file already has.
+   */
+  synthesizedFromFence?: boolean;
 }
 
 export interface ToolExecutor {

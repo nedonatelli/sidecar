@@ -558,6 +558,9 @@ export async function runAgentLoop(
         // re-issuing is safe — a flaky remote endpoint no longer zeroes the run
         // over one dropped connection. Aborts and HTTP errors are not retried.
         let streamAttempt = 0;
+        // A failed attempt's streamed text already went into totalChars; the
+        // retry streams the turn again, so it must not be counted twice.
+        const charsBeforeTurn = state.totalChars;
         for (;;) {
           try {
             rawTurn = await streamOneTurn(
@@ -579,14 +582,29 @@ export async function runAgentLoop(
               throw streamErr;
             }
             streamAttempt++;
+            state.totalChars = charsBeforeTurn;
             const detail = streamErr instanceof Error ? streamErr.message : String(streamErr);
             state.logger?.warn(
               `Turn request failed transiently (${detail}) — retry ${streamAttempt}/${MAX_TURN_STREAM_RETRIES}`,
             );
+            // Anything the failed attempt already streamed stays on screen and
+            // is NOT kept; say so, since the retry streams the turn again.
             callbacks.onText(
-              `\n\n⚠️ Network hiccup — retrying request (${streamAttempt}/${MAX_TURN_STREAM_RETRIES})...\n`,
+              `\n\n⚠️ Network hiccup — retrying request (${streamAttempt}/${MAX_TURN_STREAM_RETRIES}); ` +
+                `any partial response above is discarded...\n`,
             );
-            await new Promise((resolve) => setTimeout(resolve, 1500 * streamAttempt));
+            // Stop during the backoff ends the run now, not after the wait.
+            if (turnController.signal.aborted) throw streamErr;
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(done, 1500 * streamAttempt);
+              function done() {
+                clearTimeout(timer);
+                turnController.signal.removeEventListener('abort', done);
+                resolve();
+              }
+              turnController.signal.addEventListener('abort', done, { once: true });
+            });
+            if (turnController.signal.aborted) throw streamErr;
           }
         }
       } finally {
@@ -935,6 +953,13 @@ export async function runAgentLoop(
       // looped on an enforce-blocked rewrite — escalate with a strong "edit, don't
       // rewrite" reprompt that surfaces that failure inline so it sees what to fix.
       captureLastFailureOutput(pendingToolUses, toolResults, state);
+      // The steers below push a user message, but this turn's tool results are
+      // not in history yet. Left where they land, the history reads
+      // [assistant tool_use] [user steer] [user tool_result]: OpenAI-compatible
+      // servers reject that with a 400 (and every later request with it), and
+      // Anthropic gets "result unavailable" repairs. They are lifted out here
+      // and re-appended after the results, where afterToolResults hooks put theirs.
+      const steersFrom = state.messages.length;
       maybeEscalateBlockedRewrite(pendingToolUses, toolResults, state, callbacks);
 
       // The mirror: if edit_file keeps FAILING on a file (weak model echoing
@@ -946,6 +971,7 @@ export async function runAgentLoop(
       // the escalation, release the lock after a few blocks so a rewrite-oriented
       // model can rewrite instead of being trapped into a bail.
       maybeReleaseEnforceLock(pendingToolUses, toolResults, state, callbacks);
+      const steers = state.messages.splice(steersFrom);
 
       // Emit structured audit record per tool call.
       if (state.logger) {
@@ -995,6 +1021,7 @@ export async function runAgentLoop(
       // Token accounting and history append for the tool results.
       accountToolTokens(state, pendingToolUses, storedResults);
       pushToolResultsMessage(state, storedResults);
+      state.messages.push(...steers);
 
       // Proactive compression after adding tool results so the next
       // iteration doesn't open over budget.

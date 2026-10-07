@@ -153,6 +153,12 @@ export class SideCarClient {
   private primaryApiKey: string;
   private primaryModel: string;
   private static readonly FALLBACK_THRESHOLD = 2;
+  /** How long to stay on the fallback before trying the primary again. */
+  private static readonly PRIMARY_RECHECK_MS = 120_000;
+  /** When the client last switched to the fallback. */
+  private fallbackSince = 0;
+  /** True while a recheck of the primary is unconfirmed: one failure goes straight back to the fallback. */
+  private recheckingPrimary = false;
 
   /**
    * @param provider  Which backend to speak, overriding `sidecar.provider` and
@@ -278,87 +284,115 @@ export class SideCarClient {
     // instead of the request hanging on a dead provider. Advances an
     // open breaker to half-open once the cooldown has elapsed.
     circuitBreaker.guard(this.getProviderType());
+    // Whether the breaker heard how this request ended. An abort, or a
+    // consumer that stops reading (generator return() skips catch), says
+    // nothing about health but must still free a half-open probe slot.
+    let reported = false;
+    // Once any content reached the caller, re-running the request (native
+    // retry, provider fallback) streams the whole turn AGAIN into the same
+    // turn: text twice, tool calls twice -- and both sets executed. After
+    // that point a failure is rethrown, and the loop's turn-level retry
+    // (which discards the partial turn) takes it from there.
+    let streamedContent = false;
+    const forward = (event: StreamEvent): StreamEvent => {
+      if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
+      if (event.type === 'text' || event.type === 'thinking' || event.type === 'tool_use') streamedContent = true;
+      return event;
+    };
     try {
-      for await (const event of this.backend.streamChat(
-        effectiveModel,
-        effectiveSystemPrompt,
-        messages,
-        signal,
-        tools,
-      )) {
-        if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
-        yield event;
-      }
-      this.recordSuccess();
-      circuitBreaker.recordSuccess(this.getProviderType());
-    } catch (err) {
-      // Don't count user aborts as failures
-      if (err instanceof Error && err.name === 'AbortError') throw err;
-
-      // native backend-capability retry. Gives the active
-      // backend a chance to retry the request against a native
-      // protocol (canonically Ollama's /api/chat when the OAI-compat
-      // /v1/chat/completions layer glitched) BEFORE we tear down the
-      // provider via circuit breaker + fallback profile. Only fires
-      // when the backend advertises oaiCompatFallback AND its
-      // matches() says the error is retry-eligible. On retry success,
-      // the provider's circuit stays healthy — this isn't a provider
-      // outage, just a protocol-level blip.
-      const nativeRetry = this.backend.nativeCapabilities?.()?.oaiCompatFallback;
-      if (nativeRetry && nativeRetry.matches(err)) {
-        try {
-          yield { type: 'warning', message: 'Retrying against native protocol…' };
-          for await (const event of nativeRetry.fallbackStreamChat(
-            effectiveModel,
-            effectiveSystemPrompt,
-            messages,
-            signal,
-            tools,
-          )) {
-            if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
-            yield event;
-          }
-          this.recordSuccess();
-          circuitBreaker.recordSuccess(this.getProviderType());
-          return;
-        } catch (retryErr) {
-          if (retryErr instanceof Error && retryErr.name === 'AbortError') throw retryErr;
-          // Fall through to provider-fallback logic with the ORIGINAL
-          // error so the circuit breaker sees the failure that
-          // actually warrants switching providers. Log the retry
-          // failure so users can diagnose.
-          logger.warn(
-            `[SideCar] Native fallback also failed: ${(retryErr as Error).message}. Falling through to provider fallback.`,
-          );
+      try {
+        for await (const event of this.backend.streamChat(
+          effectiveModel,
+          effectiveSystemPrompt,
+          messages,
+          signal,
+          tools,
+        )) {
+          yield forward(event);
         }
-      }
+        this.recordSuccess();
+        circuitBreaker.recordSuccess(this.getProviderType());
+        reported = true;
+      } catch (err) {
+        // Don't count user aborts as failures
+        if (err instanceof Error && err.name === 'AbortError') throw err;
 
-      if (isPermanentError(err)) throw new BackendConfigError(this.getProviderType(), err);
-      circuitBreaker.recordFailure(this.getProviderType());
-      if (await this.switchToFallback()) {
-        logger.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
-        yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
-        circuitBreaker.guard(this.getProviderType());
-        try {
-          for await (const event of this.backend.streamChat(
-            effectiveModel,
-            effectiveSystemPrompt,
-            messages,
-            signal,
-            tools,
-          )) {
-            if (event.type === 'usage') this.chargeLastDecision(spendTracker.record(event.model, event.usage));
-            yield event;
+        // native backend-capability retry. Gives the active
+        // backend a chance to retry the request against a native
+        // protocol (canonically Ollama's /api/chat when the OAI-compat
+        // /v1/chat/completions layer glitched) BEFORE we tear down the
+        // provider via circuit breaker + fallback profile. Only fires
+        // when the backend advertises oaiCompatFallback AND its
+        // matches() says the error is retry-eligible. On retry success,
+        // the provider's circuit stays healthy — this isn't a provider
+        // outage, just a protocol-level blip.
+        const nativeRetry = this.backend.nativeCapabilities?.()?.oaiCompatFallback;
+        if (!streamedContent && nativeRetry && nativeRetry.matches(err)) {
+          try {
+            yield { type: 'warning', message: 'Retrying against native protocol…' };
+            for await (const event of nativeRetry.fallbackStreamChat(
+              effectiveModel,
+              effectiveSystemPrompt,
+              messages,
+              signal,
+              tools,
+            )) {
+              yield forward(event);
+            }
+            this.recordSuccess();
+            circuitBreaker.recordSuccess(this.getProviderType());
+            reported = true;
+            return;
+          } catch (retryErr) {
+            if (retryErr instanceof Error && retryErr.name === 'AbortError') throw retryErr;
+            // Fall through to provider-fallback logic with the ORIGINAL
+            // error so the circuit breaker sees the failure that
+            // actually warrants switching providers. Log the retry
+            // failure so users can diagnose.
+            logger.warn(
+              `[SideCar] Native fallback also failed: ${(retryErr as Error).message}. Falling through to provider fallback.`,
+            );
           }
-          circuitBreaker.recordSuccess(this.getProviderType());
-          return;
-        } catch (fallbackErr) {
-          if (fallbackErr instanceof Error && fallbackErr.name === 'AbortError') throw fallbackErr;
-          circuitBreaker.recordFailure(this.getProviderType());
-          throw fallbackErr;
         }
+
+        if (isPermanentError(err)) {
+          reported = true;
+          throw new BackendConfigError(this.getProviderType(), err);
+        }
+        circuitBreaker.recordFailure(this.getProviderType());
+        reported = true;
+        if (!streamedContent && (await this.switchToFallback())) {
+          logger.warn(`[SideCar] Primary backend failed, switching to fallback: ${(err as Error).message}`);
+          yield { type: 'warning', message: 'Primary backend unavailable — using fallback.' };
+          circuitBreaker.guard(this.getProviderType());
+          reported = false;
+          try {
+            // The fallback's model, not the primary's: effectiveModel was
+            // resolved against the primary, and the fallback server was sent
+            // a model name it does not have.
+            for await (const event of this.backend.streamChat(
+              this.model,
+              effectiveSystemPrompt,
+              messages,
+              signal,
+              tools,
+            )) {
+              yield forward(event);
+            }
+            circuitBreaker.recordSuccess(this.getProviderType());
+            reported = true;
+            return;
+          } catch (fallbackErr) {
+            if (fallbackErr instanceof Error && fallbackErr.name === 'AbortError') throw fallbackErr;
+            circuitBreaker.recordFailure(this.getProviderType());
+            reported = true;
+            throw fallbackErr;
+          }
+        }
+        throw err;
       }
-      throw err;
+    } finally {
+      if (!reported) circuitBreaker.recordAbort(this.getProviderType());
     }
   }
 
@@ -380,7 +414,11 @@ export class SideCarClient {
       circuitBreaker.recordSuccess(this.getProviderType());
       return result;
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Cancelled: no verdict on the provider, but free a half-open probe slot.
+        circuitBreaker.recordAbort(this.getProviderType());
+        throw err;
+      }
 
       // native backend-capability retry (see streamChat
       // for the full rationale). Non-streaming complete() mirrors
@@ -400,7 +438,11 @@ export class SideCarClient {
           circuitBreaker.recordSuccess(this.getProviderType());
           return retryResult;
         } catch (retryErr) {
-          if (retryErr instanceof Error && retryErr.name === 'AbortError') throw retryErr;
+          if (retryErr instanceof Error && retryErr.name === 'AbortError') {
+            // Cancelled: no verdict on the provider, but free a half-open probe slot.
+            circuitBreaker.recordAbort(this.getProviderType());
+            throw retryErr;
+          }
           logger.warn(
             `[SideCar] Native fallback also failed: ${(retryErr as Error).message}. Falling through to provider fallback.`,
           );
@@ -418,7 +460,11 @@ export class SideCarClient {
           circuitBreaker.recordSuccess(this.getProviderType());
           return result;
         } catch (fallbackErr) {
-          if (fallbackErr instanceof Error && fallbackErr.name === 'AbortError') throw fallbackErr;
+          if (fallbackErr instanceof Error && fallbackErr.name === 'AbortError') {
+            // Cancelled: no verdict on the provider, but free a half-open probe slot.
+            circuitBreaker.recordAbort(this.getProviderType());
+            throw fallbackErr;
+          }
           circuitBreaker.recordFailure(this.getProviderType());
           throw fallbackErr;
         }
@@ -459,9 +505,19 @@ export class SideCarClient {
 
   private recordSuccess(): void {
     this.consecutiveFailures = 0;
-    // If on fallback and primary succeeded, switch back
-    if (this.usingFallback) {
+    if (!this.usingFallback) {
+      // The primary answered: any recheck is confirmed.
+      this.recheckingPrimary = false;
+      return;
+    }
+    // This success is the FALLBACK's. Switching back on it sent the next
+    // request to the still-dead primary, which then needed two failures to
+    // switch again -- an error for the user every third request. Stay on the
+    // fallback for PRIMARY_RECHECK_MS, then let the next request try the
+    // primary; if that one fails, it returns to the fallback at once.
+    if (Date.now() - this.fallbackSince >= SideCarClient.PRIMARY_RECHECK_MS) {
       this.switchToPrimary();
+      this.recheckingPrimary = true;
     }
   }
 
@@ -475,7 +531,8 @@ export class SideCarClient {
    */
   private async switchToFallback(): Promise<boolean> {
     this.consecutiveFailures++;
-    if (this.consecutiveFailures < SideCarClient.FALLBACK_THRESHOLD) return false;
+    const threshold = this.recheckingPrimary ? 1 : SideCarClient.FALLBACK_THRESHOLD;
+    if (this.consecutiveFailures < threshold) return false;
 
     const config = getConfig();
     if (!config.fallbackBaseUrl || this.usingFallback) return false;
@@ -499,6 +556,8 @@ export class SideCarClient {
     this.backend = this.createBackend();
     this.usingFallback = true;
     this.consecutiveFailures = 0;
+    this.fallbackSince = Date.now();
+    this.recheckingPrimary = false;
     logger.info(`[SideCar] Switched to fallback backend: ${this.baseUrl}`);
     return true;
   }

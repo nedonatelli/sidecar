@@ -214,6 +214,18 @@ export function captureLastFailureOutput(
 }
 
 /**
+ * True for write_file's enforce-edit refusal ("write_file to `X` was NOT
+ * applied. You've been making targeted edits..."). Matching on "was NOT
+ * applied" alone also caught the verify-before-rewrite block ("This write was
+ * NOT applied. You've rewritten X n times without running it"): that got the
+ * "stop rewriting, edit instead" escalation, which is the wrong advice, and
+ * used up the file's one escalation and the enforce-lock release count.
+ */
+export function isEnforceEditBlock(text: string): boolean {
+  return /write_file to `[^`]*` was NOT applied/.test(text);
+}
+
+/**
  * When a write_file this turn was blocked by enforce-edit ("was NOT applied"),
  * inject ONE escalation reprompt per file: a strong push to STOP calling
  * write_file and make a targeted edit, with the most recent failing test /
@@ -231,7 +243,7 @@ export function maybeEscalateBlockedRewrite(
     if (tu.name !== 'write_file') continue;
     const res = toolResults[i];
     const text = typeof res?.content === 'string' ? res.content : '';
-    if (!text.includes('was NOT applied')) continue; // not an enforce-edit block
+    if (!isEnforceEditBlock(text)) continue;
     const input = tu.input as Record<string, unknown>;
     const filePath = (input.path ?? input.file_path) as string | undefined;
     if (!filePath || state.escalatedRewriteByFile.has(filePath)) continue;
@@ -399,7 +411,7 @@ export function maybeReleaseEnforceLock(
     const tu = pendingToolUses[i];
     if (tu.name !== 'write_file') continue;
     const text = typeof toolResults[i]?.content === 'string' ? (toolResults[i].content as string) : '';
-    if (!text.includes('was NOT applied')) continue; // only enforce-edit blocks
+    if (!isEnforceEditBlock(text)) continue;
     const input = tu.input as Record<string, unknown>;
     const filePath = (input.path ?? input.file_path) as string | undefined;
     if (!filePath) continue;

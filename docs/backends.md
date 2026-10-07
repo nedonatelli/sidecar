@@ -45,7 +45,7 @@ ollama pull qwen2.5-coder:7b
 | Setting            | Value                              |
 | ------------------ | ---------------------------------- |
 | `sidecar.baseUrl`  | `http://localhost:11434` (default) |
-| `sidecar.provider` | `ollama` (auto-detected from port) |
+| `sidecar.provider` | `ollama` (auto-detected)           |
 | `sidecar.model`    | any model name from `ollama list`  |
 
 No API key is needed. The `sidecar.apiKey` setting is ignored for local Ollama.

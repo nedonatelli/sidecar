@@ -4,6 +4,177 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.127.1] - 2026-10-07
+
+A reliability release: the fixes from the October code review for bugs that lose your work
+or break core features. The chat panel no longer drops images, mixes up sessions or acts on
+the wrong message; edits can no longer silently delete code or write something other than
+what the model sent; a dropped connection or an aborted request can no longer leave a
+backend disabled or run tool calls twice; and large files, deeply nested code and unusual
+setups (another shell, Ollama on another machine, Gemini) no longer crash or stall SideCar.
+
+### Fixed
+
+- **macOS: `sidecar.sandbox.enabled` didn't cover every agent shell.** The chat's Run button
+  fallback and regression guards ran unsandboxed, and turning the setting on or off had no
+  effect until the shell restarted. Both now follow the setting immediately.
+- **macOS: a glob passed to `grep` (such as `admin_utils/**`) returned a regular-expression
+  error** instead of pointing the model to `search_files`.
+
+- **The project knowledge index could save a damaged copy of itself.** Changes made while
+  it was being written to disk could be lost, attached to the wrong symbol, or bring back
+  entries that had been deleted — and a change made during a save was then treated as
+  saved. Saves now write a consistent snapshot.
+- **Showing a diff of a large file could crash VS Code's extension host** (out of memory at
+  around 30,000 lines). Change summaries, per-change review and write previews now handle
+  files of any size.
+- **Very deeply nested code could break code indexing** with a stack overflow, and leaked
+  memory each time.
+- **A specially crafted image in a repository could exhaust memory** when the agent read it.
+- **Several settings ignored their maximum** (for example `sidecar.fork.defaultCount` and
+  `sidecar.multiFileEdits.maxParallel`); four settings that were in use but missing from the
+  Settings UI are now listed there.
+- On Windows, two edits to the same file written with different path spellings (`C:\repo`
+  vs `c:/repo`) could run at the same time and overwrite each other.
+
+- **macOS/Linux: the startup cleanup of processes left over from a crash could, rarely,
+  stop an unrelated process** that had just been given a leftover process's ID. It now
+  stops checking as soon as the old process is gone.
+- **On Windows, a command that timed out could leave a shell running in the background**
+  that SideCar never closed, keeping your project folder locked. Stopping a hook now also
+  stops everything the hook started.
+- **If your login shell is fish (or another non-bash shell), every `run_command` hung for
+  two minutes.** SideCar now runs commands in bash or zsh when your shell isn't one of them.
+- **A command that ended the shell (`exit 1`, or a failing step with `set -e`) hung for two
+  minutes** before reporting a timeout; it now reports the exit at once.
+- Error output that bypassed the usual redirection was shown twice in the chat.
+
+- **A backend could stay disabled until you changed a setting.** After repeated failures
+  SideCar pauses a provider and later sends one test request; if you pressed Stop during
+  that request, the provider stayed paused for good. It now recovers on its own.
+- **A connection dropped mid-answer could make the model's output, and its tool calls,
+  happen twice.** The request was re-sent into the same turn; it now retries the turn
+  cleanly instead.
+- **The fallback backend:** it was sent the main backend's model name, and after one
+  answer from it SideCar switched straight back to the main backend while that was still
+  down — an error every few requests. It now stays on the fallback for two minutes before
+  checking the main backend again.
+- **Ollama errors that happen mid-answer were lost** (the turn looked successful), and
+  background requests such as summaries didn't use the chat's context size, so Ollama
+  reloaded the model or cut the request short.
+- Anthropic's "overloaded" (529) errors are now retried; Ollama errors that will happen
+  again (out of memory, unknown model) are reported at once instead of after retries.
+- Large multi-edit tool calls are now counted at their real size against the context budget.
+- **The Google Gemini backend profile pointed at the wrong address** (`/openai` instead of
+  `/v1beta/openai`). Profiles saved with the old address are corrected automatically.
+- **Ollama running on another computer or port was treated as a generic OpenAI server**,
+  losing Ollama-specific handling such as the model's real context size. SideCar now
+  recognizes Ollama's port on any host, and asks any other unrecognized server once
+  whether it is Ollama.
+
+- **Runs on OpenAI-compatible servers could break after a blocked rewrite.** SideCar's
+  "stop rewriting this file" reminder was inserted between a tool call and its result,
+  which those servers reject — and every later request in the run failed with it.
+- **Later edits to a file in a multi-file batch were silently dropped.** When the model
+  edited the same file twice in one batch, only the first edit ran, though both were
+  reported as done. Each edit now runs, in order.
+- **Checks ran against the wrong copy of the project in Shadow Workspace and fork runs.**
+  The syntax check and your regression guards looked at the main project instead of the
+  run's own copy, so a broken file could pass. Stop now also cancels a running guard.
+- **Stop didn't interrupt a network retry**, and a retried response counted twice against
+  the run's budget.
+- **The keep-best safeguard could undo good work or only part of it.** A small edit to a
+  large file counted as large growth, and a file named as `./src/a.ts` could be skipped
+  when changes were rolled back.
+- **A long `----` or `====` line could get a good answer rejected as garbled output.**
+- **Smaller fixes in the agent loop:** the "stop rewriting" reminder fired for the wrong
+  kind of blocked write; auto-fix checked a twice-edited file twice; refused writes counted
+  as rewrites; `cycleDetectionMinRepeats: 1` stopped every run on its first tool call;
+  model routing, and checks that look at what you asked for, sometimes read SideCar's own
+  reminders or an earlier task instead of your request; and a refused write was later
+  reported as "already written".
+- **Resolving merge conflicts joined lines together.** The last line of each resolved
+  block was glued to the line after the conflict.
+- **The Fork and Facet review panel buttons did nothing.** Accept, Reject, Skip, Apply and
+  Dismiss were all blocked by the panel's security policy; they work now.
+- **Adaptive paste and inline chat could overwrite the wrong code.** If the file changed
+  while SideCar was working, the result went where the original text used to be. They now
+  find the text again, or apply nothing and tell you.
+- **Diff previews showed the whole file deleted** for files with `#` or `?` in their path.
+- **Doc sync flagged correct `@param` tags** on functions that take a callback (`=>` in a
+  parameter type), and its quick fix deleted them; README sync flagged calls that left out
+  optional arguments.
+- **Dependency scans showed every vulnerability's severity as "UNKNOWN"**, and a scan that
+  timed out was remembered as clean for an hour.
+- **`src/**/*.ts`-style patterns missed files directly inside `src/`** in model-routing
+  rules, SIDECAR.md `@paths` and regression-guard scopes.
+- Changing a completion setting no longer leaks a background listener each time.
+
+- **A message with an image reached the model as an empty prompt.** Both the image and
+  your text were dropped on every backend; they are now sent as written.
+  (`src/webview/handlers/messageEnricher.ts`)
+- **Loading a saved session kept the previous session's pending plan.** Your next message
+  revised the old plan inside the loaded session, and autosave then overwrote it. Loading a
+  session now clears pending plans, questions and partial answers.
+- **Sending a message while a run was still stopping broke the new run.** The old run's
+  cleanup hid the new run's Stop button, turned off steering, dropped its `@model` pin and
+  let the old run carry on in the background. Each run now cleans up only its own state.
+- **A finished background task appeared inside the main chat.** Its summary landed in
+  whatever answer was streaming and ended that run's spinner. Results now go to the
+  background panel and a notification only. A stopped background task is no longer
+  reported as completed.
+- **Edit and delete could act on the wrong message.** After a run, or after deleting a
+  message, the chat's bubbles kept stale positions (most often in long chats, once older
+  turns are pruned), so editing or deleting a bubble hit a different message. Positions are
+  now resynchronised after every run and every delete.
+- **Executing or revising a plan changed your global `agentMode` setting.** It switched the
+  setting out of plan mode and back, which undid a mode you picked during the run and
+  planned again when the workspace set plan mode. The run now leaves plan mode on its own,
+  without touching settings.
+- **An `@pin:path` pin lasted only one message.** It now stays pinned for the session.
+- **Regenerating part of an answer garbled `$&` and similar text** in the new section.
+- **A printed code block could replace a whole file.** When a model printed code without
+  calling a tool, SideCar wrote the block to the file you named — even when the block was
+  only the new function, deleting the rest of the file. That write is now refused when it
+  would remove anything the file already defines, and the model is told to edit instead.
+- **Repaired tool arguments changed the code being written.** Fixing up a malformed tool
+  call also rewrote text inside its values: `None`/`True` became `null`/`true`, and quotes
+  and apostrophes in code were changed. Repairs now touch only the JSON around the values.
+- **Some malformed tool calls failed after being repaired.** A call written as text
+  (`<tool_call>…`) was repaired into the wrong shape and then rejected; it now runs.
+- **"Node.js", "Vue.js" and similar names were treated as files.** Asking for a Node.js
+  server could create a file literally named `Node.js`, or demand a read of one.
+- **Tool calls written as text could be dropped:** after an unrelated JSON example in the
+  same answer, when several calls were grouped in one `<tool_call>`, or when an argument
+  ended in an escaped backslash (`"C:\\"`).
+- **Tool names from other agents (`cat`, `bash`, `create_file`) were refused** instead of
+  being mapped to SideCar's own tools, when the mapped tool is available.
+- **`replace_all` renamed parts of longer words.** Replacing `greet` everywhere also turned
+  `greeting` into `helloing`. Occurrences inside a longer word are now left alone (and
+  named in the result), and `replace_all` gets the same safety checks as a single edit.
+- **`replace_all` reported occurrences it hadn't changed.** When copies of the search text
+  differed in indentation, only those identical to the first were replaced, yet all were
+  counted. Every occurrence is now replaced, each re-indented to fit where it sits.
+- **An inferred edit could duplicate the end of a block.** When the model's search text
+  didn't match and SideCar worked out the intended region itself, a blank line inside that
+  region cut it short, and the rest of the block appeared twice.
+- **Escape-sequence recovery changed unrelated strings.** Fixing an edit sent with literal
+  `\n` sequences also decoded ones already in the file. Only the edited text is decoded now.
+- **The syntax check stopped protecting files with 20 or more parse errors.** Some valid
+  files show that many because of gaps in the parsers, and in those every edit was allowed.
+- **Compact `read_file` mode hid real code.** A `/*` inside a string hid everything up to the
+  next `*/`, and every line starting with `#` was dropped — including `#include`,
+  `#[derive]` and CSS `#id` rules. Only real comments in the file's own language are
+  removed now.
+- **Edits behaved differently in audit and review modes.** `within` was ignored in audit
+  mode, and both `within` and `replace_all` were ignored in review mode.
+- **An edit whose search text began at a line break could leave a stray carriage return**
+  in files with Windows (CRLF) line endings.
+
+### Stats
+- 9420 total tests (526 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.127.0] - 2026-10-06
 
 A security release. A review of the whole codebase found ways for content you did not

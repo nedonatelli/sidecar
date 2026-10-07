@@ -20,14 +20,24 @@ function victim(): ChildProcess {
   victims.push(p);
   return p;
 }
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
+// Ask the ChildProcess, not the PID. A killed victim's PID can be handed to
+// a new process within milliseconds on a busy machine (a full test run), so
+// "something answers on this PID" says nothing about the victim: the sweep
+// test failed ~1 run in 50 that way, the victim dead and its PID reused.
+const running = (p: ChildProcess): boolean => p.exitCode === null && p.signalCode === null;
+const exitWithin = (p: ChildProcess, ms: number): Promise<boolean> =>
+  new Promise((resolve) => {
+    if (!running(p)) return resolve(true);
+    const timer = setTimeout(() => resolve(false), ms);
+    p.once('exit', () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+/** For the must-not-kill cases: give a wrongful kill time to land, then check. */
+const survives = async (p: ChildProcess): Promise<boolean> => !(await exitWithin(p, 300));
+/** Command lines for the sweep: the victim's real one, nothing for any other PID. */
+const onlyVictim = (v: ChildProcess, cmdline: string) => (pid: number) => (pid === v.pid ? cmdline : '');
 
 async function sweepWith(pids: unknown, cmdlineOf?: (pid: number) => string): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-pids-'));
@@ -46,32 +56,32 @@ async function sweepWith(pids: unknown, cmdlineOf?: (pid: number) => string): Pr
 describe('ProcessRegistry.sweepOrphans', () => {
   it('does not kill a live process whose entry has no command line', async () => {
     const v = victim();
-    await sweepWith([{ pid: v.pid, label: 'x', cmdline: '' }], () => process.execPath);
-    expect(alive(v.pid!)).toBe(true);
+    await sweepWith([{ pid: v.pid, label: 'x', cmdline: '' }], onlyVictim(v, process.execPath));
+    expect(await survives(v)).toBe(true);
   });
 
   it('does not kill when the live command line cannot be read (e.g. Windows)', async () => {
     const v = victim();
     await sweepWith([{ pid: v.pid, label: 'x', cmdline: process.execPath }], () => '');
-    expect(alive(v.pid!)).toBe(true);
+    expect(await survives(v)).toBe(true);
   });
 
   it('does not kill a process whose command line does not match (PID reuse)', async () => {
     const v = victim();
-    await sweepWith([{ pid: v.pid, label: 'x', cmdline: '/usr/bin/ollama serve' }], () => process.execPath);
-    expect(alive(v.pid!)).toBe(true);
+    await sweepWith([{ pid: v.pid, label: 'x', cmdline: '/usr/bin/ollama serve' }], onlyVictim(v, process.execPath));
+    expect(await survives(v)).toBe(true);
   });
 
   it('ignores malformed entries and never targets itself', async () => {
     await sweepWith([{ pid: process.pid, cmdline: process.execPath }, { pid: 'abc' }, null, { pid: -1, cmdline: 'x' }]);
     await sweepWith({ not: 'an array' });
-    expect(alive(process.pid)).toBe(true);
+    // Reaching this line at all means the sweep did not kill this process.
+    expect(process.pid).toBeGreaterThan(0);
   });
 
   it('still sweeps a genuine orphan whose command line matches', async () => {
     const v = victim();
-    await sweepWith([{ pid: v.pid, label: 'x', cmdline: process.execPath }], () => process.execPath);
-    await new Promise((r) => setTimeout(r, 200));
-    expect(alive(v.pid!)).toBe(false);
+    await sweepWith([{ pid: v.pid, label: 'x', cmdline: process.execPath }], onlyVictim(v, process.execPath));
+    expect(await exitWithin(v, 3000)).toBe(true);
   });
 });

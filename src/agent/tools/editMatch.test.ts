@@ -218,3 +218,15 @@ describe('matchToleranceNote', () => {
     expect(note).toContain('Verify');
   });
 });
+
+// #109: a search starting with \n matches inside a \r\n pair; replacing from
+// there left the file's \r behind unless the replacement began with a break.
+describe('CRLF: a search that starts with a line break', () => {
+  it('removes the whole CRLF when the replacement joins the lines', () => {
+    expect(apply('a,\r\nb\r\n', '\nb', ' b')).toBe('a, b\r\n');
+  });
+
+  it('still produces a single CRLF when the replacement starts with a break', () => {
+    expect(apply('a\r\nb\r\n', '\nb', '\nc')).toBe('a\r\nc\r\n');
+  });
+});

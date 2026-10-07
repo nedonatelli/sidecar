@@ -298,6 +298,22 @@ describe('getConfig provider-aware model default', () => {
     __resetConfigCacheForTests();
   }
 
+  // #122: settings read with a default passed their intended MAXIMUM to
+  // clampMin as an (unused) fallback, so the schema's upper bounds were never enforced.
+  it('enforces the declared maximums', () => {
+    stubConfig({
+      'fork.defaultCount': 50,
+      'multiFileEdits.maxParallel': 500,
+      'projectKnowledge.graphWalkDepth': 99,
+      'steerQueue.maxPending': 0,
+    });
+    const cfg = getConfig();
+    expect(cfg.forkDefaultCount).toBe(10);
+    expect(cfg.multiFileEditsMaxParallel).toBe(32);
+    expect(cfg.projectKnowledgeGraphWalkDepth).toBe(4);
+    expect(cfg.steerQueueMaxPending).toBe(1); // minimums still apply
+  });
+
   it('substitutes Haiku when provider=anthropic and model is still the Ollama default', () => {
     stubConfig({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com' });
     expect(getConfig().model).toBe(ANTHROPIC_DEFAULT_MODEL);

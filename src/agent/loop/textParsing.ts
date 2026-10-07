@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../ollama/types.js';
 import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 import { findBalancedEnd } from '../delimiters.js';
+import { isLibraryName } from '../fileRefs.js';
 
 /**
  * A parsed name is dispatchable when it's in the catalog OR the executor's
@@ -60,6 +61,7 @@ export function splitTopLevelArgs(s: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let quote: string | null = null; // '"', "'", or the triple forms '"""' / "'''"
+  let esc = false; // previous character in a single-quoted string was an unescaped backslash
   let cur = '';
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
@@ -75,7 +77,12 @@ export function splitTopLevelArgs(s: string): string[] {
         continue;
       }
       cur += c;
-      if (c === quote && s[i - 1] !== '\\') quote = null;
+      // Track escapes: checking only s[i - 1] read `\\"` (an escaped backslash,
+      // then the closing quote) as an escaped quote, so the string never closed
+      // and swallowed the next argument.
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === quote) quote = null;
       continue;
     }
     if (c === '"' || c === "'") {
@@ -189,7 +196,9 @@ export function parseMangledToolName(rawName: string): { name: string; input: Re
  *   1. ≥3 special-token literals (`<|…|>`) — real prose essentially never
  *      contains reserved-token markers.
  *   2. The same 8–64 char chunk repeated ≥10 times consecutively — a
- *      sampler loop, not an answer.
+ *      sampler loop, not an answer. The chunk must hold a letter or digit:
+ *      an 80-character `----` / `====` rule or a table border repeats a
+ *      punctuation chunk 10 times and is ordinary Markdown.
  *
  * Input is capped at 20KB before the repetition scan so a pathological
  * backreference can't stall the loop thread.
@@ -198,7 +207,10 @@ export function isDegenerateText(text: string): boolean {
   const stripped = text.replace(/```[\s\S]*?```/g, '').slice(0, 20_000);
   const specialTokens = stripped.match(/<\|[^|<>]{1,60}\|>/g);
   if (specialTokens && specialTokens.length >= 3) return true;
-  return /([^\s]{8,64}?)\1{9,}/.test(stripped);
+  for (const m of stripped.matchAll(/([^\s]{8,64}?)\1{9,}/g)) {
+    if (/[A-Za-z0-9]/.test(m[1])) return true;
+  }
+  return false;
 }
 
 /**
@@ -255,18 +267,22 @@ function parseTextToolCallsInternal(
   // Bare JSON (pattern 4) is extracted separately with brace-depth
   // tracking because the lazy [\s\S]*?\} regex terminates at the first
   // closing brace, chopping off nested argument objects.
+  // The fence body may not contain a fence: a lazy `[\s\S]*?` ran from an
+  // unclosed `{` in one fence, past its closing ```, into the next fence.
   const combined =
-    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
+    /<function=(\w+)>([\s\S]*?)<\/function>|<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|```(?:json)?\s*\n?\s*(\{(?:(?!```)[\s\S])*?\})\s*\n?\s*```/g;
 
-  // Track which pattern type matched first (for priority: fn > tool_call > json > bare)
+  // The format of the first match that produced a call; later matches in
+  // other formats are the same calls restated. Latching on the first MATCH
+  // instead let an unrelated JSON fence (a config example) latch 'json' and
+  // drop every real <tool_call> after it.
   let firstType: 'fn' | 'tc' | 'json' | 'bare' | null = null;
   let match;
 
   while ((match = combined.exec(text)) !== null) {
     // Pattern 1: <function=name><parameter=key>value</parameter></function>
     if (match[1] !== undefined) {
-      if (firstType === null) firstType = 'fn';
-      if (firstType !== 'fn') continue;
+      if (firstType !== null && firstType !== 'fn') continue;
       const name = match[1];
       if (!isDispatchableName(name, toolNames)) continue;
       const body = match[2];
@@ -276,27 +292,37 @@ function parseTextToolCallsInternal(
       while ((pm = paramPattern.exec(body)) !== null) {
         input[pm[1]] = pm[2].trim();
       }
+      firstType = 'fn';
       spans?.push([match.index, match.index + match[0].length]);
       results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
     }
     // Pattern 2: <tool_call>JSON</tool_call>
     else if (match[3] !== undefined) {
-      if (firstType === null) firstType = 'tc';
-      if (firstType !== 'tc') continue;
+      if (firstType !== null && firstType !== 'tc') continue;
       try {
         const parsed = JSON.parse(match[3]);
-        const name = parsed.name || parsed.tool || parsed.function?.name;
-        const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || {};
-        if (name && isDispatchableName(name, toolNames)) {
-          const input = typeof args === 'string' ? JSON.parse(args) : args;
+        // A model batching calls puts an ARRAY of them in one tag; reading
+        // .name off the array dropped them all.
+        let produced = false;
+        for (const entry of Array.isArray(parsed) ? parsed : [parsed]) {
+          const name = entry?.name || entry?.tool || entry?.function?.name;
+          const args = entry?.arguments || entry?.args || entry?.function?.arguments || entry?.parameters || {};
+          if (name && isDispatchableName(name, toolNames)) {
+            const input = typeof args === 'string' ? JSON.parse(args) : args;
+            results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
+            produced = true;
+          }
+        }
+        if (produced) {
+          firstType = 'tc';
           spans?.push([match.index, match.index + match[0].length]);
-          results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
         // Malformed JSON: don't silently drop — emit a marker so the
         // constrained-repair layer can recover it (A5).
         const name = salvageToolName(match[3], toolNames);
         if (name) {
+          firstType = 'tc';
           results.push({
             type: 'tool_use',
             id: `text_tc_${idCounter++}`,
@@ -309,20 +335,21 @@ function parseTextToolCallsInternal(
     }
     // Pattern 3: ```json\n{...}\n```
     else if (match[4] !== undefined) {
-      if (firstType === null) firstType = 'json';
-      if (firstType !== 'json') continue;
+      if (firstType !== null && firstType !== 'json') continue;
       try {
         const parsed = JSON.parse(match[4]);
         const name = parsed.name || parsed.tool || parsed.function;
         const args = parsed.arguments || parsed.args || parsed.parameters || parsed.input || {};
         if (name && typeof name === 'string' && isDispatchableName(name, toolNames)) {
           const input = typeof args === 'string' ? JSON.parse(args) : args;
+          firstType = 'json';
           spans?.push([match.index, match.index + match[0].length]);
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
         const name = salvageToolName(match[4], toolNames);
         if (name) {
+          firstType = 'json';
           results.push({
             type: 'tool_use',
             id: `text_tc_${idCounter++}`,
@@ -605,6 +632,9 @@ export function parseCallExpressions(
   return out;
 }
 
+/** Tool-use id prefix of a write_file the loop synthesized from a printed fence. */
+export const FENCE_WRITE_ID_PREFIX = 'fence_write_';
+
 /** Fence language ↔ file extension sanity map for the fence-write synthesizer. */
 const LANG_TO_EXTS: Record<string, string[]> = {
   python: ['py'],
@@ -640,8 +670,10 @@ const FENCE_CODE_STRUCTURE = /\b(function|const|let|var|def|class|return|import|
  *   - the turn has an edit-shaped source fence (largest one wins), and
  *   - the fence language agrees with the file's extension (when both known).
  * The synthesized write still passes every write_file guard (syntax gate,
- * verify-before-rewrite, enforce-edit locks), so a partial snippet that would
- * corrupt the file is refused there, not written blind.
+ * verify-before-rewrite, enforce-edit locks), and one more that applies only to
+ * it: content missing a definition the file already has is refused. A fence is
+ * often just the new function ("add multiply to calculator.py"), and it parses
+ * fine, so the syntax gate alone wrote it over the whole file.
  */
 export function synthesizeFenceWrite(
   text: string,
@@ -649,7 +681,7 @@ export function synthesizeFenceWrite(
   toolNames: Set<string>,
 ): { name: 'write_file'; input: { path: string; content: string } } | null {
   if (!toolNames.has('write_file')) return null;
-  const refs = [...new Set(userText.match(FILE_REF_RE) ?? [])];
+  const refs = [...new Set(userText.match(FILE_REF_RE) ?? [])].filter((ref) => !isLibraryName(ref));
   if (refs.length !== 1) return null; // zero or ambiguous targets — do not guess
   const path = refs[0];
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();

@@ -224,6 +224,17 @@ describe('parseTextToolCalls', () => {
   });
 
   describe('isDegenerateText', () => {
+    // #108: a Markdown rule or table border repeats an 8-char punctuation chunk
+    // ten times and is not a sampler loop.
+    it('does not flag an 80-character rule line or a table border', () => {
+      expect(isDegenerateText('Results\n' + '-'.repeat(80) + '\n' + '='.repeat(100))).toBe(false);
+      expect(isDegenerateText('|' + '--------|'.repeat(12))).toBe(false);
+    });
+
+    it('still flags a repeated word chunk', () => {
+      expect(isDegenerateText('token123'.repeat(12))).toBe(true);
+    });
+
     it('flags a stream of reserved special-token literals (llama3.2 live failure)', () => {
       const text = Array.from({ length: 20 }, (_, i) => `<|reserved_special_token_${1043 + i}|>`).join('|');
       expect(isDegenerateText(text)).toBe(true);
@@ -536,6 +547,36 @@ describe('runAgentLoop', () => {
 
     vi.restoreAllMocks();
   }, 15_000);
+
+  // #108: the backoff before a retry ignored Stop.
+  it.each(['at once', 'during'] as const)('ends promptly when stopped %s the retry backoff', async (mode) => {
+    let calls = 0;
+    async function* flaky(): AsyncGenerator<StreamEvent> {
+      calls++;
+      throw Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } });
+    }
+    const ac = new AbortController();
+    const cb = makeCallbacks();
+    const onText = cb.onText;
+    cb.onText = (t: string) => {
+      onText(t);
+      if (t.includes('Network hiccup')) setTimeout(() => ac.abort(), mode === 'during' ? 100 : 0);
+    };
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const started = Date.now();
+    await runAgentLoop(makeMockClient(flaky), [{ role: 'user', content: 'hi' }], cb, ac.signal).catch(() => {});
+
+    expect(Date.now() - started).toBeLessThan(1000); // the first backoff is 1.5 s
+    expect(calls).toBe(1); // and no retry was sent after Stop
+    vi.restoreAllMocks();
+  });
 
   it('reprompts ONCE on an empty turn, then stops when silence recurs', async () => {
     // A turn with no text and no tool calls used to end the run immediately —
@@ -1069,6 +1110,73 @@ describe('runAgentLoop — partial message recovery', () => {
 
     // PolicyEnforcementError is caught inside the loop — no rethrow, nothing for caller to handle.
     expect(caught).toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
+});
+
+// #108: the escalation reprompt was pushed between the assistant's tool_use and
+// its tool_result, a history OpenAI-compatible servers reject with a 400.
+describe('runAgentLoop — escalation reprompt ordering', () => {
+  it('puts the rewrite escalation after the tool results it reacts to', async () => {
+    const settings = await import('../config/settings.js');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 5,
+      agentMaxTokens: 100_000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+      promptPruningEnabled: false,
+      toolPermissions: {},
+      hooks: {},
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    let calls = 0;
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      calls++;
+      if (calls === 1) {
+        yield {
+          type: 'tool_use',
+          toolUse: { type: 'tool_use', id: 'w1', name: 'write_file', input: { path: 'gui.py', content: 'x = 1\n' } },
+        };
+        yield { type: 'stop', stopReason: 'tool_use' };
+      } else {
+        yield { type: 'text', text: 'ok' };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      }
+    }
+    const client = {
+      streamChat: stream,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+    const blockedWrite = {
+      definition: MOCK_TOOLS[1],
+      requiresApproval: false,
+      executor: async () => {
+        throw new Error('write_file to `gui.py` was NOT applied. Make this change with edit_file instead.');
+      },
+    };
+
+    const messages = await runAgentLoop(
+      client,
+      [{ role: 'user', content: 'fix gui.py' }],
+      { onText: () => {}, onToolCall: () => {}, onToolResult: () => {}, onDone: () => {} },
+      new AbortController().signal,
+      { extraTools: [blockedWrite] as never, approvalMode: 'autonomous', maxIterations: 5 },
+    );
+
+    const blocks = (m: ChatMessage) => (Array.isArray(m.content) ? m.content : []);
+    const useAt = messages.findIndex((m) => m.role === 'assistant' && blocks(m).some((b) => b.type === 'tool_use'));
+    expect(useAt).toBeGreaterThan(-1);
+    // The message right after the tool_use carries its result...
+    expect(blocks(messages[useAt + 1]).some((b) => b.type === 'tool_result')).toBe(true);
+    // ...and the escalation follows it.
+    const steerAt = messages.findIndex((m) =>
+      blocks(m).some((b) => b.type === 'text' && /STOP calling write_file/.test(b.text)),
+    );
+    expect(steerAt).toBeGreaterThan(useAt + 1);
 
     vi.restoreAllMocks();
   });

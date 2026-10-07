@@ -778,8 +778,11 @@ export class SymbolEmbeddingIndex implements Disposable {
       this.persistTimer = null;
     }
     if (!this.dirty) return;
-    await this.store.persist();
+    // Cleared BEFORE the await: a change made while the write runs sets it
+    // again and is persisted next time. Clearing it afterwards marked such
+    // changes as saved, and they were lost at the next restart.
     this.dirty = false;
+    await this.store.persist();
     logger.debug(`[PKI] persisted${kv({ symbols: this.getCount(), bytes: await this.getDiskBytes() })}`);
   }
 

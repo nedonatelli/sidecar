@@ -4,7 +4,12 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
-import { parseTextToolCallsCleaned, stripRepeatedContent, synthesizeFenceWrite } from './textParsing.js';
+import {
+  FENCE_WRITE_ID_PREFIX,
+  parseTextToolCallsCleaned,
+  stripRepeatedContent,
+  synthesizeFenceWrite,
+} from './textParsing.js';
 import {
   lastUserMessageText,
   isMutationRequest,
@@ -435,7 +440,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       // with the fence content correct every time sampled — synthesize the
       // write_file the model described. Only on an action-request turn with an
       // unambiguous single target; every write_file guard still applies.
-      const userText = lastUserMessageText(state.messages);
+      const userText = state.userRequestText ?? lastUserMessageText(state.messages);
       // isMutationRequest, NOT isActionRequest: a read request licenses the
       // re-prompt nudge but must never license synthesizing a write. A model
       // answering "what does X contain" prints fences to ILLUSTRATE, and coercing
@@ -466,7 +471,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
         state.fenceWriteCoercions++;
         const tu: ToolUseContentBlock = {
           type: 'tool_use',
-          id: `fence_write_${state.fenceWriteCoercions}`,
+          id: `${FENCE_WRITE_ID_PREFIX}${state.fenceWriteCoercions}`,
           name: synth.name,
           input: synth.input,
         };

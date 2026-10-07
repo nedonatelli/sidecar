@@ -1,5 +1,5 @@
 import type { ChatState } from '../chatState.js';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, identifyOllamaServer } from '../../config/settings.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +38,10 @@ export async function ensureProviderRunning(state: ChatState): Promise<boolean> 
 
 export async function connectWithRetry(state: ChatState): Promise<boolean> {
   state.postMessage({ command: 'typingStatus', content: 'Connecting to model...' });
+  // Once per URL: an Ollama server no URL rule recognizes (another port, a
+  // proxy) is identified here, before the run builds its backend.
+  const cfg = getConfig();
+  await identifyOllamaServer(cfg.baseUrl, cfg.provider);
   let started = await ensureProviderRunning(state);
   if (started) return true;
 

@@ -110,13 +110,12 @@ export function initializeChatSubsystems(
       onStatusChange: (run) => postMessage({ command: 'bgStatusUpdate', bgRun: run }),
       onOutput: (runId, chunk) => postMessage({ command: 'bgOutput', bgRunId: runId, content: chunk }),
       onComplete: (run) => {
+        // The background panel shows the result and notifyBgComplete raises a
+        // toast. Nothing goes into the chat itself: an assistantMessage + done
+        // posted here landed inside whatever foreground run was streaming, ended
+        // its spinner, and added a bubble that history never had, so every
+        // later bubble's edit/delete targeted the wrong message.
         postMessage({ command: 'bgComplete', bgRun: run });
-        const summary =
-          run.status === 'completed'
-            ? `Background task **"${run.task}"** completed (${run.toolCalls} tool calls).\n\n${run.output.slice(0, 500)}${run.output.length > 500 ? '…' : ''}`
-            : `Background task **"${run.task}"** failed: ${run.error}`;
-        postMessage({ command: 'assistantMessage', content: summary });
-        postMessage({ command: 'done' });
         notifyBgComplete(run, {
           showInformationMessage: window.showInformationMessage.bind(window),
           showErrorMessage: window.showErrorMessage.bind(window),

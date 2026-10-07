@@ -70,6 +70,20 @@ describe('applyResolutions', () => {
     expect(result).toBe('AXBYC');
   });
 
+  // #119: the span ends with the >>>>>>> line's line break and the resolution
+  // is trimmed, so the next line was glued onto the resolved block.
+  it('keeps the line break after a resolved block (LF and CRLF)', async () => {
+    const { parseConflictBlocks } = await import('./conflictDetector.js');
+    for (const eol of ['\n', '\r\n']) {
+      const original = ['before', '<<<<<<< HEAD', 'ours', '=======', 'theirs', '>>>>>>> branch', 'after', ''].join(eol);
+      const blocks = parseConflictBlocks(original);
+      expect(applyResolutions(original, blocks, new Map([[0, 'merged']]))).toBe(
+        ['before', 'merged', 'after', ''].join(eol),
+      );
+      expect(applyResolutions(original, blocks, new Map([[0, '']]))).toBe(['before', 'after', ''].join(eol));
+    }
+  });
+
   it('leaves unresolved blocks unchanged', () => {
     const original = 'AB';
     const block = makeBlock({ index: 0, startOffset: 0, endOffset: 1 });
@@ -105,7 +119,8 @@ describe('resolveConflicts', () => {
 
     expect(result.resolvedBlocks).toBe(1);
     expect(result.totalBlocks).toBe(1);
-    expect(result.resolvedContent).toBe('merged');
+    // The file's trailing line break survives (#119); it used to be dropped.
+    expect(result.resolvedContent).toBe('merged\n');
   });
 
   it('skips a block when complete() throws a non-abort error', async () => {

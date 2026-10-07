@@ -41,6 +41,24 @@ function parseObject(s: string): Record<string, unknown> | null {
   }
 }
 
+/**
+ * The arguments inside a repaired call ENVELOPE, or `obj` itself. Text-form
+ * calls (`<tool_call>{"name":…,"arguments":{…}}`, a json fence, a bare
+ * object) put the whole call in `_malformedInputRaw`, so a successful repair
+ * returned `{name, arguments}` as the input: schema validation then failed,
+ * and because repair had "succeeded", the schema-constrained tier never ran.
+ * Only an object naming this tool and carrying an arguments field is unwrapped.
+ */
+export function unwrapCallEnvelope(obj: Record<string, unknown>, toolName: string): Record<string, unknown> | null {
+  const fn = obj.function && typeof obj.function === 'object' ? (obj.function as Record<string, unknown>) : null;
+  const named = obj.name === toolName || obj.tool === toolName || fn?.name === toolName;
+  if (!named) return obj;
+  const args = obj.arguments ?? obj.args ?? obj.parameters ?? obj.input ?? fn?.arguments ?? fn?.parameters;
+  if (args === undefined) return obj;
+  if (typeof args === 'string') return tryJsonRepair(args);
+  return args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : null;
+}
+
 function applyRepair(tu: ToolUseContentBlock, input: Record<string, unknown>): void {
   tu.input = input;
   delete tu._malformedInputRaw;
@@ -60,7 +78,8 @@ export async function repairMalformedToolUses(
     if (raw === undefined) continue;
 
     // Tier 1 — heuristic repair (no model round-trip).
-    const heuristic = tryJsonRepair(raw);
+    const repairedRaw = tryJsonRepair(raw);
+    const heuristic = repairedRaw && unwrapCallEnvelope(repairedRaw, tu.name);
     if (heuristic) {
       applyRepair(tu, heuristic);
       deps.logger?.info?.(`Repaired malformed args for \`${tu.name}\` (heuristic JSON repair)`);

@@ -4,6 +4,7 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 import { recordDecision } from '../decisions.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
+import { normalizePath } from '../completionGate/pathUtil.js';
 import {
   decideRatchet,
   captureFileSnapshot,
@@ -165,7 +166,12 @@ export async function captureRatchetOriginals(
   const r = state.ratchet;
   if (!r?.enabled) return;
   for (const p of writeTargetsFromToolUses(pendingToolUses)) {
-    if (!r.originals.has(p)) r.originals.set(p, await io.read(p));
+    // Keyed the way gateState.editedFiles is (workspace-relative, forward
+    // slashes): the revert looks originals up by those keys, so one stored
+    // under the raw spelling (`./src/a.ts`, `src\a.ts`) was never found and
+    // that file was left out of the revert -- a partial undo.
+    const key = normalizePath(p) ?? p;
+    if (!r.originals.has(key)) r.originals.set(key, await io.read(p));
   }
 }
 
@@ -198,6 +204,25 @@ export async function captureScaffoldBoundary(state: LoopState, io: SnapshotIo):
 }
 
 /**
+ * Bytes the scaffold-driven tail added: for each finally-edited file, its size
+ * now minus its size at its own baseline (boundary content for a file edited
+ * before the boundary, the pre-run original for one first edited after). The
+ * old measure compared TOTAL sizes, so a one-line edit to a 40 KB file first
+ * touched after the boundary read as 40 KB of growth. A file with no recorded
+ * baseline counts as unchanged rather than as its whole size.
+ */
+async function tailGrowthBytes(state: LoopState, r: RatchetRunState, io: SnapshotIo): Promise<number> {
+  const size = (c: string | null | undefined) => (c ? Buffer.byteLength(c, 'utf-8') : 0);
+  let grew = 0;
+  for (const f of state.gateState.editedFiles) {
+    const baseline = r.preScaffoldFiles.has(f) ? r.boundaryContent : r.originals;
+    if (!baseline.has(f)) continue;
+    grew += size(await io.read(f)) - size(baseline.get(f));
+  }
+  return grew;
+}
+
+/**
  * At natural termination, decide whether the scaffold-driven tail should be
  * kept or reverted, and apply the revert. No-op when the ratchet never armed
  * (scaffolding never drove extra work). Best-effort: any IO failure is logged
@@ -212,6 +237,7 @@ export async function evaluateRatchetAtTermination(
   if (!r?.enabled || !r.boundaryCaptured || !r.boundarySignal) return;
   try {
     const after = await signalFromGate(state, io);
+    after.patchBytes = r.boundarySignal.patchBytes + (await tailGrowthBytes(state, r, io));
     const decision = decideRatchet(r.boundarySignal, after, { overEngineerBytes: r.overEngineerBytes });
     if (decision.verdict === 'keep') {
       recordDecision(

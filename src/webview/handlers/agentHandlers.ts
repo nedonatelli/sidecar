@@ -37,20 +37,8 @@ export async function handleExecutePlan(state: ChatState): Promise<void> {
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
   state.saveHistory();
-  // Temporarily switch out of plan mode during execution so we execute instead of planning again
-  const config = workspace.getConfiguration('sidecar');
-  const previousMode = config.get<string>('agentMode', 'cautious');
-  if (previousMode === 'plan') {
-    await config.update('agentMode', 'cautious', true);
-  }
-  try {
-    await handleUserMessage(state, '');
-  } finally {
-    // Restore plan mode after execution
-    if (previousMode === 'plan') {
-      await config.update('agentMode', 'plan', true);
-    }
-  }
+  // Out of plan mode for this run only, so it executes instead of planning again.
+  await handleUserMessage(state, '', { leavePlanMode: true });
 }
 
 export async function handleRevisePlan(state: ChatState, feedback: string): Promise<void> {
@@ -60,20 +48,8 @@ export async function handleRevisePlan(state: ChatState, feedback: string): Prom
   state.pendingPlan = null;
   state.pendingPlanMessages = [];
   state.saveHistory();
-  // Temporarily switch out of plan mode during revision so we get a revised plan, not another plan of a plan
-  const config = workspace.getConfiguration('sidecar');
-  const previousMode = config.get<string>('agentMode', 'cautious');
-  if (previousMode === 'plan') {
-    await config.update('agentMode', 'cautious', true);
-  }
-  try {
-    await handleUserMessage(state, '');
-  } finally {
-    // Restore plan mode after revision
-    if (previousMode === 'plan') {
-      await config.update('agentMode', 'plan', true);
-    }
-  }
+  // Out of plan mode for this run only, so it revises the plan rather than planning a plan.
+  await handleUserMessage(state, '', { leavePlanMode: true });
 }
 
 export async function handleBatch(state: ChatState, text: string): Promise<void> {

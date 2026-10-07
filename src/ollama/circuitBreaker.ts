@@ -47,11 +47,20 @@ export interface CircuitBreakerOptions {
   cooldownMs?: number;
   /** Ceiling for exponential backoff. Default: 120_000 ms. */
   maxCooldownMs?: number;
+  /** How long an unreported half-open probe holds the probe slot. Default: 120_000 ms. */
+  probeLeaseMs?: number;
 }
 
 const DEFAULT_FAILURE_THRESHOLD = 5;
 const DEFAULT_COOLDOWN_MS = 15_000;
 const DEFAULT_MAX_COOLDOWN_MS = 120_000;
+/**
+ * How long a half-open probe holds the single probe slot. A probe that never
+ * reports back (aborted by Stop or the stall timer, or a stream its consumer
+ * dropped) used to hold it forever: half-open had no time-based exit, so the
+ * provider stayed locked out until a settings change rebuilt the client.
+ */
+const DEFAULT_PROBE_LEASE_MS = 120_000;
 
 /**
  * Thrown by `guard()` when the breaker is open and no probe is allowed
@@ -78,6 +87,8 @@ interface BreakerEntry {
   consecutiveFailures: number;
   openedAt: number;
   probeInFlight: boolean;
+  /** When the current half-open probe was let through. */
+  probeStartedAt: number;
   /** Number of times the breaker has tripped open (resets on full success). Used for backoff tier. */
   openCount: number;
 }
@@ -87,8 +98,10 @@ export class CircuitBreaker {
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
   private readonly maxCooldownMs: number;
+  private readonly probeLeaseMs: number;
 
   constructor(options: CircuitBreakerOptions = {}) {
+    this.probeLeaseMs = options.probeLeaseMs ?? DEFAULT_PROBE_LEASE_MS;
     this.failureThreshold = options.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
     this.cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS;
     this.maxCooldownMs = options.maxCooldownMs ?? DEFAULT_MAX_COOLDOWN_MS;
@@ -102,7 +115,14 @@ export class CircuitBreaker {
   private get(provider: ProviderType): BreakerEntry {
     let entry = this.entries.get(provider);
     if (!entry) {
-      entry = { state: 'closed', consecutiveFailures: 0, openedAt: 0, probeInFlight: false, openCount: 0 };
+      entry = {
+        state: 'closed',
+        consecutiveFailures: 0,
+        openedAt: 0,
+        probeInFlight: false,
+        probeStartedAt: 0,
+        openCount: 0,
+      };
       this.entries.set(provider, entry);
     }
     return entry;
@@ -125,9 +145,10 @@ export class CircuitBreaker {
         return false;
       }
     }
-    // half-open: allow exactly one in-flight probe
-    if (entry.probeInFlight) return false;
+    // half-open: allow exactly one in-flight probe -- until its lease runs out.
+    if (entry.probeInFlight && Date.now() - entry.probeStartedAt < this.probeLeaseMs) return false;
     entry.probeInFlight = true;
+    entry.probeStartedAt = Date.now();
     return true;
   }
 
@@ -154,6 +175,17 @@ export class CircuitBreaker {
     entry.state = 'closed';
     entry.openedAt = 0;
     entry.probeInFlight = false;
+  }
+
+  /**
+   * The request was cancelled (Stop, a stall timeout, a consumer that stopped
+   * reading) before it said anything about the provider's health. Counts as
+   * neither success nor failure, but frees a half-open probe slot so the next
+   * request can probe. Without this an aborted probe locked the provider out.
+   */
+  recordAbort(provider: ProviderType): void {
+    const entry = this.get(provider);
+    if (entry.state === 'half-open') entry.probeInFlight = false;
   }
 
   recordFailure(provider: ProviderType): void {

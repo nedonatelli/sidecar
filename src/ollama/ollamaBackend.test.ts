@@ -511,6 +511,57 @@ describe('OllamaBackend', () => {
     });
   });
 
+  // #111: errors Ollama reports inside a 200 stream were dropped, and
+  // complete() sent no num_ctx.
+  describe('in-stream errors and complete() context window', () => {
+    // A pinned window means no /api/show probe consumes the mocked responses.
+    beforeEach(() => {
+      process.env.SIDECAR_OLLAMA_NUM_CTX = '65536';
+    });
+    afterEach(() => {
+      delete process.env.SIDECAR_OLLAMA_NUM_CTX;
+    });
+
+    it('throws on an {"error": …} line instead of ending the turn as a success', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: ndjsonBody([
+          { message: { content: 'par' }, done: false },
+          { error: 'model runner has unexpectedly stopped' },
+        ]),
+      });
+      const drain = async () => {
+        for await (const _ of backend.streamChat('m', '', [{ role: 'user', content: 'hi' }])) void _;
+      };
+      await expect(drain()).rejects.toThrow('Ollama error: model runner has unexpectedly stopped');
+    });
+
+    it('throws on an error in unterminated trailing data too', async () => {
+      const enc = new TextEncoder();
+      let sent = false;
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: new ReadableStream<Uint8Array>({
+          pull(c) {
+            if (sent) return c.close();
+            sent = true;
+            c.enqueue(enc.encode('{"error":"out of memory"}')); // no trailing newline
+          },
+        }),
+      });
+      const drain = async () => {
+        for await (const _ of backend.streamChat('m', '', [{ role: 'user', content: 'hi' }])) void _;
+      };
+      await expect(drain()).rejects.toThrow('Ollama error: out of memory');
+    });
+
+    it('sends the chat context window with complete() once it is known', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ message: { content: 'ok' } }) });
+      await backend.complete('m', 'sys', [{ role: 'user', content: 'hi' }], 256);
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body).options).toEqual({ num_ctx: 65_536 });
+    });
+  });
+
   describe('complete — structured output (V3)', () => {
     function mockCompleteResponse(content: string) {
       mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ message: { content } }) });
@@ -639,6 +690,29 @@ describe('OllamaBackend', () => {
           // consume
         }
       }).rejects.toThrow('Ollama request failed: 400');
+    });
+
+    // #111: deterministic 500s were retried three times, delaying the error.
+    it('does not retry a 500 that will recur', async () => {
+      process.env.SIDECAR_OLLAMA_NUM_CTX = '65536';
+      try {
+        const body = '{"error":"model requires more system memory (20 GiB) than is available"}';
+        const res = {
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: new Headers(),
+          text: async () => body,
+        };
+        mockFetch.mockResolvedValue({ ...res, clone: () => res });
+        const drain = async () => {
+          for await (const _ of backend.streamChat('m', '', [{ role: 'user', content: 'hi' }])) void _;
+        };
+        await expect(drain()).rejects.toThrow('requires more system memory');
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+      } finally {
+        delete process.env.SIDECAR_OLLAMA_NUM_CTX;
+      }
     });
 
     it('yields a warning text event when Ollama 500s with tool-not-found', async () => {

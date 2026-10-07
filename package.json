@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.127.0",
+  "version": "0.127.1",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -154,7 +154,7 @@
               "OpenRouter (https://openrouter.ai/api/v1). One API key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more) with per-model pricing pulled live from their catalog. Requires an OpenRouter API key.",
               "Groq (https://api.groq.com/openai/v1). LPU inference serves open-weight models (Llama 3.3, Mixtral, DeepSeek R1 distills) at thousands of tokens/sec. Free tier with rate limits. Requires a Groq API key from console.groq.com.",
               "Fireworks (https://api.fireworks.ai/inference/v1). Hosts open-weight models like DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral at OpenAI-compatible pricing. Requires an API key from fireworks.ai.",
-              "Google Gemini (https://generativelanguage.googleapis.com/openai). Gemini 2.0 Flash, Pro, and Ultra via the OpenAI-compatible endpoint. Requires an API key from aistudio.google.com/apikey.",
+              "Google Gemini (https://generativelanguage.googleapis.com/v1beta/openai). Gemini 2.0 Flash, Pro, and Ultra via the OpenAI-compatible endpoint. Requires an API key from aistudio.google.com/apikey.",
               "Kickstand self-hosted LLM server (http://localhost:11435). Reads its bearer token automatically from `~/.config/kickstand/token`. No API key prompt shown.",
               "GitHub Copilot via `vscode.lm`. Uses your existing GitHub Copilot subscription — no separate API key required. Requires the GitHub Copilot extension to be installed and signed in.",
               "AWS Bedrock for Claude models (bedrock-runtime.<region>.amazonaws.com). No API key — uses the AWS credential chain (env vars or ~/.aws/credentials). Set `sidecar.bedrock.region` and use a Bedrock model / inference-profile ID."
@@ -527,7 +527,7 @@
           "sidecar.scaffolding.cycleDetectionMinRepeats": {
             "type": "number",
             "default": 10,
-            "minimum": 1,
+            "minimum": 2,
             "description": "Repeats of the same tool + file (content-aware) before the agent loop bails as a stuck cycle. Default 10 — was a fixed 3. Weaker/smaller models sometimes need a few attempts to self-correct from a hint (e.g. an edit_file search/replace mistake) before genuinely succeeding; raising this gives more retries before the safety net stops the loop, at the cost of a truly stuck model burning more iterations first. Lower it (e.g. back to 3) for a stricter, faster-to-bail loop."
           },
           "sidecar.recovery.codeAsText": {
@@ -545,6 +545,27 @@
             "default": 3,
             "minimum": 2,
             "description": "Consecutive edit_file failures on one file before the steer-to-write reprompt fires (when sidecar.editFile.steerToWrite is on)."
+          },
+          "sidecar.editStrategy.wholeFileRewrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "Weak-model edit strategy: tell the model to change files by reading them and writing the complete file with write_file, instead of using edit_file. Off by default until A/B-proven."
+          },
+          "sidecar.compaction.durableInstructions": {
+            "type": "boolean",
+            "default": true,
+            "description": "When the conversation is compacted, keep your standing instructions (\"always\", \"never\", \"remember\"...) in a dedicated section so they are not summarized away."
+          },
+          "sidecar.compaction.verbatimUserChars": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "Characters of your messages kept word for word through compaction, so standing instructions survive. 0 disables."
+          },
+          "sidecar.memory.persistInstructions": {
+            "type": "boolean",
+            "default": true,
+            "description": "Save standing instructions kept at compaction to .sidecar/memory/durable-instructions.json and bring them back in later sessions."
           },
           "sidecar.autoFixOnFailure": {
             "type": "boolean",

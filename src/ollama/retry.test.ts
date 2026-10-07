@@ -190,3 +190,23 @@ describe('fetchWithRetry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
+
+// #111
+describe('fetchWithRetry — 529 and the isRetryable hook', () => {
+  beforeEach(() => mockFetch.mockReset());
+  const status = (s: number) => ({ ok: s < 400, status: s, headers: new Headers() });
+
+  it("retries Anthropic's 529 overloaded", async () => {
+    mockFetch.mockResolvedValueOnce(status(529)).mockResolvedValueOnce(status(200));
+    const res = await fetchWithRetry('https://x', {}, { baseDelayMs: 1 });
+    expect(res.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns at once when isRetryable says the failure will recur', async () => {
+    mockFetch.mockResolvedValue(status(500));
+    const res = await fetchWithRetry('https://x', {}, { baseDelayMs: 1, isRetryable: async () => false });
+    expect(res.status).toBe(500);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});

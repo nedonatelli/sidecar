@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { withFileLock, getActiveLockCount, __resetFileLocksForTests } from './fileLock.js';
+import * as path from 'path';
+import { withFileLock, getActiveLockCount, __resetFileLocksForTests, lockKey } from './fileLock.js';
 
 describe('withFileLock', () => {
   beforeEach(() => {
@@ -81,5 +82,45 @@ describe('withFileLock', () => {
   it('returns the task value on success', async () => {
     const result = await withFileLock('/a', async () => ({ ok: true }));
     expect(result).toEqual({ ok: true });
+  });
+});
+
+// #122: lock keys were the raw path, so two spellings of one file got two
+// locks and their writes could still race.
+describe('lockKey', () => {
+  it('gives every Windows spelling of one file the same key', () => {
+    const spellings = [
+      String.raw`C:\repo\a.ts`,
+      'c:/repo/a.ts',
+      String.raw`C:\repo\x\..\a.ts`,
+      String.raw`C:\REPO\A.TS`,
+    ];
+    const keys = spellings.map((p) => lockKey(p, 'win32'));
+    expect(new Set(keys).size).toBe(1);
+  });
+
+  it('keeps POSIX paths case-sensitive but resolves dot segments', () => {
+    expect(lockKey('/repo/x/../a.ts', 'linux')).toBe(lockKey('/repo/a.ts', 'linux'));
+    expect(lockKey('/repo/A.ts', 'linux')).not.toBe(lockKey('/repo/a.ts', 'linux'));
+  });
+
+  it('serializes two spellings of the same file', async () => {
+    const order: string[] = [];
+    const base = path.resolve('lock-test-dir', 'f.ts');
+    // Built by hand so it stays un-normalized: same file, different spelling.
+    const other = [path.dirname(base), 'sub', '..', 'f.ts'].join(path.sep);
+    let releaseFirst: () => void = () => {};
+    const first = withFileLock(base, async () => {
+      order.push('first:start');
+      await new Promise<void>((r) => (releaseFirst = r));
+      order.push('first:end');
+    });
+    const second = withFileLock(other, async () => {
+      order.push('second');
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first:start', 'first:end', 'second']);
   });
 });

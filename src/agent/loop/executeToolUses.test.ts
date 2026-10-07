@@ -325,6 +325,33 @@ describe('executeToolUses — parallel execution + error promotion', () => {
   });
 });
 
+// #107: write_file applies its snippet guard only to writes the loop
+// synthesized, so the executor context must say which those are.
+describe('executeToolUses — fence-write flag', () => {
+  it('marks only fence-write tool uses as synthesized', async () => {
+    const flags: unknown[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(executeTool).mockImplementation(async (toolUse: any, opts: any) => {
+      flags.push(opts.executorContext.synthesizedFromFence);
+      return { type: 'tool_result', tool_use_id: toolUse.id, content: 'ok', is_error: false };
+    });
+    const input = { path: 'a.py', content: 'x = 1\n' };
+    await executeToolUses(
+      catalogState({ tools: catalog([...CATALOG_NAMES, 'write_file']) }),
+      [
+        { type: 'tool_use', id: 'fence_write_1', name: 'write_file', input },
+        { type: 'tool_use', id: 'tu-model', name: 'write_file', input },
+      ],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    expect(flags).toEqual([true, false]);
+    vi.mocked(executeTool).mockReset();
+  });
+});
+
 describe('executeToolUses — memory + chain recording', () => {
   it('records a "pattern" memory on successful tool execution', async () => {
     vi.mocked(executeTool).mockResolvedValueOnce({
@@ -457,6 +484,24 @@ describe('executeToolUses — catalog gate', () => {
     ];
     await run(catalogState(), use('rpc.peer.ping'), { extraTools: extra as never });
     expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  // #107: the gate rejected aliases before the executor could map them.
+  it('judges a foreign alias by the tool it maps to', async () => {
+    vi.mocked(executeTool).mockResolvedValueOnce({
+      type: 'tool_result',
+      tool_use_id: 'x',
+      content: 'ok',
+      is_error: false,
+    });
+    await run(catalogState(), use('cat', { path: 'a.py' })); // cat -> read_file, offered
+    expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it('still refuses an alias whose target was not offered', async () => {
+    const results = await run(catalogState(), use('bash', { command: 'ls' })); // bash -> run_command, hidden
+    expect(executeTool).not.toHaveBeenCalled();
+    expect(results[0].is_error).toBe(true);
   });
 
   it('judges a mangled call-expression name by its salvaged base name', async () => {

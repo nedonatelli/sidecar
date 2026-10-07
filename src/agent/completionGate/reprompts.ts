@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import type { ChatMessage } from '../../ollama/types.js';
 import { extractCitedPaths, pathVariants, hasUnverifiedHedge } from '../citationCheck.js';
 import { normalizePath } from './pathUtil.js';
+import { isLibraryName } from '../fileRefs.js';
 
 // ---------------------------------------------------------------------------
 // No-read-on-file-request gate
@@ -163,8 +164,8 @@ export function buildNoReadReprompt(
 ): string | null {
   const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
-  const fileMatches = userText.match(FILE_MENTION_RE);
-  if (!fileMatches) return null;
+  const fileMatches = userText.match(FILE_MENTION_RE)?.filter((f) => !isLibraryName(f));
+  if (!fileMatches?.length) return null;
   for (const file of fileMatches) {
     // The agent authored this file this session — writing implies knowing its
     // contents, so a read is redundant. Skips the "build calculator.py" case
@@ -433,8 +434,8 @@ export async function buildNoFileWriteReprompt(
   if (!userText) return null;
   if (!WRITE_INTENT_RE.test(userText)) return null;
 
-  const mentioned = userText.match(FILE_MENTION_RE);
-  if (!mentioned) return null;
+  const mentioned = userText.match(FILE_MENTION_RE)?.filter((f) => !isLibraryName(f));
+  if (!mentioned?.length) return null;
 
   // Normalise mentioned paths: strip leading backticks/quotes, drop pure
   // directory tokens (no extension), collapse to basename for matching so

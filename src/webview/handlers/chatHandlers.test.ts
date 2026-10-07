@@ -14,6 +14,7 @@ import {
   isDeferredAnswer,
   isContinuationRequest,
   postLoopProcessing,
+  runAgentMode,
   handleCreateFile,
   handleMoveFile,
   handleExportChat,
@@ -1138,6 +1139,14 @@ describe('buildBaseSystemPrompt', () => {
 // ---------------------------------------------------------------------------
 // postLoopProcessing
 // ---------------------------------------------------------------------------
+describe('runAgentMode', () => {
+  it('runs plan mode as cautious only when the run leaves plan mode', () => {
+    expect(runAgentMode('plan', { leavePlanMode: true })).toBe('cautious');
+    expect(runAgentMode('plan', {})).toBe('plan');
+    expect(runAgentMode('autonomous', { leavePlanMode: true })).toBe('autonomous');
+  });
+});
+
 describe('postLoopProcessing', () => {
   it('merges agent output with state messages', async () => {
     const state = {
@@ -1162,6 +1171,82 @@ describe('postLoopProcessing', () => {
     expect(state.trimHistory).toHaveBeenCalled();
     expect(state.saveHistory).toHaveBeenCalled();
     expect(state.autoSave).toHaveBeenCalled();
+  });
+
+  // #110: done.messageCount was read before the turn's entries reached
+  // state.messages, and nothing told the webview that pruning had moved the
+  // older history, so edit/delete targeted the wrong message after a run.
+  describe('webview index sync', () => {
+    function makeState(messages: Array<{ role: 'user' | 'assistant'; content: unknown }>) {
+      return {
+        messages,
+        pendingQuestion: null as string | null,
+        changelog: { hasChanges: () => false, getChangeSummary: async () => [] },
+        trimHistory: vi.fn(),
+        saveHistory: vi.fn(),
+        autoSave: vi.fn(),
+        postMessage: vi.fn(),
+        logMessage: vi.fn(),
+      };
+    }
+
+    it('reports the shift from pruning and where the final answer landed', async () => {
+      const old = [
+        { role: 'user' as const, content: 'a' },
+        { role: 'assistant' as const, content: 'b' },
+        { role: 'user' as const, content: 'c' },
+        { role: 'assistant' as const, content: 'd' },
+      ];
+      const prompt = { role: 'user' as const, content: 'e' };
+      const state = makeState([...old, prompt]);
+      // Pruning dropped the first turn, so the loop got [c, d, e] and added
+      // a tool round trip and an answer.
+      const updated = [
+        old[2],
+        old[3],
+        prompt,
+        { role: 'assistant' as const, content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: {} }] },
+        { role: 'user' as const, content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+        { role: 'assistant' as const, content: 'done.' },
+      ];
+
+      await postLoopProcessing(state as never, updated as never, 5, { loopStartCount: 3, loopPrompt: prompt });
+
+      expect(state.postMessage).toHaveBeenCalledWith({
+        command: 'syncMessageIndices',
+        messageCount: 6,
+        shift: 2,
+        turnStart: 5,
+        lastAssistantIndex: 5,
+      });
+    });
+
+    it('counts messages trimHistory drops from the front', async () => {
+      const prompt = { role: 'user' as const, content: 'q' };
+      const state = makeState([prompt]);
+      state.trimHistory.mockImplementation(() => state.messages.shift());
+      const updated = [prompt, { role: 'assistant' as const, content: 'a' }];
+
+      await postLoopProcessing(state as never, updated as never, 1, { loopStartCount: 1, loopPrompt: prompt });
+
+      expect(state.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'syncMessageIndices', messageCount: 1, shift: 1, lastAssistantIndex: 0 }),
+      );
+    });
+
+    it('re-renders when the loop compacted history', async () => {
+      const prompt = { role: 'user' as const, content: 'q' };
+      const state = makeState([{ role: 'user', content: 'old' }, { role: 'assistant', content: 'older' }, prompt]);
+      const updated = [
+        { role: 'user' as const, content: 'Summary of the conversation so far' },
+        { role: 'assistant' as const, content: 'ok' },
+      ];
+
+      await postLoopProcessing(state as never, updated as never, 3, { loopStartCount: 3, loopPrompt: prompt });
+
+      expect(state.postMessage).toHaveBeenCalledWith({ command: 'init', messages: state.messages });
+      expect(state.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'syncMessageIndices' }));
+    });
   });
 
   it('detects pending question when assistant ends with ?', async () => {
@@ -3743,5 +3828,101 @@ describe('resolveContextBudget', () => {
     });
     expect(r.contextLength).toBe(200_000);
     expect(r.maxSystemChars).toBeGreaterThan(LOCAL_MAX_SYSTEM_CHARS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUserMessage — a superseded run must not tear down the newer run (#110)
+// ---------------------------------------------------------------------------
+describe('handleUserMessage — superseded run', () => {
+  it("leaves the newer run's state alone when the older run unwinds", async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    // Hold each run inside connectWithRetry until the test releases it.
+    const releases: Array<(ok: boolean) => void> = [];
+    vi.spyOn(providerReachability, 'isProviderReachable').mockImplementation(
+      () => new Promise<boolean>((resolve) => releases.push(resolve)),
+    );
+
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 1.0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+
+    const state = {
+      messages: [],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      logMessage: vi.fn(),
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      pendingSteerSnapshot: null,
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      editCancelFns: null as unknown,
+      cancelCallbacks: null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        // At the budget limit, so each run stops right after connecting.
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 1.0, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+
+    const runA = handleUserMessage(state as never, 'first');
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    const runB = handleUserMessage(state as never, 'second');
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+
+    const bController = state.abortController;
+    const bQueue = state.currentSteerQueue;
+    const bEditCancels = state.editCancelFns;
+    expect(bController).not.toBeNull();
+    state.postMessage.mockClear();
+
+    // Run A finishes connecting after B has started, and unwinds.
+    releases[0](true);
+    await runA;
+
+    expect(state.abortController).toBe(bController);
+    expect(state.currentSteerQueue).toBe(bQueue);
+    expect(state.editCancelFns).toBe(bEditCancels);
+    expect(state.metricsCollector.endRun).not.toHaveBeenCalled();
+    expect(state.client.setTurnOverride).not.toHaveBeenCalled();
+    const posted = state.postMessage.mock.calls.map((c: unknown[]) => c[0] as Record<string, unknown>);
+    expect(posted).not.toContainEqual(expect.objectContaining({ command: 'setLoading', isLoading: false }));
+    expect(posted).not.toContainEqual(expect.objectContaining({ command: 'steerQueueUpdate', steerEnabled: false }));
+    // Aborted while connecting, A never went on to the budget check.
+    expect(state.metricsCollector.getSpendBreakdown).not.toHaveBeenCalled();
+
+    // Run B still cleans up after itself.
+    releases[1](true);
+    await runB;
+    expect(state.abortController).toBeNull();
+    expect(state.currentSteerQueue).toBeNull();
+
+    vi.restoreAllMocks();
   });
 });

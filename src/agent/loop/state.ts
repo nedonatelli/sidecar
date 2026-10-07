@@ -8,6 +8,7 @@ import type { ChangeLog } from '../changelog.js';
 import type { MCPManager } from '../mcpManager.js';
 import { createGateState, lastUserText } from '../completionGate.js';
 import { initRatchetRunState } from './keepBestRatchetWiring.js';
+import { lastUserMessageText } from './actionReprompt.js';
 import { getToolDefinitionsForTier } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
@@ -72,6 +73,23 @@ export interface LoopState {
   // --- Immutable inputs captured at init ---
   readonly startTime: number;
   readonly runId: string;
+  /**
+   * The run's working tree when it is not the workspace (Shadow Workspace,
+   * fork), from `options.cwdOverride`. Checks that read files from disk must
+   * use it: the main tree does not have the run's edits.
+   */
+  readonly cwdOverride?: string;
+  /**
+   * What the user asked for in this run: the last real user message the run
+   * started with, plus any steers they sent during it. Request-shape checks
+   * (action reprompt, fence-write coercion, routing) read this instead of
+   * scanning history. Scanning took the loop's own reprompts ("STOP calling
+   * write_file…", "You mentioned X but did not read it") for the user's
+   * request, and routing took the conversation's FIRST message, which may be
+   * an old, unrelated task. Optional so hand-built test states still work;
+   * readers fall back to scanning.
+   */
+  userRequestText?: string;
   /**
    * Config snapshot captured at loop entry from `options.config ?? getConfig()`.
    * Stored here so every submodule reads the same values for the duration of
@@ -377,6 +395,8 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
   return {
     startTime: Date.now(),
     runId: crypto.randomUUID(),
+    cwdOverride: options.cwdOverride,
+    userRequestText: lastUserMessageText(copiedMessages),
     config: options.config ?? getConfig(),
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
     // 128K, matching LOCAL_CONTEXT_CAP and the default local model's native

@@ -30,6 +30,26 @@ describe('repairMalformedToolUses', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
+  // #107: text-form calls carry the whole envelope as the raw input.
+  it.each([
+    ['<tool_call> shape', "{'name': 'read_file', 'arguments': {'path': 'a.ts'},}"],
+    ['OpenAI function shape', '{"type":"function","function":{"name":"read_file","parameters":{path:"a.ts"}}}'],
+    ['string arguments', '{"name": "read_file", "arguments": "{\'path\': \'a.ts\'}",}'],
+  ])('unwraps a repaired call envelope (%s) to its arguments', async (_label, raw) => {
+    const tu = malformed('read_file', raw);
+    await repairMalformedToolUses([tu], deps({}));
+    expect(tu.input).toEqual({ path: 'a.ts' });
+    expect(tu._malformedInputRaw).toBeUndefined();
+  });
+
+  it('falls through to regeneration when the envelope holds no usable arguments', async () => {
+    const complete = vi.fn(async () => '{"path":"b.ts"}');
+    const tu = malformed('read_file', '{"name": "read_file", "arguments": "path is b.ts",}');
+    await repairMalformedToolUses([tu], deps({ complete }));
+    expect(complete).toHaveBeenCalledOnce();
+    expect(tu.input).toEqual({ path: 'b.ts' });
+  });
+
   it('falls back to schema-constrained regeneration when heuristics fail', async () => {
     // Unrecoverable raw → heuristic returns null → model regenerates.
     const tu = malformed('read_file', 'path is a.ts probably');

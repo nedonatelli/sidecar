@@ -110,3 +110,25 @@ describe.skipIf(!hasGrammars)('treeSitterAnalyzer — AST edge extraction', () =
     expect(rels).toContainEqual({ childName: 'Service', parentName: 'Mixin', kind: 'extends' });
   });
 });
+
+// #122: the walks were recursive, so a deeply nested expression overflowed the
+// call stack (and the parse tree leaked).
+describe.skipIf(!hasGrammars)('treeSitterAnalyzer — deeply nested source', () => {
+  let analyzer: CodeAnalyzer;
+  beforeAll(async () => {
+    analyzer = await createTreeSitterAnalyzer(grammarsDir);
+  }, 30000);
+
+  it('parses a 20,000-term expression without overflowing the stack', () => {
+    const deep = `export function big() {\n  return ${Array.from({ length: 20_000 }, () => 'f(1)').join(' + ')};\n}\n`;
+    const parsed = analyzer.parseFileContent('deep.ts', deep);
+    expect(parsed.elements.map((e) => e.name)).toContain('big');
+    expect(parsed.calls?.length).toBe(20_000);
+  });
+
+  it('parses deeply nested Python too', () => {
+    const deep = `def big():\n    return ${Array.from({ length: 20_000 }, () => 'f(1)').join(' + ')}\n`;
+    const parsed = analyzer.parseFileContent('deep.py', deep);
+    expect(parsed.calls?.length).toBe(20_000);
+  });
+});

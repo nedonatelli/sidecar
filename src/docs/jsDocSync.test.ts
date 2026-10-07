@@ -36,13 +36,18 @@ describe('splitTopLevel', () => {
 
 describe('parseParamList', () => {
   it('parses simple named params', () => {
-    expect(parseParamList('a, b, c')).toEqual({ names: ['a', 'b', 'c'], hasDestructuredOrRest: false });
+    expect(parseParamList('a, b, c')).toEqual({
+      names: ['a', 'b', 'c'],
+      hasDestructuredOrRest: false,
+      requiredCount: 3,
+    });
   });
 
   it('strips type annotations', () => {
     expect(parseParamList('a: string, b: number')).toEqual({
       names: ['a', 'b'],
       hasDestructuredOrRest: false,
+      requiredCount: 2,
     });
   });
 
@@ -50,6 +55,7 @@ describe('parseParamList', () => {
     expect(parseParamList('a = 1, b: number = 2')).toEqual({
       names: ['a', 'b'],
       hasDestructuredOrRest: false,
+      requiredCount: 0,
     });
   });
 
@@ -57,6 +63,7 @@ describe('parseParamList', () => {
     expect(parseParamList('a?: string, b?: number')).toEqual({
       names: ['a', 'b'],
       hasDestructuredOrRest: false,
+      requiredCount: 0,
     });
   });
 
@@ -81,6 +88,7 @@ describe('parseParamList', () => {
     expect(parseParamList('this: Foo, a: string, b: number')).toEqual({
       names: ['a', 'b'],
       hasDestructuredOrRest: false,
+      requiredCount: 2,
     });
   });
 
@@ -89,8 +97,19 @@ describe('parseParamList', () => {
     expect(r.names).toEqual(['a', 'b']);
   });
 
+  // #119: the > of => was counted as a closing bracket, so params after a
+  // callback type merged and their @param was flagged (and deleted by the fix).
+  it('splits params after an arrow-function type', () => {
+    expect(parseParamList('cb: (x: number) => void, opts: Options').names).toEqual(['cb', 'opts']);
+    expect(parseParamList('map: Map<string, (a: T) => U>, n = 1').names).toEqual(['map', 'n']);
+  });
+
+  it('counts required params up to the first optional or defaulted one', () => {
+    expect(parseParamList('a: string, b?: number, c = 2').requiredCount).toBe(1);
+  });
+
   it('returns empty for empty list', () => {
-    expect(parseParamList('')).toEqual({ names: [], hasDestructuredOrRest: false });
+    expect(parseParamList('')).toEqual({ names: [], hasDestructuredOrRest: false, requiredCount: 0 });
   });
 });
 

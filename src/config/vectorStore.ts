@@ -262,36 +262,54 @@ export class FlatVectorStore<M> implements VectorStore<M> {
     }
   }
 
-  async persist(): Promise<void> {
-    if (!this.sidecarDir?.isReady()) return;
+  /** The persist in progress, so overlapping calls run one after another. */
+  private persistChain: Promise<void> = Promise.resolve();
 
+  /**
+   * Write the current state to disk. Everything that reads or changes the
+   * in-memory store happens synchronously, BEFORE the first await: compaction
+   * is applied to memory first, and the bytes and metadata written are a
+   * snapshot. The old version compacted into a new array during the writes
+   * and applied the new offsets afterwards, so an upsert or remove that ran
+   * while the files were being written was lost (its row lived in the
+   * discarded array), aliased another record's row, or came back from the
+   * dead; and with nothing to compact it wrote a VIEW of the live array, so a
+   * concurrent upsert changed the bytes being written.
+   */
+  persist(): Promise<void> {
+    const sidecarDir = this.sidecarDir;
+    if (!sidecarDir?.isReady()) return Promise.resolve();
+    // Taken now, synchronously: the state at the moment persist() is called.
+    // Only the writes wait for an earlier persist to finish.
+    const snap = this.takeSnapshot();
+    const run = this.persistChain.then(() => this.writeSnapshot(sidecarDir, snap));
+    this.persistChain = run.catch(() => {});
+    return run;
+  }
+
+  private takeSnapshot(): { envelope: FlatStoreMeta<M> & Record<string, unknown>; vectors: Float32Array } {
+    // --- synchronous: compact in memory, then snapshot ---
     const liveCount = this.entriesById.size;
-    const hasOrphans = liveCount < this.vectorCount;
-    const persistedEntries: Record<string, M & { offset: number }> = {};
-    // Float32Array<ArrayBufferLike> so both `new Float32Array(n)` (ArrayBuffer)
-    // and `subarray()` (ArrayBufferLike) are assignable to this variable.
-    let liveVectors: Float32Array<ArrayBufferLike>;
-
-    if (hasOrphans) {
+    if (liveCount < this.vectorCount) {
       // Compact: copy only live rows and assign sequential offsets so
-      // orphan rows from deletes don't waste disk space.
-      liveVectors = new Float32Array(liveCount * this.dimension);
+      // orphan rows from deletes don't waste memory or disk space.
+      const compact = new Float32Array(Math.max(16, liveCount) * this.dimension);
       let newOffset = 0;
       for (const [id, entry] of this.entriesById.entries()) {
         const oldStart = entry.offset * this.dimension;
-        liveVectors.set(this.vectors.subarray(oldStart, oldStart + this.dimension), newOffset * this.dimension);
-        persistedEntries[id] = { ...entry.metadata, offset: newOffset };
+        compact.set(this.vectors.subarray(oldStart, oldStart + this.dimension), newOffset * this.dimension);
+        this.entriesById.set(id, { metadata: entry.metadata, offset: newOffset });
         newOffset += 1;
       }
-    } else {
-      // No orphan rows — the packed array is already compact.
-      // Write a subarray view directly; no copy needed.
-      liveVectors = this.vectors.subarray(0, liveCount * this.dimension);
-      for (const [id, entry] of this.entriesById.entries()) {
-        persistedEntries[id] = { ...entry.metadata, offset: entry.offset };
-      }
+      this.vectors = compact;
+      this.vectorCount = liveCount;
     }
-
+    const persistedEntries: Record<string, M & { offset: number }> = {};
+    for (const [id, entry] of this.entriesById.entries()) {
+      persistedEntries[id] = { ...entry.metadata, offset: entry.offset };
+    }
+    // A copy, not a view: later upserts write into this.vectors.
+    const snapshot = this.vectors.slice(0, liveCount * this.dimension);
     const envelope: FlatStoreMeta<M> & Record<string, unknown> = {
       ...this.extraMeta,
       version: this.version,
@@ -299,23 +317,20 @@ export class FlatVectorStore<M> implements VectorStore<M> {
       count: liveCount,
       entries: persistedEntries,
     };
+    return { envelope, vectors: snapshot };
+  }
+
+  /** Asynchronous half of persist(): writes a snapshot, touches no live state. */
+  private async writeSnapshot(
+    sidecarDir: SidecarDir,
+    snap: { envelope: FlatStoreMeta<M> & Record<string, unknown>; vectors: Float32Array },
+  ): Promise<void> {
     try {
-      await this.sidecarDir.writeJson(this.metaFile, envelope);
-      const binPath = this.sidecarDir.getPath(this.binFile);
-      const dir = path.dirname(binPath);
-      await fs.promises.mkdir(dir, { recursive: true });
-      const buffer = Buffer.from(liveVectors.buffer, liveVectors.byteOffset, liveCount * this.dimension * 4);
-      await fs.promises.writeFile(binPath, buffer);
-      if (hasOrphans) {
-        // Apply the new compact offsets back to the in-memory store so
-        // subsequent upserts start from a clean offset map.
-        this.vectors = liveVectors as Float32Array<ArrayBuffer>;
-        this.vectorCount = liveCount;
-        for (const [id, newMeta] of Object.entries(persistedEntries)) {
-          const { offset: newOffset, ...cleanMeta } = newMeta as M & { offset: number };
-          this.entriesById.set(id, { metadata: cleanMeta as M, offset: newOffset });
-        }
-      }
+      await sidecarDir.writeJson(this.metaFile, snap.envelope);
+      const binPath = sidecarDir.getPath(this.binFile);
+      await fs.promises.mkdir(path.dirname(binPath), { recursive: true });
+      const v = snap.vectors;
+      await fs.promises.writeFile(binPath, Buffer.from(v.buffer, v.byteOffset, v.byteLength));
     } catch (err) {
       logger.warn('[FlatVectorStore] persist failed:', err);
     }

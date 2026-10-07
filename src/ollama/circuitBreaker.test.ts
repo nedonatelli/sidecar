@@ -232,3 +232,38 @@ describe('CircuitBreaker', () => {
     });
   });
 });
+
+// #111: an aborted half-open probe never released the probe slot, and
+// half-open had no time-based exit, so the provider stayed locked out.
+describe('CircuitBreaker — a probe that never reports back', () => {
+  afterEach(() => vi.useRealTimers());
+
+  function halfOpen(breaker: CircuitBreaker): void {
+    vi.useFakeTimers();
+    breaker.recordFailure('ollama'); // threshold 1 → open
+    vi.advanceTimersByTime(1001); // cooldown elapsed
+    expect(breaker.allow('ollama')).toBe(true); // the probe goes out
+    expect(breaker.allow('ollama')).toBe(false); // slot held
+  }
+
+  it('frees the probe slot when the probe is aborted', () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 1, cooldownMs: 1000 });
+    halfOpen(breaker);
+    breaker.recordAbort('ollama');
+    expect(breaker.allow('ollama')).toBe(true);
+  });
+
+  it('frees the probe slot when the lease runs out', () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 1, cooldownMs: 1000, probeLeaseMs: 5000 });
+    halfOpen(breaker);
+    vi.advanceTimersByTime(5001);
+    expect(breaker.allow('ollama')).toBe(true);
+  });
+
+  it('treats an abort outside half-open as a no-op', () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 3 });
+    breaker.recordFailure('ollama');
+    breaker.recordAbort('ollama');
+    expect(breaker.describe('ollama')).toMatchObject({ state: 'closed', consecutiveFailures: 1 });
+  });
+});
