@@ -16,11 +16,12 @@ describe('TerminalManager', () => {
     expect(first).toBe(second);
   });
 
-  it('executeCommand returns null when no shell integration', async () => {
+  // Without shell integration the command is SENT and will run; null used to
+  // read as "not run", and the Run button then ran it a second time.
+  it('executeCommand reports a sent command when there is no shell integration', async () => {
     const manager = new TerminalManager();
     const result = await manager.executeCommand('echo hello');
-    // Without shell integration, returns null and uses sendText
-    expect(result).toBeNull();
+    expect(result).toBe(TerminalManager.SENT_WITHOUT_OUTPUT);
   });
 
   it('dispose cleans up without error', () => {
@@ -108,7 +109,7 @@ describe('TerminalManager', () => {
 
     const manager = new TerminalManager();
     const result = await manager.executeCommand('echo hello');
-    expect(result).toBeNull();
+    expect(result).toBe(TerminalManager.SENT_WITHOUT_OUTPUT);
     expect(mockTerminal.sendText).toHaveBeenCalledWith('echo hello', true);
     vi.restoreAllMocks();
   });

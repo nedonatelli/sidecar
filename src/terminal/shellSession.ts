@@ -215,6 +215,17 @@ export class ShellSession {
     return this.proc !== null && this.proc.exitCode === null;
   }
 
+  private disposedFlag = false;
+  /**
+   * True once dispose() ran. Not the same as !isAlive: the persistent shell is
+   * spawned on first use and may never run at all (terminal mode sends
+   * foreground commands to the VS Code terminal), while the session still owns
+   * its background commands.
+   */
+  get isDisposed(): boolean {
+    return this.disposedFlag;
+  }
+
   private ensureProcess(): ChildProcess {
     if (this.isAlive && this.proc) return this.proc;
 
@@ -724,6 +735,7 @@ export class ShellSession {
    * Dispose the shell session and all background processes.
    */
   dispose(): void {
+    this.disposedFlag = true;
     const killWithTimeout = (proc: ChildProcess | ManagedChildProcess) => {
       const rawProc = proc instanceof ManagedChildProcess ? proc.getProc() : proc;
       // Take the children with it where the platform requires asking.

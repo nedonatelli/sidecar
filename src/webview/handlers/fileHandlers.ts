@@ -292,13 +292,16 @@ export async function handleRunCommand(state: ChatState, command: string): Promi
     return null;
   }
 
-  const terminalOutput = await state.terminalManager.executeCommand(command);
-  if (terminalOutput !== null) {
-    return terminalOutput;
+  // The terminal runs it -- with captured output when shell integration is
+  // ready, otherwise sent and shown there. Only when the terminal itself fails
+  // does the fallback run it, so one approval means one run.
+  try {
+    return await state.terminalManager.executeCommand(command);
+  } catch {
+    // fall through to the hidden shell below
   }
 
-  // Fallback path — terminal manager couldn't run the command (e.g. no
-  // shell integration available). Route through ShellSession rather
+  // Fallback path — the terminal could not be created or used. Route through ShellSession rather
   // than raw child_process.exec so the hardened per-command prefix
   // (alias/function namespace reset from shellSession.ts) still applies.
   // Previously this path bypassed that hardening, which meant an earlier
