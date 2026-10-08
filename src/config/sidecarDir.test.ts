@@ -211,4 +211,20 @@ describe('SidecarDir', () => {
     );
     expect(String(written?.[1])).toContain('memory/durable-instructions.json');
   });
+
+  // A .gitignore that ignores all of memory/ -- like this repo's own -- got the
+  // redundant line on every activation, leaving a tracked file modified.
+  it.each(['memory/', 'memory', '/memory/*', 'memory/durable-instructions.json'])(
+    'leaves an existing .gitignore alone when %s already covers the file',
+    async (line) => {
+      mockFs.stat.mockResolvedValue({ type: 1 });
+      mockFs.readFile.mockResolvedValue(Buffer.from(`cache/\n${line}\nsessions/\n`));
+      mockFs.writeFile.mockClear();
+      await new SidecarDir().initialize();
+      const written = mockFs.writeFile.mock.calls.find((c: unknown[]) =>
+        String((c[0] as { fsPath: string }).fsPath).endsWith('.gitignore'),
+      );
+      expect(written).toBeUndefined();
+    },
+  );
 });

@@ -180,7 +180,7 @@ export class SymbolIndexer implements Disposable {
     // Stat + read + parse all files concurrently. Each callback is
     // synchronous after its awaits, so graph mutations don't race.
     let parsed = 0;
-    await Promise.allSettled(
+    const settled = await Promise.allSettled(
       codeUris.map(async (uri) => {
         const relativePath = this.relKey(uri.fsPath);
         const stat = await workspace.fs.stat(uri);
@@ -205,6 +205,17 @@ export class SymbolIndexer implements Disposable {
         parsed++;
       }),
     );
+    // A file that failed to index is absent from find_references,
+    // analyze_impact and PKI retrieval. These failures were discarded: 102
+    // files missing from this repo's graph left no trace in any log.
+    const failed = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed.length > 0) {
+      const first = failed[0].reason instanceof Error ? failed[0].reason.message : String(failed[0].reason);
+      logger.warn(
+        `[SideCar] ${failed.length} of ${codeUris.length} files could not be indexed and are missing from the ` +
+          `symbol graph (first error: ${first}).`,
+      );
+    }
 
     // Remove files that no longer exist
     if (restored) {

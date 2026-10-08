@@ -8,7 +8,7 @@ import * as path from 'path';
 import { logger } from '../system/logger.js';
 import type { CodeAnalyzer, CodeElement, ParsedFile } from './types.js';
 import { SimpleCodeAnalyzer, type ParsedCall, type ParsedTypeRelation, type ParsedTypeUse } from '../astContext.js';
-import { createParser, type Parser } from './treeSitterLoader.js';
+import { createParser, DISABLED_GRAMMARS, type Parser } from './treeSitterLoader.js';
 import {
   type AnyNode,
   walkDeclarator,
@@ -255,7 +255,7 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
   ],
 };
 
-class TreeSitterCodeAnalyzer implements CodeAnalyzer {
+export class TreeSitterCodeAnalyzer implements CodeAnalyzer {
   readonly supportedExtensions = SUPPORTED_EXTENSIONS;
   private parsers = new Map<string, Parser>();
 
@@ -268,11 +268,27 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
     const langName = EXT_TO_LANGUAGE[ext];
     const parser = langName ? this.parsers.get(langName) : undefined;
 
+    // No parser for this language -- its grammar failed to load, is disabled,
+    // or threw on an earlier file: the regex analyzer, not an empty result.
     if (!parser || !langName) {
-      return { filePath, elements: [], content };
+      return SimpleCodeAnalyzer.parseFileContent(filePath, content);
     }
 
-    const tree = parser.parse(content);
+    let tree: ReturnType<Parser['parse']>;
+    try {
+      tree = parser.parse(content);
+    } catch (err) {
+      // A scanner that throws mid-parse can leave the shared runtime corrupt,
+      // and every later parse in every language then fails. Stop using this
+      // language for the rest of the session, and say so once.
+      this.parsers.delete(langName);
+      logger.warn(
+        `[SideCar] tree-sitter '${langName}' threw while parsing ${filePath} ` +
+          `(${err instanceof Error ? err.message : String(err)}); using the regex analyzer for '${langName}' from now on.`,
+      );
+      return SimpleCodeAnalyzer.parseFileContent(filePath, content);
+    }
+    if (!tree) return SimpleCodeAnalyzer.parseFileContent(filePath, content);
     // The tree lives in WASM memory and is freed only by delete(): released in
     // `finally` so an exception anywhere below no longer leaks it.
     const cursor = tree.walk();
@@ -557,14 +573,39 @@ class TreeSitterCodeAnalyzer implements CodeAnalyzer {
   }
 }
 
+const ANALYZER_KEY = Symbol.for('sidecar.treeSitterAnalyzer.byDir');
+
 /**
- * Create a TreeSitterCodeAnalyzer with pre-loaded parsers for all supported languages.
+ * A TreeSitterCodeAnalyzer with pre-loaded parsers for all supported languages
+ * -- one per grammars directory for the whole process, shared by every copy of
+ * this module.
+ *
+ * web-tree-sitter's runtime is per process, and loading a grammar while
+ * anything else uses it (another load, or a parse) corrupts it: "null
+ * function", "memory access out of bounds". One analyzer loads everything
+ * before it parses anything, so it is safe; a second, built by another copy of
+ * this module (the extension bundle and the compiled sources the integration
+ * tests import are two), loaded grammars while the first was parsing, and
+ * every grammar in both failed.
  */
-export async function createTreeSitterAnalyzer(wasmDir: string): Promise<CodeAnalyzer> {
+export function createTreeSitterAnalyzer(wasmDir: string): Promise<CodeAnalyzer> {
+  const g = globalThis as unknown as Record<symbol, Map<string, Promise<CodeAnalyzer>> | undefined>;
+  const byDir = (g[ANALYZER_KEY] ??= new Map());
+  const key = process.platform === 'win32' ? path.resolve(wasmDir).toLowerCase() : path.resolve(wasmDir);
+  let analyzer = byDir.get(key);
+  if (!analyzer) {
+    analyzer = buildTreeSitterAnalyzer(wasmDir);
+    byDir.set(key, analyzer);
+    analyzer.catch(() => byDir.delete(key)); // a failed load may be retried
+  }
+  return analyzer;
+}
+
+async function buildTreeSitterAnalyzer(wasmDir: string): Promise<CodeAnalyzer> {
   const parsers = new Map<string, Parser>();
 
   const languages = Object.values(EXT_TO_LANGUAGE).filter(
-    (v, i, arr) => arr.indexOf(v) === i, // dedupe
+    (v, i, arr) => arr.indexOf(v) === i && !DISABLED_GRAMMARS.has(v), // dedupe; see DISABLED_GRAMMARS
   );
 
   // Load grammars SERIALLY, not in parallel. web-tree-sitter's `Language.load`
