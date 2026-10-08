@@ -12,42 +12,89 @@ type Language = Awaited<ReturnType<Awaited<TreeSitterModule>['Language']['load']
 
 export type { Parser, Language };
 
-let parserClass: Awaited<TreeSitterModule> | null = null;
-let initPromise: Promise<Awaited<TreeSitterModule>> | null = null;
-const loadedLanguages = new Map<string, Language>();
+/**
+ * The runtime state, shared by every copy of this module in the process.
+ *
+ * web-tree-sitter is one Emscripten runtime per process, and `Language.load`
+ * mutates it: two loads in flight at once corrupt each other ("memory access
+ * out of bounds", "table index is out of bounds"). Module-level state only
+ * serialized loads within ONE copy of this module, and the extension bundle
+ * and anything importing the compiled sources (the integration tests) are two
+ * copies -- each called `init` and loaded every grammar alongside the other,
+ * and every grammar failed in both.
+ */
+interface SharedTreeSitterState {
+  init: Promise<Awaited<TreeSitterModule>> | null;
+  languages: Map<string, Promise<Language>>;
+  /** Tail of the queue every `Language.load` runs through, one at a time. */
+  loadChain: Promise<unknown>;
+}
+
+const SHARED_KEY = Symbol.for('sidecar.webTreeSitter.state');
+
+function shared(): SharedTreeSitterState {
+  const g = globalThis as unknown as Record<symbol, SharedTreeSitterState | undefined>;
+  return (g[SHARED_KEY] ??= { init: null, languages: new Map(), loadChain: Promise.resolve() });
+}
 
 /**
- * Initialize the web-tree-sitter WASM runtime. Called once; subsequent calls
- * return the cached module.
+ * Initialize the web-tree-sitter WASM runtime. Called once per process;
+ * subsequent calls return the cached module.
  */
 export async function initTreeSitter(wasmDir: string): Promise<Awaited<TreeSitterModule>> {
-  if (parserClass) return parserClass;
-  if (initPromise) return initPromise;
-
-  initPromise = (async () => {
+  const state = shared();
+  state.init ??= (async () => {
     const TreeSitter = (await import('web-tree-sitter')).default;
     await TreeSitter.init({
       locateFile: () => path.join(wasmDir, 'tree-sitter.wasm'),
     });
-    parserClass = TreeSitter;
     return TreeSitter;
-  })();
-
-  return initPromise;
+  })().catch((err: unknown) => {
+    state.init = null; // a failed init may be retried
+    throw err;
+  });
+  return state.init;
 }
 
 /**
- * Load a language grammar WASM file. Cached per language name.
+ * Grammars that are never loaded, and why.
+ *
+ * A grammar's external scanner is C compiled to WASM, and the functions it
+ * imports must be exported by web-tree-sitter's runtime. bash's scanner calls
+ * `isalpha`, which web-tree-sitter 0.24 does not export: scanning ordinary
+ * shell (3 of this repo's 7 scripts) throws "resolved is not a function" from
+ * inside a parse. An exception unwound through the runtime leaves it corrupt,
+ * and in the extension host every later parse, in every language, then failed
+ * with "memory access out of bounds" -- 102 of 3,449 files went missing from
+ * the symbol graph, silently. Shell files fall back to the regex analyzer.
+ *
+ * Other grammars import only `__assert_fail` / `abort`, reached only when a
+ * scanner's own assertion fails; a parse that throws disables its language
+ * (see TreeSitterCodeAnalyzer.parseFileContent).
+ */
+export const DISABLED_GRAMMARS: ReadonlyMap<string, string> = new Map([
+  ['bash', "its scanner imports isalpha, which web-tree-sitter's runtime does not export"],
+]);
+
+/**
+ * Load a language grammar WASM file. Cached per language name, and loaded
+ * one at a time across the whole process.
  */
 export async function loadLanguage(wasmDir: string, languageName: string): Promise<Language> {
-  const cached = loadedLanguages.get(languageName);
+  const disabled = DISABLED_GRAMMARS.get(languageName);
+  if (disabled) throw new Error(`tree-sitter grammar '${languageName}' is disabled: ${disabled}`);
+  const state = shared();
+  const cached = state.languages.get(languageName);
   if (cached) return cached;
 
-  const TreeSitter = await initTreeSitter(wasmDir);
-  const wasmPath = path.join(wasmDir, `tree-sitter-${languageName}.wasm`);
-  const lang = await TreeSitter.Language.load(wasmPath);
-  loadedLanguages.set(languageName, lang);
-  return lang;
+  const load = state.loadChain.then(async () => {
+    const TreeSitter = await initTreeSitter(wasmDir);
+    return TreeSitter.Language.load(path.join(wasmDir, `tree-sitter-${languageName}.wasm`));
+  });
+  state.loadChain = load.catch(() => undefined);
+  state.languages.set(languageName, load);
+  load.catch(() => state.languages.delete(languageName)); // a failed load may be retried
+  return load;
 }
 
 /**

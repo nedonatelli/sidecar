@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { warmTypeScriptServer } from './tsWarmup.js';
 
 // DOGFOOD — the real agent loop, in a real extension host, against a real model.
 //
@@ -53,14 +54,18 @@ function snapshotRepo(): Map<string, number> {
 suite('dogfood — real agent loop in a real extension host', function () {
   let repoBefore: Map<string, number>;
 
-  suiteSetup(() => {
+  suiteSetup(async function () {
+    this.timeout(180_000);
     fs.mkdirSync(scratchPath(), { recursive: true });
     repoBefore = snapshotRepo();
+    await warmTypeScriptServer();
   });
 
   suiteTeardown(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-    fs.rmSync(scratchPath(), { recursive: true, force: true });
+    // Retried: on Windows the extension's indexer can still hold a file in the
+    // directory for a moment after the agent wrote it (ENOTEMPTY).
+    fs.rmSync(scratchPath(), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   test('get_diagnostics reports a real type error and leaves the editor as it found it', async function () {
@@ -76,27 +81,31 @@ suite('dogfood — real agent loop in a real extension host', function () {
     const rel = 'src/test/integration/__dogfood_broken__.ts';
     const abs = path.join(vscode.workspace.workspaceFolders![0].uri.fsPath, rel);
     fs.writeFileSync(abs, 'export const wrong: number = "not a number";\n', 'utf-8');
+    // Removed even when an assertion fails: left behind, its deliberate type
+    // error broke the next run's compile of this directory.
+    try {
+      const mod = require(
+        path.join(vscode.workspace.workspaceFolders![0].uri.fsPath, 'out/agent/tools/diagnostics.js'),
+      ) as {
+        getDiagnostics: (i: unknown, c?: unknown) => Promise<string>;
+      };
+      const tabsBefore = vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;
+      const out = await mod.getDiagnostics({ path: rel });
+      const ourTabs = vscode.window.tabGroups.all
+        .flatMap((g) => g.tabs)
+        .filter((t) => (t.input as vscode.TabInputText | undefined)?.uri?.fsPath === abs);
 
-    const mod = require(
-      path.join(vscode.workspace.workspaceFolders![0].uri.fsPath, 'out/agent/tools/diagnostics.js'),
-    ) as {
-      getDiagnostics: (i: unknown, c?: unknown) => Promise<string>;
-    };
-    const tabsBefore = vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;
-    const out = await mod.getDiagnostics({ path: rel });
-    const ourTabs = vscode.window.tabGroups.all
-      .flatMap((g) => g.tabs)
-      .filter((t) => (t.input as vscode.TabInputText | undefined)?.uri?.fsPath === abs);
+      console.log(`\n=== get_diagnostics on an agent-written file ===\n${out}`);
+      console.log(
+        `tabs before=${tabsBefore} ours-left-open=${ourTabs.length} focus=${vscode.window.activeTextEditor?.document.fileName ?? 'none'}`,
+      );
 
-    console.log(`\n=== get_diagnostics on an agent-written file ===\n${out}`);
-    console.log(
-      `tabs before=${tabsBefore} ours-left-open=${ourTabs.length} focus=${vscode.window.activeTextEditor?.document.fileName ?? 'none'}`,
-    );
-
-    assert.ok(/not assignable/.test(out), `expected a real type error, got:\n${out}`);
-    assert.strictEqual(ourTabs.length, 0, 'the tool must close the tab it opened');
-    assert.strictEqual(vscode.window.activeTextEditor, undefined, 'focus must not move');
-    fs.rmSync(abs, { force: true });
+      assert.ok(/not assignable/.test(out), `expected a real type error, got:\n${out}`);
+      assert.strictEqual(ourTabs.length, 0, 'the tool must close the tab it opened');
+      assert.strictEqual(vscode.window.activeTextEditor, undefined, 'focus must not move');
+    } finally {
+      fs.rmSync(abs, { force: true });
+    }
   });
 
   test('when it cannot analyse, it says so rather than reporting clean', async function () {

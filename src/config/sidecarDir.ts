@@ -81,9 +81,11 @@ export class SidecarDir {
       await workspace.fs.stat(gitignoreUri);
       // An existing .gitignore from an older version lacks the durable
       // instructions file -- the user's own sentences, which must not be
-      // committed. Add the line once.
+      // committed. Add the line once, unless the file already ignores it: one
+      // that ignores all of memory/ was rewritten on every activation anyway,
+      // leaving a tracked .gitignore modified in every such workspace.
       const current = Buffer.from(await workspace.fs.readFile(gitignoreUri)).toString('utf-8');
-      if (!current.split(/\r?\n/).includes('memory/durable-instructions.json')) {
+      if (!ignoresDurableInstructions(current)) {
         const sep = current.endsWith('\n') || current === '' ? '' : '\n';
         await workspace.fs.writeFile(
           gitignoreUri,
@@ -205,4 +207,24 @@ export class SidecarDir {
       return [];
     }
   }
+}
+
+/**
+ * Whether a .sidecar/.gitignore already ignores memory/durable-instructions.json:
+ * the file itself, or the whole memory/ directory.
+ */
+function ignoresDurableInstructions(gitignore: string): boolean {
+  const covering = new Set([
+    'memory/durable-instructions.json',
+    '/memory/durable-instructions.json',
+    'memory',
+    'memory/',
+    '/memory',
+    '/memory/',
+    'memory/*',
+    '/memory/*',
+    'memory/**',
+    '/memory/**',
+  ]);
+  return gitignore.split(/\r?\n/).some((line) => covering.has(line.trim()));
 }

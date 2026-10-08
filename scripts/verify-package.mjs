@@ -8,7 +8,7 @@
 //   node scripts/verify-package.mjs [path/to/extension.vsix]
 // With no argument it inspects what `vsce ls` would package.
 
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { checkPackagePlatforms, GPU_PROVIDER_RE, targetToPlatformDir } from './lib/onnxPlatforms.mjs';
 
@@ -62,8 +62,10 @@ function listFiles() {
     }
     return listZipEntries(vsixPath).map((l) => l.replace(/^extension\//, ''));
   }
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const out = execFileSync(npx, ['@vscode/vsce', 'ls'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // On Windows npx is a .cmd file, which Node (since the CVE-2024-27980 fix)
+  // refuses to spawn without a shell: `spawnSync npx.cmd EINVAL`. One constant
+  // command line through the shell works on every platform.
+  const out = execSync('npx @vscode/vsce ls', { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   return out.split('\n');
 }
 

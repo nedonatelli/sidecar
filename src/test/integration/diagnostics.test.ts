@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { warmTypeScriptServer } from './tsWarmup.js';
 
 // Integration tests for `get_diagnostics` against a real extension host.
 //
@@ -72,7 +73,9 @@ suite('get_diagnostics — the premise the completion gate rests on', () => {
 
 suite('get_diagnostics tool — end to end', () => {
   const created: string[] = [];
-  suiteSetup(async () => {
+  suiteSetup(async function () {
+    this.timeout(180_000);
+    await warmTypeScriptServer();
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   });
   suiteTeardown(async () => {
