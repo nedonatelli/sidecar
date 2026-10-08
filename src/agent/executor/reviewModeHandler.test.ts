@@ -397,3 +397,23 @@ describe('handleReviewModeTool — path rules', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 });
+
+// Two edits to one file in the same turn run in parallel. Outside the file
+// lock both read the same base, and the second record() dropped the first
+// edit -- though both reported "queued". (#139)
+describe('handleReviewModeTool — concurrent edit_file to one file', () => {
+  it('keeps both edits', async () => {
+    const { PendingEditStore } = await import('../pendingEdits.js');
+    const store = new PendingEditStore();
+    const [a, b] = await Promise.all([
+      handleReviewModeTool(makeToolUse('edit_file', { path: 'src/x.ts', search: 'mock', replace: 'MOCK' }), store),
+      handleReviewModeTool(
+        makeToolUse('edit_file', { path: 'src/x.ts', search: 'content', replace: 'CONTENT' }),
+        store,
+      ),
+    ]);
+    expect(a!.is_error).toBeFalsy();
+    expect(b!.is_error).toBeFalsy();
+    expect(store.get(`${ROOT}/src/x.ts`)!.newContent).toBe('MOCK file CONTENT');
+  });
+});

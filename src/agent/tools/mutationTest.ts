@@ -45,13 +45,25 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
   const rootUri = resolveRootUri(context);
   const uriFor = (p: string): Uri => (path.isAbsolute(p) ? Uri.file(p) : Uri.joinPath(rootUri, p));
 
+  // The original's exact bytes, for the restore. Decoding and re-encoding as
+  // UTF-8 permanently changed a Latin-1, cp1252 or UTF-16 file; such a file is
+  // refused, since every mutant written would re-encode it the same way.
+  let original: { text: string; bytes: Uint8Array } | undefined;
   const io: MutationIo = {
     async read(p: string): Promise<string> {
       const bytes = await workspace.fs.readFile(uriFor(p));
-      return Buffer.from(bytes).toString('utf-8');
+      const text = Buffer.from(bytes).toString('utf-8');
+      if (!original) {
+        if (!Buffer.from(text, 'utf-8').equals(Buffer.from(bytes))) {
+          throw new Error(`${file} is not UTF-8 text, and writing a mutant would re-encode it.`);
+        }
+        original = { text, bytes };
+      }
+      return text;
     },
     async write(p: string, content: string): Promise<void> {
-      await workspace.fs.writeFile(uriFor(p), Buffer.from(content, 'utf-8'));
+      const bytes = original && content === original.text ? original.bytes : Buffer.from(content, 'utf-8');
+      await workspace.fs.writeFile(uriFor(p), bytes);
     },
     async runTest(): Promise<{ passed: boolean; output: string }> {
       const r = await runVerificationCommand(testCommand, perTestTimeoutMs, signal);
@@ -61,11 +73,12 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
 
   let run;
   try {
-    run = await runMutationTest(file, io, { operators, maxMutants });
+    run = await runMutationTest(file, io, { operators, maxMutants, signal });
   } catch (err) {
     return `Error: mutation test failed to run: ${err instanceof Error ? err.message : String(err)}`;
   }
 
+  if (run.stopped && run.results.length === 0) return `Mutation testing of \`${file}\` was stopped.`;
   if (!run.baselinePassed) {
     return (
       `Mutation testing skipped for \`${file}\`: the baseline test command did not pass on the ORIGINAL file. ` +
@@ -75,6 +88,7 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
 
   const s = run.score;
   const lines: string[] = [`**Mutation test — \`${file}\`**`, '', formatMutationScore(s)];
+  if (run.stopped) lines.push('', `Stopped after ${run.results.length} mutant(s); the score covers only those.`);
   if (s.viable === 0) {
     lines.push('', 'No viable mutants were generated (no mutable operators found in this file).');
     return lines.join('\n');

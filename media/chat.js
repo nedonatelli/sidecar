@@ -4939,7 +4939,10 @@
         acceptAllBtn.className = 'confirm-btn confirm-primary';
         acceptAllBtn.textContent = 'Accept All';
         acceptAllBtn.addEventListener('click', () => {
-          vscode.postMessage({ command: 'acceptAllChanges' });
+          vscode.postMessage({
+            command: 'acceptAllChanges',
+            filePaths: items.map((i) => i.filePath),
+          });
           panel.remove();
         });
         csHeader.appendChild(acceptAllBtn);

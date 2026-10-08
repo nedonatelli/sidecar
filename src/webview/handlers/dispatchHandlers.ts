@@ -366,7 +366,8 @@ export function buildDispatchHandlers(
 
     rejectEditPlanFile: async (msg) => {
       if (!msg.filePath || !msg.op) return;
-      await revertEditPlanFile(msg.filePath, msg.op, state.changelog);
+      const refusal = await revertEditPlanFile(msg.filePath, msg.op, state.changelog);
+      if (refusal) state.postMessage({ command: 'error', content: refusal });
     },
 
     changeModel: async (msg) => {
@@ -605,7 +606,7 @@ export function buildDispatchHandlers(
     notebookExit: () => handleNotebookExit(state),
     generateCommit: () => handleGenerateCommit(state),
     revertFile: (msg) => handleRevertFile(state, msg.filePath || ''),
-    acceptAllChanges: () => handleAcceptAllChanges(state),
+    acceptAllChanges: (msg) => handleAcceptAllChanges(state, msg.filePaths),
     deleteMessage: (msg) => handleDeleteMessage(state, msg.index ?? -1),
     editMessage: (msg) => handleEditMessage(state, msg.index ?? -1, msg.text ?? ''),
     toggleVerbose: () => handleToggleVerbose(state),

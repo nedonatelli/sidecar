@@ -12,7 +12,13 @@ import { scoreMutants, type MutantResult, type MutationScore } from './mutationS
 // filesystem or a shell itself.
 //
 // Ordering matters for safety: the ORIGINAL is restored in a finally, so a
-// throw mid-run never leaves a mutant on disk.
+// throw mid-run never leaves a mutant on disk -- but only over the runner's own
+// mutant: a file someone else has written since keeps their content.
+//
+// Stop is checked before every test run. The executors ignore a signal that
+// was already aborted when they start, so without the check every remaining
+// mutant was still written and tested after Stop, and the late restore then
+// wrote the original over edits the next run had made meanwhile.
 // ---------------------------------------------------------------------------
 
 export interface MutationIo {
@@ -28,6 +34,8 @@ export interface MutationRunResult {
   /** False when the baseline test didn't pass on the original — the whole run
    *  is void (you can't measure kill rate without a green start). */
   baselinePassed: boolean;
+  /** True when Stop ended the run early; `results` covers the mutants run so far. */
+  stopped: boolean;
   results: MutantResult[];
   score: MutationScore;
 }
@@ -52,19 +60,24 @@ const EMPTY_SCORE: MutationScore = {
 export async function runMutationTest(
   filePath: string,
   io: MutationIo,
-  options: GenerateOptions = {},
+  options: GenerateOptions & { signal?: AbortSignal } = {},
 ): Promise<MutationRunResult> {
+  const { signal } = options;
   const original = await io.read(filePath);
 
+  if (signal?.aborted) return { baselinePassed: false, stopped: true, results: [], score: EMPTY_SCORE };
   const baseline = await io.runTest();
   if (!baseline.passed) {
-    return { baselinePassed: false, results: [], score: EMPTY_SCORE };
+    return { baselinePassed: false, stopped: false, results: [], score: EMPTY_SCORE };
   }
 
   const mutants = generateMutants(original, options);
   const results: MutantResult[] = [];
+  let lastWritten: string | undefined;
   try {
     for (const m of mutants) {
+      if (signal?.aborted) break;
+      lastWritten = m.mutatedSource;
       await io.write(filePath, m.mutatedSource);
       try {
         const r = await io.runTest();
@@ -82,8 +95,11 @@ export async function runMutationTest(
       }
     }
   } finally {
-    await io.write(filePath, original);
+    if (lastWritten !== undefined) {
+      const current = await io.read(filePath).catch(() => undefined);
+      if (current === undefined || current === lastWritten) await io.write(filePath, original);
+    }
   }
 
-  return { baselinePassed: true, results, score: scoreMutants(results) };
+  return { baselinePassed: true, stopped: signal?.aborted === true, results, score: scoreMutants(results) };
 }

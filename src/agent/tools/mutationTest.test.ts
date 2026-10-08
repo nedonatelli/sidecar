@@ -69,3 +69,34 @@ describe('mutation_test tool', () => {
     expect(runs).toBeLessThanOrEqual(3);
   });
 });
+
+// The restore decoded and re-encoded the file as UTF-8, permanently changing
+// Latin-1 / cp1252 / UTF-16 source bytes. (#139)
+describe('mutation_test tool — file bytes', () => {
+  it('refuses a file that is not UTF-8, and leaves its bytes alone', async () => {
+    const latin1 = Buffer.from('# caf\xe9\ndef below(a, b):\n    return a < b\n', 'latin1');
+    const writeFile = vi.spyOn(workspace.fs, 'writeFile');
+    writeFile.mockClear();
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(latin1 as never);
+    suite(() => true);
+    const out = await exec({ file: 'm.py', test_command: 'pytest' });
+    expect(out).toMatch(/not UTF-8/);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it('restores the exact original bytes', async () => {
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(ORIGINAL.replace(/\n/g, '\r\n'))]);
+    let disk: Buffer = bom;
+    vi.spyOn(workspace.fs, 'readFile').mockImplementation(async () => disk);
+    vi.spyOn(workspace.fs, 'writeFile').mockImplementation(async (_u: unknown, c: Uint8Array) => {
+      disk = Buffer.from(c);
+    });
+    (runVerificationCommand as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exitCode: 0,
+      output: '',
+      timedOut: false,
+    });
+    await exec({ file: 'm.py', test_command: 'pytest', operators: ['relational'] });
+    expect(disk.equals(bom)).toBe(true);
+  });
+});

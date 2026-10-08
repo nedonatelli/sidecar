@@ -11,6 +11,7 @@ import {
 } from '../tools/shared.js';
 import { resolveEditedText, editDiffSuffix, type ResolvedEdit } from '../tools/fs.js';
 import { computeLineDiff } from '../tools/diffUtils.js';
+import { withFileLock } from '../fileLock.js';
 
 /**
  * Tools whose disk output needs augmenting with the pending-edit
@@ -137,63 +138,68 @@ export async function handleReviewModeTool(
       };
     }
     const absPath = Uri.joinPath(root, relPath).fsPath;
-    const existing = pendingEdits.get(absPath);
-    // Build the base text we're editing — pending version if we've already
-    // queued changes to this file this session, otherwise the disk version.
-    const base = existing ? existing.newContent : await readDiskOrNull(root, relPath);
-    if (base === null) {
+    // Read-modify-write of the pending version, under the same lock edit_file
+    // takes: two edits to one file in a turn run in parallel, and both read
+    // the same base -- only one survived, though both reported "queued".
+    return withFileLock(absPath, async (): Promise<ToolResultContentBlock> => {
+      const existing = pendingEdits.get(absPath);
+      // Build the base text we're editing — pending version if we've already
+      // queued changes to this file this session, otherwise the disk version.
+      const base = existing ? existing.newContent : await readDiskOrNull(root, relPath);
+      if (base === null) {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: `Error: cannot edit ${relPath} — file does not exist`,
+          is_error: true,
+        };
+      }
+      // Route through edit_file's shared guard core rather than a local
+      // `includes`/`replace` pair. The local copy applied the STRING form of
+      // String.replace — so a `$&` or `$1` in the replacement was expanded as a
+      // regex reference and silently corrupted the queued file — replaced only
+      // the first of N matches with no ambiguity check, and answered a miss with
+      // a bare "Search text not found" that gave the model nothing to recover
+      // from (16 of 40 edit_file failures in the audit log, including a five-call
+      // retry loop). Guards added to edit_file now cover review mode too.
+      let resolved: ResolvedEdit;
+      try {
+        // Same inputs edit_file itself reads: review mode used to drop `within`
+        // and `replace_all`, so a replace_all edit failed as ambiguous here (#109).
+        resolved = await resolveEditedText({
+          filePath: relPath,
+          text: base,
+          search,
+          replace,
+          replaceAll: toolUse.input.replace_all === true,
+          within: typeof toolUse.input.within === 'string' ? toolUse.input.within : undefined,
+          context,
+        });
+      } catch (err: unknown) {
+        return {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: err instanceof Error ? err.message : String(err),
+          is_error: true,
+        };
+      }
+      if (resolved.newText === null) {
+        return { type: 'tool_result', tool_use_id: toolUse.id, content: resolved.message };
+      }
+      const newContent = resolved.newText;
+      // Pass the disk baseline only if this is the first capture — record()
+      // ignores the baseline on subsequent updates so we can safely pass null.
+      const baselineForRecord = existing ? null : base;
+      pendingEdits.record(absPath, baselineForRecord, newContent, 'edit_file');
+      logger?.info(`[REVIEW] Captured edit_file for ${relPath}`);
+      const queuedLine = resolved.summary ?? `Pending edit queued for review: ${relPath}`;
+      const patch = computeLineDiff(base, newContent, relPath);
       return {
         type: 'tool_result',
         tool_use_id: toolUse.id,
-        content: `Error: cannot edit ${relPath} — file does not exist`,
-        is_error: true,
+        content: `${resolved.prefixNote}${queuedLine}${resolved.suffixNote}${editDiffSuffix(patch, context)}`,
       };
-    }
-    // Route through edit_file's shared guard core rather than a local
-    // `includes`/`replace` pair. The local copy applied the STRING form of
-    // String.replace — so a `$&` or `$1` in the replacement was expanded as a
-    // regex reference and silently corrupted the queued file — replaced only
-    // the first of N matches with no ambiguity check, and answered a miss with
-    // a bare "Search text not found" that gave the model nothing to recover
-    // from (16 of 40 edit_file failures in the audit log, including a five-call
-    // retry loop). Guards added to edit_file now cover review mode too.
-    let resolved: ResolvedEdit;
-    try {
-      // Same inputs edit_file itself reads: review mode used to drop `within`
-      // and `replace_all`, so a replace_all edit failed as ambiguous here (#109).
-      resolved = await resolveEditedText({
-        filePath: relPath,
-        text: base,
-        search,
-        replace,
-        replaceAll: toolUse.input.replace_all === true,
-        within: typeof toolUse.input.within === 'string' ? toolUse.input.within : undefined,
-        context,
-      });
-    } catch (err: unknown) {
-      return {
-        type: 'tool_result',
-        tool_use_id: toolUse.id,
-        content: err instanceof Error ? err.message : String(err),
-        is_error: true,
-      };
-    }
-    if (resolved.newText === null) {
-      return { type: 'tool_result', tool_use_id: toolUse.id, content: resolved.message };
-    }
-    const newContent = resolved.newText;
-    // Pass the disk baseline only if this is the first capture — record()
-    // ignores the baseline on subsequent updates so we can safely pass null.
-    const baselineForRecord = existing ? null : base;
-    pendingEdits.record(absPath, baselineForRecord, newContent, 'edit_file');
-    logger?.info(`[REVIEW] Captured edit_file for ${relPath}`);
-    const queuedLine = resolved.summary ?? `Pending edit queued for review: ${relPath}`;
-    const patch = computeLineDiff(base, newContent, relPath);
-    return {
-      type: 'tool_result',
-      tool_use_id: toolUse.id,
-      content: `${resolved.prefixNote}${queuedLine}${resolved.suffixNote}${editDiffSuffix(patch, context)}`,
-    };
+    });
   }
 
   return null;

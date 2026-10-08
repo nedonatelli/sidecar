@@ -112,6 +112,8 @@ export interface WebviewMessage {
   code?: string;
   language?: string;
   filePath?: string;
+  /** The files a change summary showed -- sent with 'acceptAllChanges'. */
+  filePaths?: string[];
   sourcePath?: string;
   destPath?: string;
   action?: import('../github/types.js').GitHubAction;
