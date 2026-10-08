@@ -12,11 +12,25 @@ import { assertFreshBuild } from './scripts/lib/buildFreshness.mjs';
 // point. A stale build otherwise passes identically to a fresh one.
 await assertFreshBuild(process.cwd());
 
-export default defineConfig({
-  files: 'out/src/test/integration/**/*.test.js',
-  extensionDevelopmentPath: '.',
-  workspaceFolder: '.',
-  mocha: {
-    timeout: 30000,
+export default defineConfig([
+  {
+    label: 'workspace',
+    files: 'out/src/test/integration/**/*.test.js',
+    extensionDevelopmentPath: '.',
+    workspaceFolder: '.',
+    mocha: {
+      timeout: 30000,
+    },
   },
-});
+  {
+    // No workspaceFolder: a window with nothing open, where activation used
+    // to fail outright (#142). Its tests use the .etest suffix so the
+    // workspace run above does not pick them up.
+    label: 'empty-window',
+    files: 'out/src/test/integration/**/*.etest.js',
+    extensionDevelopmentPath: '.',
+    mocha: {
+      timeout: 30000,
+    },
+  },
+]);
