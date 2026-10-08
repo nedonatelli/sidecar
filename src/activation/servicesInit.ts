@@ -16,7 +16,13 @@ const HOURLY_MS = 60 * 60 * 1000;
 const DAILY_MS = 24 * HOURLY_MS;
 
 export interface InitializedServices {
-  sidecarDir: SidecarDir;
+  /**
+   * Undefined in a window with no folder open: there is no workspace to hold
+   * a .sidecar/ directory. Consumers already treat a missing directory as
+   * "no .sidecar"; an uninitialized object passed their check and then threw
+   * from getPath(), which made activation fail in every empty window.
+   */
+  sidecarDir: SidecarDir | undefined;
   skillLoader: SkillLoader;
   workspaceIndex: WorkspaceIndex;
   symbolIndexer: SymbolIndexer;
@@ -147,7 +153,8 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
   const symbolIndexer = new SymbolIndexer(sidecarDir);
   context.subscriptions.push(symbolIndexer);
 
-  return { sidecarDir, skillLoader, workspaceIndex, symbolIndexer };
+  const hasFolder = !!workspace.workspaceFolders && workspace.workspaceFolders.length > 0;
+  return { sidecarDir: hasFolder ? sidecarDir : undefined, skillLoader, workspaceIndex, symbolIndexer };
 }
 
 async function initAuditBufferRecovery(): Promise<void> {

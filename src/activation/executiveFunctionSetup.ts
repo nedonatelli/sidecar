@@ -14,10 +14,11 @@ import type { ChatViewProvider } from '../webview/chatView.js';
  */
 export function initExecutiveFunctionSetup(
   context: ExtensionContext,
-  sidecarDir: SidecarDir,
+  sidecarDir: SidecarDir | undefined,
   getChatProvider: () => ChatViewProvider | undefined,
 ): void {
-  if (!getConfig().executiveFunctionEnabled) return;
+  // Checkpoints live in .sidecar/, which needs an open folder.
+  if (!getConfig().executiveFunctionEnabled || !sidecarDir) return;
 
   const planStore = new PlanStore(sidecarDir);
 

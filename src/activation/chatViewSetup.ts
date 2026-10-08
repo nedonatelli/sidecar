@@ -29,7 +29,7 @@ export interface ChatViewSetupDeps {
   agentLogger: AgentLogger;
   mcpManager: MCPManager;
   workspaceIndex: WorkspaceIndex;
-  sidecarDir: SidecarDir;
+  sidecarDir: SidecarDir | undefined;
   skillLoader: SkillLoader;
   agentModDecorationManager?: AgentModDecorationManager;
 }

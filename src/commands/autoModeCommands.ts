@@ -14,7 +14,7 @@ export interface AutoModeCommandDeps {
   createClient: () => SideCarClient;
   getMcpManager: () => MCPManager;
   getAgentLogger: () => AgentLogger;
-  getSidecarDir: () => SidecarDir;
+  getSidecarDir: () => SidecarDir | undefined;
   getChatProvider: () => ChatViewProvider | undefined;
 }
 
@@ -90,8 +90,11 @@ export function registerAutoModeCommands(context: ExtensionContext, deps: AutoMo
               command: 'autoModeTaskUpdate',
               autoModeTask: { taskN: 0, total: 0, text: item.text, status: 'error', errorMessage },
             });
-            const logPath = path.join(getSidecarDir().getPath('logs'), 'auto-mode-failures.md');
-            void appendFailureLogEntry(logPath, { taskText: item.text, errorMessage });
+            const dir = getSidecarDir();
+            if (dir?.isReady()) {
+              const logPath = path.join(dir.getPath('logs'), 'auto-mode-failures.md');
+              void appendFailureLogEntry(logPath, { taskText: item.text, errorMessage });
+            }
           },
           onSessionEnd: (result) => {
             autoModeAbortController = null;
