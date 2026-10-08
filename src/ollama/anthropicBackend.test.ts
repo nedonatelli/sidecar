@@ -4,6 +4,7 @@ import {
   buildSystemBlocks,
   prepareMessagesForCache,
   repairDanglingToolUses,
+  toAnthropicWire,
 } from './anthropicBackend.js';
 
 const mockFetch = vi.fn();
@@ -725,5 +726,33 @@ describe('repairDanglingToolUses — orphaned-result pass (the mirror 400)', () 
     ] as never;
     const once = repairDanglingToolUses(messages);
     expect(repairDanglingToolUses(once)).toBe(once);
+  });
+});
+
+// SideCar keeps its own fields on tool_use blocks (another provider's
+// extraContent, _malformedInputRaw); the Messages API rejects unknown fields.
+describe('toAnthropicWire', () => {
+  it('sends tool_use blocks with their API fields only', () => {
+    const out = toAnthropicWire([
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'c1',
+            name: 'read_file',
+            input: { path: 'a.ts' },
+            extraContent: { google: { thought_signature: 's' } },
+            _malformedInputRaw: '{',
+          },
+        ],
+      },
+    ] as never);
+    expect((out[0].content as unknown[])[0]).toEqual({
+      type: 'tool_use',
+      id: 'c1',
+      name: 'read_file',
+      input: { path: 'a.ts' },
+    });
   });
 });

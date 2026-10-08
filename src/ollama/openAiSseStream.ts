@@ -66,6 +66,8 @@ interface OpenAIToolCallDelta {
     name?: string;
     arguments?: string;
   };
+  /** Gemini 3 (OpenAI-compatible endpoint): `{ google: { thought_signature } }`. */
+  extra_content?: Record<string, unknown>;
 }
 
 interface OpenAIChatChunk {
@@ -160,7 +162,10 @@ export async function* streamOpenAiSse(
   const textToolState: TextToolCallState = createTextToolCallState(tools);
 
   // Accumulate incremental tool call data keyed by index.
-  const pendingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+  const pendingToolCalls = new Map<
+    number,
+    { id: string; name: string; arguments: string; extraContent?: Record<string, unknown> }
+  >();
 
   /** Flush accumulated tool calls as tool_use events. Used on finish and on [DONE]. */
   function* flushToolCalls(): Generator<StreamEvent> {
@@ -179,6 +184,7 @@ export async function* streamOpenAiSse(
           id: tc.id || `${toolCallIdPrefix}_tc_${++toolCallIdCounter}`,
           name: tc.name,
           input: parsedArgs,
+          ...(tc.extraContent ? { extraContent: tc.extraContent } : {}),
         };
         yield { type: 'tool_use', toolUse };
       }
@@ -285,6 +291,7 @@ export async function* streamOpenAiSse(
             if (tc.id) existing.id = tc.id;
             if (tc.function?.name) existing.name = tc.function.name;
             if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+            if (tc.extra_content) existing.extraContent = { ...existing.extraContent, ...tc.extra_content };
             pendingToolCalls.set(tc.index, existing);
           }
         }

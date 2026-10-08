@@ -141,6 +141,31 @@ export function prepareToolsForCache(tools: ToolDefinition[]): ToolDefinition[] 
  * Disclosed via console.warn so the dangle SOURCE stays observable — this is
  * a safety net, not a license for upstream code to emit broken pairs.
  */
+/**
+ * Messages as the Messages API accepts them: tool_use blocks carry only their
+ * API fields. SideCar keeps its own fields on them (`_malformedInputRaw`,
+ * another provider's `extraContent`), and the API rejects unknown fields.
+ */
+export function toAnthropicWire(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => {
+    if (typeof m.content === 'string' || !m.content.some((b) => b.type === 'tool_use')) return m;
+    return {
+      ...m,
+      content: m.content.map((b) => {
+        if (b.type !== 'tool_use') return b;
+        const { type, id, name, input } = b;
+        return {
+          type,
+          id,
+          name,
+          input,
+          ...('cache_control' in b ? { cache_control: (b as { cache_control: unknown }).cache_control } : {}),
+        } as typeof b;
+      }),
+    };
+  });
+}
+
 export function repairDanglingToolUses(messages: ChatMessage[]): ChatMessage[] {
   let out: ChatMessage[] | null = null;
   // Pass 1 — ORPHANED RESULTS: a tool_result whose id has no tool_use in the
@@ -298,7 +323,7 @@ export class AnthropicBackend implements ApiBackend {
     const body: Record<string, unknown> = {
       model,
       max_tokens: maxOutputTokens,
-      messages: prepareMessagesForCache(repairDanglingToolUses(pruned.messages)),
+      messages: prepareMessagesForCache(repairDanglingToolUses(toAnthropicWire(pruned.messages))),
       stream: true,
       ...(supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
     };
@@ -408,7 +433,7 @@ export class AnthropicBackend implements ApiBackend {
     const body: Record<string, unknown> = {
       model,
       max_tokens: maxTokens,
-      messages: pruned.messages,
+      messages: toAnthropicWire(pruned.messages),
       stream: false,
     };
 

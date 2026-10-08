@@ -27,6 +27,14 @@ export interface ToolUseContentBlock {
    * retry" instead of silently calling the tool with `{}`.
    */
   _malformedInputRaw?: string;
+  /**
+   * Provider data the model attached to this call that must be sent back
+   * with it on the next request -- the OpenAI-compatible `extra_content`,
+   * where Gemini 3 puts its `thought_signature`. Without it Google rejects
+   * the second request of every tool-using run. Only the OpenAI-compatible
+   * backend reads or sends it.
+   */
+  extraContent?: Record<string, unknown>;
 }
 
 export interface ToolResultContentBlock {
