@@ -4,7 +4,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-### Security
+## [0.128.0] - 2026-10-07
 
 A second review of the whole codebase found more ways for content you did not write — a
 cloned repository, a file or web page the agent reads, model output, or another extension —
@@ -12,6 +12,8 @@ to run commands, write or read files, or send your credentials elsewhere without
 you first. All of them are fixed here. Details are in security advisory
 [GHSA-5pw7-rhc2-6v9m](https://github.com/nedonatelli/sidecar/security/advisories/GHSA-5pw7-rhc2-6v9m).
 Update to this version; every earlier version is affected.
+
+### Security
 
 - **Approval prompts show exactly what will happen.** Every argument is shown in full (it
   was cut at 80 characters), and the `@sidecar` dialog shows the command it asks about.
@@ -69,6 +71,10 @@ Update to this version; every earlier version is affected.
   `.github/` and reports files it could not scan; each SDK tool or hook registration is
   asked about separately, and SDK hooks no longer receive your keys; the macOS sandbox
   also protects git hook managers, submodules and new repositories.
+
+### Stats
+- 9579 total tests (532 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.127.2] - 2026-10-07
 
