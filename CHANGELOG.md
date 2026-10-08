@@ -4,7 +4,7 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-## [0.128.0] - 2026-10-07
+## [0.128.0] - 2026-10-08
 
 A second review of the whole codebase found more ways for content you did not write — a
 cloned repository, a file or web page the agent reads, model output, or another extension —
