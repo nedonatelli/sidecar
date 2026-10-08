@@ -85,7 +85,7 @@ export class ShadowWorkspace {
    */
   async diff(): Promise<string> {
     this.ensureActive();
-    return this.shadowGit.diffAgainstHead();
+    return this.shadowGit.diffAgainstHead(this.baseSha || 'HEAD');
   }
 
   /**
@@ -107,7 +107,9 @@ export class ShadowWorkspace {
     }
     // Dry-run first so a partial apply doesn't leave main in a half-
     // patched state if the end of the patch conflicts with something.
-    await this.mainGit.applyPatch(patch, { check: true });
+    // Checked the way it is applied (against the index too), so a patch that
+    // passes the dry run cannot then fail half-way.
+    await this.mainGit.applyPatch(patch, { check: true, stage: true });
     const result = this.mainGit.applyPatch(patch, { stage: true });
     logger.info(`[shadow] applied to main${kv({ id: this.id, patchBytes: patch.length })}`);
     return result;

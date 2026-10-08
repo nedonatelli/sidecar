@@ -25,20 +25,27 @@ export class GitCLI {
     this.cwd = cwd || workspace.workspaceFolders?.[0]?.uri.fsPath || '';
   }
 
-  private exec(args: string[], cwd?: string): Promise<string> {
+  private exec(args: string[], cwd?: string, opts: { raw?: boolean; maxBuffer?: number } = {}): Promise<string> {
     return new Promise((resolve, reject) => {
-      execFile('git', args, { cwd: cwd || this.cwd, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
-        if (err) {
-          const message = stderr?.trim() || err.message;
-          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-            reject(new Error('Git is not installed or not in your PATH.'));
-          } else {
-            reject(new Error(message));
+      execFile(
+        'git',
+        args,
+        { cwd: cwd || this.cwd, maxBuffer: opts.maxBuffer ?? 1024 * 1024 },
+        (err, stdout, stderr) => {
+          if (err) {
+            const message = stderr?.trim() || err.message;
+            if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+              reject(new Error('Git is not installed or not in your PATH.'));
+            } else {
+              reject(new Error(message));
+            }
+            return;
           }
-          return;
-        }
-        resolve(stdout.trim());
-      });
+          // A patch must keep its final newline: `git apply` rejects one without
+          // it as "corrupt patch". Everything else wants trimmed output.
+          resolve(opts.raw ? stdout : stdout.trim());
+        },
+      );
     });
   }
 
@@ -280,9 +287,12 @@ export class GitCLI {
    * the GitCLI constructor), so a ShadowWorkspace pointing at the shadow
    * path produces a patch of shadow-vs-HEAD.
    */
-  async diffAgainstHead(): Promise<string> {
-    // Tracked changes (staged + unstaged), rooted at HEAD.
-    const tracked = await this.exec(['diff', 'HEAD']);
+  async diffAgainstHead(base = 'HEAD'): Promise<string> {
+    // Tracked changes (staged + unstaged) against `base` -- the commit the
+    // shadow was created from, so work the agent COMMITTED in the shadow is
+    // in the patch too (diffing the shadow's own HEAD dropped it). Raw, so the
+    // patch keeps its final newline, and --binary so binary files survive.
+    const tracked = await this.exec(['diff', '--binary', base], undefined, { raw: true, maxBuffer: 64 * 1024 * 1024 });
     // Untracked files need a second pass — `git diff HEAD` doesn't see
     // them. List them, then synthesize "new file" diffs via
     // `git diff --no-index /dev/null <file>`. That form intentionally
@@ -291,14 +301,14 @@ export class GitCLI {
     // exec helper that rejects on non-zero exit — the diff itself IS
     // the stdout we need. Use execFile directly and ignore the 1-exit.
     const untrackedList = await this.exec(['ls-files', '--others', '--exclude-standard']);
-    if (!untrackedList) return tracked;
+    if (!untrackedList) return joinPatches([tracked]);
     const untrackedDiffs: string[] = [];
     for (const file of untrackedList.split('\n').filter(Boolean)) {
       const diff = await new Promise<string>((resolve) => {
         execFile(
           'git',
-          ['diff', '--no-index', '--', '/dev/null', file],
-          { cwd: this.cwd, maxBuffer: 4 * 1024 * 1024 },
+          ['diff', '--no-index', '--binary', '--', '/dev/null', file],
+          { cwd: this.cwd, maxBuffer: 64 * 1024 * 1024 },
           (_err, stdout) => {
             // `git diff --no-index` ALWAYS exits 1 when the files differ
             // (which they always do here, since one is /dev/null). The
@@ -311,7 +321,7 @@ export class GitCLI {
       });
       if (diff) untrackedDiffs.push(diff);
     }
-    return [tracked, ...untrackedDiffs].filter(Boolean).join('\n');
+    return joinPatches([tracked, ...untrackedDiffs]);
   }
 
   /**
@@ -328,6 +338,8 @@ export class GitCLI {
     const args = ['apply'];
     if (options.check) args.push('--check');
     if (options.stage) args.push('--index');
+    // Binary hunks from `diff --binary` apply only with --binary.
+    args.push('--binary');
     // git apply reads the patch from stdin. We run it via a child process
     // with stdin piped in — go through a small helper since the existing
     // `exec` wrapper is stdout-only.
@@ -343,4 +355,12 @@ export class GitCLI {
       proc.stdin?.end();
     });
   }
+}
+
+/** Patches concatenated so each ends in a newline, as `git apply` requires. */
+function joinPatches(parts: string[]): string {
+  return parts
+    .filter((p) => p.trim() !== '')
+    .map((p) => (p.endsWith('\n') ? p : p + '\n'))
+    .join('');
 }

@@ -43,7 +43,7 @@ export function filesTouchedByDiff(diff: string): string[] {
  */
 export async function applyDiffToMain(mainRoot: string, diff: string): Promise<string> {
   const git = new GitCLI(mainRoot);
-  await git.applyPatch(diff, { check: true });
+  await git.applyPatch(diff, { check: true, stage: true });
   return git.applyPatch(diff, { stage: true });
 }
 

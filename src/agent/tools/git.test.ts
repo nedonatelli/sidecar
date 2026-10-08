@@ -579,12 +579,24 @@ describe('git tools honor context.cwd (shadow isolation)', () => {
     await gitStage({ files: ['a.ts'] }, { cwd: SHADOW });
     await gitLog({}, { cwd: SHADOW });
     await gitBranch({ action: 'list' }, { cwd: SHADOW });
-    await gitStash({ action: 'push' }, { cwd: SHADOW });
+    await gitStash({ action: 'list' }, { cwd: SHADOW });
 
     expect(vi.mocked(GitCLI).mock.calls.length).toBe(6);
     for (const call of vi.mocked(GitCLI).mock.calls) {
       expect(call[0]).toBe(SHADOW);
     }
+  });
+
+  // refs/stash and branches are shared by every worktree: a stash or branch
+  // change in a shadow acted on the user's own repository (a popped stash left
+  // it and was lost with the shadow).
+  it.each([
+    ['stash push', () => gitStash({ action: 'push' }, { cwd: SHADOW })],
+    ['stash pop', () => gitStash({ action: 'pop' }, { cwd: SHADOW })],
+    ['branch create', () => gitBranch({ action: 'create', name: 'x' }, { cwd: SHADOW })],
+  ])('refuses %s in a shadow, touching no repository', async (_label, run) => {
+    await expect(run()).rejects.toThrow(/not available in a sandboxed run/);
+    expect(vi.mocked(GitCLI)).not.toHaveBeenCalled();
   });
 
   it('commits into the shadow worktree, not the main repo', async () => {

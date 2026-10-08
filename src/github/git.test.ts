@@ -421,7 +421,8 @@ describe('GitCLI', () => {
         return ret();
       });
     const result = await git.diffAgainstHead();
-    expect(result).toBe('tracked diff content');
+    // A patch keeps its final newline: `git apply` rejects one without it.
+    expect(result).toBe('tracked diff content\n');
   });
 
   it('diffAgainstHead concatenates tracked diff with untracked file diffs', async () => {
@@ -462,7 +463,7 @@ describe('GitCLI', () => {
       });
     const result = await git.diffAgainstHead();
     // Only tracked diff, the empty untracked entry is filtered out
-    expect(result).toBe('tracked');
+    expect(result).toBe('tracked\n');
   });
 
   // ---------------------------------------------------------------------------
