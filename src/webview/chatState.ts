@@ -1,5 +1,11 @@
 import { workspace, Uri, RelativePattern, type ExtensionContext, type Disposable } from 'vscode';
-import { type ChatMessage, getContentText, getContentLength, serializeContent } from '../ollama/types.js';
+import {
+  type ChatMessage,
+  type ContentBlock,
+  getContentText,
+  getContentLength,
+  serializeContent,
+} from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { buildRouterFromConfig } from '../ollama/modelRouter.js';
 import { ChangeLog } from '../agent/changelog.js';
@@ -65,6 +71,13 @@ export class ChatState {
    * successful turn so we never replay a stale partial.
    */
   pendingPartialAssistant: string | null = null;
+  /**
+   * The prompt whose send failed to connect. It is withdrawn from history (so
+   * a retyped prompt is not answered twice), and Reconnect sends exactly this
+   * -- it used to re-run the last prompt LEFT in history, the previous,
+   * already-answered turn, deleting its answer.
+   */
+  pendingReconnectPrompt: string | null = null;
   abortController: AbortController | null = null;
   /** Cancels the stale-flush-timer of the current agent run's callback set. */
   cancelCallbacks: (() => void) | null = null;
@@ -358,10 +371,17 @@ export class ChatState {
     }
 
     // Trim by total character size
-    let totalChars = this.messages.reduce((sum, m) => sum + getContentLength(m.content), 0);
+    let totalChars = this.messages.reduce((sum, m) => sum + historyLength(m.content), 0);
     while (totalChars > MAX_HISTORY_CHARS && this.messages.length > 2) {
       const removed = this.messages.shift()!;
-      totalChars -= getContentLength(removed.content);
+      totalChars -= historyLength(removed.content);
+    }
+
+    // Start at a user turn. Cutting one message at a time could leave a
+    // tool_result whose tool_use was dropped at the front; OpenAI-compatible
+    // APIs reject that orphan with a 400 on every later turn.
+    while (this.messages.length > 1 && !isTurnStart(this.messages[0])) {
+      this.messages.shift();
     }
   }
 
@@ -380,6 +400,7 @@ export class ChatState {
     this.pendingPlan = null;
     this.pendingPlanMessages = [];
     this.pendingPartialAssistant = null;
+    this.pendingReconnectPrompt = null;
     this.pendingSteerSnapshot = null;
     this.pendingQuestion = null;
     this.pendingFacetReview = null;
@@ -635,4 +656,25 @@ export class ChatState {
     this.perDirSidecarMdWatcher = null;
     this.perDirSidecarMdCache.clear();
   }
+}
+
+/**
+ * A message's size for the history cap. Images count at a fixed weight: they
+ * are never persisted, and the model window is budgeted elsewhere -- counted
+ * at their decoded size, one pasted screenshot over ~2 MB pushed every
+ * earlier message out, and autosave then overwrote the saved session.
+ */
+const IMAGE_HISTORY_WEIGHT = 1000;
+function historyLength(content: string | ContentBlock[]): number {
+  if (typeof content === 'string') return content.length;
+  return content.reduce(
+    (sum, block) => sum + (block.type === 'image' ? IMAGE_HISTORY_WEIGHT : getContentLength([block])),
+    0,
+  );
+}
+
+/** A user message the user sent: not one that only carries tool results. */
+function isTurnStart(m: ChatMessage): boolean {
+  if (m.role !== 'user') return false;
+  return typeof m.content === 'string' || !m.content.some((b) => b.type === 'tool_result');
 }

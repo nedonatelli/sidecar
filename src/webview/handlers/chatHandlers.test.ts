@@ -2833,21 +2833,27 @@ describe('handleExportChat — success path', () => {
 // ---------------------------------------------------------------------------
 // handleReconnect — with lastUserMsg (covers lines 591-605)
 // ---------------------------------------------------------------------------
-describe('handleReconnect — with last user message', () => {
-  it('splices and re-submits last user message after successful reconnect', async () => {
+describe('handleReconnect', () => {
+  // The prompt whose send failed is withdrawn from history. Reconnect used to
+  // re-run the last prompt LEFT in history -- the previous, already-answered
+  // turn -- deleting its answer, while the failed prompt was lost. (#140)
+  it('re-sends the prompt that failed, and leaves the answered turn in place', async () => {
     const providerReachability = await import('../../config/providerReachability.js');
     vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
-
     const messages: Array<{ role: string; content: unknown }> = [
-      { role: 'user', content: 'my question' },
-      { role: 'assistant', content: 'reply' },
+      { role: 'user', content: 'what is the weather?' },
+      { role: 'assistant', content: 'Sunny.' },
     ];
+    const streamChat = vi.fn().mockImplementation(async function* () {
+      throw new Error('stop');
+    });
     const state = {
       postMessage: vi.fn(),
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
       messages,
+      pendingReconnectPrompt: 'count to 10' as string | null,
       abortController: null as AbortController | null,
       chatGeneration: 0,
       currentSteerQueue: null,
@@ -2863,42 +2869,36 @@ describe('handleReconnect — with last user message', () => {
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
         getSystemPrompt: vi.fn().mockReturnValue(''),
-        streamChat: vi.fn().mockImplementation(async function* () {
-          throw new Error('stop');
-        }),
+        streamChat,
       },
     };
 
     await handleReconnect(state as never);
 
-    // The Reconnected message should have been posted
-    const reconnectedCall = state.postMessage.mock.calls.find(
-      (c: unknown[]) => (c[0] as { command: string }).command === 'assistantMessage',
-    );
-    expect(reconnectedCall).toBeDefined();
-    expect((reconnectedCall![0] as { content: string }).content).toContain('Reconnected');
-    // saveHistory should have been called (from the splice in handleReconnect)
-    expect(state.saveHistory).toHaveBeenCalled();
-
+    expect(messages[0]).toEqual({ role: 'user', content: 'what is the weather?' });
+    expect(messages[1]).toEqual({ role: 'assistant', content: 'Sunny.' });
+    expect(messages.some((m) => m.role === 'user' && String(m.content).includes('count to 10'))).toBe(true);
+    expect(state.pendingReconnectPrompt).toBeNull();
     vi.restoreAllMocks();
   });
 
-  it('extracts text from content-block array for last user message', async () => {
+  it('with no failed prompt, reconnects and runs nothing', async () => {
     const providerReachability = await import('../../config/providerReachability.js');
     vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
-
     const messages: Array<{ role: string; content: unknown }> = [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'block message text' }],
-      },
+      { role: 'user', content: 'what is the weather?' },
+      { role: 'assistant', content: 'Sunny.' },
     ];
+    const streamChat = vi.fn().mockImplementation(async function* () {
+      throw new Error('stop');
+    });
     const state = {
       postMessage: vi.fn(),
       saveHistory: vi.fn(),
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
       messages,
+      pendingReconnectPrompt: null as string | null,
       abortController: null as AbortController | null,
       chatGeneration: 0,
       currentSteerQueue: null,
@@ -2914,18 +2914,18 @@ describe('handleReconnect — with last user message', () => {
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
         getSystemPrompt: vi.fn().mockReturnValue(''),
-        streamChat: vi.fn().mockImplementation(async function* () {
-          throw new Error('stop');
-        }),
+        streamChat,
       },
     };
 
     await handleReconnect(state as never);
 
-    // The prompt was re-submitted: it is back in the history as the user's text.
-    const resent = messages.find((m) => m.role === 'user' && typeof m.content === 'string');
-    expect(String(resent?.content)).toContain('block message text');
-
+    expect(messages).toHaveLength(2);
+    expect(streamChat).not.toHaveBeenCalled();
+    const reconnected = state.postMessage.mock.calls.find(
+      (c: unknown[]) => (c[0] as { command: string }).command === 'assistantMessage',
+    );
+    expect((reconnected![0] as { content: string }).content).toContain('Reconnected');
     vi.restoreAllMocks();
   });
 });
