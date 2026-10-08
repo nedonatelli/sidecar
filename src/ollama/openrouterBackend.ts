@@ -1,4 +1,5 @@
 import { OpenAIBackend } from './openaiBackend.js';
+import { openAiApiRoot } from '../config/settings/backends.js';
 
 /**
  * Backend for OpenRouter (https://openrouter.ai).
@@ -63,7 +64,7 @@ export class OpenRouterBackend extends OpenAIBackend {
    */
   async listOpenRouterModels(): Promise<OpenRouterModel[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/v1/models`, { headers: this.extraHeaders() });
+      const response = await fetch(`${openAiApiRoot(this.baseUrl)}/models`, { headers: this.extraHeaders() });
       if (!response.ok) return [];
       const data = (await response.json()) as { data?: OpenRouterModel[] };
       return data.data ?? [];

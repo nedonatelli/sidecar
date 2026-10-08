@@ -135,6 +135,7 @@ interface OpenAIToolCall {
     name: string;
     arguments: string;
   };
+  extra_content?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +189,8 @@ export function toOpenAIMessages(messages: ChatMessage[], systemPrompt: string):
               name: block.name,
               arguments: JSON.stringify(block.input),
             },
+            // Returned exactly as the model sent it (Gemini 3's thought_signature).
+            ...(block.extraContent ? { extra_content: block.extraContent } : {}),
           });
         }
       }
@@ -232,7 +235,11 @@ export class OpenAIBackend implements ApiBackend {
   }
 
   protected get modelsUrl(): string {
-    return `${this.baseUrl}/v1/models`;
+    // Same root as chatUrl: a base URL that already ends in /v1 (the Groq,
+    // Fireworks and OpenRouter profiles, a vLLM or LM Studio URL) became
+    // /v1/v1/models, which 404s -- and an empty model list made the backend
+    // switch clear the model.
+    return `${openAiApiRoot(this.baseUrl)}/models`;
   }
 
   /**

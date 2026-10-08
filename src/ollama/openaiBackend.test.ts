@@ -718,3 +718,39 @@ describe('toOpenAIMessages: thinking is never sent back', () => {
     expect(assistant).not.toHaveProperty('reasoning_content');
   });
 });
+
+// Base URLs that already end in /v1 (the Groq, Fireworks and OpenRouter
+// profiles, a vLLM or LM Studio URL) became /v1/v1/models, which 404s; the
+// empty list made the backend switch clear the model. (#143)
+describe('listModels uses the same API root as chat', () => {
+  it.each([
+    ['https://api.groq.com/openai/v1', 'https://api.groq.com/openai/v1/models'],
+    ['http://localhost:8000/v1/', 'http://localhost:8000/v1/models'],
+    ['https://api.openai.com', 'https://api.openai.com/v1/models'],
+  ])('%s lists from %s', async (baseUrl, expected) => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: [] }) });
+    await new OpenAIBackend(baseUrl, 'k').listModels();
+    expect(mockFetch.mock.calls.at(-1)?.[0]).toBe(expected);
+  });
+});
+
+// Gemini 3 attaches a thought_signature to each tool call and rejects the
+// next request (400) if it is not sent back with that call. (#143)
+describe("toOpenAIMessages returns a tool call's extra_content", () => {
+  it('sends extraContent back as extra_content', async () => {
+    const { toOpenAIMessages } = await import('./openaiBackend.js');
+    const extra = { google: { thought_signature: 'sig-abc' } };
+    const out = toOpenAIMessages(
+      [
+        { role: 'user', content: 'fix a.ts' },
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'c1', name: 'read_file', input: { path: 'a.ts' }, extraContent: extra }],
+        },
+      ],
+      '',
+    );
+    const call = out.find((m) => m.role === 'assistant')?.tool_calls?.[0] as { extra_content?: unknown };
+    expect(call.extra_content).toEqual(extra);
+  });
+});

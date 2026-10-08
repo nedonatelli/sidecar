@@ -382,3 +382,32 @@ describe('streamOpenAiSse: reasoning fields', () => {
     expect(text(events)).toBe('answer');
   });
 });
+
+describe('tool-call extra_content (Gemini 3 thought_signature)', () => {
+  it('keeps extra_content on the tool_use it belongs to', async () => {
+    const response = mockSseResponse([
+      JSON.stringify({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'c1',
+                  function: { name: 'read_file', arguments: '{"path":"a.ts"}' },
+                  extra_content: { google: { thought_signature: 'sig-abc' } },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+    ]);
+    const events = await collect(streamOpenAiSse(response, 'gemini-3-pro', undefined, undefined));
+    const toolUse = (events.find((e) => e.type === 'tool_use') as { toolUse: { extraContent?: unknown } }).toolUse;
+    expect(toolUse.extraContent).toEqual({ google: { thought_signature: 'sig-abc' } });
+  });
+});
