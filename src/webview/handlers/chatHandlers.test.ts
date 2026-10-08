@@ -1743,11 +1743,31 @@ describe('handleRunCommand', () => {
     expect(result).toBe('terminal output');
   });
 
-  it('returns no workspace folder when executeCommand returns null and no workspace', async () => {
+  // A terminal without shell integration yet (the first Run of a session, or
+  // cmd.exe) gets the command via sendText: it runs there. Treating that as
+  // "not run" executed the approved command a second time in a hidden shell
+  // -- two version bumps, two commits, two deploys.
+  it('runs an approved command once when the terminal has no shell integration', async () => {
+    const { TerminalManager } = await import('../../terminal/manager.js');
+    const { ShellSession } = await import('../../terminal/shellSession.js');
+    const execute = vi.spyOn(ShellSession.prototype, 'execute');
     const state = {
       requestConfirm: vi.fn().mockResolvedValue('Allow'),
       postMessage: vi.fn(),
-      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+      terminalManager: { executeCommand: vi.fn().mockResolvedValue(TerminalManager.SENT_WITHOUT_OUTPUT) },
+    };
+    const result = await handleRunCommand(state as never, 'npm version patch');
+    expect(state.terminalManager.executeCommand).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+    expect(result).toBe(TerminalManager.SENT_WITHOUT_OUTPUT);
+    execute.mockRestore();
+  });
+
+  it('returns no workspace folder when the terminal fails and there is no workspace', async () => {
+    const state = {
+      requestConfirm: vi.fn().mockResolvedValue('Allow'),
+      postMessage: vi.fn(),
+      terminalManager: { executeCommand: vi.fn().mockRejectedValue(new Error('no terminal')) },
     };
     const origFolders = (workspace as { workspaceFolders: unknown }).workspaceFolders;
     (workspace as { workspaceFolders: unknown }).workspaceFolders = undefined;
@@ -1756,12 +1776,12 @@ describe('handleRunCommand', () => {
     expect(result).toBe('(no workspace folder)');
   });
 
-  it('uses ShellSession fallback when executeCommand returns null', async () => {
+  it('uses the ShellSession fallback only when the terminal fails', async () => {
     mockShellExecute.mockResolvedValue({ stdout: 'shell output', exitCode: 0, timedOut: false });
     const state = {
       requestConfirm: vi.fn().mockResolvedValue('Allow'),
       postMessage: vi.fn(),
-      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+      terminalManager: { executeCommand: vi.fn().mockRejectedValue(new Error('no terminal')) },
     };
     const result = await handleRunCommand(state as never, 'echo hello');
     expect(result).toBe('shell output');
@@ -1774,7 +1794,7 @@ describe('handleRunCommand', () => {
     const state = {
       requestConfirm: vi.fn().mockResolvedValue('Allow'),
       postMessage: vi.fn(),
-      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+      terminalManager: { executeCommand: vi.fn().mockRejectedValue(new Error('no terminal')) },
     };
     await handleRunCommand(state as never, 'echo hello');
     expect(mockShellCtor).toHaveBeenCalledOnce();
@@ -1786,7 +1806,7 @@ describe('handleRunCommand', () => {
     const state = {
       requestConfirm: vi.fn().mockResolvedValue('Allow'),
       postMessage: vi.fn(),
-      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+      terminalManager: { executeCommand: vi.fn().mockRejectedValue(new Error('no terminal')) },
     };
     const result = await handleRunCommand(state as never, 'echo hello');
     expect(result).toBe('(no output)');
@@ -1797,7 +1817,7 @@ describe('handleRunCommand', () => {
     const state = {
       requestConfirm: vi.fn().mockResolvedValue('Allow'),
       postMessage: vi.fn(),
-      terminalManager: { executeCommand: vi.fn().mockResolvedValue(null) },
+      terminalManager: { executeCommand: vi.fn().mockRejectedValue(new Error('no terminal')) },
     };
     const result = await handleRunCommand(state as never, 'bad command');
     expect(result).toBe('shell crashed');

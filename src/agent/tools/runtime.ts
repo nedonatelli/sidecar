@@ -47,7 +47,12 @@ export class ToolRuntime {
    */
   getShellSession(injectedConfig?: SideCarConfig): ShellSession {
     const config = injectedConfig ?? getConfig();
-    if (this.shell && this.shell.isAlive) {
+    // Reuse the session while it exists -- NOT only while its shell process
+    // runs. In terminal mode (the default) foreground commands go to the VS
+    // Code terminal and the persistent shell never starts, so isAlive stayed
+    // false and every call built a new session: a background command's id was
+    // never found again, and the dropped session's process leaked.
+    if (this.shell && !this.shell.isDisposed) {
       if (this.shellSandboxed === config.sandboxEnabled) return this.shell;
       // sandbox-exec wraps the shell at spawn, so a toggled sidecar.sandbox.enabled
       // only takes effect in a new shell. Background commands on the old one die with it.

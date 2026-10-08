@@ -13,9 +13,9 @@ const { shellCounter, ShellSessionStub, mockConfig } = vi.hoisted(() => {
     readonly maxOutputSize: number;
     readonly sandboxEnabled: boolean;
     isAlive = true;
-    disposed = false;
+    isDisposed = false;
     dispose = vi.fn(() => {
-      this.disposed = true;
+      this.isDisposed = true;
       this.isAlive = false;
     });
     constructor(cwd: string, _env?: Record<string, string>, maxOutputSize = 10 * 1024 * 1024, sandboxEnabled = false) {
@@ -78,8 +78,8 @@ describe('ToolRuntime', () => {
 
       a.dispose();
 
-      expect((sessionA as unknown as { disposed: boolean }).disposed).toBe(true);
-      expect((sessionB as unknown as { disposed: boolean }).disposed).toBe(false);
+      expect((sessionA as unknown as { isDisposed: boolean }).isDisposed).toBe(true);
+      expect((sessionB as unknown as { isDisposed: boolean }).isDisposed).toBe(false);
     });
   });
 
@@ -101,14 +101,21 @@ describe('ToolRuntime', () => {
       expect(shellCounter.n).toBe(2);
     });
 
-    it('replaces a dead session on the next getShellSession call', () => {
-      // If the underlying shell dies for some reason, the next accessor
-      // must construct a fresh one rather than hand back the corpse.
+    it('replaces a disposed session on the next getShellSession call', () => {
       const runtime = new ToolRuntime();
-      const dead = runtime.getShellSession() as unknown as { isAlive: boolean };
-      dead.isAlive = false;
-      const alive = runtime.getShellSession();
-      expect(alive).not.toBe(dead);
+      const first = runtime.getShellSession() as unknown as { dispose: () => void };
+      first.dispose();
+      expect(runtime.getShellSession()).not.toBe(first);
+    });
+
+    // In terminal mode (the default) the persistent shell never starts, so
+    // isAlive is false -- and a new session per call lost every background
+    // command's id (the session that owned it was dropped, and leaked).
+    it('keeps a session whose shell process is not running', () => {
+      const runtime = new ToolRuntime();
+      const first = runtime.getShellSession() as unknown as { isAlive: boolean };
+      first.isAlive = false;
+      expect(runtime.getShellSession()).toBe(first);
     });
   });
 

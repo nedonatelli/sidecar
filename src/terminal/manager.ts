@@ -21,7 +21,7 @@ export class TerminalManager implements Disposable {
     return this.terminal;
   }
 
-  async executeCommand(command: string): Promise<string | null> {
+  async executeCommand(command: string): Promise<string> {
     const terminal = this.getOrCreateTerminal();
     terminal.show();
 
@@ -40,9 +40,16 @@ export class TerminalManager implements Disposable {
       }
     }
 
+    // Sent: it WILL run in the terminal (VS Code queues the text until the
+    // shell starts). There is just no output to return. Callers must not run
+    // it again -- reading null as "not run" executed every approved command
+    // twice whenever the terminal had no shell integration yet.
     terminal.sendText(command, true);
-    return null; // No output capture available
+    return TerminalManager.SENT_WITHOUT_OUTPUT;
   }
+
+  /** Returned when the command was sent to the terminal but its output could not be captured. */
+  static readonly SENT_WITHOUT_OUTPUT = '(sent to the SideCar terminal -- see its output there)';
 
   dispose(): void {
     this.terminal?.dispose();
