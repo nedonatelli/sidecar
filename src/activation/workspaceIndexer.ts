@@ -20,12 +20,12 @@ export function initWorkspaceIndex(
   context: ExtensionContext,
   workspaceIndex: WorkspaceIndex,
   symbolIndexer: SymbolIndexer,
-  sidecarDir: SidecarDir,
+  sidecarDir: SidecarDir | undefined,
   config: SideCarConfig,
   pkiProvider?: PkiTreeProvider,
   onIndexingStatus?: (phase: 'indexing' | 'ready', detail?: string) => void,
 ): void {
-  if (!workspace.workspaceFolders || workspace.workspaceFolders.length === 0) return;
+  if (!workspace.workspaceFolders || workspace.workspaceFolders.length === 0 || !sidecarDir) return;
 
   const indexStatus = window.createStatusBarItem(StatusBarAlignment.Left, 0);
   indexStatus.text = '$(sync~spin) SideCar: Indexing workspace...';

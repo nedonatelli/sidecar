@@ -5,8 +5,9 @@ import { ResearchStore } from '../agent/research/researchStore.js';
 import { setResearchStore } from '../agent/tools/research.js';
 import { registerResearchView } from '../views/researchView.js';
 
-export function initResearchSetup(context: ExtensionContext, sidecarDir: SidecarDir): void {
-  if (!getConfig().researchEnabled) return;
+export function initResearchSetup(context: ExtensionContext, sidecarDir: SidecarDir | undefined): void {
+  // Research projects live in .sidecar/research/, which needs an open folder.
+  if (!getConfig().researchEnabled || !sidecarDir) return;
 
   const store = new ResearchStore(sidecarDir);
   setResearchStore(store);
