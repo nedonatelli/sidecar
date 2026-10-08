@@ -1,6 +1,5 @@
 import { window, workspace, Uri, FileType } from 'vscode';
 import * as path from 'path';
-import { execFile } from 'child_process';
 import type { ChatState } from '../chatState.js';
 import { computeUnifiedDiff } from '../../agent/diff.js';
 import { languageToExtension } from './messageUtils.js';
@@ -432,36 +431,31 @@ export async function handleRevertFile(state: ChatState, filePath: string): Prom
   }
 }
 
-export async function handleAcceptAllChanges(state: ChatState): Promise<void> {
+/**
+ * The change summary's Accept All. Changelog entries are already on disk, so
+ * accepting them only forgets their snapshots. In audit mode the agent's
+ * writes are buffered instead, and accepting them writes them to disk --
+ * only the ones the panel showed (`shownPaths`; anything buffered since was
+ * never reviewed), and through the audit review's flush, which asks before
+ * overwriting a file edited on disk since it was buffered and reports a
+ * failed, rolled-back flush instead of claiming success.
+ */
+export async function handleAcceptAllChanges(state: ChatState, shownPaths: string[] = []): Promise<void> {
   state.changelog.clear();
 
-  // In audit mode the agent's writes are buffered, not in state.changelog.
-  // Flush them now so "Accept All" in the change-summary panel covers both
-  // the changelog entries (just cleared) and any audit-buffered writes.
   const { getDefaultAuditBuffer } = await import('../../agent/audit/auditBuffer.js');
   const buf = getDefaultAuditBuffer();
-  if (!buf.isEmpty) {
-    const folders = workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
-      const rootUri = folders[0].uri;
-      const writeDisk = async (relPath: string, content: string): Promise<void> => {
-        const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
-        if (refusal) throw new Error(refusal);
-        const fileUri = Uri.joinPath(rootUri, relPath);
-        const dir = path.dirname(relPath);
-        if (dir && dir !== '.') await workspace.fs.createDirectory(Uri.joinPath(rootUri, dir));
-        await workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
-      };
-      const deleteDisk = async (relPath: string): Promise<void> => {
-        const refusal = realPathRefusal(rootUri.fsPath, relPath, 'write');
-        if (refusal) throw new Error(refusal);
-        await workspace.fs.delete(Uri.joinPath(rootUri, relPath), { useTrash: true });
-      };
-      try {
-        await buf.flush(writeDisk, deleteDisk);
-      } catch {
-        // Flush errors surface via the audit review UI; don't block the changelog clear.
-      }
+  const buffered = shownPaths.filter((p) => buf.has(p));
+  const folders = workspace.workspaceFolders;
+  if (buffered.length > 0 && folders && folders.length > 0) {
+    const { flushBufferPaths, createDefaultAuditReviewUi } = await import('../../agent/audit/reviewCommands.js');
+    const applied = await flushBufferPaths({ rootUri: folders[0].uri, ui: createDefaultAuditReviewUi() }, buffered);
+    if (!applied) {
+      state.postMessage({
+        command: 'error',
+        content: 'The buffered changes were not applied; they are still pending review.',
+      });
+      return;
     }
   }
 
@@ -479,24 +473,24 @@ export async function handleAcceptAllChanges(state: ChatState): Promise<void> {
  * only if the agent really created it. `op` is the model's claim about what it
  * did, so it is used only when there is no snapshot:
  *   op === 'create' → trash it (recoverable).
- *   op === 'edit' | 'delete' → restore the HEAD version via git.
+ *   op === 'edit' | 'delete' → refuse. There is nothing to restore to: the
+ *     old fallback, `git checkout HEAD -- file`, also discarded every
+ *     uncommitted change the user had made to that file.
  *
- * `filePath` is the workspace-relative path sent from the webview, and it is
- * the model's choice -- it reaches git as one argv element, never through a
- * shell, where `$(...)` in a file name would execute.
+ * Returns why nothing was reverted, or null when the revert happened.
  */
 export async function revertEditPlanFile(
   filePath: string,
   op: 'create' | 'edit' | 'delete',
   changelog?: { rollbackFile(filePath: string): Promise<boolean> },
-): Promise<void> {
+): Promise<string | null> {
   const folders = workspace.workspaceFolders;
-  if (!folders || folders.length === 0) return;
+  if (!folders || folders.length === 0) return 'No workspace folder is open.';
   const rootUri = folders[0].uri;
   const fileUri = Uri.joinPath(rootUri, filePath);
-  if (!isWithinRoot(fileUri, rootUri)) return;
+  if (!isWithinRoot(fileUri, rootUri)) return `${filePath} is outside the workspace.`;
 
-  if (changelog && (await changelog.rollbackFile(filePath))) return;
+  if (changelog && (await changelog.rollbackFile(filePath))) return null;
 
   if (op === 'create') {
     try {
@@ -504,12 +498,13 @@ export async function revertEditPlanFile(
     } catch {
       // File may already be gone.
     }
-    return;
+    return null;
   }
 
-  await new Promise<void>((resolve) => {
-    execFile('git', ['checkout', 'HEAD', '--', filePath], { cwd: rootUri.fsPath, timeout: 10_000 }, () => resolve());
-  });
+  return (
+    `Could not revert ${filePath}: there is no snapshot of it from before the edit. ` +
+    'It was left as it is; use source control to restore it.'
+  );
 }
 
 /**

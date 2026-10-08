@@ -645,10 +645,10 @@ describe('buildDispatchHandlers', () => {
     expect(handleRevertFile).toHaveBeenCalledWith(state, '/src/foo.ts');
   });
 
-  it('acceptAllChanges delegates to handleAcceptAllChanges', async () => {
+  it('acceptAllChanges delegates to handleAcceptAllChanges with the files the panel showed', async () => {
     const { handleAcceptAllChanges } = await import('./chatHandlers.js');
-    await invoke(handlers, 'acceptAllChanges');
-    expect(handleAcceptAllChanges).toHaveBeenCalledWith(state);
+    await invoke(handlers, 'acceptAllChanges', { filePaths: ['src/a.ts'] });
+    expect(handleAcceptAllChanges).toHaveBeenCalledWith(state, ['src/a.ts']);
   });
 
   it('deleteMessage delegates to handleDeleteMessage', async () => {

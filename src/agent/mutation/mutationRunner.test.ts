@@ -130,3 +130,50 @@ describe('scoreMutants + formatMutationScore', () => {
     expect(formatMutationScore(s)).toContain('1/2 mutants killed');
   });
 });
+
+// Stop used to be ignored: every remaining mutant was still written and tested,
+// and the late restore wrote the original over edits made meanwhile. (#139)
+describe('runMutationTest — Stop', () => {
+  it('stops writing mutants once the signal is aborted, and restores the original', async () => {
+    const ac = new AbortController();
+    let writes = 0;
+    const io = fakeIo(ORIGINAL, () => ({ passed: true, output: '' }));
+    const write = io.write.bind(io);
+    io.write = async (p, c) => {
+      writes++;
+      await write(p, c);
+      ac.abort(); // Stop pressed while the first mutant is under test
+    };
+    const res = await runMutationTest('m.py', io, { signal: ac.signal });
+    expect(res.stopped).toBe(true);
+    expect(res.results).toHaveLength(1);
+    expect(writes).toBe(2); // one mutant, one restore
+    expect(io.current()).toBe(ORIGINAL);
+  });
+
+  it('runs nothing when Stop was pressed before it started', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    let tests = 0;
+    const io = fakeIo(ORIGINAL, () => (tests++, { passed: true, output: '' }));
+    const res = await runMutationTest('m.py', io, { signal: ac.signal });
+    expect(res.stopped).toBe(true);
+    expect(tests).toBe(0);
+  });
+
+  it('does not restore over a file someone else wrote after the last mutant', async () => {
+    let content = ORIGINAL;
+    const io: MutationIo = {
+      read: async () => content,
+      write: async (_p, c) => {
+        content = c;
+      },
+      runTest: async () => {
+        if (content !== ORIGINAL) content = 'the next run edited this';
+        return { passed: true, output: '' };
+      },
+    };
+    await runMutationTest('m.py', io, { operators: ['relational'], maxMutants: 1 });
+    expect(content).toBe('the next run edited this');
+  });
+});

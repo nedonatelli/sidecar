@@ -1,26 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { workspace, window, Uri, FileType } from 'vscode';
-import {
-  handleDroppedPaths,
-  handleAttachFile,
-  handleAttachActiveFile,
-  handleAcceptAllChanges,
-  handleCreateFile,
-} from './fileHandlers.js';
+import { handleDroppedPaths, handleAttachFile, handleAttachActiveFile, handleCreateFile } from './fileHandlers.js';
 import * as nodePath from 'path';
-
-// ---------------------------------------------------------------------------
-// Mutable audit buffer mock — allows individual tests to set isEmpty
-// ---------------------------------------------------------------------------
-const mockAuditBuf = {
-  isEmpty: true,
-  flush: vi.fn().mockResolvedValue({ applied: [] }),
-  has: vi.fn().mockReturnValue(false),
-  clear: vi.fn(),
-};
-vi.mock('../../agent/audit/auditBuffer.js', () => ({
-  getDefaultAuditBuffer: () => mockAuditBuf,
-}));
 
 function makeState() {
   return { postMessage: vi.fn() };
@@ -314,114 +295,6 @@ describe('handleAttachActiveFile', () => {
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'imageAttached', mediaType: 'image/webp' }),
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// handleAcceptAllChanges — audit buffer flush path
-// ---------------------------------------------------------------------------
-describe('handleAcceptAllChanges — audit buffer non-empty', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    mockAuditBuf.isEmpty = false;
-    mockAuditBuf.flush.mockClear();
-    mockAuditBuf.flush.mockResolvedValue({ applied: [] });
-  });
-
-  afterEach(() => {
-    // Reset to the safe default so other tests are not affected.
-    mockAuditBuf.isEmpty = true;
-    mockAuditBuf.flush.mockClear();
-  });
-
-  it('calls buf.flush with writeDisk/deleteDisk helpers when audit buffer is non-empty', async () => {
-    const state = {
-      changelog: { clear: vi.fn() },
-      postMessage: vi.fn(),
-    };
-
-    await handleAcceptAllChanges(state as never);
-
-    expect(mockAuditBuf.flush).toHaveBeenCalled();
-    // writeDisk and deleteDisk are arrow functions passed as the first two args
-    const [writeDiskArg, deleteDiskArg] = mockAuditBuf.flush.mock.calls[0] as [
-      (rel: string, content: string) => Promise<void>,
-      (rel: string) => Promise<void>,
-    ];
-    expect(typeof writeDiskArg).toBe('function');
-    expect(typeof deleteDiskArg).toBe('function');
-  });
-
-  it('invokes workspace.fs.writeFile via the writeDisk closure', async () => {
-    const state = {
-      changelog: { clear: vi.fn() },
-      postMessage: vi.fn(),
-    };
-    const writeSpy = vi.spyOn(workspace.fs, 'writeFile').mockResolvedValue(undefined as never);
-    vi.spyOn(workspace.fs, 'createDirectory').mockResolvedValue(undefined as never);
-
-    // Override flush to immediately invoke writeDisk with a test path
-    mockAuditBuf.flush.mockImplementation(async (writeDisk: (rel: string, content: string) => Promise<void>) => {
-      await writeDisk('src/generated.ts', 'export const x = 1;');
-      return { applied: ['src/generated.ts'] };
-    });
-
-    await handleAcceptAllChanges(state as never);
-
-    expect(writeSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ fsPath: expect.stringContaining('generated.ts') }),
-      expect.any(Uint8Array),
-    );
-  });
-
-  it('invokes workspace.fs.delete via the deleteDisk closure', async () => {
-    const state = {
-      changelog: { clear: vi.fn() },
-      postMessage: vi.fn(),
-    };
-    const deleteSpy = vi.spyOn(workspace.fs, 'delete').mockResolvedValue(undefined as never);
-
-    mockAuditBuf.flush.mockImplementation(async (_writeDisk: unknown, deleteDisk: (rel: string) => Promise<void>) => {
-      await deleteDisk('src/old.ts');
-      return { applied: ['src/old.ts'] };
-    });
-
-    await handleAcceptAllChanges(state as never);
-
-    expect(deleteSpy).toHaveBeenCalledWith(expect.objectContaining({ fsPath: expect.stringContaining('old.ts') }), {
-      useTrash: true,
-    });
-  });
-
-  it('still posts confirmation even when flush throws', async () => {
-    const state = {
-      changelog: { clear: vi.fn() },
-      postMessage: vi.fn(),
-    };
-    mockAuditBuf.flush.mockRejectedValue(new Error('disk full'));
-
-    await handleAcceptAllChanges(state as never);
-
-    expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('accepted') }),
-    );
-  });
-
-  it('skips flush when there are no workspace folders', async () => {
-    const origFolders = workspace.workspaceFolders;
-    (workspace as Record<string, unknown>).workspaceFolders = undefined;
-
-    const state = {
-      changelog: { clear: vi.fn() },
-      postMessage: vi.fn(),
-    };
-
-    await handleAcceptAllChanges(state as never);
-
-    expect(mockAuditBuf.flush).not.toHaveBeenCalled();
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'assistantMessage' }));
-
-    (workspace as Record<string, unknown>).workspaceFolders = origFolders;
   });
 });
 

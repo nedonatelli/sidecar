@@ -479,14 +479,16 @@ function formatConflictMessage(conflicts: FlushConflict[]): string {
 }
 
 /**
- * Shared flush driver used by both bulk and per-file accept paths.
+ * Shared flush driver used by both bulk and per-file accept paths, and by
+ * the chat change summary's Accept All.
  * `paths === undefined` flushes everything; a non-empty array flushes
- * only those entries (rest stay in the buffer). Returns silently on
- * success, surfaces errors via `deps.ui.showError` — caller doesn't
- * need to know whether it was a bulk or partial flush to render a
- * reasonable message.
+ * only those entries (rest stay in the buffer). Surfaces errors via
+ * `deps.ui.showError` — caller doesn't need to know whether it was a bulk
+ * or partial flush to render a reasonable message. Returns whether the
+ * changes reached disk: false when the user cancelled at a conflict or
+ * the flush failed and was rolled back.
  */
-async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promise<void> {
+export async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promise<boolean> {
   const buf = deps.buffer ?? getDefaultAuditBuffer();
   const { readDisk, writeDisk, deleteDisk } = makeDiskHandlers(deps.rootUri);
 
@@ -501,7 +503,7 @@ async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promis
     const choice = await deps.ui.showConflictDialog(formatConflictMessage(conflicts));
     if (choice !== 'apply-anyway') {
       deps.ui.showInfo('SideCar audit: flush cancelled — buffer preserved.');
-      return;
+      return false;
     }
   }
 
@@ -512,6 +514,7 @@ async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promis
     const c = result.committed.length;
     const commitStr = c > 0 ? ` and ran ${c} commit${c === 1 ? '' : 's'}` : '';
     deps.ui.showInfo(`SideCar audit: accepted ${n} change${n === 1 ? '' : 's'}${commitStr}.`);
+    return true;
   } catch (err) {
     if (err instanceof AuditFlushError) {
       // Write-failure path: rolledBack is non-empty, applied is empty.
@@ -523,10 +526,11 @@ async function flushBufferPaths(deps: AuditReviewDeps, paths?: string[]): Promis
             ? `${err.applied.length} file${err.applied.length === 1 ? '' : 's'} landed on disk; buffer preserved so you can retry the commit.`
             : 'Buffer preserved so you can retry.';
       deps.ui.showError(`SideCar audit flush failed: ${err.message} ${detail}`);
-      return;
+      return false;
     }
     const msg = err instanceof Error ? err.message : String(err);
     deps.ui.showError(`SideCar audit flush errored: ${msg}`);
+    return false;
   }
 }
 

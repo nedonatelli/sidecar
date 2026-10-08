@@ -34,14 +34,14 @@ describe('revertEditPlanFile', () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
-  it('hands a hostile file name to git as one argv element, never to a shell', async () => {
-    const name = 'notes/$(touch pwned).md';
-    await revertEditPlanFile(name, 'edit', { rollbackFile: vi.fn().mockResolvedValue(false) });
-    expect(execFileMock).toHaveBeenCalledTimes(1);
-    const [cmd, args, opts] = execFileMock.mock.calls[0];
-    expect(cmd).toBe('git');
-    expect(args).toEqual(['checkout', 'HEAD', '--', name]);
-    expect((opts as { shell?: unknown }).shell).toBeUndefined();
+  // The old fallback ran `git checkout HEAD -- file`, which also threw away
+  // every uncommitted change the user had made to the file. (#139)
+  it('with no snapshot of an edited file, refuses and leaves the file alone', async () => {
+    const refusal = await revertEditPlanFile('notes/$(touch pwned).md', 'edit', {
+      rollbackFile: vi.fn().mockResolvedValue(false),
+    });
+    expect(refusal).toMatch(/no snapshot/);
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it('trashes a created file only when there is no snapshot to restore', async () => {
@@ -57,7 +57,7 @@ describe('revertEditPlanFile', () => {
 
   it('refuses a path outside the workspace', async () => {
     const changelog = { rollbackFile: vi.fn().mockResolvedValue(false) };
-    await revertEditPlanFile('../../outside.txt', 'edit', changelog);
+    expect(await revertEditPlanFile('../../outside.txt', 'edit', changelog)).toMatch(/outside/);
     expect(changelog.rollbackFile).not.toHaveBeenCalled();
     expect(execFileMock).not.toHaveBeenCalled();
   });
