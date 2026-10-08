@@ -75,7 +75,7 @@ async function applyPatch(
     await applyDiff(mainRoot, diff);
   } else {
     const git = new GitCLI(mainRoot);
-    await git.applyPatch(diff, { check: true });
+    await git.applyPatch(diff, { check: true, stage: true });
     await git.applyPatch(diff, { stage: true });
   }
 }

@@ -310,6 +310,7 @@ export async function gitBranch(input: Record<string, unknown>, context?: ToolEx
   const action = (input.action as string) || 'list';
   const name = input.name as string | undefined;
   try {
+    if (action !== 'list') refuseSharedRefChange(context, `git branch ${action}`);
     const git = new GitCLI(context?.cwd);
     switch (action) {
       case 'create': {
@@ -353,8 +354,26 @@ export const gitStashDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
+/**
+ * A shadow, fork or facet runs in a git worktree of the user's repository.
+ * The stash and the branches are shared by every worktree, so stash or branch
+ * changes made there act on the user's own repository -- a popped stash left
+ * it, and was lost with the shadow.
+ */
+function refuseSharedRefChange(context: ToolExecutorContext | undefined, what: string): void {
+  const cwd = context?.cwd?.replace(/\\/g, '/');
+  if (cwd && cwd.includes('/.sidecar/shadows/')) {
+    throw new Error(
+      `${what} is not available in a sandboxed run: it would act on your main repository, ` +
+        `whose stash and branches the sandbox shares. Leave it to the review after the run.`,
+    );
+  }
+}
+
 export async function gitStash(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
+    const stashAction = (input.action as string) || 'push';
+    if (stashAction !== 'list') refuseSharedRefChange(context, `git stash ${stashAction}`);
     return await new GitCLI(context?.cwd).stash((input.action as string) || 'push', {
       message: input.message as string | undefined,
       index: input.index as number | undefined,

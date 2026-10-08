@@ -192,6 +192,51 @@ describe('ShadowWorkspace', () => {
       }
     });
 
+    // The common case: the run edits existing files and creates none. The patch
+    // lost its final newline and every accept failed with "corrupt patch"; only
+    // a new file's diff, appended last, had restored it.
+    it('applies an edit to a tracked file when no new file was created', async () => {
+      const shadow = new ShadowWorkspace({ mainRoot });
+      try {
+        await shadow.create();
+        fs.writeFileSync(path.join(shadow.path, 'README.md'), 'initial\nedited in shadow\n');
+        await shadow.applyToMain();
+        expect(fs.readFileSync(path.join(mainRoot, 'README.md'), 'utf-8')).toContain('edited in shadow');
+      } finally {
+        await shadow.dispose();
+      }
+    });
+
+    // A commit made inside the shadow moved its HEAD, so the committed work
+    // dropped out of a diff against that HEAD and was discarded.
+    it('keeps work the agent committed inside the shadow', async () => {
+      const shadow = new ShadowWorkspace({ mainRoot });
+      try {
+        await shadow.create();
+        fs.writeFileSync(path.join(shadow.path, 'b.txt'), 'committed in shadow\n');
+        git(shadow.path, ['add', 'b.txt']);
+        git(shadow.path, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q', '-m', 'agent commit']);
+        expect(await shadow.diff()).toContain('b.txt');
+        await shadow.applyToMain();
+        expect(fs.readFileSync(path.join(mainRoot, 'b.txt'), 'utf-8')).toContain('committed in shadow');
+      } finally {
+        await shadow.dispose();
+      }
+    });
+
+    it('applies a binary file', async () => {
+      const shadow = new ShadowWorkspace({ mainRoot });
+      try {
+        await shadow.create();
+        const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0xff, 0x00, 0x7f]);
+        fs.writeFileSync(path.join(shadow.path, 'icon.png'), bytes);
+        await shadow.applyToMain();
+        expect(fs.readFileSync(path.join(mainRoot, 'icon.png')).equals(bytes)).toBe(true);
+      } finally {
+        await shadow.dispose();
+      }
+    });
+
     it('throws when the patch does not apply cleanly against main', async () => {
       const shadow = new ShadowWorkspace({ mainRoot });
       try {

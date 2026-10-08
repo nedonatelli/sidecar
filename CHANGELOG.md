@@ -4,6 +4,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Accepting a sandboxed run failed with "corrupt patch".** When a `/sandbox` run, a fork or
+  a facet changed only existing files, the patch lost its final newline and `git apply`
+  rejected it, so the work was discarded. Accept now applies it, binary files included.
+  Work the agent committed inside the sandbox is no longer dropped from the patch, and the
+  dry run checks the patch the way it is applied. (#141)
+- **`git_stash` and `git_branch` in a sandboxed run acted on your own repository.** The stash
+  and branches are shared by every worktree, so a popped stash left your repository and was
+  lost with the sandbox. Stash and branch changes are refused there now. (#141)
+
 ## [0.128.0] - 2026-10-08
 
 A second review of the whole codebase found more ways for content you did not write — a
