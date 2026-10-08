@@ -204,6 +204,49 @@ describe('ChatState', () => {
     expect(state.messages.length).toBeLessThanOrEqual(200);
   });
 
+  // Cutting one message at a time from the front could leave a tool_result
+  // whose tool_use was dropped; OpenAI-compatible APIs reject that orphan with
+  // a 400 on every later turn. (#140)
+  it('trimHistory starts the history at a user turn, never at an orphaned tool result', () => {
+    const state = createState();
+    state.messages.push({ role: 'user', content: 'run the tests' });
+    for (let i = 0; i < 105; i++) {
+      state.messages.push({
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: `call_${i}`, name: 'read_file', input: { path: `f${i}.ts` } }],
+      });
+      state.messages.push({
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: `call_${i}`, content: 'ok' }],
+      });
+    }
+    state.messages.push({ role: 'assistant', content: 'done' });
+    state.messages.push({ role: 'user', content: 'next question' });
+    state.messages.push({ role: 'assistant', content: 'answer' });
+    state.trimHistory();
+    const first = state.messages[0];
+    expect(first.role).toBe('user');
+    expect(typeof first.content === 'string' || !first.content.some((b) => b.type === 'tool_result')).toBe(true);
+  });
+
+  // A pasted screenshot counted at its decoded size (2-6 MB) pushed every
+  // earlier message out of history, and autosave overwrote the saved session.
+  it('trimHistory does not drop the conversation for a large pasted image', () => {
+    const state = createState();
+    for (let i = 0; i < 60; i++) {
+      state.messages.push({ role: i % 2 === 0 ? 'user' : 'assistant', content: `message ${i}` });
+    }
+    state.messages.push({
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(3_200_000) } },
+        { type: 'text', text: 'why does this chart look wrong?' },
+      ],
+    });
+    state.trimHistory();
+    expect(state.messages).toHaveLength(61);
+  });
+
   it('trimHistory respects character size limit', () => {
     const state = createState();
     // Push a few very large messages

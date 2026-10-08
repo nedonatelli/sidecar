@@ -506,6 +506,10 @@ export async function handleUserMessage(
 
   updateWorkspaceRelevance(state, turnText);
 
+  // The conversation this run belongs to. New chat and Load session bump the
+  // generation; after that, this run's history is no longer the panel's.
+  const generationAtRunStart = state.chatGeneration;
+
   try {
     const config = getConfig();
     const started = await connectWithRetry(state);
@@ -532,6 +536,7 @@ export async function handleUserMessage(
             },
       );
       withdrawUnsentUserMessage();
+      state.pendingReconnectPrompt = text;
       return;
     }
 
@@ -717,6 +722,11 @@ export async function handleUserMessage(
   } catch (err) {
     // Recover any messages from iterations that completed before the error
     // so they're not silently discarded from history.
+    // A run stopped by New chat or Load session (an abort during a retry
+    // backoff rethrows the network error, not an AbortError) must not write
+    // its old conversation over the one now in the panel -- autosave then
+    // overwrote the just-loaded session with it.
+    if (state.chatGeneration !== generationAtRunStart || supersededByNewerRun()) return;
     const partialMessages = (err as { partialMessages?: ChatMessage[] })?.partialMessages;
     if (partialMessages && partialMessages.length > state.messages.length) {
       state.messages = partialMessages;
@@ -824,14 +834,12 @@ export async function handleReconnect(state: ChatState): Promise<void> {
     });
     state.postMessage({ command: 'done', messageCount: state.messages.length });
 
-    const last = lastUserTextMessage(state.messages);
-    if (last) {
-      // Splice from the user message index onward (removing it plus any
-      // trailing assistant/tool messages) so handleUserMessage starts clean.
-      state.messages.splice(last.index);
-      state.saveHistory();
-      await handleUserMessage(state, last.text);
-    }
+    // Send the prompt that failed -- and nothing else. It was withdrawn from
+    // history when the send failed, so the last prompt still there is an
+    // earlier, answered one; re-running that deleted its answer.
+    const prompt = state.pendingReconnectPrompt;
+    state.pendingReconnectPrompt = null;
+    if (prompt) await handleUserMessage(state, prompt);
   } else {
     state.postMessage({
       command: 'error',
