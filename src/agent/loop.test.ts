@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runAgentLoop } from './loop.js';
+import { runAgentLoop, toolCallParseErrorDetail } from './loop.js';
 import {
   parseTextToolCalls,
   parseTextToolCallsCleaned,
@@ -547,6 +547,69 @@ describe('runAgentLoop', () => {
 
     vi.restoreAllMocks();
   }, 15_000);
+
+  // Ollama parses native tool calls server-side. A `\(` escape in the model's
+  // arguments ended the stream with "invalid character '(' in string escape
+  // code", and that one malformed call ended the whole run. Found by the smoke
+  // eval (fix-simple-bug, ministral-3).
+  it('re-asks the model when the backend could not parse its tool call, telling it why', async () => {
+    let calls = 0;
+    const seen: string[] = [];
+    async function* parseFailsOnce(...args: unknown[]): AsyncGenerator<StreamEvent> {
+      calls++;
+      seen.push(JSON.stringify(args[0]));
+      if (calls === 1) throw new Error("Ollama error: invalid character '(' in string escape code");
+      yield { type: 'text', text: 'Recovered!' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    const cb = makeCallbacks();
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    await runAgentLoop(
+      makeMockClient(parseFailsOnce),
+      [{ role: 'user', content: 'fix the bug' }],
+      cb,
+      new AbortController().signal,
+    );
+
+    expect(calls).toBe(2);
+    expect(cb.texts.join('')).toContain('Recovered!');
+    expect(cb.texts.join('')).toContain('could not be parsed');
+    // The retry carried the reason, so the model is not asked the same thing twice.
+    expect(seen[0]).not.toContain('Tool call not parsed');
+    expect(seen[1]).toContain('Tool call not parsed');
+    expect(seen[1]).toContain('string escape code');
+    vi.restoreAllMocks();
+  });
+
+  it('gives up after the parse retries are spent', async () => {
+    let calls = 0;
+    async function* alwaysBad(): AsyncGenerator<StreamEvent> {
+      calls++;
+      throw new Error("Ollama error: invalid character '(' in string escape code");
+    }
+    const cb = makeCallbacks();
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    await runAgentLoop(makeMockClient(alwaysBad), [{ role: 'user', content: 'hi' }], cb, new AbortController().signal)
+      .then(() => undefined)
+      .catch(() => undefined);
+
+    expect(calls).toBe(3); // the first attempt and two re-asks
+    vi.restoreAllMocks();
+  });
 
   // #108: the backoff before a retry ignored Stop.
   it.each(['at once', 'during'] as const)('ends promptly when stopped %s the retry backoff', async (mode) => {
@@ -1179,5 +1242,25 @@ describe('runAgentLoop — escalation reprompt ordering', () => {
     expect(steerAt).toBeGreaterThan(useAt + 1);
 
     vi.restoreAllMocks();
+  });
+});
+
+describe('toolCallParseErrorDetail', () => {
+  it.each([
+    ["Ollama error: invalid character '(' in string escape code", "invalid character '(' in string escape code"],
+    [
+      'Ollama request failed: 500 Internal Server Error — {"error":"error parsing tool call: raw=\'{...}\', err=unexpected end of JSON input"}',
+      "error parsing tool call: raw='{...}', err=unexpected end of JSON input\"}",
+    ],
+  ])('recognises %s', (message, detail) => {
+    expect(toolCallParseErrorDetail(new Error(message))).toBe(detail);
+  });
+
+  it.each([
+    'Ollama error: model requires more system memory',
+    'fetch failed',
+    "Anthropic error: invalid character '(' in string escape code",
+  ])('ignores %s', (message) => {
+    expect(toolCallParseErrorDetail(new Error(message))).toBeNull();
   });
 });

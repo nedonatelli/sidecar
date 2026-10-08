@@ -93,6 +93,43 @@ function isTransientNetworkError(err: unknown): boolean {
   );
 }
 
+/** Max times a turn is re-asked after the backend could not parse a tool call
+ *  the model wrote. Each retry tells the model what was wrong, so a model at
+ *  temperature 0 does not just write the same call again. */
+const MAX_TOOL_CALL_PARSE_RETRIES = 2;
+
+/**
+ * The parser's message when the backend rejected a tool call the MODEL wrote
+ * -- invalid JSON in its arguments, such as a `\(` escape -- or null for any
+ * other error. Ollama parses native tool calls server-side and, when that
+ * fails, ends the stream with an error (or answers 500 "error parsing tool
+ * call"); that ended the whole run over one malformed call, the failure the
+ * text-call repair path exists to prevent.
+ */
+export function toolCallParseErrorDetail(err: unknown): string | null {
+  if (!(err instanceof Error) || err.name === 'AbortError') return null;
+  if (!/^Ollama (?:error|request failed)\b/.test(err.message)) return null;
+  const m = /error parsing tool call[^\n]*|invalid character [^\n]*|unexpected end of JSON input/i.exec(err.message);
+  return m ? m[0].slice(0, 300) : null;
+}
+
+/** Tell the model its last tool call was not run, and why, before re-asking. */
+function pushToolCallParseNudge(messages: ChatMessage[], detail: string): void {
+  const text =
+    `[Tool call not parsed] Your last tool call could not be parsed as JSON (${detail}), so it was NOT run. ` +
+    'Send it again with valid JSON arguments. Inside a JSON string a backslash must be written as \\\\; the only ' +
+    'valid escapes are \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t and \\uXXXX.';
+  const last = messages[messages.length - 1];
+  // Two user messages in a row are rejected by some chat templates: append to
+  // the last user message instead of adding another.
+  if (last && last.role === 'user') {
+    const blocks = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
+    last.content = [...blocks, { type: 'text' as const, text }];
+  } else {
+    messages.push({ role: 'user', content: [{ type: 'text' as const, text }] });
+  }
+}
+
 export interface AgentCallbacks {
   onText: (text: string) => void;
   onThinking?: (thinking: string) => void;
@@ -558,6 +595,7 @@ export async function runAgentLoop(
         // re-issuing is safe — a flaky remote endpoint no longer zeroes the run
         // over one dropped connection. Aborts and HTTP errors are not retried.
         let streamAttempt = 0;
+        let parseRetries = 0;
         // A failed attempt's streamed text already went into totalChars; the
         // retry streams the turn again, so it must not be counted twice.
         const charsBeforeTurn = state.totalChars;
@@ -573,6 +611,25 @@ export async function runAgentLoop(
             );
             break;
           } catch (streamErr) {
+            const parseDetail = toolCallParseErrorDetail(streamErr);
+            if (
+              parseDetail &&
+              parseRetries < MAX_TOOL_CALL_PARSE_RETRIES &&
+              !signal.aborted &&
+              !turnController.signal.aborted
+            ) {
+              parseRetries++;
+              state.totalChars = charsBeforeTurn;
+              state.logger?.warn(
+                `Backend could not parse the model's tool call (${parseDetail}) — re-asking ${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}`,
+              );
+              callbacks.onText(
+                `\n\n⚠️ The model wrote a tool call that could not be parsed — asking it to send it again ` +
+                  `(${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}); any partial response above is discarded...\n`,
+              );
+              pushToolCallParseNudge(state.messages, parseDetail);
+              continue;
+            }
             if (
               signal.aborted ||
               turnController.signal.aborted ||
