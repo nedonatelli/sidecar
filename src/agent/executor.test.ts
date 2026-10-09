@@ -835,7 +835,21 @@ describe('executeTool', () => {
       expect(String(confirm.mock.calls[0][0])).toMatch(/install \**typescript/i);
       expect(executor).not.toHaveBeenCalled();
       expect(result.is_error).toBe(true);
-      expect(String(result.content)).toMatch(/declined installing typescript.*Do not install it/s);
+      expect(String(result.content)).toMatch(/The user declined installing typescript.*Do not install it/s);
+    });
+
+    // Background agents, scheduled tasks and the MCP agent server run
+    // autonomously with no confirmFn. The install is refused -- there is no one
+    // to ask -- and the model must not be told a user declined it.
+    it('refuses without claiming a user declined, when the run has no one to ask', async () => {
+      const executor = vi.fn().mockResolvedValue('added 1 package');
+      runCommandTool(executor);
+      const result = await executeTool(makeToolUse('run_command', { command: 'npm install -D eslint' }), {
+        approvalMode: 'autonomous',
+      });
+      expect(executor).not.toHaveBeenCalled();
+      expect(String(result.content)).toMatch(/eslint was not installed: this run has no one to ask/);
+      expect(String(result.content)).not.toMatch(/user declined/i);
     });
 
     it('runs the install once the user allows it', async () => {

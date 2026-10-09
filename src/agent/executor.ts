@@ -455,12 +455,18 @@ export async function executeTool(
         : await confirm(`${question}\n${inputSummary}`, ['Allow', 'Deny']);
 
       if (choice !== 'Allow') {
+        // A background, scheduled or MCP-server run wires no confirmFn: the
+        // install was refused because there was no one to ask, and telling the
+        // model "the user declined" would have it report a decision nobody made.
+        const declinedBy = confirmFn
+          ? `The user declined installing ${checkerInstall}.`
+          : `${checkerInstall} was not installed: this run has no one to ask, and installing a checker needs the user's approval.`;
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
           content: checkerInstall
-            ? `The user declined installing ${checkerInstall}. Do not install it or another checker some other way, ` +
-              'and do not change project config to make a check run. Say in your answer which check could not run.'
+            ? `${declinedBy} Do not install it or another checker some other way, and do not change project config ` +
+              'to make a check run. Say in your answer which checker is missing and that it needs installing.'
             : 'Tool call denied by user.',
           is_error: true,
         };
