@@ -65,6 +65,12 @@ export interface ResolveApprovalOptions {
   explicitPermission: 'allow' | 'deny' | 'ask' | undefined;
   /** True when detectIrrecoverable returned a non-null description. */
   isIrrecoverable: boolean;
+  /**
+   * True when detectCheckerInstall returned a non-null description: the
+   * command installs a type-checker, linter or test runner. Whether to add
+   * one is the user's call in every mode. Optional for existing callers.
+   */
+  isCheckerInstall?: boolean;
 }
 
 /**
@@ -73,14 +79,16 @@ export interface ResolveApprovalOptions {
  * Priority order (highest wins):
  *  1. `alwaysRequireApproval` — non-negotiable; overrides everything
  *  2. `isIrrecoverable` — force approval even in autonomous mode
- *  3. `explicitPermission: 'allow'` — user opted in; skip approval
- *  4. `explicitPermission: 'ask'`  — user opted in to always-ask
- *  5. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
+ *  3. `isCheckerInstall` — installing a checker is the user's call, in every mode
+ *  4. `explicitPermission: 'allow'` — user opted in; skip approval
+ *  5. `explicitPermission: 'ask'`  — user opted in to always-ask
+ *  6. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
  */
 export function resolveApprovalNeeded(opts: ResolveApprovalOptions): boolean {
   const { tool, toolName, approvalMode, explicitPermission, isIrrecoverable } = opts;
   if (tool.alwaysRequireApproval) return true;
   if (isIrrecoverable) return true;
+  if (opts.isCheckerInstall) return true;
   if (explicitPermission === 'allow') return false;
   if (explicitPermission === 'ask') return true;
   if (approvalMode === 'sandboxed') return !!tool.requiresApproval && !SHADOW_CONTAINED_TOOLS.has(toolName ?? '');

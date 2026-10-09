@@ -65,7 +65,8 @@ describe('checks that cannot run', () => {
     expect(prompt).toMatch(/do not install packages or create or edit project config to make it run/);
   });
 
-  it('limits verification to the tools the project already has', () => {
+  it('limits verification to the tools the project already has, and asks before installing one', () => {
     expect(prompt).toMatch(/Use only the checkers and test runners the project already has/);
+    expect(prompt).toMatch(/in any mode, autonomous included: say which checker is missing and ask the user/);
   });
 });

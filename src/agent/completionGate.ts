@@ -833,7 +833,8 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
   lines.push(
     'Use only the checks this project already has. Do NOT install packages, create or edit config files ' +
       '(package.json, tsconfig.json, linter or test-runner config), or write throwaway scripts to make a check ' +
-      'runnable. If a check cannot run here, say which one and why in your final answer, and finish.',
+      'runnable. If the checker this needs is not installed, finish: say which checker is missing and ask the ' +
+      'user whether they want it installed. This applies in every mode, autonomous included.',
   );
   lines.push('');
 

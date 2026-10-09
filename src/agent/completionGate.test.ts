@@ -838,7 +838,8 @@ describe('completionGate — checkCompletionGate', () => {
     const text = buildGateInjection([{ file: 'src/a.ts', needsLint: true }], 1, 2);
     expect(text).toMatch(/Do NOT install packages/);
     expect(text).toMatch(/tsconfig\.json/);
-    expect(text).toMatch(/cannot run here, say which one/);
+    expect(text).toMatch(/say which checker is missing and ask the user whether they want it installed/);
+    expect(text).toMatch(/every mode, autonomous included/);
   });
 
   it('a clean parse from before an edit is discarded by the recorder', () => {
