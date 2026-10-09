@@ -19,6 +19,10 @@ describe('detectCheckerInstall', () => {
     ['npm install typescript ts-node && npx tsc --noEmit', 'typescript, ts-node'],
     ['yarn add -D eslint@8 @typescript-eslint/parser', 'eslint, @typescript-eslint/parser'],
     ['pnpm add -D vitest', 'vitest'],
+    ['npm install --save-dev ts-mocha', 'ts-mocha'],
+    ['npm install --save-dev @types/chai', '@types/chai'],
+    ['npm install --save-dev supertest', 'supertest'],
+    ['npm install --save-dev @babel/core @babel/preset-env @babel/jest', '@babel/jest'],
     // Fetches the npm package literally named `tsc` -- not TypeScript.
     ['npx -y tsc --noEmit', 'tsc'],
     ['npx --yes eslint src/a.ts', 'eslint'],

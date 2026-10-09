@@ -18,9 +18,15 @@ import { shellCommandOf } from './irrecoverableDetector.js';
  * declared dependencies) is not adding a checker.
  */
 
-/** Node packages that type-check, lint or run tests. Matched on the bare name. */
+/**
+ * Node packages that type-check, lint or run tests, and the libraries and type
+ * packages a test setup pulls in with them. Matched on the bare name. The test
+ * libraries are here because the agents installed them for the same reason:
+ * ts-mocha, @types/chai, supertest, expect and @babel/jest were the misses when
+ * the 2026-10-09 eval's install commands were run through this detector.
+ */
 const NODE_CHECKERS =
-  /^(typescript|tsc|ts-node|tsx|eslint|eslint-.+|@eslint\/.+|@typescript-eslint\/.+|tslint|prettier|biome|@biomejs\/biome|oxlint|vitest|@vitest\/.+|jest|ts-jest|@jest\/.+|mocha|ava|tap|jasmine|@types\/(node|jest|mocha))$/;
+  /^(typescript|tsc|ts-node|tsx|eslint|eslint-.+|@eslint\/.+|@typescript-eslint\/.+|tslint|prettier|biome|@biomejs\/biome|oxlint|vitest|@vitest\/.+|jest|ts-jest|babel-jest|@babel\/jest|@jest\/.+|expect|mocha|ts-mocha|chai|sinon|supertest|@testing-library\/.+|ava|tap|jasmine|@types\/(node|jest|mocha|chai|sinon|supertest))$/;
 
 /** Python packages that type-check, lint or run tests. */
 const PY_CHECKERS = /^(mypy|pyright|ruff|pylint|flake8|pyflakes|pycodestyle|black|isort|pytest|pytest-.+|nose2?|tox)$/i;
