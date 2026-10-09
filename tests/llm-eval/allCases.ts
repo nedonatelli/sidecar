@@ -7,6 +7,7 @@ import { SYSTEM_CASES } from './systemCases.js';
 import { MULTI_TURN_CASES } from './multiTurnCases.js';
 import { DOGFOOD_CASES, DOGFOOD_LANGUAGE_AND_SCALE_CASES } from './dogfoodCases.js';
 import { LARGE_FILE_EDIT_CASES, UNDERSPECIFIED_CASES, DISTINCT_SYMBOL_CASES } from './largeFileEditCases.js';
+import { TOOLING_INSTALLED_CASES } from './toolingInstalledCases.js';
 
 /**
  * Every agent eval case, in one place.
@@ -36,4 +37,5 @@ export const ALL_AGENT_CASES: AgentEvalCase[] = [
   ...LARGE_FILE_EDIT_CASES,
   ...UNDERSPECIFIED_CASES,
   ...DISTINCT_SYMBOL_CASES,
+  ...TOOLING_INSTALLED_CASES,
 ];
