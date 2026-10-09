@@ -672,6 +672,7 @@ describe('completionGate — findColocatedTest', () => {
   it('returns the .test.ts path when one exists next to the source', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
+      if (uri.fsPath === at('node_modules', '.bin', 'vitest')) return { type: 1 }; // a runner to run it with
       throw new Error('not found');
     });
     const result = await findColocatedTest('src/foo.ts');
@@ -779,13 +780,65 @@ describe('completionGate — checkCompletionGate', () => {
     expect(await checkCompletionGate(state)).toEqual([]);
   });
 
-  it('does NOT accept a clean parse in place of tsc/eslint for a TypeScript file', async () => {
-    (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
+  it('does NOT accept a clean parse in place of tsc/eslint for a TypeScript file, when tsc is installed', async () => {
+    statOnly('/node_modules/.bin/tsc');
     const state = createGateState();
     state.editedFiles.add('src/a.ts');
     state.projectTestsRan = true;
     state.syntaxCleanFiles = new Set(['src/a.ts']);
     expect((await checkCompletionGate(state)).some((f) => f.needsLint)).toBe(true);
+  });
+
+  // With no tsc/eslint installed the lint demand could only be met by
+  // installing one: overnight on 2026-10-08, 30% of ministral-3 runs and 8% of
+  // gemma4:31b runs installed packages or edited package.json / tsconfig.json
+  // during an unrelated task. A clean parse is the static check available.
+  it('accepts a clean parse for a TypeScript file when the project has no tsc or eslint', async () => {
+    statOnly(); // nothing installed
+    const state = createGateState();
+    state.editedFiles.add('src/a.ts');
+    state.syntaxCleanFiles = new Set(['src/a.ts']);
+    expect(await checkCompletionGate(state)).toEqual([]);
+  });
+
+  it('accepts a clean parse once a checker the model tried failed to launch', async () => {
+    statOnly('/node_modules/.bin/tsc'); // looks installed, but the run says otherwise
+    const state = createGateState();
+    recordToolCall(state, makeEdit('src/a.ts'), ok());
+    recordToolCall(state, makeRunCommand('npx tsc --noEmit'), {
+      type: 'tool_result',
+      tool_use_id: 'id',
+      content: 'npm error could not determine executable to run',
+    });
+    expect(state.checkerUnavailable).toBe(true);
+    expect(state.lintObserved).toBe(false); // a checker that never ran verified nothing
+    state.syntaxCleanFiles = new Set(['src/a.ts']);
+    expect(await checkCompletionGate(state)).toEqual([]);
+  });
+
+  it('still demands a check for a TypeScript file that has not parsed clean, installed checker or not', async () => {
+    statOnly();
+    const state = createGateState();
+    state.editedFiles.add('src/a.ts');
+    expect((await checkCompletionGate(state)).some((f) => f.needsLint)).toBe(true);
+  });
+
+  // fix-simple-bug (gemma4:31b): the model wrote src/math.test.ts itself, the
+  // gate then demanded it be run, and with no runner installed it installed one.
+  it('does not demand a colocated JS/TS test the project has no runner for', async () => {
+    statOnly('/src/foo.test.ts');
+    const state = createGateState();
+    state.editedFiles.add('src/foo.ts');
+    state.syntaxCleanFiles = new Set(['src/foo.ts']);
+    const findings = await checkCompletionGate(state);
+    expect(findings.some((f) => f.missingTest || f.testNotUpdated)).toBe(false);
+  });
+
+  it('tells the model not to install tooling or change config to make a check runnable', () => {
+    const text = buildGateInjection([{ file: 'src/a.ts', needsLint: true }], 1, 2);
+    expect(text).toMatch(/Do NOT install packages/);
+    expect(text).toMatch(/tsconfig\.json/);
+    expect(text).toMatch(/cannot run here, say which one/);
   });
 
   it('a clean parse from before an edit is discarded by the recorder', () => {
@@ -818,6 +871,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('flags missing test run when a colocated test exists', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
+      if (uri.fsPath === at('node_modules', '.bin', 'vitest')) return { type: 1 }; // a runner to run it with
       throw new Error('not found');
     });
     const state = createGateState();
@@ -830,6 +884,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('passes when lint ran and the colocated test ran (and test file was also edited)', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
+      if (uri.fsPath === at('node_modules', '.bin', 'vitest')) return { type: 1 }; // a runner to run it with
       throw new Error('not found');
     });
     const state = createGateState();
@@ -847,6 +902,7 @@ describe('completionGate — checkCompletionGate', () => {
     // Gate should prompt: "add coverage for the new functionality."
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
+      if (uri.fsPath === at('node_modules', '.bin', 'vitest')) return { type: 1 }; // a runner to run it with
       throw new Error('not found');
     });
     const state = createGateState();
@@ -860,6 +916,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('does NOT flag testNotUpdated when the test file was also edited', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
+      if (uri.fsPath === at('node_modules', '.bin', 'vitest')) return { type: 1 }; // a runner to run it with
       throw new Error('not found');
     });
     const state = createGateState();
@@ -874,6 +931,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('does NOT flag testNotUpdated when tests were not run (missingTest fires instead)', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
+      if (uri.fsPath === at('node_modules', '.bin', 'vitest')) return { type: 1 }; // a runner to run it with
       throw new Error('not found');
     });
     const state = createGateState();
@@ -888,6 +946,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('passes when projectTestsRan covers all edited files', async () => {
     (mockWorkspace.fs.stat as any).mockImplementation(async (uri: { fsPath: string }) => {
       if (uri.fsPath === at('src', 'foo.test.ts')) return { type: 1 };
+      if (uri.fsPath === at('node_modules', '.bin', 'vitest')) return { type: 1 }; // a runner to run it with
       throw new Error('not found');
     });
     const state = createGateState();

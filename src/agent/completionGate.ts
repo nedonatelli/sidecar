@@ -81,6 +81,14 @@ export interface GateState {
    * back-compat with test stubs.
    */
   testsRanSinceLastEdit?: boolean;
+  /**
+   * True once a type-checker or linter the model invoked failed to LAUNCH
+   * (`command not found`, npx could not find it): the project has no such
+   * checker, so demanding one can only be met by installing it. Never
+   * cleared -- an edit does not install a checker. Optional for back-compat
+   * with test stubs.
+   */
+  checkerUnavailable?: boolean;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
@@ -513,7 +521,9 @@ export function recordToolCall(
       // A checker that ran is one that neither errored at the tool layer nor
       // failed to launch. Silent success (tsc prints nothing) still counts —
       // requiring positive output would be the opposite mistake.
-      if (!checkerFailedToRun(resultText)) {
+      if (checkerFailedToRun(resultText)) {
+        state.checkerUnavailable = true;
+      } else {
         state.lintObserved = true;
         // "Ran" and "passed" are different facts. A checker whose output
         // reports errors satisfies the ran-requirement but arms the
@@ -697,10 +707,50 @@ export async function hasTestDirectory(): Promise<boolean> {
   return false;
 }
 
+const JS_TS_FILE_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
+
+/** True when `node_modules/.bin/<name>` exists for any of `names` (POSIX or Windows shim). */
+async function hasNodeBin(names: readonly string[]): Promise<boolean> {
+  const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return false;
+  for (const name of names) {
+    for (const bin of [name, `${name}.cmd`]) {
+      try {
+        await workspace.fs.stat(Uri.file(path.join(root, 'node_modules', '.bin', bin)));
+        return true;
+      } catch {
+        // not installed under this name
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether the project can type-check or lint JS/TS without installing
+ * anything. The gate used to assume tsc/eslint exist "wherever a Node project
+ * is"; where they did not -- a loose script, a project before `npm install`,
+ * every eval fixture -- the lint demand could only be met by installing them.
+ * Overnight on 2026-10-08, 30% of ministral-3 runs and 8% of gemma4:31b runs
+ * installed packages or edited package.json / tsconfig.json during an
+ * unrelated task, the gate's reprompt quoted back in the model's reasoning.
+ */
+export async function hasJsChecker(): Promise<boolean> {
+  return hasNodeBin(['tsc', 'eslint']);
+}
+
+/** Whether the project has a JS test runner installed to run a colocated test with. */
+export async function hasJsTestRunner(): Promise<boolean> {
+  return hasNodeBin(['vitest', 'jest', 'mocha']);
+}
+
 export async function checkCompletionGate(state: GateState): Promise<GateFinding[]> {
   const findings: GateFinding[] = [];
   // Resolved once per check, only if a Python source edit needs it.
   let testDir: boolean | undefined;
+  // Resolved once per check, only if a JS/TS edit needs them.
+  let jsChecker: boolean | undefined;
+  let jsRunner: boolean | undefined;
 
   for (const file of state.editedFiles) {
     if (!SOURCE_FILE_RE.test(file)) continue;
@@ -709,7 +759,12 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
     // rule covers whether the edited file needs lint, which still applies.
     const isTestFile = TEST_FILE_RE.test(file);
 
-    if (!isTestFile && !state.projectTestsRan) {
+    // A colocated test can only be run with a runner the project has. Without
+    // one the demand is unsatisfiable short of installing it -- or of the model
+    // writing the test file itself and then being told to run it, which is
+    // how fix-simple-bug ended up installing vitest.
+    const canRunColocated = !JS_TS_FILE_RE.test(file) || (jsRunner ??= await hasJsTestRunner());
+    if (!isTestFile && !state.projectTestsRan && canRunColocated) {
       const testFile = await findColocatedTest(file);
       if (testFile && !state.testsRunForFiles.has(testFile)) {
         findings.push({ file, missingTest: testFile });
@@ -733,9 +788,15 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
       if (testDir) findings.push({ file, needsTestRun: true });
     }
 
-    // A Python file the syntax gate has just parsed cleanly has had the static
-    // check this environment can give it (see GateState.syntaxCleanFiles).
-    const parsedClean = file.endsWith('.py') && (state.syntaxCleanFiles?.has(file) ?? false);
+    // A file the syntax gate has just parsed cleanly has had the static check
+    // this environment can give it (see GateState.syntaxCleanFiles): always
+    // for Python, and for JS/TS when the project has no tsc/eslint to run --
+    // none installed, or one the model tried failed to launch.
+    const syntaxClean = state.syntaxCleanFiles?.has(file) ?? false;
+    const parsedClean =
+      syntaxClean &&
+      (file.endsWith('.py') ||
+        (JS_TS_FILE_RE.test(file) && (state.checkerUnavailable === true || !(jsChecker ??= await hasJsChecker()))));
     if (!state.lintObserved && !parsedClean) {
       // Lint applies to both source and test files since both are linted.
       // Only carried when true — an absent flag keeps the finding shape it has
@@ -767,6 +828,12 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
       'Report the actual tool output. Do not summarize, do not write a "Summary of Changes" message, ' +
       'and do not claim anything passes until you have seen real output. ' +
       'If a check fails, report the failure honestly — do not loop trying to fix it unless the fix is obvious and small.',
+  );
+  lines.push('');
+  lines.push(
+    'Use only the checks this project already has. Do NOT install packages, create or edit config files ' +
+      '(package.json, tsconfig.json, linter or test-runner config), or write throwaway scripts to make a check ' +
+      'runnable. If a check cannot run here, say which one and why in your final answer, and finish.',
   );
   lines.push('');
 
