@@ -28,11 +28,14 @@ process.env.SIDECAR_VITEST_KIND = 'eval';
 // timeout is set to case timeout + 60 s to allow for sandbox
 // setup/teardown on top of the model response time.
 const rawCaseTimeout = parseInt(process.env.SIDECAR_EVAL_CASE_TIMEOUT ?? '', 10);
-// Default raised from 120s to 240s: multi-step tool workflows on local 7B+ models
-// routinely need 3-4 minutes (run_command → read → edit → re-run). 120s was
-// hitting timeout before the agent could complete the edit-verify loop, producing
-// spurious failures that looked like the model couldn't tool-call.
-const caseTimeout = Number.isFinite(rawCaseTimeout) && rawCaseTimeout > 0 ? rawCaseTimeout : 240_000;
+// The default MUST equal agentHarness.ts's DEFAULT_CASE_TIMEOUT_MS. The harness
+// moved to 600 s and this stayed at 240 s, so with 3 trials vitest allowed 780 s
+// for runs the harness let take 1,800. Vitest then abandoned the case and
+// started the next one while the abandoned run kept going -- in the same
+// process, against the same mocked workspace: on 2026-10-08 a gemma4:31b run of
+// edit-preserves-surrounding-code swapped its files into
+// error-recovery-to-correct-file mid-run and failed it.
+const caseTimeout = Number.isFinite(rawCaseTimeout) && rawCaseTimeout > 0 ? rawCaseTimeout : 600_000;
 
 // SIDECAR_EVAL_TRIALS=N runs N trials INSIDE a single `it()`, sequentially. The
 // vitest budget therefore has to cover all of them — it did not, so any real
@@ -45,7 +48,11 @@ const caseTimeout = Number.isFinite(rawCaseTimeout) && rawCaseTimeout > 0 ? rawC
 // reliable, and `no-stub-in-write` is a 52% coin flip — so a harness that cannot
 // run trials cannot answer whether scaffolding helps.
 const trials = Math.max(1, parseInt(process.env.SIDECAR_EVAL_TRIALS ?? '1', 10) || 1);
-const vitestTimeout = caseTimeout * trials + 60_000;
+// agent.eval.ts re-runs a trial that timed out with no model output, up to
+// SIDECAR_EVAL_TIMEOUT_RETRIES times (default 1); each re-run can take the full
+// case timeout too.
+const timeoutRetries = Math.max(0, parseInt(process.env.SIDECAR_EVAL_TIMEOUT_RETRIES ?? '1', 10) || 0);
+const vitestTimeout = caseTimeout * trials * (1 + timeoutRetries) + 60_000;
 
 export default defineConfig({
   test: {
@@ -63,7 +70,7 @@ export default defineConfig({
     disableConsoleIntercept: true,
     // Eval runs network requests against real LLM backends. Default
     // vitest timeout (5s) is too short for anything but local Ollama.
-    // Set via SIDECAR_EVAL_CASE_TIMEOUT (default 120 000 ms) + 60 s overhead.
+    // Covers every trial and timeout re-run of one case, plus 60 s overhead.
     testTimeout: vitestTimeout,
     // Run test files sequentially so all files share the same Ollama
     // connection without contention. Parallel file execution causes prompt
