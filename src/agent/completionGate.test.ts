@@ -25,6 +25,7 @@ vi.mock('vscode', () => ({
     workspaceFolders: [{ uri: { fsPath: '/test' } }] as { uri: { fsPath: string } }[],
     fs: {
       stat: vi.fn(),
+      readFile: vi.fn().mockRejectedValue(new Error('not found')),
     },
   },
   Uri: {
@@ -832,6 +833,32 @@ describe('completionGate — checkCompletionGate', () => {
     state.syntaxCleanFiles = new Set(['src/foo.ts']);
     const findings = await checkCompletionGate(state);
     expect(findings.some((f) => f.missingTest || f.testNotUpdated)).toBe(false);
+  });
+
+  // gate-run-tests-after-fix: package.json says `"test": "node src/divide.test.js"`
+  // and nothing is in node_modules. Counting only vitest/jest/mocha binaries as
+  // runners stopped the gate demanding the test (gemma4:31b 3/3 -> 1/3).
+  it('demands a colocated test that a package.json test script can run', async () => {
+    statOnly('/src/divide.test.js');
+    (mockWorkspace.fs.readFile as any).mockResolvedValueOnce(
+      Buffer.from(JSON.stringify({ scripts: { test: 'node src/divide.test.js' } })),
+    );
+    const state = createGateState();
+    state.editedFiles.add('src/divide.js');
+    state.syntaxCleanFiles = new Set(['src/divide.js']);
+    const findings = await checkCompletionGate(state);
+    expect(findings).toEqual([{ file: 'src/divide.js', missingTest: 'src/divide.test.js' }]);
+  });
+
+  it("does not count npm's placeholder test script as a runner", async () => {
+    statOnly('/src/divide.test.js');
+    (mockWorkspace.fs.readFile as any).mockResolvedValueOnce(
+      Buffer.from(JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } })),
+    );
+    const state = createGateState();
+    state.editedFiles.add('src/divide.js');
+    state.syntaxCleanFiles = new Set(['src/divide.js']);
+    expect((await checkCompletionGate(state)).some((f) => f.missingTest)).toBe(false);
   });
 
   it('tells the model not to install tooling or change config to make a check runnable', () => {

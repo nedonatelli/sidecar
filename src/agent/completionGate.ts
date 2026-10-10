@@ -739,9 +739,24 @@ export async function hasJsChecker(): Promise<boolean> {
   return hasNodeBin(['tsc', 'eslint']);
 }
 
-/** Whether the project has a JS test runner installed to run a colocated test with. */
+/**
+ * Whether the project can run a colocated JS/TS test: a runner installed in
+ * node_modules/.bin, or a `test` script in package.json (`node x.test.js` is a
+ * runner too -- gate-run-tests-after-fix is exactly that, and without this the
+ * gate stopped demanding its test: gemma4:31b 3/3 -> 1/3). npm's placeholder
+ * script, which only fails, does not count.
+ */
 export async function hasJsTestRunner(): Promise<boolean> {
-  return hasNodeBin(['vitest', 'jest', 'mocha']);
+  if (await hasNodeBin(['vitest', 'jest', 'mocha'])) return true;
+  const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return false;
+  try {
+    const bytes = await workspace.fs.readFile(Uri.file(path.join(root, 'package.json')));
+    const test = (JSON.parse(Buffer.from(bytes).toString('utf-8')) as { scripts?: { test?: unknown } }).scripts?.test;
+    return typeof test === 'string' && test.trim() !== '' && !/no test specified/i.test(test);
+  } catch {
+    return false; // no package.json, or not JSON
+  }
 }
 
 export async function checkCompletionGate(state: GateState): Promise<GateFinding[]> {
