@@ -812,6 +812,70 @@ describe('executeTool', () => {
   });
 
   // ------------------------------------------------------------------
+  // Installing a checker is the user's call, in every mode
+  // ------------------------------------------------------------------
+  describe('checker install gate', () => {
+    const runCommandTool = (executor: (input: Record<string, unknown>) => Promise<string>) =>
+      mockedFindTool.mockReturnValue({
+        definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+        executor,
+        requiresApproval: false,
+      });
+
+    it('asks before installing a checker in autonomous mode, and does not run it when declined', async () => {
+      const executor = vi.fn().mockResolvedValue('added 1 package');
+      runCommandTool(executor);
+      const confirm = vi.fn().mockResolvedValue('Deny');
+      const result = await executeTool(makeToolUse('run_command', { command: 'npm install --save-dev typescript' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+      });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      // Modal title or inline card, depending on whether the chat is visible: either way it names the package.
+      expect(String(confirm.mock.calls[0][0])).toMatch(/install \**typescript/i);
+      expect(executor).not.toHaveBeenCalled();
+      expect(result.is_error).toBe(true);
+      expect(String(result.content)).toMatch(/The user declined installing typescript.*Do not install it/s);
+    });
+
+    // Background agents, scheduled tasks and the MCP agent server run
+    // autonomously with no confirmFn. The install is refused -- there is no one
+    // to ask -- and the model must not be told a user declined it.
+    it('refuses without claiming a user declined, when the run has no one to ask', async () => {
+      const executor = vi.fn().mockResolvedValue('added 1 package');
+      runCommandTool(executor);
+      const result = await executeTool(makeToolUse('run_command', { command: 'npm install -D eslint' }), {
+        approvalMode: 'autonomous',
+      });
+      expect(executor).not.toHaveBeenCalled();
+      expect(String(result.content)).toMatch(/eslint was not installed: this run has no one to ask/);
+      expect(String(result.content)).not.toMatch(/user declined/i);
+    });
+
+    it('runs the install once the user allows it', async () => {
+      const executor = vi.fn().mockResolvedValue('added 1 package');
+      runCommandTool(executor);
+      await executeTool(makeToolUse('run_command', { command: 'pip install ruff' }), {
+        approvalMode: 'autonomous',
+        confirmFn: vi.fn().mockResolvedValue('Allow'),
+      });
+      expect(executor).toHaveBeenCalled();
+    });
+
+    it('does not ask about other commands in autonomous mode', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      runCommandTool(executor);
+      const confirm = vi.fn();
+      await executeTool(makeToolUse('run_command', { command: 'npm install express' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+      });
+      expect(confirm).not.toHaveBeenCalled();
+      expect(executor).toHaveBeenCalled();
+    });
+  });
+
+  // ------------------------------------------------------------------
   // Irrecoverable-operation escalated confirmation gate
   // ------------------------------------------------------------------
   describe('irrecoverable operation gate', () => {

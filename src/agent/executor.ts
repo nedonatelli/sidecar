@@ -15,6 +15,7 @@ import { scanToolOutput, buildInjectionWarning } from './injectionScanner.js';
 import type { PendingEditStore } from './pendingEdits.js';
 import { withFileLock } from './fileLock.js';
 import { detectIrrecoverable, shellCommandOf } from './executor/irrecoverableDetector.js';
+import { detectCheckerInstall } from './executor/checkerInstallDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
@@ -330,12 +331,14 @@ export async function executeTool(
   }
 
   const irrecoverableDescription = detectIrrecoverable(toolUse);
+  const checkerInstall = detectCheckerInstall(toolUse);
   const needsApproval = resolveApprovalNeeded({
     tool,
     toolName: toolUse.name,
     approvalMode,
     explicitPermission,
     isIrrecoverable: irrecoverableDescription !== null,
+    isCheckerInstall: checkerInstall !== null,
   });
 
   if (needsApproval) {
@@ -438,18 +441,33 @@ export async function executeTool(
       const chatVisible = executorContext?.isChatVisible?.() ?? false;
       const useModal =
         (NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name) || shellCommandOf(toolUse) !== null) && !chatVisible;
+      // A checker install says what it is: the user is being asked whether to
+      // add a package to their project, not to approve an opaque command.
+      const question = checkerInstall
+        ? `SideCar wants to install **${checkerInstall}** to check its changes. This adds it to your project.`
+        : `SideCar wants to use **${toolUse.name}**:`;
       const choice = useModal
-        ? await confirm(`Allow SideCar to run ${toolUse.name}?`, ['Allow', 'Deny'], {
-            modal: true,
-            detail: inputSummary,
-          })
-        : await confirm(`SideCar wants to use **${toolUse.name}**:\n${inputSummary}`, ['Allow', 'Deny']);
+        ? await confirm(
+            checkerInstall ? `Install ${checkerInstall}?` : `Allow SideCar to run ${toolUse.name}?`,
+            ['Allow', 'Deny'],
+            { modal: true, detail: inputSummary },
+          )
+        : await confirm(`${question}\n${inputSummary}`, ['Allow', 'Deny']);
 
       if (choice !== 'Allow') {
+        // A background, scheduled or MCP-server run wires no confirmFn: the
+        // install was refused because there was no one to ask, and telling the
+        // model "the user declined" would have it report a decision nobody made.
+        const declinedBy = confirmFn
+          ? `The user declined installing ${checkerInstall}.`
+          : `${checkerInstall} was not installed: this run has no one to ask, and installing a checker needs the user's approval.`;
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
-          content: 'Tool call denied by user.',
+          content: checkerInstall
+            ? `${declinedBy} Do not install it or another checker some other way, and do not change project config ` +
+              'to make a check run. Say in your answer which checker is missing and that it needs installing.'
+            : 'Tool call denied by user.',
           is_error: true,
         };
       }
