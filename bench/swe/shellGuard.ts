@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import type { RegisteredTool, ToolExecutorContext } from '../../src/agent/tools/shared.js';
 
 /** The tools that run commands in the agent's persistent shell. */
@@ -11,10 +12,44 @@ export interface GuardShell {
   ): Promise<{ stdout: string; exitCode: number; timedOut?: boolean }>;
 }
 
+/** The clone root as a POSIX shell spells it after `cd` (e.g. Git Bash's /c/...), or null. */
+export type RootResolver = (root: string) => string | null;
+
 const PROBE_TIMEOUT_MS = 30_000;
 
 function singleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Ask a SEPARATE bash, not the agent's shell, how it spells the clone root.
+ * Anything run inside the agent's session is visible to the agent: bash numbers
+ * its error messages by the session's input line, so one extra command turned
+ * `bash: line 1: rg: command not found` into `line 4` and sent three canary runs
+ * down different paths.
+ */
+export const resolveRootWithBash: RootResolver = (root) => {
+  try {
+    const out = execFileSync('bash', ['-c', 'cd -- "$1" && pwd -P', '_', root.replace(/\\/g, '/')], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: PROBE_TIMEOUT_MS,
+    }).trim();
+    return out.startsWith('/') ? out : null;
+  } catch {
+    return null;
+  }
+};
+
+// Builtins that change the shell's OWN working directory. A program the shell
+// runs cannot change it -- only these, run in the session itself. A `cd` inside
+// a subshell counts too: harmless (the probe finds nothing) and simpler than
+// parsing shell grammar.
+const DIRECTORY_CHANGERS = /(^|[\s;&|({`])(cd|pushd|popd|source|exec|eval)(?=$|[\s;&|)])|(^|[;&|({]\s*)\.\s/;
+
+/** Could this command leave the session in a different directory? False positives only cost a probe. */
+export function mayChangeDirectory(command: string): boolean {
+  return DIRECTORY_CHANGERS.test(command);
 }
 
 /** The note appended to a result whose command left the clone. */
@@ -33,12 +68,12 @@ export function returnedNote(left: string): string {
  * added nothing on top. So one `cd /tmp` sent every later command to /tmp, and
  * a `cd / && find .` scanned the host's whole disk -- 297 s of a 351 s run.
  *
- * After each command this asks the shell where it is. Inside the clone -- the
- * root or any subdirectory -- nothing happens, so a `cd src` persists exactly
- * as in the product. Outside it, the shell is moved back to the root and the
- * result says so, so the model is not left to discover it. Comparison is on
- * `pwd -P` from the shell itself, so the shell's own path spelling (Git Bash's
- * /c/... on Windows) never has to be translated.
+ * After a command that could change directory, this asks the shell where it is.
+ * Inside the clone -- the root or any subdirectory -- nothing happens, so a
+ * `cd src` persists exactly as in the product. Outside it, the shell is moved
+ * back to the root and the result says so. Every other command passes through
+ * untouched: the guard sends nothing to the session, so a run that never
+ * changes directory is byte-identical to an unguarded one.
  *
  * It contains a session, not a command: `cd / && find .` still runs to
  * completion inside that one command. Isolating the host is a separate
@@ -47,36 +82,24 @@ export function returnedNote(left: string): string {
 export class ShellRootGuard {
   private rootPwd: string | null | undefined;
 
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    private readonly resolveRoot: RootResolver = resolveRootWithBash,
+  ) {}
 
-  /** The clone root as the shell spells it; null when the shell cannot tell us (no POSIX `pwd`). */
-  private async resolveRoot(shell: GuardShell): Promise<string | null> {
-    if (this.rootPwd === undefined) {
-      const r = await shell.execute(`cd -- ${singleQuote(this.root.replace(/\\/g, '/'))} && pwd -P`, {
-        timeout: PROBE_TIMEOUT_MS,
-      });
-      // A probe that timed out (a loaded machine) says nothing about the shell:
-      // leave it unresolved and ask again next command, rather than caching
-      // "no POSIX pwd" and switching the guard off for the rest of the task.
-      if (r.timedOut) return null;
-      const out = r.stdout.trim();
-      this.rootPwd = r.exitCode === 0 && out.startsWith('/') ? out : null;
-    }
+  private getRoot(): string | null {
+    if (this.rootPwd === undefined) this.rootPwd = this.resolveRoot(this.root);
     return this.rootPwd;
   }
 
-  /** Call before the first command, while the shell is still at the root. */
-  async init(shell: GuardShell): Promise<void> {
-    await this.resolveRoot(shell);
-  }
-
-  /** After a command: the note to append, or '' when the shell is still inside the clone. */
-  async afterCommand(shell: GuardShell): Promise<string> {
-    const root = await this.resolveRoot(shell);
+  /** After `command` ran: the note to append, or '' when the shell is still inside the clone. */
+  async afterCommand(shell: GuardShell, command: string): Promise<string> {
+    if (!mayChangeDirectory(command)) return '';
+    const root = this.getRoot();
     if (!root) return '';
     const r = await shell.execute('pwd -P', { timeout: PROBE_TIMEOUT_MS });
     const here = r.stdout.trim();
-    if (r.exitCode !== 0 || !here) return '';
+    if (r.timedOut || r.exitCode !== 0 || !here) return '';
     if (here === root || here.startsWith(root.endsWith('/') ? root : `${root}/`)) return '';
     await shell.execute(`cd -- ${singleQuote(root)}`, { timeout: PROBE_TIMEOUT_MS });
     return returnedNote(here);
@@ -102,10 +125,10 @@ export function shellGuardTools(
     byName.set(name, {
       ...tool,
       executor: async (input, context) => {
-        const shell = getShell(context);
-        if (shell) await guard.init(shell);
         const output = await tool.executor(input, context);
-        return shell ? output + (await guard.afterCommand(shell)) : output;
+        const command = typeof input.command === 'string' ? input.command : '';
+        const shell = command ? getShell(context) : undefined;
+        return shell ? output + (await guard.afterCommand(shell, command)) : output;
       },
     });
   }

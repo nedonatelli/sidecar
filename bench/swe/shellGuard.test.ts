@@ -4,7 +4,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { ShellSession } from '../../src/terminal/shellSession.js';
 import type { RegisteredTool } from '../../src/agent/tools/shared.js';
-import { ShellRootGuard, shellGuardTools, returnedNote } from './shellGuard.js';
+import {
+  ShellRootGuard,
+  shellGuardTools,
+  returnedNote,
+  mayChangeDirectory,
+  resolveRootWithBash,
+  type GuardShell,
+} from './shellGuard.js';
 
 // A real ShellSession: the bug is the session's own cwd persistence, so the
 // guard is only proven against the real thing (Git Bash on Windows, bash/zsh
@@ -30,14 +37,26 @@ afterEach(() => {
 const sh = (cmd: string) => session.execute(cmd, { timeout: 60_000 });
 const posix = (p: string) => p.replace(/\\/g, '/');
 
+/** A shell that records what it is asked to run. */
+function spyShell(pwd: string): GuardShell & { commands: string[] } {
+  const commands: string[] = [];
+  return {
+    commands,
+    execute: async (command: string) => {
+      commands.push(command);
+      return { stdout: command === 'pwd -P' ? pwd : '', exitCode: 0 };
+    },
+  };
+}
+
 // Real Git Bash sessions start slowly on a loaded machine (the pre-commit hook
 // runs these beside the whole suite), so the 5 s default is too tight.
 describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
   it('moves the shell back after a command leaves the clone, so the next relative command runs in the clone', async () => {
     const guard = new ShellRootGuard(root);
-    await guard.init(session);
-    await sh(`cd -- '${posix(outside)}'`);
-    const note = await guard.afterCommand(session);
+    const leave = `cd -- '${posix(outside)}'`;
+    await sh(leave);
+    const note = await guard.afterCommand(session, leave);
     expect(note).toContain('outside the repository');
     expect(note).toContain('moved back to the repository root');
     expect((await sh('ls src')).stdout).toContain('mod.py');
@@ -45,9 +64,8 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
 
   it('leaves a cd inside the clone alone, as the product does', async () => {
     const guard = new ShellRootGuard(root);
-    await guard.init(session);
     await sh('cd src');
-    expect(await guard.afterCommand(session)).toBe('');
+    expect(await guard.afterCommand(session, 'cd src')).toBe('');
     expect((await sh('ls')).stdout).toContain('mod.py');
   });
 
@@ -56,20 +74,49 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
     fs.mkdirSync(sibling);
     try {
       const guard = new ShellRootGuard(root);
-      await guard.init(session);
-      await sh(`cd -- '${posix(sibling)}'`);
-      expect(await guard.afterCommand(session)).not.toBe('');
+      const leave = `cd -- '${posix(sibling)}'`;
+      await sh(leave);
+      expect(await guard.afterCommand(session, leave)).not.toBe('');
     } finally {
       fs.rmSync(sibling, { recursive: true, force: true });
     }
   });
 
+  // The canary check that found this: bash numbers error messages by the
+  // session's input line, so one probe sent to the session changed
+  // `bash: line 1:` to `line 4:` and diverged three runs that never changed
+  // directory.
+  it('sends nothing to the session after a command that cannot change directory', async () => {
+    const shell = spyShell('/elsewhere');
+    const guard = new ShellRootGuard(root, () => '/repo');
+    for (const cmd of ['pytest -k test_cd', 'rg -n "def refine(" sympy/', 'python reproduce.py', 'echo abcd']) {
+      expect(await guard.afterCommand(shell, cmd)).toBe('');
+    }
+    expect(shell.commands).toEqual([]);
+  });
+
+  it('leaves bash error line numbers as an unguarded session reports them', async () => {
+    const guard = new ShellRootGuard(root);
+    await sh('ls');
+    await guard.afterCommand(session, 'ls');
+    const guarded = (await sh('definitely_not_a_command_xyz')).stdout;
+    const bare = new ShellSession(root);
+    try {
+      await bare.execute('ls', { timeout: 60_000 });
+      const unguarded = (await bare.execute('definitely_not_a_command_xyz', { timeout: 60_000 })).stdout;
+      expect(guarded).toBe(unguarded);
+    } finally {
+      bare.dispose();
+    }
+  });
+
   it('wraps run_command and run_tests, keeps other extra tools, and appends the note to the result', async () => {
     const guard = new ShellRootGuard(root);
+    const leave = `cd -- '${posix(outside)}'`;
     const mk = (name: string, run: () => Promise<string>): RegisteredTool =>
       ({ definition: { name }, executor: run }) as unknown as RegisteredTool;
     const runCommand = mk('run_command', async () => {
-      await sh(`cd -- '${posix(outside)}'`);
+      await sh(leave);
       return 'ran';
     });
     const gitCommit = mk('git_commit', async () => 'committed');
@@ -80,7 +127,9 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
       () => session,
     );
     expect(tools.map((t) => t.definition.name).sort()).toEqual(['git_commit', 'run_command', 'run_tests']);
-    const out = await tools.find((t) => t.definition.name === 'run_command')!.executor({}, undefined as never);
+    const out = await tools
+      .find((t) => t.definition.name === 'run_command')!
+      .executor({ command: leave }, undefined as never);
     expect(out.startsWith('ran')).toBe(true);
     expect(out).toContain(returnedNote('').trim().slice(0, 30));
     expect(await tools.find((t) => t.definition.name === 'git_commit')!.executor({}, undefined as never)).toBe(
@@ -89,24 +138,37 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
     expect((await sh('ls src')).stdout).toContain('mod.py');
   });
 
-  it('retries a probe that timed out instead of switching the guard off', async () => {
-    const guard = new ShellRootGuard(root);
-    let calls = 0;
-    const flaky = {
-      execute: async (cmd: string) => {
-        calls++;
-        if (calls === 1) return { stdout: '', exitCode: 124, timedOut: true };
-        return { stdout: cmd.startsWith('cd --') ? '/repo' : '/elsewhere', exitCode: 0 };
-      },
-    };
-    await guard.init(flaky);
-    expect(await guard.afterCommand(flaky)).toContain('outside the repository');
+  it('does nothing when the root cannot be resolved, or the probe times out', async () => {
+    const noRoot = new ShellRootGuard(root, () => null);
+    const shell = spyShell('/elsewhere');
+    expect(await noRoot.afterCommand(shell, 'cd /tmp')).toBe('');
+    expect(shell.commands).toEqual([]);
+    const slow = new ShellRootGuard(root, () => '/repo');
+    const timedOut = { execute: async () => ({ stdout: '', exitCode: 124, timedOut: true }) };
+    expect(await slow.afterCommand(timedOut, 'cd /tmp')).toBe('');
   });
 
-  it('does nothing when the shell cannot report a POSIX path', async () => {
-    const guard = new ShellRootGuard(root);
-    const fake = { execute: async () => ({ stdout: 'C:\\somewhere', exitCode: 0 }) };
-    await guard.init(fake);
-    expect(await guard.afterCommand(fake)).toBe('');
+  it('resolves the root the way the session spells it', async () => {
+    expect(resolveRootWithBash(root)).toBe((await sh('pwd -P')).stdout.trim());
+  });
+});
+
+describe('mayChangeDirectory', () => {
+  it.each([
+    ['cd /tmp', true],
+    ['ls; cd ..', true],
+    ['cd src && pytest', true],
+    ['pushd build', true],
+    ['popd', true],
+    ['source venv/bin/activate', true],
+    ['. venv/bin/activate', true],
+    ['exec bash', true],
+    ['(cd sub && make) || true', true],
+    ['pytest -k test_cd', false],
+    ['echo abcd', false],
+    ['python ./script.py', false],
+    ['rg -n "def refine(" sympy/', false],
+  ])('%s -> %s', (command, expected) => {
+    expect(mayChangeDirectory(command)).toBe(expected);
   });
 });
