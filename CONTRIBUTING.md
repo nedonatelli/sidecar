@@ -70,12 +70,12 @@ SideCar _is_ an agent loop wired to fragile model runtimes, so "it compiles and 
 pass" is necessary but not sufficient. Match the tier to the risk of the change; run all
 tiers before a release.
 
-| Tier  | When                              | What                                                                                                                   | Gate                                   |
-| ----- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| **0** | every commit                      | `npm run check`                                                                                                        | all green                              |
-| **1** | pre-release · no model            | `npm run build` · `npm run package` · `npm run verify:package` · `npm run test:coverage` · Stryker (`npx stryker run`) | `.vsix` verifies; mutation score holds |
-| **2** | pre-release · needs a local model | `eval:smoke` on `qwen2.5-coder:7b` + a differential 2nd model                                                          | **zero infra errors**                  |
-| **3** | periodic campaign                 | `bench:bfcl`, `bench:swe:predict`                                                                                      | tracked over time                      |
+| Tier  | When                              | What                                                                                                                         | Gate                                   |
+| ----- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| **0** | every commit                      | `npm run check`                                                                                                              | all green                              |
+| **1** | pre-release · no model            | `npm run build` · `npm run package` · `npm run verify:package` · `npm run test:coverage` · Stryker (`npm run test:mutation`) | `.vsix` verifies; mutation score holds |
+| **2** | pre-release · needs a local model | `eval:smoke` on `qwen2.5-coder:7b` + a differential 2nd model                                                                | **zero infra errors**                  |
+| **3** | periodic campaign                 | `bench:bfcl`, `bench:swe:predict`                                                                                            | tracked over time                      |
 
 ```bash
 npm test              # Run all tests
@@ -89,7 +89,7 @@ npm run check         # Tier 0 gate: compile + compile:bench + compile:tests + l
 Stryker (`stryker.conf.json`) mutates the moat-critical modules — the completion gate and its
 `completionGate/` submodules, `keepBestRatchet`, `analyticBounds`, `injectionGuard`,
 `jsonRepair` — to prove their tests _catch faults_, not just pass. It's on-demand (too slow
-for CI): `npx stryker run`. If you change one of these modules, re-run it and don't let the
+for CI): `npm run test:mutation`. If you change one of these modules, re-run it and don't let the
 score regress. **If you move moat code** (e.g. a decomposition), add the new file paths to the
 `mutate` list — otherwise the hardening silently stops covering it.
 

@@ -37,10 +37,10 @@ describe('MetricsCollector budget tracking', () => {
     expect(collector.getHistory()[0].costUsd).toBeNull();
   });
 
-  it('getSpendSince sums costs within time window', () => {
+  it('getSpendSince sums costs within time window', async () => {
     const now = Date.now();
     // Manually inject history with known timestamps
-    memento.update('sidecar.metrics', [
+    await memento.update('sidecar.metrics', [
       {
         timestamp: now - 1000,
         costUsd: 0.1,
@@ -73,9 +73,9 @@ describe('MetricsCollector budget tracking', () => {
     expect(collector.getSpendSince(now - 5000)).toBeCloseTo(0.3);
   });
 
-  it('getSpendSince excludes null costs (local models)', () => {
+  it('getSpendSince excludes null costs (local models)', async () => {
     const now = Date.now();
-    memento.update('sidecar.metrics', [
+    await memento.update('sidecar.metrics', [
       {
         timestamp: now - 100,
         costUsd: 0.1,
@@ -98,10 +98,10 @@ describe('MetricsCollector budget tracking', () => {
     expect(collector.getSpendSince(now - 5000)).toBeCloseTo(0.1);
   });
 
-  it('getDailySpend returns spend since midnight', () => {
+  it('getDailySpend returns spend since midnight', async () => {
     const d = new Date();
     const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    memento.update('sidecar.metrics', [
+    await memento.update('sidecar.metrics', [
       {
         timestamp: startOfDay + 1000,
         costUsd: 0.25,
@@ -115,8 +115,8 @@ describe('MetricsCollector budget tracking', () => {
     expect(collector.getDailySpend()).toBeCloseTo(0.25);
   });
 
-  it('getWeeklySpend returns spend since Monday', () => {
-    memento.update('sidecar.metrics', [
+  it('getWeeklySpend returns spend since Monday', async () => {
+    await memento.update('sidecar.metrics', [
       {
         timestamp: Date.now() - 1000,
         costUsd: 0.15,

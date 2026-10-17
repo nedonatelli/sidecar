@@ -10,6 +10,7 @@ import { createClient } from '../ollama/factory.js';
 import { getConfig } from '../config/settings.js';
 import type { ChatMessage } from '../ollama/types.js';
 import type { ApprovalMode } from '../agent/executor.js';
+import { logger } from '../system/logger.js';
 
 // ---------------------------------------------------------------------------
 // SideCar MCP Agent Server — Direction B of "Agentic Task Delegation via MCP"
@@ -185,7 +186,7 @@ export class McpAgentServer {
       );
     }
 
-    const httpServer = http.createServer(async (req, res) => {
+    const httpServer = http.createServer((req, res) => {
       // Browser and DNS-rebinding guard, before anything else. Binding to
       // 127.0.0.1 keeps other MACHINES out, not other ORIGINS: any web page
       // the user opens can POST here, and `Content-Type: text/plain;
@@ -221,30 +222,18 @@ export class McpAgentServer {
       // Buffer body then hand to a fresh per-request transport
       const chunks: Buffer[] = [];
       req.on('data', (chunk: Buffer) => chunks.push(chunk));
-      req.on('end', async () => {
-        let body: unknown;
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid JSON' }));
-          return;
-        }
-
-        // Fresh Server + transport per request: correct stateless MCP pattern.
-        // The StreamableHTTPServerTransport tracks per-session initialized state;
-        // reusing a single instance across requests causes 500s on the second POST
-        // (notifications/initialized) because the transport's state is consumed.
-        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        // A client that hangs up stops its task: before, the agent ran to
-        // completion -- tools and all -- for a caller that was gone (#120).
-        const requestAbort = new AbortController();
-        res.on('close', () => {
-          if (!res.writableEnded) requestAbort.abort();
+      // A throw from connect/handleRequest left the request unanswered and the
+      // error as an unhandled rejection; answer 500 and log it instead.
+      req.on('end', () => {
+        void this.handleBody(req, res, chunks).catch((err) => {
+          logger.warn('[SideCar] MCP agent server request failed:', err);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Internal error' }));
+          } else if (!res.writableEnded) {
+            res.end();
+          }
         });
-        const mcpServer = this.buildMcpServer(requestAbort.signal);
-        await mcpServer.connect(transport);
-        await transport.handleRequest(req, res, body);
       });
     });
 
@@ -254,6 +243,33 @@ export class McpAgentServer {
     });
 
     this.httpServer = httpServer;
+  }
+
+  /** Parse a buffered POST /mcp body and hand it to a fresh per-request MCP transport. */
+  private async handleBody(req: http.IncomingMessage, res: http.ServerResponse, chunks: Buffer[]): Promise<void> {
+    let body: unknown;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      return;
+    }
+
+    // Fresh Server + transport per request: correct stateless MCP pattern.
+    // The StreamableHTTPServerTransport tracks per-session initialized state;
+    // reusing a single instance across requests causes 500s on the second POST
+    // (notifications/initialized) because the transport's state is consumed.
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    // A client that hangs up stops its task: before, the agent ran to
+    // completion -- tools and all -- for a caller that was gone (#120).
+    const requestAbort = new AbortController();
+    res.on('close', () => {
+      if (!res.writableEnded) requestAbort.abort();
+    });
+    const mcpServer = this.buildMcpServer(requestAbort.signal);
+    await mcpServer.connect(transport);
+    await transport.handleRequest(req, res, body);
   }
 
   async stop(): Promise<void> {

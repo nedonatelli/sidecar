@@ -661,7 +661,7 @@ export class LanceVectorStore<M> implements VectorStore<M> {
   async getDiskBytes(): Promise<number> {
     try {
       let total = 0;
-      for await (const entry of await fs.promises.readdir(this.dbPath, { withFileTypes: true })) {
+      for (const entry of await fs.promises.readdir(this.dbPath, { withFileTypes: true })) {
         try {
           const stat = await fs.promises.stat(path.join(this.dbPath, entry.name));
           total += stat.size;

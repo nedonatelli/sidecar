@@ -51,7 +51,7 @@ export function initMcpSetup(context: ExtensionContext, mcpManager: MCPManager):
 
   const config = getConfig();
   if (Object.keys(config.mcpServers).length > 0 || workspace.workspaceFolders?.length) {
-    setImmediate(connectMcp);
+    setImmediate(() => void connectMcp()); // connectMcpServers catches and logs its own failures
   }
 
   context.subscriptions.push(

@@ -18,8 +18,6 @@ import { DurableMemoryStore } from '../agent/memory/durableMemory.js';
 // Disabling auth requires an explicit opt-out and surfaces a warning.
 // ---------------------------------------------------------------------------
 
-let serverInstance: McpAgentServer | null = null;
-
 /**
  * Initialize the MCP agent server if enabled. Registers a disposable that
  * stops the server when the extension deactivates. Call once from activate().
@@ -51,7 +49,6 @@ export async function initMcpServer(context: ExtensionContext): Promise<void> {
 
   try {
     await server.start();
-    serverInstance = server;
 
     const { port } = server.getStatus();
     context.subscriptions.push({
@@ -59,7 +56,6 @@ export async function initMcpServer(context: ExtensionContext): Promise<void> {
         server.stop().catch(() => {
           /* best-effort shutdown */
         });
-        serverInstance = null;
       },
     });
 
@@ -86,9 +82,4 @@ export async function initMcpServer(context: ExtensionContext): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     window.showErrorMessage(`SideCar: Failed to start MCP server on port ${config.mcpServerPort}: ${msg}`);
   }
-}
-
-/** Return the running server instance, if any. Useful for status-bar display. */
-export function getMcpServerInstance(): McpAgentServer | null {
-  return serverInstance;
 }

@@ -22,6 +22,7 @@ import type { ForkDispatchBatchResult } from '../agent/fork/forkDispatcher.js';
 import type { FacetDispatchBatchResult } from '../agent/facets/facetDispatcher.js';
 import type { ForkReviewDeps, ForkReviewOutcome } from '../agent/fork/forkReview.js';
 import type { FacetReviewDeps, FacetReviewOutcome } from '../agent/facets/facetReview.js';
+import { logger } from '../system/logger.js';
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -90,19 +91,28 @@ class ReviewPanel {
 
   private constructor(
     private readonly panel: WebviewPanel,
-    private readonly onMsg: (msg: PanelToExt) => void,
+    private readonly onMsg: (msg: PanelToExt) => void | Promise<void>,
   ) {
-    this.disposables.push(panel.webview.onDidReceiveMessage((msg: PanelToExt) => onMsg(msg)));
+    this.disposables.push(panel.webview.onDidReceiveMessage((msg: PanelToExt) => this.dispatch(msg)));
     panel.onDidDispose(() => {
       for (const d of this.disposables) d.dispose();
       if (!this.dismissed) {
         this.dismissed = true;
-        onMsg({ command: 'dismiss' });
+        this.dispatch({ command: 'dismiss' });
       }
     });
   }
 
-  static create(context: ExtensionContext, title: string, onMsg: (msg: PanelToExt) => void): ReviewPanel {
+  /** Run the handler; an async one's failure is logged instead of left unhandled. */
+  private dispatch(msg: PanelToExt): void {
+    Promise.resolve(this.onMsg(msg)).catch((err) => logger.warn('[SideCar] Review panel action failed:', err));
+  }
+
+  static create(
+    context: ExtensionContext,
+    title: string,
+    onMsg: (msg: PanelToExt) => void | Promise<void>,
+  ): ReviewPanel {
     const nonce = crypto.randomUUID().replace(/-/g, '');
     const panel = window.createWebviewPanel('sidecar.reviewPanel', title, ViewColumn.One, {
       enableScripts: true,
@@ -433,6 +443,11 @@ export async function reviewForkBatchWithPanel(
         case 'dismiss':
           resolveOnce({ winnerIndex: null, appliedOk: false, skippedLabels });
           break;
+        case 'acceptFacet':
+        case 'rejectFacet':
+        case 'skipFacet':
+          // Facet-review messages; this is the fork panel, whose page never sends them.
+          break;
       }
     });
   });
@@ -512,6 +527,9 @@ export async function reviewFacetBatchWithPanel(
           break;
         case 'dismiss':
           resolveOnce();
+          break;
+        case 'applyFork':
+          // Fork-review message; this is the facet panel, whose page never sends it.
           break;
       }
     });

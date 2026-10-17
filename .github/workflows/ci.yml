@@ -45,8 +45,19 @@ jobs:
       - name: Type check tests
         run: npm run compile:tests
 
+      # bench/ has its own tsconfig too; until now only the pre-commit hook
+      # type-checked it, and only when a bench/ file was staged.
+      - name: Type check bench
+        run: npm run compile:bench
+
       - name: Lint
         run: npm run lint
+
+      # Unused files, exports and dependencies (docs/deadcode.md). The baseline
+      # was triaged to zero, so any finding is new. Platform-independent: once.
+      - name: Dead code
+        if: matrix.node-version == 24 && matrix.os == 'ubuntu-latest'
+        run: npm run deadcode
 
       - name: Format check
         run: npm run format:check

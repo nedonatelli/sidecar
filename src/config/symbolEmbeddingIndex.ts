@@ -476,9 +476,9 @@ export class SymbolEmbeddingIndex implements Disposable {
       // so the flush fires on the next event-loop turn instead of waiting
       // the full 500ms. Keeps one timer in flight; no concurrent flushes.
       clearTimeout(this.flushTimer);
-      this.flushTimer = setTimeout(() => this.flushQueue(), 0);
+      this.flushTimer = setTimeout(() => this.runFlush(), 0);
     } else if (!this.flushTimer) {
-      this.flushTimer = setTimeout(() => this.flushQueue(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+      this.flushTimer = setTimeout(() => this.runFlush(), SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
     }
   }
 
@@ -487,6 +487,11 @@ export class SymbolEmbeddingIndex implements Disposable {
    * Auto-reschedules if anything's still queued, so a big workspace
    * scan trickles through without saturating the embedding model.
    */
+  /** flushQueue from a timer: a rejection would otherwise go unhandled and unreported. */
+  private runFlush(): void {
+    this.flushQueue().catch((err) => logger.warn('[SideCar] Symbol index flush failed:', err));
+  }
+
   private async flushQueue(): Promise<void> {
     this.flushTimer = null;
     if (this.pendingQueue.size === 0) return;
@@ -769,7 +774,11 @@ export class SymbolEmbeddingIndex implements Disposable {
 
   private schedulePersist(): void {
     if (this.persistTimer) return;
-    this.persistTimer = setTimeout(() => this.persist(), SymbolEmbeddingIndex.PERSIST_DEBOUNCE_MS);
+    // persist() does not catch: a failed write from the timer was an unhandled rejection.
+    this.persistTimer = setTimeout(
+      () => void this.persist().catch((err) => logger.warn('[SideCar] Symbol index persist failed:', err)),
+      SymbolEmbeddingIndex.PERSIST_DEBOUNCE_MS,
+    );
   }
 
   async persist(): Promise<void> {

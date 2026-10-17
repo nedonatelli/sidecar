@@ -102,7 +102,3 @@ let _manager: AgentModDecorationManager | null = null;
 export function setAgentModDecorationManager(m: AgentModDecorationManager): void {
   _manager = m;
 }
-
-export function getAgentModDecorationManager(): AgentModDecorationManager | null {
-  return _manager;
-}

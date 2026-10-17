@@ -39,7 +39,7 @@ export class EventHookManager implements Disposable {
       this.disposables.push(
         workspace.onDidSaveTextDocument((doc) => {
           const relativePath = workspace.asRelativePath(doc.uri);
-          this.runHook('onSave', cmd, cwd, { SIDECAR_FILE: relativePath });
+          this.fireHook('onSave', cmd, cwd, { SIDECAR_FILE: relativePath });
         }),
       );
       this.logger?.info(`Event hook registered: onSave → ${cmd}`);
@@ -51,7 +51,7 @@ export class EventHookManager implements Disposable {
         workspace.onDidCreateFiles((e) => {
           for (const file of e.files) {
             const relativePath = workspace.asRelativePath(file);
-            this.runHook('onCreate', cmd, cwd, { SIDECAR_FILE: relativePath });
+            this.fireHook('onCreate', cmd, cwd, { SIDECAR_FILE: relativePath });
           }
         }),
       );
@@ -64,12 +64,19 @@ export class EventHookManager implements Disposable {
         workspace.onDidDeleteFiles((e) => {
           for (const file of e.files) {
             const relativePath = workspace.asRelativePath(file);
-            this.runHook('onDelete', cmd, cwd, { SIDECAR_FILE: relativePath });
+            this.fireHook('onDelete', cmd, cwd, { SIDECAR_FILE: relativePath });
           }
         }),
       );
       this.logger?.info(`Event hook registered: onDelete → ${cmd}`);
     }
+  }
+
+  /** runHook from an editor event, with nothing to await it: a failure to spawn is logged, not left unhandled. */
+  private fireHook(event: string, command: string, cwd: string, extraEnv: Record<string, string>): void {
+    this.runHook(event, command, cwd, extraEnv).catch((err) =>
+      this.logger?.warn(`Event hook ${event} failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
   }
 
   private async runHook(event: string, command: string, cwd: string, extraEnv: Record<string, string>): Promise<void> {

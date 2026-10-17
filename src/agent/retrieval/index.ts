@@ -3,7 +3,7 @@ import { Retriever, RetrievalHit } from './retriever';
 import { logger } from '../../system/logger.js';
 import { reciprocalRankFusion } from './fusion';
 export { rewriteQuery } from './queryRewriter';
-export type { QueryRewriteMode, CompleteFn } from './queryRewriter';
+export type { CompleteFn } from './queryRewriter';
 
 export { Retriever, RetrievalHit } from './retriever';
 export { DocRetriever } from './docRetriever';
@@ -12,8 +12,7 @@ export { SemanticRetriever } from './semanticRetriever';
 export { PdfRetriever } from './pdfRetriever';
 export { ChunkRetriever } from './chunkRetriever';
 export { SidecarMdRetriever } from './sidecarMdRetriever';
-export { adaptiveGraphDepth, enrichWithGraphWalk } from './graphExpansion';
-export type { EnrichedHit, GraphWalkOptions } from './graphExpansion';
+/** @public Part of the barrel's API, pinned by zenFilter.test.ts. */
 export { applyZenFilter } from './zenFilter.js';
 
 /**

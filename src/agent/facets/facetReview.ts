@@ -34,13 +34,6 @@ export { filesTouchedByDiff, getWorkspaceMainRoot };
 // a `FacetReviewUi` shim so they don't need `window.*`.
 // ---------------------------------------------------------------------------
 
-export interface FacetReviewableResult {
-  readonly facetId: string;
-  readonly displayName?: string;
-  readonly pendingDiff: string;
-  readonly shadowId?: string;
-}
-
 export interface FacetApplyPlanEntry {
   readonly facetId: string;
   readonly displayName: string;

@@ -154,12 +154,9 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
     commands.registerCommand('sidecar.clearChat', () => {
       getChatProvider()?.clearChat();
     }),
-    commands.registerCommand('sidecar.undoChanges', () => {
-      getChatProvider()?.undoChanges();
-    }),
-    commands.registerCommand('sidecar.exportChat', () => {
-      getChatProvider()?.exportChat();
-    }),
+    // Returned to VS Code so a failure is reported, not dropped.
+    commands.registerCommand('sidecar.undoChanges', () => getChatProvider()?.undoChanges()),
+    commands.registerCommand('sidecar.exportChat', () => getChatProvider()?.exportChat()),
     commands.registerCommand('sidecar.skills.openMarketplace', () => {
       void env.openExternal(Uri.parse(SKILL_MARKETPLACE_URL));
     }),

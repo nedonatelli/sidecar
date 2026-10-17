@@ -6,6 +6,7 @@
  * or Esc to dismiss, matching the Cursor/Copilot UX pattern.
  */
 
+import { logger } from '../system/logger.js';
 import {
   InlineCompletionItem,
   InlineCompletionItemProvider,
@@ -103,7 +104,7 @@ export class InlineEditProvider implements InlineCompletionItemProvider, Disposa
       commands.executeCommand('setContext', 'sidecar.hasInlineEdit', true);
 
       // Show the file and position cursor at the edit
-      this.showEditInEditor(doc, range);
+      this.showEditInEditor(doc, range).catch((err) => logger.warn('[SideCar] Could not show the inline edit:', err));
 
       // Show status bar hint
       this.statusBarItem.text = '$(edit) SideCar: Tab to apply edit, Esc to dismiss';

@@ -250,9 +250,3 @@ function extractPath(tu: ToolUseContentBlock): string | null {
   if (typeof input.file_path === 'string' && input.file_path.length > 0) return input.file_path;
   return null;
 }
-
-// `runWithCap` now lives in `src/agent/parallelDispatch.ts` as a
-// shared primitive. Re-exported here for backward compatibility with
-// tests that import from this module; new callers should import from
-// parallelDispatch directly.
-export { runWithCap } from '../parallelDispatch.js';

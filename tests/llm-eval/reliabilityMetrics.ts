@@ -21,10 +21,6 @@ export function passAtK(n: number, c: number, k: number): number {
   return 1 - choose(n - c, k) / choose(n, k);
 }
 
-export function passCaretK(n: number, c: number, k: number): number {
-  return choose(c, k) / choose(n, k);
-}
-
 /** Binary entropy of the pass rate — 0 at 0% or 100%, 1.0 at 50% (maximally flaky). */
 export function flakinessScore(n: number, c: number): number {
   const p = c / n;

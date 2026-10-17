@@ -481,22 +481,28 @@ export class SymbolIndexer implements Disposable {
   /** Flush pending updates after a debounce period. */
   private scheduleFlush(): void {
     if (this.updateTimer) clearTimeout(this.updateTimer);
-    this.updateTimer = setTimeout(async () => {
-      this.updateTimer = null;
-      const updates = [...this.pendingUpdates];
-      const deletes = [...this.pendingDeletes];
-      this.pendingUpdates.clear();
-      this.pendingDeletes.clear();
+    // A throw in the flush (e.g. removeFile) was an unhandled rejection from the timer.
+    this.updateTimer = setTimeout(
+      () => void this.flushPending().catch((err) => logger.warn('[SideCar] Symbol graph update failed:', err)),
+      500,
+    );
+  }
 
-      for (const del of deletes) {
-        this.graph.removeFile(del);
-        this.symbolEmbeddings?.removeFile(del);
-      }
-      await Promise.allSettled(updates.map((upd) => this.updateFile(upd)));
-      if (updates.length > 0 || deletes.length > 0) {
-        this.schedulePersist();
-      }
-    }, 500);
+  private async flushPending(): Promise<void> {
+    this.updateTimer = null;
+    const updates = [...this.pendingUpdates];
+    const deletes = [...this.pendingDeletes];
+    this.pendingUpdates.clear();
+    this.pendingDeletes.clear();
+
+    for (const del of deletes) {
+      this.graph.removeFile(del);
+      this.symbolEmbeddings?.removeFile(del);
+    }
+    await Promise.allSettled(updates.map((upd) => this.updateFile(upd)));
+    if (updates.length > 0 || deletes.length > 0) {
+      this.schedulePersist();
+    }
   }
 
   /** Save the graph to .sidecar/cache/. */
@@ -538,7 +544,7 @@ export class SymbolIndexer implements Disposable {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
-      this.persist();
+      void this.persist(); // catches and logs its own failures
     }, 30000); // 30 seconds
   }
 

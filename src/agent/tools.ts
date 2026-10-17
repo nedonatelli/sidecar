@@ -183,17 +183,6 @@ export const TOOL_REGISTRY: RegisteredTool[] = [
 ];
 
 /**
- * Build the set of tool names that the prompt pruner must never dedup.
- * Derived from `ToolDefinition.nondeterministicOutput` so the canonical
- * source of truth lives on the definition, not in a hardcoded string set.
- */
-export function getDedupExemptToolNames(
-  registry: readonly { definition: { name: string; nondeterministicOutput?: boolean } }[] = TOOL_REGISTRY,
-): ReadonlySet<string> {
-  return new Set(registry.filter((t) => t.definition.nondeterministicOutput).map((t) => t.definition.name));
-}
-
-/**
  * Config-gated built-in tool groups: each maps a set of tool names to the
  * config predicate that enables them. Resolved dynamically per request so a
  * toggle (or an injected test config) takes effect without a window reload —

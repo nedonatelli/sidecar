@@ -133,7 +133,7 @@ describe('MetricsCollector', () => {
     expect(collector.getCurrentRunTokens()).toBe(100);
   });
 
-  it('getSpendSince sums costs within the window', () => {
+  it('getSpendSince sums costs within the window', async () => {
     // Seed history directly via startRun/endRun
     const now = Date.now();
     collector.startRun();
@@ -142,13 +142,13 @@ describe('MetricsCollector', () => {
     // Set timestamp to a recent time by calling the real store value
     const history = collector.getHistory();
     history[0].timestamp = now - 1000; // 1 second ago
-    memento.update('sidecar.metrics', history);
+    await memento.update('sidecar.metrics', history);
 
     const spend = collector.getSpendSince(now - 60_000); // last minute
     expect(spend).toBeCloseTo(1.0);
   });
 
-  it('getSpendSince excludes entries outside the window', () => {
+  it('getSpendSince excludes entries outside the window', async () => {
     const history = [
       {
         timestamp: 1000,
@@ -160,7 +160,7 @@ describe('MetricsCollector', () => {
         durationMs: 1,
       },
     ];
-    memento.update('sidecar.metrics', history);
+    await memento.update('sidecar.metrics', history);
 
     const spend = collector.getSpendSince(Date.now() - 1000); // only last second
     expect(spend).toBe(0); // the old entry is excluded

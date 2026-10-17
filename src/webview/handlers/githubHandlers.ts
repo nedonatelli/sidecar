@@ -209,6 +209,10 @@ export async function handleGitHubCommand(state: ChatState, msg: WebviewMessage)
         }
         break;
       }
+      case undefined:
+        // Without an action nothing would answer, and the panel would wait forever.
+        state.postMessage({ command: 'error', content: 'GitHub command arrived without an action.' });
+        return;
     }
   } catch (err) {
     state.postMessage({

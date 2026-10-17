@@ -41,6 +41,7 @@ import { loadModels } from './handlers/modelHandlers.js';
 import { initializeChatSubsystems } from './chatStateInit.js';
 import { setModel, refreshOpenRouterCostsIfActive } from './modelSwitcher.js';
 import { buildDispatchHandlers } from './handlers/dispatchHandlers.js';
+import { logger } from '../system/logger.js';
 
 export class ChatViewProvider implements WebviewViewProvider {
   private webviewView: WebviewView | undefined;
@@ -220,7 +221,7 @@ export class ChatViewProvider implements WebviewViewProvider {
       });
     }
 
-    loadModels(this.state);
+    loadModels(this.state).catch((err) => logger.warn('[SideCar] Loading models failed:', err));
     const initConfig = getConfig();
     this.postMessage(
       buildAgentModeMessage({

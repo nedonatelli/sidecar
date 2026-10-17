@@ -22,6 +22,7 @@ import type { WorkspaceIndex } from '../config/workspaceIndex.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 import type { AgentModDecorationManager } from '../views/agentModDecoration.js';
+import { logger } from '../system/logger.js';
 
 export interface ChatViewSetupDeps {
   terminalManager: TerminalManager;
@@ -111,16 +112,19 @@ export function setupChatView(
     // command failures are handled by the agent loop itself, and reporting
     // them here would open a diagnose-in-chat feedback loop.
     ignoredTerminalNames: new Set(['SideCar', getConfig().terminalExecutionTerminalName]),
-    onError: async (event) => {
-      const truncated = event.commandLine.length > 60 ? event.commandLine.slice(0, 57) + '...' : event.commandLine;
-      const choice = await window.showWarningMessage(
-        `Command failed (exit ${event.exitCode}): ${truncated}`,
-        'Diagnose in chat',
-        'Ignore',
-      );
-      if (choice === 'Diagnose in chat') {
-        await chatProvider.diagnoseTerminalError(event);
-      }
+    // onError is a void callback; a failed diagnosis was an unhandled rejection.
+    onError: (event) => {
+      void (async () => {
+        const truncated = event.commandLine.length > 60 ? event.commandLine.slice(0, 57) + '...' : event.commandLine;
+        const choice = await window.showWarningMessage(
+          `Command failed (exit ${event.exitCode}): ${truncated}`,
+          'Diagnose in chat',
+          'Ignore',
+        );
+        if (choice === 'Diagnose in chat') {
+          await chatProvider.diagnoseTerminalError(event);
+        }
+      })().catch((err) => logger.warn('[SideCar] Terminal error diagnosis failed:', err));
     },
   });
   context.subscriptions.push(terminalErrorWatcher);

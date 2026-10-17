@@ -357,9 +357,13 @@ export async function streamOneTurn(
     // Ensure the timeout controller is always aborted so the fetch
     // connection is released even on normal completion or re-throw.
     if (!timeoutController.signal.aborted) timeoutController.abort();
-    // Best-effort generator cleanup.
+    // Best-effort generator cleanup. return() on an async generator yields a
+    // promise, so the try/catch alone caught a synchronous throw but left a
+    // rejection unhandled.
     try {
-      iter.return?.(undefined);
+      void Promise.resolve(iter.return?.(undefined)).catch(() => {
+        /* ignore */
+      });
     } catch {
       /* ignore */
     }

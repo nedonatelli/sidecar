@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 
@@ -138,6 +140,42 @@ export default [
     ignores: ['**/*.test.ts', 'src/test/**/*.ts'],
     rules: {
       'no-console': 'error',
+    },
+  },
+  {
+    // Type-aware rules: the bug class that recurred most in the October 2026
+    // review -- promises nobody awaited or caught (a disk write or audit-log
+    // failure became an unhandled rejection and vanished; a try/catch around an
+    // un-awaited call caught nothing) -- plus switches that silently ignore a
+    // union member added later. They need type information, so they read the
+    // three tsconfig projects. src/test/integration (built separately) and the
+    // frozen tests/llm-eval/fixtures are in none of them, so they keep the rules
+    // above without these.
+    files: ['src/**/*.ts', 'tests/**/*.ts', 'bench/**/*.ts'],
+    ignores: ['src/test/integration/**', 'tests/llm-eval/fixtures/**'],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.json', './tsconfig.tests.json', './tsconfig.bench.json'],
+        tsconfigRootDir: path.dirname(fileURLToPath(import.meta.url)),
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      // A `default:` branch counts as handling the rest; the rule is for
+      // switches with none, where a new member falls through unnoticed.
+      '@typescript-eslint/switch-exhaustiveness-check': ['error', { considerDefaultExhaustiveForUnions: true }],
+    },
+  },
+  {
+    // `mock.mockImplementation(async ...)` on a loosely typed vi.fn() reads as
+    // "promise where void was expected" -- 27 such findings, none a bug. The
+    // conditional and spread checks still apply.
+    files: ['**/*.test.ts'],
+    ignores: ['src/test/integration/**', 'tests/llm-eval/fixtures/**'],
+    rules: {
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
     },
   },
 ];

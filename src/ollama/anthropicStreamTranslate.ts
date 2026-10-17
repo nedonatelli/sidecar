@@ -96,6 +96,10 @@ export async function* translateAnthropicStream(
       case 'error':
         if (event.error) throw new Error(event.error.message);
         break;
+
+      case 'ping':
+        // Keep-alive; carries nothing.
+        break;
     }
   }
 

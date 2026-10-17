@@ -1,5 +1,6 @@
 import type { Webview } from 'vscode';
 import { Uri } from 'vscode';
+import type { GitHubAction } from '../github/types.js';
 import type { ChatMessage } from '../ollama/types.js';
 import {
   getConfig,
@@ -116,7 +117,7 @@ export interface WebviewMessage {
   filePaths?: string[];
   sourcePath?: string;
   destPath?: string;
-  action?: import('../github/types.js').GitHubAction;
+  action?: GitHubAction;
   url?: string;
   repo?: string;
   number?: number;
@@ -286,7 +287,7 @@ export interface ExtensionMessage {
   filePath?: string;
   /** Batch of files from a drag-drop or multi-select attach. */
   files?: { fileName: string; fileContent: string }[];
-  githubAction?: import('../github/types.js').GitHubAction;
+  githubAction?: GitHubAction;
   githubData?: unknown;
   mediaType?: string;
   data?: string;

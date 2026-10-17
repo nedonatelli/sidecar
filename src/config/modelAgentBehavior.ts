@@ -24,6 +24,7 @@
  *     lighter pick when 10 GB VRAM isn't available or pure tool-use matters most
  *   granite4.1:3b      — 2 GB, 81% (best size/performance ratio, low-RAM machines)
  */
+/** @public The documented default recommendation; kept for reference, read by nothing in the code. */
 export const RECOMMENDED_LOCAL_MODEL = 'gemma4:e4b';
 
 /**

@@ -35,10 +35,30 @@ means knip will NOT tell you "this module has no production consumer". Finding
 that still requires asking the question directly; it is how promptlab's
 comparison API sat tested-but-unused.
 
-## Current baseline
+## Baseline: zero, enforced in CI
 
-22 findings (14 unused exports, 8 unused exported types) as of 2026-08-20. They
-have not been triaged — several look like public API kept deliberately
-(`getShellSession`, `RECOMMENDED_LOCAL_MODEL`) and several look genuinely dead
-(`src/agent/retrieval/index.ts` re-exports, `src/arena/types.ts`). Triage them
-before treating the count as a ratchet.
+The 22 findings recorded on 2026-08-20 (plus one unused file) were triaged on
+2026-10-17, and CI now runs `npm run deadcode` on every push and pull request,
+so any finding is new.
+
+- **Deleted, no caller anywhere:** `getDedupExemptToolNames` (a duplicate:
+  each backend derives the dedup-exempt set inline from the same
+  `nondeterministicOutput` flag), `raceAbort`, `getMcpServerInstance` (and the
+  module variable only it read), `getAgentModDecorationManager`,
+  `getShellSession` (the free function; `ToolRuntime.getShellSession` stays),
+  `passCaretK`, `llmJudgedPrecision`, `allFixtureSymbols`, `ArenaMode`,
+  `ArenaLane`, `ArenaTurn`, `FacetReviewableResult`.
+- **Re-exports removed, originals kept:** five in `src/agent/retrieval/index.ts`
+  (callers import from the defining modules), `runWithCap` from
+  `loop/multiFileEdit.ts`, `NO_PLAN_SENTINEL` from `loop/dispatchToolUses.ts`.
+- **knip's blind spots fixed:** `GitHubAction` was used only through inline
+  `import('…').GitHubAction` types, which knip does not follow; it is now a
+  normal type import. `src/test/integration/**/*.etest.ts` is an entry point
+  (`.vscode-test.mjs` runs those files).
+- **Kept on purpose**, tagged `@public` (knip honours it, re-exports included):
+  `RECOMMENDED_LOCAL_MODEL`, and the `applyZenFilter` re-export from
+  `retrieval/index.ts`, which `zenFilter.test.ts` pins as part of the barrel's
+  API.
+
+To keep something deliberately unused, tag it `/** @public */` with a reason;
+anything else knip reports should be deleted.

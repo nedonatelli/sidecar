@@ -575,29 +575,32 @@ export class MCPManager {
     );
     logMcpEvent({ event: 'reconnect-scheduled', server: conn.name, delayMs: delay, attempt: attempts + 1 });
 
-    conn.reconnectTimer = setTimeout(async () => {
-      if (this.disposed) return;
+    // The body catches and logs its own failures.
+    conn.reconnectTimer = setTimeout(() => {
+      void (async () => {
+        if (this.disposed) return;
 
-      try {
-        // Mark before closing so client.onclose doesn't trigger another scheduleReconnect.
-        conn.status = 'disconnected';
         try {
-          await conn.client?.close();
-        } catch {
-          // Ignore
-        }
+          // Mark before closing so client.onclose doesn't trigger another scheduleReconnect.
+          conn.status = 'disconnected';
+          try {
+            await conn.client?.close();
+          } catch {
+            // Ignore
+          }
 
-        // Remove from connections list — connectServer will re-add.
-        // Guard: if an external connect() ran while the timer was pending,
-        // it would have already cleared this.connections and added fresh
-        // entries. In that case a connection with our name already exists —
-        // skip the reconnect to avoid a duplicate.
-        this.connections = this.connections.filter((c) => c !== conn);
-        if (this.connections.some((c) => c.name === conn.name)) return;
-        await this.connectServer(conn.name, conn.config);
-      } catch (err) {
-        logger.error(`[SideCar] MCP reconnect failed for "${conn.name}":`, err);
-      }
+          // Remove from connections list — connectServer will re-add.
+          // Guard: if an external connect() ran while the timer was pending,
+          // it would have already cleared this.connections and added fresh
+          // entries. In that case a connection with our name already exists —
+          // skip the reconnect to avoid a duplicate.
+          this.connections = this.connections.filter((c) => c !== conn);
+          if (this.connections.some((c) => c.name === conn.name)) return;
+          await this.connectServer(conn.name, conn.config);
+        } catch (err) {
+          logger.error(`[SideCar] MCP reconnect failed for "${conn.name}":`, err);
+        }
+      })();
     }, delay);
   }
 

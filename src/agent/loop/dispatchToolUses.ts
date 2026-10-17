@@ -3,7 +3,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import type { LoopState } from './state.js';
 import type { SideCarConfig } from '../../config/settings.js';
-import { shouldRunPlannerPass, requestEditPlan, NO_PLAN_SENTINEL } from '../editPlanner.js';
+import { shouldRunPlannerPass, requestEditPlan } from '../editPlanner.js';
 import { executeMultiFilePlan } from './multiFileEdit.js';
 import { executeToolUses } from './executeToolUses.js';
 
@@ -140,5 +140,3 @@ function latestUserPromptText(messages: readonly ChatMessage[]): string {
   }
   return '';
 }
-
-export { NO_PLAN_SENTINEL };

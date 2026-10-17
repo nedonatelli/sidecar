@@ -215,7 +215,7 @@ export class AgentTerminalExecutor implements Disposable {
       // disposed mid-stream) are swallowed — the end-event listener or
       // the close listener will resolve the promise with whatever output
       // we captured up to that point.
-      (async () => {
+      void (async () => {
         try {
           for await (const chunk of execution.read()) {
             if (resolved) break;

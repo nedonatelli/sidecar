@@ -1,7 +1,5 @@
 // Arena mode types — shared between the panel, ELO store, and commands.
 
-export type ArenaMode = 'chat' | 'agent';
-
 // ---------------------------------------------------------------------------
 // ELO
 // ---------------------------------------------------------------------------
@@ -15,23 +13,6 @@ export interface EloState {
   wins: Record<string, number>;
   losses: Record<string, number>;
   totalMatches: number;
-}
-
-// ---------------------------------------------------------------------------
-// Arena session (chat mode)
-// ---------------------------------------------------------------------------
-
-export interface ArenaLane {
-  readonly model: string;
-  readonly label: string;
-}
-
-export interface ArenaTurn {
-  readonly prompt: string;
-  /** model id → full response text */
-  readonly responses: Record<string, string>;
-  /** winning model id for this turn (undefined until voted) */
-  readonly voteWinner?: string;
 }
 
 // ---------------------------------------------------------------------------

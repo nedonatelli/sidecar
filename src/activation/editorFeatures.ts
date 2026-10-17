@@ -64,7 +64,7 @@ export function registerEditorFeatures(
 
   // Code actions (right-click menu + lightbulb)
   function registerCodeAction(commandId: string, action: string) {
-    return commands.registerCommand(commandId, (args?: CodeActionArgs) => {
+    return commands.registerCommand(commandId, async (args?: CodeActionArgs) => {
       let code = args?.code;
       let fileName = args?.fileName;
       const diagnostic = args?.diagnostic;
@@ -78,8 +78,9 @@ export function registerEditorFeatures(
         fileName = path.basename(editor.document.fileName);
       }
 
-      commands.executeCommand('sidecar.chatView.focus');
-      getChatProvider()?.sendCodeAction(action, code, fileName, diagnostic);
+      // Returned to VS Code (async callback) so a failure is reported, not dropped.
+      await commands.executeCommand('sidecar.chatView.focus');
+      await getChatProvider()?.sendCodeAction(action, code, fileName, diagnostic);
     });
   }
 
@@ -108,9 +109,7 @@ export function registerEditorFeatures(
   }
 
   context.subscriptions.push(
-    commands.registerCommand('sidecar.inlineChat', () => {
-      handleInlineChat(createClient(), proposedContentProvider);
-    }),
+    commands.registerCommand('sidecar.inlineChat', () => handleInlineChat(createClient(), proposedContentProvider)),
   );
 
   // Event-based hooks (file save, create, delete)
@@ -182,32 +181,34 @@ export function registerEditorFeatures(
   // If the active model has a curated draft pair but it isn't installed yet,
   // offer a one-click install so the user doesn't have to know the pair exists.
   if (config.enableInlineCompletions && config.speculativeDecoding.enabled && !config.completionDraftModel) {
-    setImmediate(async () => {
-      try {
-        const client = createClient();
-        const providerType = client.getProviderType();
-        if (providerType !== 'ollama' && providerType !== 'kickstand') return;
+    setImmediate(() => void offerDraftInstall());
+  }
 
-        const mainModel = client.getModel();
-        const recommendedDraft = lookupDraftModel(mainModel);
-        if (!recommendedDraft) return;
+  async function offerDraftInstall(): Promise<void> {
+    try {
+      const client = createClient();
+      const providerType = client.getProviderType();
+      if (providerType !== 'ollama' && providerType !== 'kickstand') return;
 
-        const installed = await client.listInstalledModels().catch(() => []);
-        const isInstalled = installed.some((m) => m.model === recommendedDraft || m.name === recommendedDraft);
-        if (isInstalled) return;
+      const mainModel = client.getModel();
+      const recommendedDraft = lookupDraftModel(mainModel);
+      if (!recommendedDraft) return;
 
-        const action = await window.showInformationMessage(
-          `SideCar: Install "${recommendedDraft}" to enable speculative FIM completions for ${mainModel} (2–4× faster autocomplete)?`,
-          'Install',
-          'Not now',
-        );
-        if (action === 'Install') {
-          commands.executeCommand('sidecar.installModel', recommendedDraft);
-        }
-      } catch {
-        // Non-fatal — skip silently if model list is unavailable at startup.
+      const installed = await client.listInstalledModels().catch(() => []);
+      const isInstalled = installed.some((m) => m.model === recommendedDraft || m.name === recommendedDraft);
+      if (isInstalled) return;
+
+      const action = await window.showInformationMessage(
+        `SideCar: Install "${recommendedDraft}" to enable speculative FIM completions for ${mainModel} (2–4× faster autocomplete)?`,
+        'Install',
+        'Not now',
+      );
+      if (action === 'Install') {
+        await commands.executeCommand('sidecar.installModel', recommendedDraft);
       }
-    });
+    } catch {
+      // Non-fatal — skip silently if model list is unavailable at startup.
+    }
   }
 
   // Next Edit Suggestions engine

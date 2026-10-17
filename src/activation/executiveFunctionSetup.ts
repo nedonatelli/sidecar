@@ -3,6 +3,7 @@ import { getConfig } from '../config/settings.js';
 import { PlanStore } from '../agent/plans/planStore.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
+import { logger } from '../system/logger.js';
 
 /**
  * On activation: check for an in-progress agent checkpoint and prompt
@@ -35,7 +36,7 @@ export function initExecutiveFunctionSetup(
         return;
       }
       await planStore.clear();
-      provider.resumeFromCheckpoint(checkpoint);
+      await provider.resumeFromCheckpoint(checkpoint);
     }),
 
     commands.registerCommand('sidecar.executiveFunction.discard', async () => {
@@ -45,7 +46,12 @@ export function initExecutiveFunctionSetup(
   );
 
   // Defer the startup check so it doesn't block extension activation
-  setTimeout(async () => {
+  setTimeout(
+    () => void checkForInterruptedTask().catch((err) => logger.warn('[SideCar] Interrupted-task check failed:', err)),
+    2000,
+  );
+
+  async function checkForInterruptedTask(): Promise<void> {
     if (!(await planStore.exists())) return;
     const checkpoint = await planStore.load();
     if (!checkpoint) return;
@@ -69,5 +75,5 @@ export function initExecutiveFunctionSetup(
     } else if (choice === 'Discard') {
       await planStore.clear();
     }
-  }, 2000);
+  }
 }

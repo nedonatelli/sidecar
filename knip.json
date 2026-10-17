@@ -1,8 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "src/extension.ts",
     "src/sdk/index.ts",
+    "src/test/integration/**/*.etest.ts",
     "tests/**/*.test.ts",
     "tests/**/*.eval.ts",
     "bench/**/*.test.ts",

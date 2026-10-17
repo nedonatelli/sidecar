@@ -117,7 +117,10 @@ export function createAgentCallbacks(
       state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview, isHtml });
       const durationMs = state.metricsCollector.getToolDuration();
       state.metricsCollector.recordToolEnd(name, isError);
-      state.auditLog?.recordToolResult(name, id, result, isError, durationMs);
+      // An audit write that fails must at least be reported, not vanish as an unhandled rejection.
+      state.auditLog
+        ?.recordToolResult(name, id, result, isError, durationMs)
+        .catch((err) => logger.warn('[SideCar] Audit log write failed:', err));
     },
     onMalformedToolCalls: (malformed, repaired) => {
       state.metricsCollector.recordMalformedToolCalls(malformed, repaired);

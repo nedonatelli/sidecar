@@ -381,16 +381,16 @@ describe('AgentMemory.getRelevantMemories', () => {
   });
 
   it('returns entries whose content matches the query', async () => {
-    await memory.add('note', 'testing', 'TypeScript generics tutorial');
-    await memory.add('note', 'other', 'Python syntax guide');
+    memory.add('note', 'testing', 'TypeScript generics tutorial');
+    memory.add('note', 'other', 'Python syntax guide');
     const results = memory.getRelevantMemories('TypeScript');
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].content).toContain('TypeScript');
   });
 
   it('scores content match (0.5) higher than category match (0.3)', async () => {
-    await memory.add('note', 'typescript', 'some general content');
-    await memory.add('note', 'python', 'typescript also appears in content');
+    memory.add('note', 'typescript', 'some general content');
+    memory.add('note', 'python', 'typescript also appears in content');
     const results = memory.getRelevantMemories('typescript', 5);
     expect(results.length).toBe(2);
     // content match = 0.5 > category match = 0.3, so python (content) wins
@@ -399,16 +399,16 @@ describe('AgentMemory.getRelevantMemories', () => {
 
   it('respects maxResults limit', async () => {
     for (let i = 0; i < 10; i++) {
-      await memory.add('note', 'testing', `test content item ${i}`);
+      memory.add('note', 'testing', `test content item ${i}`);
     }
     const results = memory.getRelevantMemories('test content', 3);
     expect(results.length).toBeLessThanOrEqual(3);
   });
 
   it('boosts score for recent entries (within 7 days)', async () => {
-    await memory.add('note', 'recent', 'recent search query data');
+    memory.add('note', 'recent', 'recent search query data');
     vi.setSystemTime(new Date('2024-01-20')); // 10 days later
-    await memory.add('note', 'old', 'old search query data');
+    memory.add('note', 'old', 'old search query data');
     // Both match "search query" but the one added recently (Jan 10) is older now
     const results = memory.getRelevantMemories('search query', 5);
     expect(results.length).toBe(2);

@@ -111,9 +111,9 @@ export class EmbeddingIndex implements Disposable {
       // so the flush fires on the next event-loop turn instead of waiting
       // the full 500ms. Keeps one timer in flight; no concurrent flushes.
       clearTimeout(this.updateTimer);
-      this.updateTimer = setTimeout(() => this.flushUpdates(), 0);
+      this.updateTimer = setTimeout(() => this.runFlush(), 0);
     } else if (!this.updateTimer) {
-      this.updateTimer = setTimeout(() => this.flushUpdates(), UPDATE_DEBOUNCE_MS);
+      this.updateTimer = setTimeout(() => this.runFlush(), UPDATE_DEBOUNCE_MS);
     }
   }
 
@@ -183,6 +183,11 @@ export class EmbeddingIndex implements Disposable {
     this.schedulePersist();
   }
 
+  /** flushUpdates from a timer: a rejection would otherwise go unhandled and unreported. */
+  private runFlush(): void {
+    this.flushUpdates().catch((err) => logger.warn('[SideCar] Embedding index update failed:', err));
+  }
+
   private async flushUpdates(): Promise<void> {
     this.updateTimer = null;
     if (this.pendingUpdates.size === 0) return;
@@ -219,7 +224,7 @@ export class EmbeddingIndex implements Disposable {
 
     if (this.pendingUpdates.size > 0) {
       const delay = this.pendingUpdates.size >= BATCH_SIZE ? 0 : UPDATE_DEBOUNCE_MS;
-      this.updateTimer = setTimeout(() => this.flushUpdates(), delay);
+      this.updateTimer = setTimeout(() => this.runFlush(), delay);
     }
   }
 
@@ -297,7 +302,8 @@ export class EmbeddingIndex implements Disposable {
 
   private schedulePersist(): void {
     if (this.persistTimer) return;
-    this.persistTimer = setTimeout(() => this.persist(), PERSIST_DEBOUNCE_MS);
+    // persist() catches and logs its own failures.
+    this.persistTimer = setTimeout(() => void this.persist(), PERSIST_DEBOUNCE_MS);
   }
 
   async persist(): Promise<void> {
@@ -396,11 +402,9 @@ export class EmbeddingIndex implements Disposable {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     // Best-effort persist on shutdown
     if (this.dirty && this.sidecarDir) {
-      try {
-        this.persist();
-      } catch {
-        /* shutdown cleanup is best-effort */
-      }
+      // Best-effort; persist() catches and logs its own failures. (A try/catch
+      // around the un-awaited call caught nothing.)
+      void this.persist();
     }
   }
 }

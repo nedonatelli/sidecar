@@ -87,11 +87,6 @@ export function getDefaultToolRuntime(): ToolRuntime {
   return defaultRuntime;
 }
 
-/** Convenience accessor used by tool executors that need the persistent shell. */
-export function getShellSession(): ShellSession {
-  return defaultRuntime.getShellSession();
-}
-
 /** Call on extension deactivate to clean up the shell process. */
 export function disposeShellSession(): void {
   defaultRuntime.dispose();

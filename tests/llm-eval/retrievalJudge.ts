@@ -89,23 +89,3 @@ export async function judgeAnswerRelevancy(
   });
   return parseAnswerVerdict(response);
 }
-
-/**
- * LLM-judged Context Precision — mean per-hit relevance score
- * across the retrieval result. Requires one LLM call per hit; the
- * caller is responsible for capping `hits.length` if cost matters.
- */
-export async function llmJudgedPrecision(
-  query: string,
-  hits: JudgeHit[],
-  backend: ModelBackend,
-  model: string,
-): Promise<{ score: number; perHitScores: number[] }> {
-  if (hits.length === 0) return { score: 0, perHitScores: [] };
-  const perHitScores: number[] = [];
-  for (const hit of hits) {
-    perHitScores.push(await judgeHitRelevance(query, hit, backend, model));
-  }
-  const score = perHitScores.reduce((a, b) => a + b, 0) / perHitScores.length;
-  return { score, perHitScores };
-}

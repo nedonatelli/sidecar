@@ -286,8 +286,3 @@ export const FIXTURE_FILES: FixtureFile[] = [
     ],
   ),
 ];
-
-/** Every symbol in the fixture, flattened — used for sanity checks. */
-export function allFixtureSymbols(): Array<FixtureSymbol & { filePath: string }> {
-  return FIXTURE_FILES.flatMap((f) => f.symbols.map((s) => ({ ...s, filePath: f.path })));
-}
