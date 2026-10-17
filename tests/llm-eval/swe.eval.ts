@@ -32,6 +32,7 @@ import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js'
 import { getConfig } from '../../src/config/settings.js';
 import { getToolDefinitionsForTier, findTool } from '../../src/agent/tools.js';
 import { STABLE_TOOL_ENV, stableOutputTools } from '../../bench/swe/stableToolOutput.js';
+import { ShellRootGuard, shellGuardTools } from '../../bench/swe/shellGuard.js';
 import { mountWorkspaceRoot } from './workspaceSandbox.js';
 import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
 import { armConfigOverrides } from '../../bench/swe/arms.js';
@@ -96,6 +97,11 @@ const REDCHECK_RATCHETED = process.env.SIDECAR_SWE_REDCHECK_RATCHETED === '1';
 // raw output (and a baseline comparable with cells run before 2026-10-15).
 const STABLE_OUTPUT = process.env.SIDECAR_SWE_STABLE_OUTPUT !== '0';
 if (STABLE_OUTPUT) Object.assign(process.env, STABLE_TOOL_ENV);
+// Keep the agent's shell inside the task clone (bench/swe/shellGuard.ts, #196):
+// a run_command that leaves it is moved back, with a note. On by default; a cd
+// inside the clone still persists. SIDECAR_SWE_SHELL_GUARD=0 restores the
+// unguarded shell (cells run before 2026-10-17).
+const SHELL_GUARD = process.env.SIDECAR_SWE_SHELL_GUARD !== '0';
 // Per-(repo,version) solve environments (uv venvs) so run_tests/run_command work
 // against installed deps. Specs from the committed env-specs.json (generated from
 // swebench's MAP_REPO_VERSION_TO_SPECS). Venvs cached under the env cache base.
@@ -484,10 +490,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // model generation pass). The on-vs-off latency axis: scaffold-on can drive
   // MORE turns when a gate re-prompts or an autofix bounces an edit.
   let turns = 0;
-  // How often the scaffold fired (gate re-prompts, autofixes, nudges), from the
-  // loop's onOutcome meta. Zero on scaffold-off; a high count paired with worse
-  // resolution is the harmful-scaffold signal.
+  // How often the scaffold fired, from the loop's onOutcome meta. NOT zero on
+  // scaffold-off: the total includes loop controls (action reprompts, malformed
+  // calls, degenerate turns, stub retries, the unapplied-edit nudge) that run in
+  // both arms. verificationGates is the part the arm switches off; a high count
+  // of it paired with worse resolution is the harmful-scaffold signal (#196).
   let scaffoldInterventions = 0;
+  let verificationGates = 0;
+  let loopControls = 0;
   // Per-run decision counts (e.g. completion_gate.finding.needsTestRun: 2),
   // so a run's own summary answers "did my trigger fire" with no log parsing.
   let decisionCounts: Record<string, number> = {};
@@ -594,8 +604,15 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       onOutcome: (bucket, meta) => {
         flushText();
         terminationBucket = bucket;
-        if (meta) scaffoldInterventions = meta.scaffoldInterventions;
-        traj(`TERMINATION: ${bucket ?? 'natural'} turns=${turns} scaffoldInterventions=${scaffoldInterventions}`);
+        if (meta) {
+          scaffoldInterventions = meta.scaffoldInterventions;
+          verificationGates = meta.verificationGates ?? 0;
+          loopControls = meta.loopControls ?? 0;
+        }
+        traj(
+          `TERMINATION: ${bucket ?? 'natural'} turns=${turns} scaffoldInterventions=${scaffoldInterventions} ` +
+            `(gates=${verificationGates} loopControls=${loopControls})`,
+        );
       },
       onDone: () => flushText(),
     };
@@ -611,6 +628,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       ...armConfigOverrides(arm),
       ...(REDCHECK_RATCHETED ? { redCheckPythonRunnersEnabled: true, redCheckRatchetedEnabled: true } : {}),
     };
+    const findArmTool = (name: string) => findTool(name, undefined, armConfig);
+    const stableTools = STABLE_OUTPUT ? stableOutputTools(findArmTool) : [];
+    const extraTools = SHELL_GUARD ? shellGuardTools(stableTools, findArmTool, new ShellRootGuard(dir)) : stableTools;
     const options: AgentOptions = {
       approvalMode: 'autonomous',
       maxIterations: MAX_ITERS,
@@ -633,7 +653,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // (thousands of tests, truncated output) that would otherwise distort both
       // arms' wall clock and leave the agent with no usable test signal.
       extraPolicyHooks: [wholeSuiteGuard()],
-      ...(STABLE_OUTPUT ? { extraTools: stableOutputTools((name) => findTool(name, undefined, armConfig)) } : {}),
+      ...(extraTools.length > 0 ? { extraTools } : {}),
     };
     const userMsg = buildTaskPrompt(task, retrieval.context, taskEnv, dir);
     const messages: ChatMessage[] = [{ role: 'user', content: userMsg }];
@@ -786,6 +806,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     peakInputTokens,
     turns,
     scaffoldInterventions,
+    verificationGates,
+    loopControls,
     decisionCounts,
     provider,
   };
@@ -881,6 +903,7 @@ describe('SWE-bench Lite — prediction generation', () => {
         retrievalTopK: RETRIEVAL_TOPK,
         redCheckRatcheted: REDCHECK_RATCHETED,
         stableToolOutput: STABLE_OUTPUT,
+        shellGuard: SHELL_GUARD,
         retrievalCliffGate: CLIFF_GATE,
         // The deterministic control layer. bench/swe/README notes it is not
         // config-gated and runs in BOTH ablation arms, so a scaffold-on/off
@@ -915,7 +938,7 @@ describe('SWE-bench Lite — prediction generation', () => {
             console.info(
               `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'}` +
                 `${kind ? ` [${kind}]` : ''} ` +
-                `(${Math.round(p.durationMs / 1000)}s, ${p.turns} turns, ${p.scaffoldInterventions} scaffold-fires)`,
+                `(${Math.round(p.durationMs / 1000)}s, ${p.turns} turns, ${p.verificationGates ?? 0} gate-fires, ${p.loopControls ?? 0} loop-controls)`,
             );
           }
         }

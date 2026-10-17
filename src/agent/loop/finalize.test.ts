@@ -235,6 +235,29 @@ describe('finalize — F1 outcome classification', () => {
     expect(onOutcome).toHaveBeenCalledWith(null, expect.objectContaining({ scaffoldInterventions: 3 }));
   });
 
+  // #196: the total mixes gate injections (switched off with the gates) with
+  // loop controls that run in every configuration, so a gates-off run reporting
+  // a non-zero total read as scaffolding leaking into it.
+  it('splits the interventions into verification gates and always-on loop controls', () => {
+    const onOutcome = vi.fn();
+    const gateState = createGateState();
+    gateState.gateInjections = 2;
+    const state = stubLoopState({
+      termination: 'natural',
+      gateState,
+      actionRepromptCount: 1,
+      unrepairedMalformedCalls: 1,
+      degenerateTurns: 1,
+      stubFixRetries: 1,
+      unappliedEditNudged: true,
+    } as Partial<LoopState>);
+    finalize(state, stubCallbacks({ onOutcome }));
+    expect(onOutcome).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({ scaffoldInterventions: 7, verificationGates: 2, loopControls: 5 }),
+    );
+  });
+
   it('never lets an onOutcome throw block onDone', () => {
     const onDone = vi.fn();
     const onOutcome = vi.fn(() => {

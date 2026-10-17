@@ -58,6 +58,7 @@ export function finalize(state: LoopState, callbacks: AgentCallbacks): ChatMessa
     callbacks.onOutcome?.(classifyFailureBucket(signals), {
       aborted: signals.aborted,
       scaffoldInterventions: countScaffoldInterventions(state),
+      ...scaffoldInterventionBreakdown(state),
     });
   } catch (e) {
     state.logger?.error(`onOutcome error: ${e}`);
@@ -124,14 +125,28 @@ export function buildRunFailureSignals(state: LoopState): RunFailureSignals {
  * safety net. That, and only that, is grounds for taking one away.
  */
 export function countScaffoldInterventions(state: LoopState): number {
-  return (
-    state.actionRepromptCount +
-    (state.gateState?.gateInjections ?? 0) +
-    state.unrepairedMalformedCalls +
-    state.degenerateTurns +
-    state.stubFixRetries +
-    (state.unappliedEditNudged ? 1 : 0)
-  );
+  const { verificationGates, loopControls } = scaffoldInterventionBreakdown(state);
+  return verificationGates + loopControls;
+}
+
+/**
+ * countScaffoldInterventions, split by what turns each part off. Verification
+ * gates are the completion-gate injections, which the configurable gates
+ * control. Loop controls -- action reprompts, unrepaired malformed calls,
+ * degenerate turns, stub-fix retries, the unapplied-edit nudge -- have no
+ * switch and run in every configuration. The total alone made a benchmark's
+ * scaffold-off arm look like scaffolding leaked into it (#196).
+ */
+export function scaffoldInterventionBreakdown(state: LoopState): { verificationGates: number; loopControls: number } {
+  return {
+    verificationGates: state.gateState?.gateInjections ?? 0,
+    loopControls:
+      state.actionRepromptCount +
+      state.unrepairedMalformedCalls +
+      state.degenerateTurns +
+      state.stubFixRetries +
+      (state.unappliedEditNudged ? 1 : 0),
+  };
 }
 
 /**

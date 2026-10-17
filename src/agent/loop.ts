@@ -231,7 +231,14 @@ export interface AgentCallbacks {
    */
   onOutcome?: (
     bucket: import('./failureTaxonomy.js').FailureBucket | null,
-    meta?: { aborted: boolean; scaffoldInterventions: number },
+    meta?: {
+      aborted: boolean;
+      scaffoldInterventions: number;
+      /** The part of scaffoldInterventions from configurable verification gates. */
+      verificationGates?: number;
+      /** The part from loop controls that run in every configuration. */
+      loopControls?: number;
+    },
   ) => void;
   /** Fired when update_plan changed the externalized plan (S1) — checkpointing hook. */
   onPlanUpdate?: (plan: import('./plans/externalPlan.js').ExternalPlan) => void;

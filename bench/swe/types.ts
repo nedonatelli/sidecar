@@ -132,6 +132,17 @@ export interface SwePrediction {
    */
   scaffoldInterventions?: number;
   /**
+   * The part of scaffoldInterventions from verification gates -- what the
+   * scaffold-off arm switches off. Undefined on meta files before 2026-10-17.
+   */
+  verificationGates?: number;
+  /**
+   * The part from loop controls (action reprompts, malformed calls, degenerate
+   * turns, stub retries, the unapplied-edit nudge), which run in BOTH arms -- a
+   * non-zero count on scaffold-off is expected, not a leak (#196).
+   */
+  loopControls?: number;
+  /**
    * Per-run counts of the loop's STRUCTURED decisions, keyed kind.action and
    * kind.detail — e.g. `completion_gate.fired`, `completion_gate.finding.
    * needsTestRun`, `keep_best_ratchet.reason.overengineering`. The
