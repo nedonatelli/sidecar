@@ -148,6 +148,28 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
     expect(await slow.afterCommand(timedOut, 'cd /tmp')).toBe('');
   });
 
+  // macOS: the harness clones under os.tmpdir(), /var/folders/..., a symlink to
+  // /private/var/... -- the shell's `pwd -P` reports the resolved path while the
+  // harness holds the link. (Verified on a Mac on 57b5ffa; a junction makes the
+  // same case on Windows, a symlink elsewhere.)
+  it('works when the clone root is reached through a symlink', async () => {
+    const link = `${root}-link`;
+    fs.symlinkSync(root, link, 'junction');
+    const linked = new ShellSession(link);
+    try {
+      const guard = new ShellRootGuard(link);
+      await linked.execute('cd src', { timeout: 60_000 });
+      expect(await guard.afterCommand(linked, 'cd src')).toBe('');
+      const leave = `cd -- '${posix(outside)}'`;
+      await linked.execute(leave, { timeout: 60_000 });
+      expect(await guard.afterCommand(linked, leave)).toContain('outside the repository');
+      expect((await linked.execute('ls src', { timeout: 60_000 })).stdout).toContain('mod.py');
+    } finally {
+      linked.dispose();
+      fs.rmSync(link, { recursive: false, force: true });
+    }
+  });
+
   it('resolves the root the way the session spells it', async () => {
     expect(resolveRootWithBash(root)).toBe((await sh('pwd -P')).stdout.trim());
   });
