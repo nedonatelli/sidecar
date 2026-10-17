@@ -57,14 +57,29 @@ describe('checkDocumentGate', () => {
     expect(checkDocumentGate(['src/other/mod.ts']).dirty).toBe(false);
   });
 
-  it.runIf(process.platform === 'win32')('ignores drive-letter and path case on Windows', () => {
+  // Each platform's case rules, exercised on every machine through the
+  // `platform` parameter. (The darwin case had no coverage at all; it was
+  // verified by hand on a Mac before becoming this test.)
+  it('ignores drive-letter and path case on Windows', () => {
     const abs = path.resolve(ROOT, 'Src/A.ts');
     setDocs([
       { uri: { fsPath: abs.replace(/^([a-zA-Z]):/, (_m, d: string) => `${d.toLowerCase()}:`) }, isDirty: true },
     ]);
-    expect(
-      checkDocumentGate([abs.replace(/^([a-zA-Z]):/, (_m, d: string) => `${d.toUpperCase()}:`).toLowerCase()]).dirty,
-    ).toBe(true);
+    const target = abs.replace(/^([a-zA-Z]):/, (_m, d: string) => `${d.toUpperCase()}:`).toLowerCase();
+    expect(checkDocumentGate([target], 'win32').dirty).toBe(true);
+  });
+
+  it('ignores path case on macOS, for absolute and workspace-relative targets', () => {
+    setDocs([{ uri: { fsPath: path.resolve(ROOT, 'Src/Deep/Mod.ts') }, isDirty: true }]);
+    expect(checkDocumentGate([path.resolve(ROOT, 'src/deep/MOD.ts')], 'darwin').dirty).toBe(true);
+    expect(checkDocumentGate(['src/deep/mod.ts'], 'darwin').dirty).toBe(true);
+    expect(checkDocumentGate(['src/other/mod.ts'], 'darwin').dirty).toBe(false);
+  });
+
+  it('keeps path case on Linux, where Mod.ts and mod.ts are different files', () => {
+    setDocs([{ uri: { fsPath: path.resolve(ROOT, 'Src/Deep/Mod.ts') }, isDirty: true }]);
+    expect(checkDocumentGate(['Src/Deep/Mod.ts'], 'linux').dirty).toBe(true);
+    expect(checkDocumentGate(['src/deep/mod.ts'], 'linux').dirty).toBe(false);
   });
 
   it('returns only the dirty files among multiple targets', () => {

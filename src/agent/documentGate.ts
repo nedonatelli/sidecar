@@ -6,9 +6,14 @@ import { workspace } from 'vscode';
  * Used by the scheduler to detect if a scheduled task would overwrite dirty edits.
  *
  * @param filePaths Relative or absolute file paths to check (preferably absolute)
+ * @param platform Whose path rules to apply; a parameter so each platform's
+ *   case rules are tested on every machine, not only on that platform.
  * @returns Object with `dirty` (boolean) and `dirtyFiles` (list of paths that are dirty)
  */
-export function checkDocumentGate(filePaths: string[]): { dirty: boolean; dirtyFiles: string[] } {
+export function checkDocumentGate(
+  filePaths: string[],
+  platform: NodeJS.Platform = process.platform,
+): { dirty: boolean; dirtyFiles: string[] } {
   if (filePaths.length === 0) {
     return { dirty: false, dirtyFiles: [] };
   }
@@ -20,7 +25,7 @@ export function checkDocumentGate(filePaths: string[]): { dirty: boolean; dirtyF
   // this gate protects unsaved edits, so matching too much costs a sandbox
   // run and matching too little costs the user's work.
   const root = workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
-  const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
+  const caseInsensitive = platform === 'win32' || platform === 'darwin';
   const fold = (p: string): string => (caseInsensitive ? p.toLowerCase() : p);
   const key = (p: string): string => fold(path.resolve(root, p).replace(/\\/g, '/'));
   const isBareName = (p: string): boolean => !/[\\/]/.test(p);
