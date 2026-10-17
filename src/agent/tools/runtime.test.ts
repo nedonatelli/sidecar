@@ -18,6 +18,10 @@ const { shellCounter, ShellSessionStub, mockConfig } = vi.hoisted(() => {
       this.isDisposed = true;
       this.isAlive = false;
     });
+    disposeAndWait = vi.fn(async () => {
+      this.dispose();
+      return true;
+    });
     constructor(cwd: string, _env?: Record<string, string>, maxOutputSize = 10 * 1024 * 1024, sandboxEnabled = false) {
       counter.n += 1;
       this.id = counter.n;
@@ -99,6 +103,16 @@ describe('ToolRuntime', () => {
       const second = runtime.getShellSession();
       expect(second).not.toBe(first);
       expect(shellCounter.n).toBe(2);
+    });
+
+    it('waits for the current shell to stop before clearing the runtime', async () => {
+      const runtime = new ToolRuntime();
+      const session = runtime.getShellSession() as unknown as { disposeAndWait: ReturnType<typeof vi.fn> };
+
+      await expect(runtime.disposeAndWait()).resolves.toBe(true);
+
+      expect(session.disposeAndWait).toHaveBeenCalledTimes(1);
+      expect(runtime.getShellSession()).not.toBe(session);
     });
 
     it('replaces a disposed session on the next getShellSession call', () => {

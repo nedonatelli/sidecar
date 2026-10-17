@@ -198,6 +198,56 @@ describeUnix('ShellSession', () => {
     expect(status!.output).toContain('bg_output');
   });
 
+  it('waits for a background command to exit on disposal', async () => {
+    session = new ShellSession(os.tmpdir());
+    const startedPath = path.join(os.tmpdir(), `sidecar-bg-start-${process.pid}-${Date.now()}`);
+    const latePath = path.join(os.tmpdir(), `sidecar-bg-late-${process.pid}-${Date.now()}`);
+    const script =
+      `require('fs').writeFileSync(${JSON.stringify(startedPath)}, 'started'); ` +
+      `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(latePath)}, 'late'), 750)`;
+    const id = session.executeBackground(`${process.execPath} -e ${JSON.stringify(script)} &`);
+
+    try {
+      for (let i = 0; i < 100 && !fs.existsSync(startedPath); i++) await new Promise((r) => setTimeout(r, 20));
+      expect(fs.existsSync(startedPath)).toBe(true);
+      for (let i = 0; i < 100 && !session.checkBackground(id)?.done; i++) await new Promise((r) => setTimeout(r, 20));
+      expect(session.checkBackground(id)).toBeNull();
+
+      await expect(session.disposeAndWait()).resolves.toBe(true);
+
+      await new Promise((r) => setTimeout(r, 800));
+      expect(fs.existsSync(latePath)).toBe(false);
+    } finally {
+      await session.disposeAndWait();
+      fs.rmSync(startedPath, { force: true });
+      fs.rmSync(latePath, { force: true });
+    }
+  });
+
+  it('waits for a child of the persistent shell to exit on disposal', async () => {
+    session = new ShellSession(os.tmpdir());
+    const startedPath = path.join(os.tmpdir(), `sidecar-shell-start-${process.pid}-${Date.now()}`);
+    const latePath = path.join(os.tmpdir(), `sidecar-shell-late-${process.pid}-${Date.now()}`);
+    const script =
+      `require('fs').writeFileSync(${JSON.stringify(startedPath)}, 'started'); ` +
+      `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(latePath)}, 'late'), 750)`;
+    const command = session.execute(`${process.execPath} -e ${JSON.stringify(script)} & wait`, { timeout: 10_000 });
+
+    try {
+      for (let i = 0; i < 100 && !fs.existsSync(startedPath); i++) await new Promise((r) => setTimeout(r, 20));
+      expect(fs.existsSync(startedPath)).toBe(true);
+
+      await expect(session.disposeAndWait()).resolves.toBe(true);
+      await command;
+      await new Promise((r) => setTimeout(r, 800));
+      expect(fs.existsSync(latePath)).toBe(false);
+    } finally {
+      await session.disposeAndWait();
+      fs.rmSync(startedPath, { force: true });
+      fs.rmSync(latePath, { force: true });
+    }
+  });
+
   it('wipes shell functions defined in prior turns (state-pollution guard)', async () => {
     // Canonical cycle-2 audit attack: an earlier turn installs a
     // malicious shell function, a later turn calls the shadowed

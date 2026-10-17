@@ -43,6 +43,67 @@ function makeSentinel(): string {
   return 'SIDECAR' + randomBytes(8).toString('hex').toUpperCase();
 }
 
+function waitForProcessExit(proc: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    const onExit = () => finish(true);
+    const onClose = () => finish(true);
+    const timer = setTimeout(() => finish(proc.exitCode !== null || proc.signalCode !== null), timeoutMs);
+    function finish(exited: boolean): void {
+      clearTimeout(timer);
+      proc.removeListener('exit', onExit);
+      proc.removeListener('close', onClose);
+      resolve(exited);
+    }
+
+    proc.once('exit', onExit);
+    proc.once('close', onClose);
+
+    if (proc.exitCode !== null || proc.signalCode !== null) finish(true);
+  });
+}
+
+function processGroupExists(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+function waitForProcessGroupExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const poll = () => {
+      if (!processGroupExists(pid)) {
+        resolve(true);
+      } else if (Date.now() >= deadline) {
+        resolve(false);
+      } else {
+        setTimeout(poll, 50);
+      }
+    };
+    poll();
+  });
+}
+
+async function terminateProcessGroup(pid: number): Promise<boolean> {
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    return !processGroupExists(pid);
+  }
+  if (await waitForProcessGroupExit(pid, 3000)) return true;
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    return !processGroupExists(pid);
+  }
+  return waitForProcessGroupExit(pid, 3000);
+}
+
 /**
  * Prefer a POSIX shell on Windows when one is installed.
  *
@@ -172,7 +233,9 @@ export class ShellSession {
   /** Resolves once the shell's startup noise has been consumed. See flushStartupBanner. */
   private ready: Promise<void> | null = null;
   private commandQueue: Array<() => void> = [];
+  private shellProcessGroups = new Set<number>();
   private backgroundCommands = new Map<string, BackgroundCommand>();
+  private backgroundProcessGroups = new Set<number>();
   private maxOutputSize: number;
   private isWindows: boolean;
   /** Whether the resolved shell speaks POSIX. Drives quoting, redirection and startup flags. */
@@ -256,7 +319,12 @@ export class ShellSession {
       cwd: this.cwd,
       env: this.env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: !this.isWindows,
     });
+    if (!this.isWindows && proc.pid) {
+      this.shellProcessGroups.add(proc.pid);
+      void this.forgetProcessGroupWhenGone(proc.pid, this.shellProcessGroups);
+    }
     this.proc = proc;
 
     // Only forget the shell if it is still the CURRENT one. A timed-out shell
@@ -635,6 +703,10 @@ export class ShellSession {
    * Limited to MAX_BACKGROUND_COMMANDS concurrent processes to prevent resource exhaustion.
    */
   executeBackground(command: string): string {
+    for (const pid of this.backgroundProcessGroups) {
+      if (!processGroupExists(pid)) this.backgroundProcessGroups.delete(pid);
+    }
+
     // Enforce concurrency limit
     if (this.backgroundCommands.size >= ShellSession.MAX_BG_COMMANDS) {
       // Clean up completed commands first
@@ -662,10 +734,12 @@ export class ShellSession {
       cwd: this.cwd,
       env: this.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: !this.isWindows,
     });
 
     // Wrap in ManagedChildProcess for lifecycle tracking
     const proc = new ManagedChildProcess(rawProc, `bg-cmd:${id}`, getProcessRegistry());
+    if (!this.isWindows && rawProc.pid) this.backgroundProcessGroups.add(rawProc.pid);
 
     const entry: BackgroundCommand = { output: '', done: false, exitCode: null, proc };
     this.backgroundCommands.set(id, entry);
@@ -687,6 +761,8 @@ export class ShellSession {
       entry.exitCode = code;
       underlying.stdout?.removeListener('data', onData);
       underlying.stderr?.removeListener('data', onData);
+      if (!this.isWindows && rawProc.pid)
+        void this.forgetProcessGroupWhenGone(rawProc.pid, this.backgroundProcessGroups);
     });
 
     return id;
@@ -700,8 +776,21 @@ export class ShellSession {
     if (!entry) return null;
     if (entry.done) {
       this.backgroundCommands.delete(id);
+      if (!this.isWindows && entry.proc.pid && !processGroupExists(entry.proc.pid)) {
+        this.backgroundProcessGroups.delete(entry.proc.pid);
+      }
     }
     return { done: entry.done, output: entry.output, exitCode: entry.exitCode };
+  }
+
+  private async forgetProcessGroupWhenGone(pid: number, groups: Set<number>): Promise<void> {
+    while (processGroupExists(pid)) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 25);
+        timer.unref();
+      });
+    }
+    groups.delete(pid);
   }
 
   /**
@@ -724,6 +813,10 @@ export class ShellSession {
    */
   private killShell(proc: ChildProcess): void {
     if (killProcessTree(proc.pid, this.isWindows)) return;
+    if (!this.isWindows && proc.pid) {
+      void terminateProcessGroup(proc.pid);
+      return;
+    }
     try {
       proc.kill();
     } catch {
@@ -736,10 +829,14 @@ export class ShellSession {
    */
   dispose(): void {
     this.disposedFlag = true;
-    const killWithTimeout = (proc: ChildProcess | ManagedChildProcess) => {
+    const killWithTimeout = (proc: ChildProcess | ManagedChildProcess, processGroup = false) => {
       const rawProc = proc instanceof ManagedChildProcess ? proc.getProc() : proc;
       // Take the children with it where the platform requires asking.
       if (killProcessTree(rawProc.pid, this.isWindows)) return;
+      if (processGroup && !this.isWindows && rawProc.pid) {
+        void terminateProcessGroup(rawProc.pid);
+        return;
+      }
       try {
         rawProc.kill('SIGTERM');
       } catch {
@@ -757,14 +854,36 @@ export class ShellSession {
     };
 
     if (this.proc) {
-      killWithTimeout(this.proc);
+      if (this.isWindows) killWithTimeout(this.proc);
       this.proc = null;
     }
-    for (const [, entry] of this.backgroundCommands) {
-      killWithTimeout(entry.proc);
+    if (this.isWindows) {
+      for (const [, entry] of this.backgroundCommands) killWithTimeout(entry.proc, true);
+    } else {
+      for (const pid of new Set([...this.shellProcessGroups, ...this.backgroundProcessGroups])) {
+        void terminateProcessGroup(pid);
+      }
     }
     this.backgroundCommands.clear();
     this.commandQueue = [];
     this.busy = false;
+  }
+
+  /** Dispose the session and wait for its shell and tracked background commands to exit. */
+  async disposeAndWait(timeoutMs = 5000): Promise<boolean> {
+    const processes = [
+      ...(this.proc ? [this.proc] : []),
+      ...[...this.backgroundCommands.values()].map((entry) => entry.proc.getProc()),
+    ];
+    const processGroupPids = !this.isWindows
+      ? [...new Set([...this.shellProcessGroups, ...this.backgroundProcessGroups])]
+      : [];
+    const waits = [
+      ...processes.map((proc) => waitForProcessExit(proc, timeoutMs)),
+      ...processGroupPids.map((pid) => waitForProcessGroupExit(pid, timeoutMs)),
+    ];
+    this.dispose();
+    const exits = await Promise.all(waits);
+    return exits.every(Boolean);
   }
 }

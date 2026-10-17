@@ -78,6 +78,13 @@ export class ToolRuntime {
     this.shell?.dispose();
     this.shell = null;
   }
+
+  /** Dispose the current shell and report whether its tracked processes exited. */
+  async disposeAndWait(): Promise<boolean> {
+    const shell = this.shell;
+    this.shell = null;
+    return shell ? shell.disposeAndWait() : true;
+  }
 }
 
 const defaultRuntime = new ToolRuntime();

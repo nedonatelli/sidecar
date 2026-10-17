@@ -39,7 +39,8 @@ import { armConfigOverrides } from '../../bench/swe/arms.js';
 import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVersion.js';
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { classifyFailure } from '../../bench/swe/failureClassification.js';
-import { captureDiff, type DroppedPath } from '../../bench/swe/captureDiff.js';
+import { captureDiff, snapshotShellWorkspace } from '../../bench/swe/captureDiff.js';
+import type { DroppedPath, ShellChangeDrift, ShellChangeSnapshot } from '../../bench/swe/captureDiff.js';
 import { wholeSuiteGuard } from '../../bench/swe/wholeSuiteGuard.js';
 import { renderTestModuleHint } from '../../bench/swe/testModules.js';
 import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
@@ -455,6 +456,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   let patch = '';
   let failureReason: string | null = null;
   let dir: string | null = null;
+  let workspaceSnapshot: ShellChangeSnapshot | null = null;
+  let shellChanged: string[] = [];
+  let shellChangeDrift: ShellChangeDrift | undefined;
+  let shellProcessesStopped = true;
   let restoreMock: (() => void) | null = null;
   // Hoisted so the finally below can dispose it even when the run throws.
   let toolRuntime: ToolRuntime | null = null;
@@ -471,8 +476,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // (firstTokenTimeout, 300s) — so its empty patch is an infrastructure
   // failure, not the model failing the task. The ablation excludes these.
   let toolCalls = 0;
-  // Files the agent mutated (edit_file/write_file/delete_file targets). captureDiff
-  // scopes the patch to exactly these, so unrelated repo-state drift can't pollute it.
+  // File-tool mutation targets. captureDiff also discovers eligible shell changes
+  // relative to workspaceSnapshot while keeping unrelated repo drift out.
   const touchedPaths = new Set<string>();
   // Touched paths captureDiff left out (outside the clone, scratch files since
   // removed, ignored), and the error if the capture itself failed.
@@ -504,6 +509,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   let provider: string | undefined;
   try {
     dir = prepareRepo(task);
+    try {
+      workspaceSnapshot = snapshotShellWorkspace(dir);
+    } catch {
+      shellChangeDrift = { reason: 'snapshot-unavailable', pathCount: 0 };
+    }
     // Point the vscode mock's fs/workspaceFolders/findFiles at the clone — without
     // this the agent's read_file hits the stub mock ("mock file content", 63b) and
     // loops until cycle detection bails. This is the same hook installSandbox uses.
@@ -749,6 +759,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     failureReason = classified.reason;
     console.error(`[swe] solve failed for ${task.instance_id} (${arm}) [${classified.kind}]:`, classified.reason);
   } finally {
+    // Wait for tracked shell processes before discovering paths. If cleanup
+    // cannot confirm exit, captureDiff suppresses automatic shell-path expansion.
+    try {
+      shellProcessesStopped = (await toolRuntime?.disposeAndWait()) ?? true;
+    } catch (err) {
+      shellProcessesStopped = false;
+      console.warn(`[swe]   ${task.instance_id}: shell disposal failed: ${(err as Error).message}`);
+    }
     // ALWAYS attempt the diff, including after a throw. `captureDiff` used to
     // sit inside the try AFTER the agent loop, so any abort — per-task timeout,
     // fetch failure, stream error — skipped it and forced an empty patch,
@@ -762,9 +780,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // "the agent changed nothing". It is now logged and recorded on the row.
     try {
       if (dir) {
-        const captured = captureDiff(dir, task.base_commit, touchedPaths);
+        const captured = captureDiff(dir, task.base_commit, touchedPaths, workspaceSnapshot, shellProcessesStopped);
         patch = captured.patch;
         captureDropped = captured.dropped;
+        shellChanged = captured.shellChanged ?? [];
+        shellChangeDrift = captured.drift ?? shellChangeDrift;
         if (captureDropped.length > 0) {
           console.log(
             `[swe]   ${task.instance_id}: capture left out ${captureDropped.map((d) => `${d.path} (${d.reason})`).join(', ')}`,
@@ -777,18 +797,6 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       console.warn(`[swe]   ${task.instance_id}: PATCH CAPTURE FAILED: ${captureError}`);
     }
     if (restoreMock) restoreMock();
-    // Dispose the per-task shell. ToolRuntime spawns a PERSISTENT shell whose
-    // cwd is the clone, and nothing ever released it: one orphaned shell per
-    // task (50 per run), each pinning a directory that Windows then refuses to
-    // delete. That is what produced the cleanup warnings --
-    //
-    //   EPERM, Permission denied: \?\C:\...\swe-repo-astropy_astropy-e3LOTH
-    //
-    // note the failure is on the DIRECTORY, not on a file inside it: on Windows
-    // a directory that is any live process's working directory cannot be
-    // removed. 184 such warnings across the runs recorded so far, and the
-    // clones they left behind were still on disk days later.
-    toolRuntime?.dispose();
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
   return {
@@ -801,6 +809,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     failureReason,
     ...(captureDropped.length > 0 ? { captureDropped } : {}),
     ...(captureError ? { captureError } : {}),
+    ...(shellChanged.length > 0 ? { shellChanged } : {}),
+    ...(shellChangeDrift ? { shellChangeDrift } : {}),
     retrievalRecall,
     ratchetReverted,
     peakInputTokens,

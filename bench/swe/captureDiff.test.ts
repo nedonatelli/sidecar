@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { captureDiff } from './captureDiff.js';
+import { captureDiff, snapshotShellWorkspace } from './captureDiff.js';
 
 // A real repository: the bug was git's own behaviour (`git add -A -- <paths>`
 // exits 128 on one bad pathspec and stages nothing), so a mock would prove
@@ -122,5 +122,151 @@ describe('captureDiff', () => {
     write('pkg/mod.py', 'x = 2\n');
     const { patch } = captureDiff(dir, base, [path.join(dir, 'pkg', 'mod.py')]);
     expect(patch).toContain('+x = 2');
+  });
+
+  it('keeps legacy patch bytes when only a file-tool path changed', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    write('pkg/mod.py', 'x = 2\n');
+    git('add', '-A', '--', 'pkg/mod.py');
+    const legacyPatch = git('diff', '--cached', base, '--', 'pkg/mod.py');
+    git('reset', '--quiet', '--', 'pkg/mod.py');
+
+    const result = captureDiff(dir, base, ['pkg/mod.py'], snapshot);
+
+    expect(result.patch).toBe(legacyPatch);
+    expect(result.shellChanged).toBeUndefined();
+    expect(result.drift).toBeUndefined();
+  });
+
+  it('captures tracked edits, deletions, and non-ignored new files from shell activity', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    write('pkg/mod.py', 'x = 2\n');
+    fs.rmSync(path.join(dir, 'pkg/gone.py'));
+    write('pkg/new.py', 'z = 3\n');
+    write('pkg/_version.py', 'v = 1\n');
+
+    expect(captureDiff(dir, base, []).patch).toBe('');
+
+    const result = captureDiff(dir, base, [], snapshot);
+
+    expect(result.shellChanged).toEqual(['pkg/gone.py', 'pkg/mod.py', 'pkg/new.py']);
+    expect(result.patch).toContain('pkg/mod.py');
+    expect(result.patch).toContain('pkg/gone.py');
+    expect(result.patch).toContain('pkg/new.py');
+    expect(result.patch).not.toContain('_version.py');
+    expect(result.drift).toBeUndefined();
+  });
+
+  it('does not report explicit file-tool paths as shell changes', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    write('pkg/mod.py', 'x = 2\n');
+
+    const result = captureDiff(dir, base, [path.join(dir, 'pkg/mod.py')], snapshot);
+
+    expect(result.patch).toContain('+x = 2');
+    expect(result.shellChanged).toBeUndefined();
+  });
+
+  it('keeps shell paths out when the initial snapshot was dirty', () => {
+    write('pkg/preexisting.py', 'outside the run\n');
+    const snapshot = snapshotShellWorkspace(dir);
+    write('pkg/from-shell.py', 'during the run\n');
+    write('pkg/mod.py', 'x = 2\n');
+
+    const result = captureDiff(dir, base, ['pkg/mod.py'], snapshot);
+
+    expect(result.drift).toEqual({ reason: 'dirty-at-start', pathCount: 1 });
+    expect(result.patch).toContain('pkg/mod.py');
+    expect(result.patch).not.toContain('preexisting.py');
+    expect(result.patch).not.toContain('from-shell.py');
+  });
+
+  it('suppresses shell capture when background processes did not stop', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    write('pkg/mod.py', 'x = 2\n');
+    write('pkg/from-shell.py', 'shell edit\n');
+
+    const result = captureDiff(dir, base, ['pkg/mod.py'], snapshot, false);
+
+    expect(result.patch).toContain('+x = 2');
+    expect(result.patch).not.toContain('from-shell.py');
+    expect(result.shellChanged).toBeUndefined();
+    expect(result.drift).toEqual({ reason: 'process-still-running', pathCount: 0 });
+  });
+
+  it('keeps a different checked-out commit out of the patch', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    git('checkout', '--quiet', '--orphan', 'drift');
+    git('rm', '-rf', '.');
+    write('other.py', 'unrelated branch\n');
+    git('add', '-A');
+    git('commit', '-qm', 'drift');
+
+    const result = captureDiff(dir, base, [], snapshot);
+
+    expect(result.patch).toBe('');
+    expect(result.drift).toEqual({ reason: 'head-diverged', pathCount: 0 });
+  });
+
+  it('captures a shell change committed on top of the task baseline', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    write('pkg/mod.py', 'x = 2\n');
+    git('add', 'pkg/mod.py');
+    git('commit', '-qm', 'shell edit');
+
+    const result = captureDiff(dir, base, [], snapshot);
+
+    expect(result.patch).toContain('+x = 2');
+    expect(result.shellChanged).toEqual(['pkg/mod.py']);
+    expect(result.drift).toBeUndefined();
+  });
+
+  it('keeps explicit file-tool paths when the snapshot is unavailable or mismatched', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    write('pkg/mod.py', 'x = 2\n');
+    write('pkg/from-shell.py', 'shell edit\n');
+
+    const unavailable = captureDiff(dir, base, ['pkg/mod.py'], null);
+    expect(unavailable.patch).toContain('+x = 2');
+    expect(unavailable.patch).not.toContain('from-shell.py');
+    expect(unavailable.shellChanged).toBeUndefined();
+    expect(unavailable.drift).toEqual({ reason: 'snapshot-unavailable', pathCount: 0 });
+
+    const mismatched = captureDiff(dir, base, ['pkg/mod.py'], { ...snapshot, head: 'other-commit' });
+    expect(mismatched.patch).toContain('+x = 2');
+    expect(mismatched.patch).not.toContain('from-shell.py');
+    expect(mismatched.shellChanged).toBeUndefined();
+    expect(mismatched.drift).toEqual({ reason: 'baseline-mismatch', pathCount: 0 });
+  });
+
+  it('suppresses automatic capture when more than 100 paths changed', () => {
+    const snapshot = snapshotShellWorkspace(dir);
+    for (let i = 0; i < 101; i++) write(`new-${i}.py`, 'new\n');
+
+    const result = captureDiff(dir, base, [], snapshot);
+
+    expect(result.patch).toBe('');
+    expect(result.shellChanged).toBeUndefined();
+    expect(result.drift).toEqual({ reason: 'too-many-paths', pathCount: 101 });
+  });
+
+  it('marks changes across most of a tracked tree as drift', () => {
+    for (let i = 0; i < 17; i++) write(`src/file-${i}.py`, 'base\n');
+    git('add', '-A');
+    git('commit', '-qm', 'expand base');
+    base = git('rev-parse', 'HEAD').trim();
+    const snapshot = snapshotShellWorkspace(dir);
+    for (let i = 0; i < 11; i++) write(`src/file-${i}.py`, 'changed\n');
+
+    const result = captureDiff(dir, base, [], snapshot);
+
+    expect(result.patch).toBe('');
+    expect(result.shellChanged).toBeUndefined();
+    expect(result.drift).toEqual({
+      reason: 'widespread-change',
+      pathCount: 11,
+      trackedPathCount: 11,
+      baseTrackedPathCount: 20,
+    });
   });
 });
