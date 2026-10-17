@@ -5,18 +5,20 @@
   "vitest": {
     "configFile": "vitest.config.ts"
   },
+  "_disableTypeChecks": "Off: vitest does not type-check (esbuild strips types), and the default prepends '// @ts-nocheck' to every .ts file in the sandbox -- including the byte-exact fixtures in src/agent/tools/__corpus__, which then fail their own byte checks (cr.ts gains a newline).",
+  "disableTypeChecks": false,
   "ignorePatterns": [
-    ".vscode-test",
-    ".vscode-test-web",
-    "out",
-    "dist",
-    "coverage",
+    "/.vscode-test",
+    "/.vscode-test-web",
+    "/out",
+    "/dist",
+    "/coverage",
     "*.vsix",
-    "swe_campaign_*",
-    ".sidecar",
-    ".stryker-tmp",
-    "reports",
-    "docs"
+    "/swe_campaign_*",
+    "/.sidecar",
+    "/.stryker-tmp",
+    "/reports",
+    "/docs"
   ],
   "mutate": [
     "src/agent/citationCheck.ts",
