@@ -15,6 +15,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 export interface EnvSpec {
@@ -81,6 +82,91 @@ function asList(v: string[] | string | undefined): string[] {
 
 export function loadEnvSpecs(specPath: string): SpecMap {
   return JSON.parse(fs.readFileSync(specPath, 'utf-8')) as SpecMap;
+}
+
+/**
+ * The editable-install target, keeping the extras the spec's `install` asks for:
+ * `python -m pip install -e .[test]` -> `.[test]`. Installing a bare `.` dropped
+ * sphinx's `[test]` extra, which is where its pytest comes from (#216).
+ */
+export function editableTarget(install: string | undefined): string {
+  const extras = install?.match(/(?:^|\s)(?:-e\s+)?\.(\[[^\]\s]+\])/);
+  return extras ? `.${extras[1]}` : '.';
+}
+
+/**
+ * Test-requirements files SWE-bench installs for a repo's environment and that
+ * the spec's `pip_packages` does not carry (its MAP_REPO_TO_REQS_PATHS). pylint
+ * pins astroid and pytest there; without them the agent's tests run against the
+ * wrong astroid, or the system pytest (#216). The full file, not `_min`: its
+ * pytest-xdist 2.x brings `py`, whose `py.io` pytest-benchmark 3.4 needs now
+ * that `pytest~=7.1` resolves to a 7.4 that no longer ships it.
+ */
+const TEST_REQUIREMENTS: Record<string, string> = {
+  'pylint-dev/pylint': 'requirements_test.txt',
+};
+
+/**
+ * Pins SWE-bench's images never needed because they resolved in 2024. Resolved
+ * today, sphinx 3.4 gets setuptools 82 (no `pkg_resources`, which sphinx
+ * imports at startup) and docutils 0.23 (no `docutils.utils.roman`, which its
+ * LaTeX builder imports), and no test runs. Measured on sphinx-8474 (#216).
+ */
+const ERA_CONSTRAINTS: Record<string, string[]> = {
+  'sphinx-doc/sphinx': ['setuptools<81', 'docutils<0.22'],
+};
+
+/**
+ * The version pins a spec's `pre_install` writes into setup.py, as pip
+ * constraints: `sed -i 's/Jinja2>=2.3/Jinja2<3.0/' setup.py` -> `Jinja2<3.0`.
+ * SWE-bench edits setup.py in its image; doing that here would put the edit in
+ * the agent's checkout and its captured diff, so the pins go to uv instead.
+ */
+export function setupPyPins(preInstall: string[] | string | undefined): string[] {
+  const pins: string[] = [];
+  for (const cmd of asList(preInstall)) {
+    const m = cmd.match(/^sed -i (["'])s\/[^/]*\/([^/]*)\/\1 setup\.py$/);
+    if (!m) continue;
+    const quoted = [...m[2].matchAll(/'([^']+)'/g)].map((q) => q[1]);
+    for (const req of quoted.length ? quoted : [m[2]]) if (/[<>=]/.test(req)) pins.push(req);
+  }
+  return pins;
+}
+
+export function envConstraints(repo: string, spec: EnvSpec): string[] {
+  return [...setupPyPins(spec.pre_install), ...(ERA_CONSTRAINTS[repo] ?? [])];
+}
+
+/**
+ * Bump when the build recipe changes in a way cached venvs must pick up. The
+ * marker records it with the spec, and a mismatch rebuilds the venv.
+ */
+const ENV_RECIPE_VERSION = 2;
+
+export function envRecipeHash(repo: string, spec: EnvSpec): string {
+  const recipe = JSON.stringify({
+    v: ENV_RECIPE_VERSION,
+    repo,
+    spec,
+    reqs: TEST_REQUIREMENTS[repo] ?? null,
+    era: ERA_CONSTRAINTS[repo] ?? null,
+  });
+  return createHash('sha256').update(recipe).digest('hex').slice(0, 16);
+}
+
+/**
+ * Does the test command run pytest -- directly, or through tox, which passes
+ * its arguments on to pytest? Django's runtests.py and sympy's bin/test don't.
+ */
+export function usesPytest(testCmd: string | undefined): boolean {
+  return !!testCmd && !/runtests\.py|(^|\s)bin\/test\b/.test(testCmd) && /(^|\s)(pytest|tox)\b/.test(testCmd);
+}
+
+/** Does the venv have pytest installed (a `pytest-<ver>.dist-info`, not a plugin's)? */
+export function venvHasPytest(venvDir: string): boolean {
+  return sitePackagesDirs(venvDir).some((site) =>
+    fs.readdirSync(site).some((e) => /^pytest-[^-]+\.dist-info$/i.test(e)),
+  );
 }
 
 /**
@@ -151,6 +237,7 @@ export function setupTaskEnv(
   // cwd=repoDir, so a relative path would resolve against the repo and fail.
   const venvDir = path.resolve(cacheBase, 'venvs', key);
   const marker = path.join(venvDir, '.sidecar-ready');
+  const recipe = envRecipeHash(repo, spec);
   // Windows venvs put the interpreter in Scripts\python.exe, not bin/python.
   // Hardcoding the POSIX layout made `uv pip install --python .../bin/python`
   // fail with "No virtual environment or system Python installation found" for
@@ -182,11 +269,21 @@ export function setupTaskEnv(
         /* optional deps — continue; validation gate is the real check */
       }
     }
-    fs.writeFileSync(marker, `${repo}@${version} python=${pythonForUv(spec.python)}\n`);
+    fs.writeFileSync(marker, `${repo}@${version} python=${pythonForUv(spec.python)} recipe=${recipe}\n`);
+  };
+
+  // A venv built by an older recipe (or for a different spec) is rebuilt, so a
+  // fix to the recipe reaches every cached venv instead of only new ones.
+  const markerCurrent = (): boolean => {
+    try {
+      return fs.readFileSync(marker, 'utf-8').includes(`recipe=${recipe}`);
+    } catch {
+      return false;
+    }
   };
 
   let fresh = false;
-  if (!fs.existsSync(marker) || !venvLooksIntact(venvDir, pythonBin)) {
+  if (!markerCurrent() || !venvLooksIntact(venvDir, pythonBin)) {
     build();
     fresh = true;
   }
@@ -195,9 +292,20 @@ export function setupTaskEnv(
   // `git clean -fdx` between tasks wipes the repo's *.egg-info, which would
   // otherwise leave the (marker-cached) venv unable to import the repo. uv makes
   // this a fast no-op when already satisfied.
-  const installRepo = (): void => {
-    execFileSync(uv, ['pip', 'install', '--python', pythonBin, '-e', '.'], { cwd: repoDir, stdio: 'pipe' });
+  // Every install from here on resolves under the spec's setup.py pins and the
+  // era pins. Not pip_packages above: sphinx's spec installs Jinja2==3.0.3 and
+  // then pins Jinja2<3.0 in setup.py, and SWE-bench's order lets the second win.
+  const constraints = envConstraints(repo, spec);
+  const install = (args: string[]): void => {
+    const extra: string[] = [];
+    if (constraints.length) {
+      const file = path.join(venvDir, '.sidecar-constraints.txt');
+      fs.writeFileSync(file, constraints.join('\n') + '\n');
+      extra.push('-c', file);
+    }
+    execFileSync(uv, ['pip', 'install', '--python', pythonBin, ...args, ...extra], { cwd: repoDir, stdio: 'pipe' });
   };
+  const installRepo = (): void => install(['-e', editableTarget(spec.install)]);
   try {
     installRepo();
   } catch (err) {
@@ -206,6 +314,28 @@ export function setupTaskEnv(
     if (fresh) throw err;
     build();
     installRepo();
+  }
+
+  // A pytest/tox runner needs pytest IN the venv. With none there, the agent's
+  // `pytest` fell through PATH to whatever the machine had -- here a system
+  // Python 3.14 pytest that couldn't import the repo's dependencies -- for
+  // requests, pylint and sphinx in every baseline (#216). Needs the repo
+  // checked out, so it runs after the editable install, not in build();
+  // uv makes it a fast no-op once satisfied.
+  if (usesPytest(spec.test_cmd)) {
+    const reqs = TEST_REQUIREMENTS[repo];
+    if (reqs && fs.existsSync(path.join(repoDir, reqs))) {
+      try {
+        install(['-r', reqs]);
+      } catch {
+        /* best-effort, like pip_packages; the pytest fallback below still runs */
+      }
+    }
+    // Unpinned, as SWE-bench's own requests environment is: uv resolves the
+    // newest pytest that supports the venv's Python.
+    if (!venvHasPytest(venvDir)) {
+      install(['pytest']);
+    }
   }
 
   return { venvDir, pythonBin, env, testCmd: spec.test_cmd };

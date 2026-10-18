@@ -25,6 +25,15 @@ vi.mock('node:child_process', () => ({
       fs.mkdirSync(path.join(site, 'sqlparse-0.5.5.dist-info'), { recursive: true });
       fs.writeFileSync(path.join(site, 'sqlparse-0.5.5.dist-info', 'METADATA'), 'Name: sqlparse\n');
     }
+    if (args[0] === 'pip' && args.includes('pytest')) {
+      const venvDir = path.dirname(path.dirname(args[args.indexOf('--python') + 1]));
+      const site =
+        process.platform === 'win32'
+          ? path.join(venvDir, 'Lib', 'site-packages')
+          : path.join(venvDir, 'lib', 'python3.9', 'site-packages');
+      fs.mkdirSync(path.join(site, 'pytest-8.3.5.dist-info'), { recursive: true });
+      fs.writeFileSync(path.join(site, 'pytest-8.3.5.dist-info', 'METADATA'), 'Name: pytest\n');
+    }
     if (args[0] === 'pip' && args.includes('-e') && failEditableInstalls > 0) {
       failEditableInstalls--;
       throw new Error('Command failed: uv pip install --python x -e .\n  × Failed to read `sqlparse==0.5.5`');
@@ -33,7 +42,7 @@ vi.mock('node:child_process', () => ({
   },
 }));
 
-import { setupTaskEnv, venvLooksIntact, defaultSweCacheDir, type SpecMap } from './taskEnv.js';
+import { setupTaskEnv, venvLooksIntact, venvHasPytest, defaultSweCacheDir, type SpecMap } from './taskEnv.js';
 import { classifyFailure } from './failureClassification.js';
 
 const SPECS: SpecMap = { 'django/django': { '3.0': { python: '3.9' } } };
@@ -112,5 +121,102 @@ describe('defaultSweCacheDir (#208)', () => {
     );
     expect(defaultSweCacheDir('linux', {}, '/home/u')).toBe(path.join('/home/u', '.cache', 'sidecar-swe'));
     expect(defaultSweCacheDir().startsWith(os.tmpdir())).toBe(false);
+  });
+});
+
+describe('test dependencies in the venv (#216)', () => {
+  const installs = () =>
+    uvCalls
+      .filter((a) => a[0] === 'pip')
+      .map((a) => a.slice(a.indexOf('--python') + 2, a.includes('-c') ? a.indexOf('-c') : undefined).join(' '));
+  const constraintsUsed = () => uvCalls.filter((a) => a[0] === 'pip' && a.includes('-c')).length;
+
+  it('keeps the extras the spec install asks for', () => {
+    const specs: SpecMap = {
+      'sphinx-doc/sphinx': {
+        '3.4': {
+          python: '3.9',
+          install: 'python -m pip install -e .[test]',
+          test_cmd: 'tox --current-env -epy39 -v --',
+        },
+      },
+    };
+    setupTaskEnv('sphinx-doc/sphinx', '3.4', repo, cache, specs);
+    expect(installs()).toContain('-e .[test]');
+  });
+
+  it('resolves under the setup.py pins and era pins, but not the spec pip_packages', () => {
+    const specs: SpecMap = {
+      'sphinx-doc/sphinx': {
+        '3.4': {
+          python: '3.9',
+          pre_install: ["sed -i 's/Jinja2>=2.3/Jinja2<3.0/' setup.py"],
+          pip_packages: ['Jinja2==3.0.3'],
+          install: 'python -m pip install -e .[test]',
+          test_cmd: 'tox --current-env -epy39 -v --',
+        },
+      },
+    };
+    const env = setupTaskEnv('sphinx-doc/sphinx', '3.4', repo, cache, specs)!;
+    const pipCalls = uvCalls.filter((a) => a[0] === 'pip');
+    expect(pipCalls.find((a) => a.includes('Jinja2==3.0.3'))).not.toContain('-c');
+    expect(pipCalls.find((a) => a.includes('-e'))).toContain('-c');
+    expect(constraintsUsed()).toBeGreaterThan(0);
+    const file = fs.readFileSync(path.join(env.venvDir, '.sidecar-constraints.txt'), 'utf-8');
+    expect(file.trim().split('\n')).toEqual(['Jinja2<3.0', 'setuptools<81', 'docutils<0.22']);
+  });
+
+  it('passes no constraints for a repo with none', () => {
+    setupTaskEnv('django/django', '3.0', repo, cache, SPECS);
+    expect(constraintsUsed()).toBe(0);
+  });
+
+  it('installs pytest into a pytest-runner venv that has none, once', () => {
+    const specs: SpecMap = {
+      'psf/requests': { '2.3': { python: '3.9', install: 'python -m pip install .', test_cmd: 'pytest -rA' } },
+    };
+    const env = setupTaskEnv('psf/requests', '2.3', repo, cache, specs)!;
+    expect(installs()).toContain('pytest');
+    expect(venvHasPytest(env.venvDir)).toBe(true);
+    uvCalls.length = 0;
+    setupTaskEnv('psf/requests', '2.3', repo, cache, specs);
+    expect(installs()).not.toContain('pytest');
+  });
+
+  it('installs the repo test requirements SWE-bench uses before falling back to bare pytest', () => {
+    const specs: SpecMap = {
+      'pylint-dev/pylint': { '2.14': { python: '3.9', install: 'python -m pip install -e .', test_cmd: 'pytest -rA' } },
+    };
+    fs.writeFileSync(path.join(repo, 'requirements_test.txt'), 'pytest~=7.1\n');
+    setupTaskEnv('pylint-dev/pylint', '2.14', repo, cache, specs);
+    const all = installs();
+    expect(all).toContain('-r requirements_test.txt');
+    expect(all.indexOf('-r requirements_test.txt')).toBeLessThan(all.indexOf('pytest'));
+  });
+
+  it('does not install pytest for django or sympy runners', () => {
+    const specs: SpecMap = {
+      'sympy/sympy': { '1.0': { python: '3.9', test_cmd: "PYTHONWARNINGS='ignore' bin/test -C --verbose" } },
+    };
+    setupTaskEnv('django/django', '3.0', repo, cache, {
+      'django/django': { '3.0': { python: '3.9', test_cmd: './tests/runtests.py' } },
+    });
+    setupTaskEnv('sympy/sympy', '1.0', repo, cache, specs);
+    expect(installs()).not.toContain('pytest');
+  });
+
+  it('rebuilds a cached venv built by an older recipe or for a different spec', () => {
+    const env = setupTaskEnv('django/django', '3.0', repo, cache, SPECS)!;
+    expect(venvBuilds()).toBe(1);
+    // A marker from before #216 carries no recipe hash.
+    fs.writeFileSync(path.join(env.venvDir, '.sidecar-ready'), 'django/django@3.0 python=3.9\n');
+    setupTaskEnv('django/django', '3.0', repo, cache, SPECS);
+    expect(venvBuilds()).toBe(2);
+    setupTaskEnv('django/django', '3.0', repo, cache, SPECS);
+    expect(venvBuilds()).toBe(2);
+    setupTaskEnv('django/django', '3.0', repo, cache, {
+      'django/django': { '3.0': { python: '3.9', pip_packages: ['sqlparse'] } },
+    });
+    expect(venvBuilds()).toBe(3);
   });
 });
