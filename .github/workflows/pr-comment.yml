@@ -20,7 +20,13 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Skip onnxruntime-node's 301 MB CUDA-provider download, as ci.yml and
+      # publish.yml do. Without it this job depended on Microsoft's download
+      # host and failed when it was unreachable (#206: ETIMEDOUT in npm ci,
+      # before any check ran).
       - run: npm ci --force
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       - name: Type check
         id: typecheck
