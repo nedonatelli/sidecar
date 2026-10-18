@@ -903,3 +903,62 @@ describe('read-only exploration is not a cycle (#202)', () => {
     expect(results[5]).toBe(true);
   });
 });
+
+// #209: signatures kept only the first 80 characters of the primary value, so
+// commands sharing a long prefix -- `cd <88-char macOS temp clone> && ...` --
+// compared equal, and (the secondary hash omits the primary key) nothing told
+// them apart: ten different commands stopped a run as "repeated 10 times".
+describe('signatures compare the whole primary value (#209)', () => {
+  const CLONE = '/private/var/folders/01/nxrmp0tn3tn73c5ty1j1ywm40000gn/T/swe-repo-astropy_astropy';
+  const cmd = (rest: string) => [makeToolUse('run_command', { command: `cd ${CLONE} && ${rest}` })];
+  const tails = [
+    'python3 test_fix_nested.py 2>&1',
+    'python3 -m py_compile astropy/modeling/separable.py',
+    'python3 -m pytest astropy/modeling/tests/test_separable.py -x',
+    'pip install -q hypothesis numpy 2>&1 | tail -3',
+    'pip install -q erfa 2>&1 | tail -3',
+    'pip install -q pyerfa 2>&1 | tail -3',
+    'python3 -c "import astropy; print(astropy.__version__)"',
+    'git diff --stat',
+    'python3 -m pytest astropy/modeling/tests -k separable',
+    'ls astropy/modeling',
+  ];
+
+  it('does not bail on 10 different commands sharing an 88-character cd prefix', () => {
+    expect(`cd ${CLONE} && `.length).toBeGreaterThan(80);
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const results = tails.map((t) => detectCycleAndBail(cmd(t), state, cb));
+    expect(results.every((r) => r === false)).toBe(true);
+    expect(cb.texts).toHaveLength(0);
+  });
+
+  it('still bails when the full command is identical every time', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const results = Array.from({ length: 10 }, () => detectCycleAndBail(cmd(tails[0]), state, cb));
+    expect(results.includes(true)).toBe(true);
+  });
+
+  it('tells apart reads of two files whose paths share their first 80+ characters', () => {
+    const base = 'packages/very-long-package-name/src/deeply/nested/module/structure/that/goes/on/and/on';
+    expect(base.length).toBeGreaterThan(80);
+    const state = stubLoopStateWithMinRepeats(3);
+    const cb = stubCallbacks();
+    const a = [makeToolUse('read_file', { path: `${base}/alpha.ts` })];
+    const b = [makeToolUse('read_file', { path: `${base}/beta.ts` })];
+    const c = [makeToolUse('read_file', { path: `${base}/gamma.ts` })];
+    // Three distinct files, read once each: with an 80-char signature they were
+    // one file read 3 times, which a minRepeats of 3 stops.
+    expect([a, b, c].map((x) => detectCycleAndBail(x, state, cb))).toEqual([false, false, false]);
+  });
+
+  it('keeps the stop message short however long the command is', () => {
+    const state = stubLoopState();
+    const cb = stubCallbacks();
+    const long = cmd(`python3 -c "${'x = 1; '.repeat(200)}"`);
+    for (let i = 0; i < 10 && cb.texts.length === 0; i++) detectCycleAndBail(long, state, cb);
+    expect(cb.texts.length).toBe(1);
+    expect(cb.texts[0].length).toBeLessThan(300);
+  });
+});

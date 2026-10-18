@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState, NormalizedEntry } from './state.js';
@@ -599,6 +600,30 @@ function sortedStringify(value: unknown): string {
  *                  values, so the streak check can distinguish "trying
  *                  different things" from "truly stuck".
  */
+/** Longest primary value a signature keeps verbatim. */
+const SIGNATURE_VALUE_MAX = 200;
+
+/**
+ * A call's primary value (a path, a command) as it appears in its signature.
+ *
+ * Signatures used to keep the first 80 characters, so calls that differed only
+ * after that compared EQUAL -- and the secondary hash leaves the primary key out,
+ * so nothing told them apart. Ten different commands all starting
+ * `cd /private/var/folders/<...>/swe-repo-astropy_astropy && ` (88 characters, a
+ * macOS temp clone) read as one command repeated 10 times and stopped the run
+ * (#209). Now a value is kept whole up to SIGNATURE_VALUE_MAX characters (paths,
+ * which the exemption helpers parse back out, always fit); a longer one keeps
+ * a readable prefix plus a hash of the whole value, so it stays bounded and two
+ * calls share a signature only when their values are identical. `|` separates a
+ * turn's calls within a signature, so a `|` inside a value (a shell pipe) is
+ * replaced rather than left to split it.
+ */
+function signatureValue(value: string): string {
+  const safe = value.replace(/\|/g, '¦');
+  if (safe.length <= SIGNATURE_VALUE_MAX) return safe;
+  return `${safe.slice(0, 120)}…#${createHash('sha1').update(value).digest('hex').slice(0, 12)}`;
+}
+
 function normalizeEntry(pendingToolUses: ToolUseContentBlock[]): NormalizedEntry {
   const sigParts: string[] = [];
   const secondaryParts: string[] = [];
@@ -631,7 +656,7 @@ function normalizeEntry(pendingToolUses: ToolUseContentBlock[]): NormalizedEntry
     }
 
     if (primaryKey && primaryValue) {
-      sigParts.push(`${tu.name}:${primaryValue.slice(0, 80)}`);
+      sigParts.push(`${tu.name}:${signatureValue(primaryValue)}`);
       const secondary: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(input)) {
         if (k !== primaryKey) secondary[k] = v;
