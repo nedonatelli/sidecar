@@ -41,7 +41,7 @@ import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { classifyFailure } from '../../bench/swe/failureClassification.js';
 import { captureDiff, type DroppedPath } from '../../bench/swe/captureDiff.js';
 import { wholeSuiteGuard } from '../../bench/swe/wholeSuiteGuard.js';
-import { renderTestModuleHint } from '../../bench/swe/testModules.js';
+import { renderTestModuleHint, renderPathRunnerInstructions, runnerFamily } from '../../bench/swe/testModules.js';
 import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
@@ -102,6 +102,10 @@ if (STABLE_OUTPUT) Object.assign(process.env, STABLE_TOOL_ENV);
 // inside the clone still persists. SIDECAR_SWE_SHELL_GUARD=0 restores the
 // unguarded shell (cells run before 2026-10-17).
 const SHELL_GUARD = process.env.SIDECAR_SWE_SHELL_GUARD !== '0';
+// #213: path-based runners (pytest, tox, sympy bin/test) were given Django's
+// dotted-label instructions, which select zero tests on them. 'runner' gives
+// each runner its own; unset keeps the old text so the change can be A/B'd.
+const TEST_TARGETS = process.env.SIDECAR_SWE_TEST_TARGETS === 'runner' ? 'runner' : 'legacy';
 // Per-(repo,version) solve environments (uv venvs) so run_tests/run_command work
 // against installed deps. Specs from the committed env-specs.json (generated from
 // swebench's MAP_REPO_VERSION_TO_SPECS). Venvs cached under the env cache base.
@@ -819,29 +823,34 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
   // ship a package.json (e.g. django's `pretest: eslint`). Without an env, the
   // old blind "minimal change then stop" is all the agent can do.
   const runner = taskEnv?.testCmd ?? './run tests';
-  const workflow = taskEnv
+  const pathRunner =
+    taskEnv && TEST_TARGETS === 'runner' ? renderPathRunnerInstructions(runner, runnerFamily(runner), repoDir) : null;
+  const workflow = pathRunner
     ? `The repository's dependencies are installed in the active environment. Run its Python tests with ` +
-      `run_command.\n\n` +
-      `You MUST scope every test run to the module for this issue by appending a test label:\n` +
-      `  ${runner} <test_label>\n` +
-      `The label is the runner's own MODULE notation, not a filesystem path:\n` +
-      // No literal placeholder PATH in the incorrect examples: the model read
-      // `tests/some_module/tests.py` -- this prompt's own example -- 143 times
-      // in one 300-run matrix (63% of all read_file failures). It cannot tell
-      // an example from an instruction; describe the wrong shapes instead.
-      `  correct:   \`${runner} <module>\`   or   \`${runner} <module>.<test_file>\`\n` +
-      `  incorrect: any filesystem path -- a directory under tests/, or a .py file\n` +
-      `Drop any \`tests/\` prefix, trailing slash and \`.py\` suffix; use dots, not slashes. ` +
-      `A path-shaped label is rejected by the runner with an import error and runs no tests at all.\n` +
-      `A label names a TEST module, NOT the source module you edited — a source path runs zero tests ` +
-      `and reports \`Ran 0 tests ... OK\`, which is a failure, not a pass.\n` +
-      `${renderTestModuleHint(repoDir)}\n` +
-      `Do NOT run \`${runner}\` with no label — that executes the project's entire suite (thousands of tests). ` +
-      `It takes many minutes and its output is truncated before the part you need, so it cannot tell you ` +
-      `whether your fix worked.\n\n` +
-      `Reproduce the issue with a failing test, make the code change that fixes it, then re-run the scoped ` +
-      `tests to verify before you finish.`
-    : `Make the minimal code change that fixes it, then stop — do not write new tests.`;
+      `run_command.\n\n${pathRunner}`
+    : taskEnv
+      ? `The repository's dependencies are installed in the active environment. Run its Python tests with ` +
+        `run_command.\n\n` +
+        `You MUST scope every test run to the module for this issue by appending a test label:\n` +
+        `  ${runner} <test_label>\n` +
+        `The label is the runner's own MODULE notation, not a filesystem path:\n` +
+        // No literal placeholder PATH in the incorrect examples: the model read
+        // `tests/some_module/tests.py` -- this prompt's own example -- 143 times
+        // in one 300-run matrix (63% of all read_file failures). It cannot tell
+        // an example from an instruction; describe the wrong shapes instead.
+        `  correct:   \`${runner} <module>\`   or   \`${runner} <module>.<test_file>\`\n` +
+        `  incorrect: any filesystem path -- a directory under tests/, or a .py file\n` +
+        `Drop any \`tests/\` prefix, trailing slash and \`.py\` suffix; use dots, not slashes. ` +
+        `A path-shaped label is rejected by the runner with an import error and runs no tests at all.\n` +
+        `A label names a TEST module, NOT the source module you edited — a source path runs zero tests ` +
+        `and reports \`Ran 0 tests ... OK\`, which is a failure, not a pass.\n` +
+        `${renderTestModuleHint(repoDir)}\n` +
+        `Do NOT run \`${runner}\` with no label — that executes the project's entire suite (thousands of tests). ` +
+        `It takes many minutes and its output is truncated before the part you need, so it cannot tell you ` +
+        `whether your fix worked.\n\n` +
+        `Reproduce the issue with a failing test, make the code change that fixes it, then re-run the scoped ` +
+        `tests to verify before you finish.`
+      : `Make the minimal code change that fixes it, then stop — do not write new tests.`;
   const head = `Resolve this GitHub issue in the repository. ${workflow}\n\nIssue:\n${task.problem_statement}`;
   return retrievalContext ? `${head}\n\n---\n${retrievalContext}` : head;
 }
@@ -903,6 +912,7 @@ describe('SWE-bench Lite — prediction generation', () => {
         redCheckRatcheted: REDCHECK_RATCHETED,
         stableToolOutput: STABLE_OUTPUT,
         shellGuard: SHELL_GUARD,
+        testTargets: TEST_TARGETS,
         retrievalCliffGate: CLIFF_GATE,
         // The deterministic control layer. bench/swe/README notes it is not
         // config-gated and runs in BOTH ablation arms, so a scaffold-on/off
