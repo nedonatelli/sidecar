@@ -48,6 +48,12 @@ const INFRA_SIGNATURES = [
   'fatal: ',
   'reference is not a tree',
   'did not match any file(s) known to git',
+  // The task's environment build, also before the agent runs. A cached venv
+  // half-deleted by the macOS temp purge failed `uv pip install -e .` on every
+  // Django task -- 0 turns, labeled [capability] (#208). These match the
+  // harness's own uv invocations (setupTaskEnv), not anything the model runs.
+  ' pip install --python ',
+  ' venv --python ',
 ];
 
 export function classifyFailure(err: unknown): FailureClassification {

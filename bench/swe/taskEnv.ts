@@ -84,6 +84,52 @@ export function loadEnvSpecs(specPath: string): SpecMap {
 }
 
 /**
+ * Where long-lived SWE caches (the per-repo venvs) live by default: the user's
+ * cache directory, never os.tmpdir(). macOS purges /var/folders/<..>/T daily,
+ * file by file, deleting anything whose access AND modification times are both
+ * over ~3 days old -- and uv installs a wheel's files with the wheel's own
+ * mtimes, so a fresh venv is full of "old" files. Packages the agent imported
+ * survived; their never-read METADATA/RECORD did not, and every later task in
+ * that repo failed at 0 turns until someone deleted the venv by hand (#208).
+ * Windows can clean %TEMP% too (Storage Sense).
+ */
+export function defaultSweCacheDir(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = os.homedir(),
+): string {
+  if (platform === 'darwin') return path.join(home, 'Library', 'Caches', 'sidecar-swe');
+  if (platform === 'win32') return path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'sidecar-swe');
+  return path.join(env.XDG_CACHE_HOME || path.join(home, '.cache'), 'sidecar-swe');
+}
+
+/** Every site-packages directory of a venv (lib/python3.x/site-packages, or Lib/site-packages on Windows). */
+function sitePackagesDirs(venvDir: string): string[] {
+  const dirs = [path.join(venvDir, 'Lib', 'site-packages')];
+  const lib = path.join(venvDir, 'lib');
+  if (fs.existsSync(lib)) {
+    for (const d of fs.readdirSync(lib)) dirs.push(path.join(lib, d, 'site-packages'));
+  }
+  return [...new Set(dirs)].filter((d) => fs.existsSync(d));
+}
+
+/**
+ * Is a cached venv still whole? A venv half-deleted by a temp-dir purge keeps
+ * its `.sidecar-ready` marker and the modules something imported, but loses the
+ * `*.dist-info/METADATA` nothing reads during a run -- and uv then refuses
+ * every install into it ("Failed to read metadata from installed package").
+ */
+export function venvLooksIntact(venvDir: string, pythonBin: string): boolean {
+  if (!fs.existsSync(pythonBin)) return false;
+  for (const site of sitePackagesDirs(venvDir)) {
+    for (const entry of fs.readdirSync(site)) {
+      if (entry.endsWith('.dist-info') && !fs.existsSync(path.join(site, entry, 'METADATA'))) return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Build (or reuse) the solve environment for a task. Returns null when no local
  * environment is available (native-dep repo, or no spec) — the caller runs
  * without one (blind, Phase-2 territory).
@@ -122,7 +168,7 @@ export function setupTaskEnv(
     PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
   };
 
-  if (!fs.existsSync(marker)) {
+  const build = (): void => {
     fs.mkdirSync(path.dirname(venvDir), { recursive: true });
     fs.rmSync(venvDir, { recursive: true, force: true });
     execFileSync(uv, ['venv', '--python', pythonForUv(spec.python), venvDir], { stdio: 'pipe' });
@@ -137,13 +183,30 @@ export function setupTaskEnv(
       }
     }
     fs.writeFileSync(marker, `${repo}@${version} python=${pythonForUv(spec.python)}\n`);
+  };
+
+  let fresh = false;
+  if (!fs.existsSync(marker) || !venvLooksIntact(venvDir, pythonBin)) {
+    build();
+    fresh = true;
   }
 
   // The editable install must be re-ensured every task: the harness's
   // `git clean -fdx` between tasks wipes the repo's *.egg-info, which would
   // otherwise leave the (marker-cached) venv unable to import the repo. uv makes
   // this a fast no-op when already satisfied.
-  execFileSync(uv, ['pip', 'install', '--python', pythonBin, '-e', '.'], { cwd: repoDir, stdio: 'pipe' });
+  const installRepo = (): void => {
+    execFileSync(uv, ['pip', 'install', '--python', pythonBin, '-e', '.'], { cwd: repoDir, stdio: 'pipe' });
+  };
+  try {
+    installRepo();
+  } catch (err) {
+    // A reused venv can be damaged in ways the integrity check misses; rebuild
+    // it once rather than fail every remaining task in this repo/version.
+    if (fresh) throw err;
+    build();
+    installRepo();
+  }
 
   return { venvDir, pythonBin, env, testCmd: spec.test_cmd };
 }
