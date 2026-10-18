@@ -358,15 +358,24 @@ export function detectCycleAndBail(
     if (tail.length !== prev.length) continue;
     const sigsMatch = tail.every((v, i) => v.sig === prev[i].sig);
     if (!sigsMatch) continue;
+    // One signature repeated (A A A A) is not a multi-step pattern: it is a
+    // plain repeat, which the consecutive and frequency passes above own at the
+    // configured cycleDetectionMinRepeats. Matching it here stopped a model
+    // reading one file in ranges -- outline, full, 205-260, 280-330, the
+    // progression read_file encourages -- after 4 calls (#202).
+    if (tail.every((e) => e.sig === tail[0].sig)) continue;
     // Content-aware: an A→B→A→B pattern is only a STUCK loop when the cycle
-    // repeats with the SAME content (or is all read-only scanning). A model
-    // legitimately iterating — edit→verify→edit→verify with DIFFERENT edits each
-    // round — produces the same sig pattern but different content, and is making
-    // progress, not looping. Mirror the consecutive/frequency passes, which
-    // already gate on secondaryHash. (Dogfooding: an edit→diagnostics fix loop
-    // with distinct edits tripped this content-blind check.)
+    // repeats with the SAME content. A model legitimately iterating —
+    // edit→verify→edit→verify with DIFFERENT edits each round, or
+    // grep→read→grep→read looking up different symbols — produces the same sig
+    // pattern but different content, and is making progress, not looping.
+    // Mirror the consecutive/frequency passes, which already gate on
+    // secondaryHash. (Dogfooding: an edit→diagnostics fix loop with distinct
+    // edits tripped this content-blind check. Read-only patterns used to skip
+    // the content check entirely, which stopped 6 of 10 claude-haiku-4-5 SWE
+    // runs mid-exploration (#202); a read-only scan that really is stuck still
+    // trips the frequency pass at the configured threshold.)
     const contentRepeats = tail.every((v, i) => v.secondaryHash === prev[i].secondaryHash);
-    const allReadOnly = tail.every((e) => READ_ONLY_TOOLS.has(e.sig.split(':')[0] ?? ''));
     const gateExempt = tail.every((e) => sigTargetsOnlyGateFiles(e.sig, state));
     // Exempt any pattern containing a READ of a file under active mutation —
     // whether an all-read verify loop between writes, or the read→retry
@@ -374,7 +383,7 @@ export function detectCycleAndBail(
     // recovery loop still bails via the identical-mutation pass (its edit
     // repeats byte-identically whenever the pattern's content repeats).
     const editVerifyExempt = tail.some((e) => entryHasReadOfActiveMutationTarget(e, state));
-    if ((contentRepeats || allReadOnly) && !gateExempt && !editVerifyExempt) {
+    if (contentRepeats && !gateExempt && !editVerifyExempt) {
       state.logger?.warn(`Agent loop normalized cycle detected (length ${len}) — ${normEntry.sig.slice(0, 100)}`);
       const patternSigs = tail.map((e) => e.sig.slice(0, 40)).join(' → ');
       callbacks.onText(

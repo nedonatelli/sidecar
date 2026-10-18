@@ -837,3 +837,69 @@ describe('detectCycleAndBail — cycleDetectionMinRepeats: 1', () => {
     );
   });
 });
+
+// #202: the length-2..4 normalized pattern pass treated ANY read-only pattern as
+// a cycle -- different ranges, modes and grep patterns included -- and needed
+// only 4 calls, ignoring cycleDetectionMinRepeats. It stopped 6 of 10
+// claude-haiku-4-5 SWE runs mid-exploration with
+// "detected repeating pattern of length 2".
+describe('read-only exploration is not a cycle (#202)', () => {
+  const run = (state: LoopState, calls: ToolUseContentBlock[][]) => {
+    const cb = stubCallbacks();
+    return { results: calls.map((c) => detectCycleAndBail(c, state, cb)), texts: cb.texts };
+  };
+  const read = (input: Record<string, unknown>) => [
+    makeToolUse('read_file', { path: 'astropy/io/ascii/qdp.py', ...input }),
+  ];
+
+  it('lets one file be read outline -> full -> range -> range', () => {
+    const { results, texts } = run(stubLoopState(), [
+      read({ mode: 'outline' }),
+      read({}),
+      read({ startLine: 205, endLine: 260 }),
+      read({ startLine: 280, endLine: 330 }),
+    ]);
+    expect(results).toEqual([false, false, false, false]);
+    expect(texts).toHaveLength(0);
+  });
+
+  it('lets grep -> read -> grep -> read look up different symbols', () => {
+    const grep = (pattern: string) => [makeToolUse('grep', { path: 'astropy/modeling', pattern })];
+    const readCore = (startLine: number) => [
+      makeToolUse('read_file', { path: 'astropy/modeling/core.py', startLine, endLine: startLine + 100 }),
+    ];
+    const { results } = run(stubLoopState(), [
+      grep('class CompoundModel'),
+      readCore(2894),
+      grep('_calculate_separability_matrix'),
+      readCore(808),
+    ]);
+    expect(results).toEqual([false, false, false, false]);
+  });
+
+  it('still bails when the grep -> read pair repeats byte-identically', () => {
+    const grep = [makeToolUse('grep', { path: 'src', pattern: 'def fromstring' })];
+    const readIt = [makeToolUse('read_file', { path: 'src/card.py', startLine: 545, endLine: 620 })];
+    const { results } = run(stubLoopState(), [grep, readIt, grep, readIt]);
+    expect(results).toEqual([false, false, false, true]);
+  });
+
+  it('still bails on one file read with identical arguments', () => {
+    const same = read({ startLine: 1, endLine: 50 });
+    const { results } = run(
+      stubLoopState(),
+      Array.from({ length: 10 }, () => same),
+    );
+    expect(results.includes(true)).toBe(true);
+  });
+
+  it('stops a read-only scan of one file at cycleDetectionMinRepeats, not at 4', () => {
+    const state = stubLoopStateWithMinRepeats(6);
+    const { results } = run(
+      state,
+      Array.from({ length: 6 }, (_, i) => read({ startLine: i * 100 + 1, endLine: i * 100 + 50 })),
+    );
+    expect(results.slice(0, 5)).toEqual([false, false, false, false, false]);
+    expect(results[5]).toBe(true);
+  });
+});
