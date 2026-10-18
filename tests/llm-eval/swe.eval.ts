@@ -45,7 +45,7 @@ import { renderTestModuleHint } from '../../bench/swe/testModules.js';
 import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
-import { setupTaskEnv, loadEnvSpecs, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
+import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree } from '../../bench/swe/warmTree.js';
 import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
@@ -112,10 +112,9 @@ const ENV_SPECS: SpecMap = (() => {
     return {};
   }
 })();
-const ENV_CACHE_BASE =
-  process.env.SIDECAR_SWE_ENV_CACHE ||
-  process.env.SIDECAR_SWE_REPO_CACHE ||
-  path.join(os.tmpdir(), 'sidecar-swe-venvs');
+// Per-repo venvs: the user's cache dir by default, never os.tmpdir() -- macOS
+// purges that daily, file by file, and half-deleted a cached venv (#208).
+const ENV_CACHE_BASE = process.env.SIDECAR_SWE_ENV_CACHE || process.env.SIDECAR_SWE_REPO_CACHE || defaultSweCacheDir();
 // Arms to run this pass. Default is the core on/off ablation; SIDECAR_SWE_ARMS
 // (comma-separated) selects a decomposed set, e.g. "scaffold-off,gate-only,scaffold-on".
 const VALID_ARMS: readonly ArmName[] = [
@@ -913,6 +912,7 @@ describe('SWE-bench Lite — prediction generation', () => {
         cycleDetectionDisabled: process.env.SIDECAR_DISABLE_CYCLE_DETECTION === 'true',
         circuitBreakerDisabled: process.env.SIDECAR_DISABLE_CIRCUIT_BREAKER === 'true',
         perTaskTimeoutMs: PER_TASK_MS,
+        envCacheBase: ENV_CACHE_BASE,
         nodeVersion: process.version,
         createdAt: new Date().toISOString(),
       };
