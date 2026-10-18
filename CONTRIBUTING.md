@@ -90,8 +90,11 @@ Stryker (`stryker.conf.json`) mutates the moat-critical modules — the completi
 `completionGate/` submodules, `keepBestRatchet`, `analyticBounds`, `injectionGuard`,
 `jsonRepair` — to prove their tests _catch faults_, not just pass. It's on-demand (too slow
 for CI): `npm run test:mutation`. If you change one of these modules, re-run it and don't let the
-score regress. **If you move moat code** (e.g. a decomposition), add the new file paths to the
-`mutate` list — otherwise the hardening silently stops covering it.
+score regress. **Baseline: 71.47%** (4,531 of 6,340 mutants detected; `main` `390ed4c`,
+2026-10-17; about an hour on 4 workers). Compare a run's "Final mutation score" against it;
+the report lands in `reports/mutation/mutation.json` (gitignored). **If you move moat code**
+(e.g. a decomposition), add the new file paths to the `mutate` list — otherwise the hardening
+silently stops covering it.
 
 ### Tier 2 — "zero infra errors" is the real gate
 

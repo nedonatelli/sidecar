@@ -42,6 +42,8 @@ eval-failures.md
 # recreated on every run). Stryker ignores them internally, git did not —
 # a `git add -A` after a run swept 1117 sandbox files into a commit.
 .stryker-tmp/
+# Stryker's report (npm run test:mutation)
+/reports/mutation/
 
 # graphify's knowledge-graph output. It writes into the directory it SCANS, so
 # `graphify update ./src` drops ~7MB of JSON inside src/. Same shape as the
