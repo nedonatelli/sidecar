@@ -166,7 +166,7 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
       expect((await linked.execute('ls src', { timeout: 60_000 })).stdout).toContain('mod.py');
     } finally {
       linked.dispose();
-      fs.rmSync(link, { recursive: false, force: true });
+      fs.unlinkSync(link);
     }
   });
 
