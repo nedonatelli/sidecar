@@ -108,6 +108,10 @@ const SHELL_GUARD = process.env.SIDECAR_SWE_SHELL_GUARD !== '0';
 // dotted-label instructions, which select zero tests on them. 'runner' gives
 // each runner its own; unset keeps the old text so the change can be A/B'd.
 const TEST_TARGETS = process.env.SIDECAR_SWE_TEST_TARGETS === 'runner' ? 'runner' : 'legacy';
+// #197: add files the agent changed through run_command to the patch, not only
+// file-tool targets (bench/swe/captureDiff.ts, #201). Off by default so the
+// change -- scratch files included -- can be A/B'd against the old capture.
+const SHELL_CAPTURE = process.env.SIDECAR_SWE_SHELL_CAPTURE === '1';
 // A candidate harness edit (bench/swe/harnessOverrides.ts): system-prompt and
 // tool-description text from the JSON file SIDECAR_SWE_HARNESS_OVERRIDES names.
 // Unset = the shipped harness. Loaded once, so a malformed file fails the run
@@ -537,7 +541,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // not the old keyword-ranked file heads.
     const repoIndex = await getRepoIndex(task.repo, dir);
     toolRuntime.symbolEmbeddings = repoIndex;
-    if (process.env.SIDECAR_SWE_SHELL_CAPTURE === '1') {
+    if (SHELL_CAPTURE) {
       try {
         workspaceSnapshot = snapshotShellWorkspace(dir);
       } catch {
@@ -818,7 +822,13 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // "the agent changed nothing". It is now logged and recorded on the row.
     try {
       if (dir) {
-        const captured = captureDiff(dir, task.base_commit, touchedPaths, workspaceSnapshot, shellProcessesStopped);
+        const captured = captureDiff(
+          dir,
+          task.base_commit,
+          touchedPaths,
+          SHELL_CAPTURE ? workspaceSnapshot : undefined,
+          shellProcessesStopped,
+        );
         patch = captured.patch;
         captureDropped = captured.dropped;
         shellChanged = captured.shellChanged ?? [];
@@ -958,6 +968,7 @@ describe('SWE-bench Lite — prediction generation', () => {
         stableToolOutput: STABLE_OUTPUT,
         shellGuard: SHELL_GUARD,
         testTargets: TEST_TARGETS,
+        shellCapture: SHELL_CAPTURE,
         harnessOverrides: HARNESS_OVERRIDES
           ? { name: HARNESS_OVERRIDES.overrides.name, sha256: HARNESS_OVERRIDES.sha256 }
           : null,

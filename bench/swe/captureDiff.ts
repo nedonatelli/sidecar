@@ -164,6 +164,10 @@ function discoverShellChangedPaths(
  *   - it is untracked and gitignored (matplotlib's generated `_version.py`).
  * A tracked path that is now missing is KEPT: it is a real deletion and must
  * diff as one.
+ *
+ * Shell discovery runs only when `snapshot` is passed (null means it was
+ * attempted and failed, recorded as drift). Leave it out to get the file-tool
+ * capture exactly; swe.eval passes one only under SIDECAR_SWE_SHELL_CAPTURE=1.
  */
 export function captureDiff(
   dir: string,
@@ -200,7 +204,7 @@ export function captureDiff(
   }
 
   const discovered =
-    snapshot === undefined || process.env.SIDECAR_SWE_SHELL_CAPTURE !== '1'
+    snapshot === undefined
       ? { paths: [] }
       : discoverShellChangedPaths(root, baseCommit, touchedPaths, snapshot, shellProcessesStopped);
   for (const filePath of discovered.paths) kept.add(filePath);
