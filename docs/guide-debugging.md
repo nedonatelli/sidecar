@@ -282,16 +282,6 @@ On paid backends, planning turns (where the agent is thinking about what to do) 
 
 With this set, `sidecar.model` handles planning turns; `claude-haiku-4-5` handles execution turns. The agent stays smart where it matters and fast where it doesn't.
 
-**Flash Attention (Kickstand only).**
-
-If you're using Kickstand, Flash Attention gives a 2–4x speedup on long contexts:
-
-```json
-"sidecar.kickstand.flashAttn": true
-```
-
-Requires a Metal (macOS) or CUDA build. Silently ignored on CPU-only.
-
 ---
 
 ## The agent broke something and I want to undo

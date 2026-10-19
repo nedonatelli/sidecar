@@ -44,7 +44,7 @@ Press `⌘⇧P` (`Ctrl+Shift+P` on Windows/Linux) and type **`SideCar:`** — ev
 - `SideCar: Inline Chat` — inline edit prompt in the editor (`⌘I`)
 - `SideCar: Select Model` — keyboard-first model picker
 - `SideCar: Set / Refresh API Key` — paste or rotate your key
-- `SideCar: Switch Backend` — flip between any of the 10 backends (Ollama, Anthropic, OpenAI, Kickstand, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock)
+- `SideCar: Switch Backend` — flip between backends (Ollama, Anthropic, OpenAI, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock)
 - `SideCar: Show Session Spend` — `$` breakdown for the current session on paid backends
 - `SideCar: Open Walkthrough` — reopen the getting-started page
 
@@ -63,7 +63,7 @@ The default model is `gemma4:e4b` (~10 GB VRAM). For lighter hardware, try `mini
 
 ## Switching backends
 
-The fastest way to move between backends (Ollama, Anthropic, OpenAI, Kickstand, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock) is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
+The fastest way to move between backends (Ollama, Anthropic, OpenAI, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock) is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
 The sections below describe each backend in detail and also cover the manual settings path if you prefer editing `settings.json`.
 
@@ -80,17 +80,6 @@ The sections below describe each backend in detail and also cover the manual set
 SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% on cache hits.
 
 > Note: the Anthropic API is a separate paid service from Claude.ai subscriptions — your Max or Pro plan does not include API credits. Get a key at [platform.claude.com](https://platform.claude.com).
-
-## Using Kickstand
-
-Kickstand is a self-hosted local inference server that manages model loading, unloading, and GPU memory efficiently. CLI command: `kick`.
-
-1. Start the server with `kick start`.
-2. **Recommended:** click the ⚙ gear → **Kickstand** in the chat header.
-   **Manual:** set `sidecar.baseUrl` to `http://localhost:11435` (default Kickstand port).
-3. Set `sidecar.model` to the model you want to use.
-
-SideCar auto-detects Kickstand by the port number and reads the bearer token from `~/.config/kickstand/token` automatically — no API key prompt or settings plumbing needed.
 
 ## Using OpenAI-compatible servers
 
@@ -116,16 +105,15 @@ SideCar auto-detects the provider from the URL. If auto-detection gets it wrong,
 
 ### Provider examples
 
-| Server                | Base URL                    | Notes                                                                   |
-| --------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| LM Studio             | `http://localhost:1234`     | Auto-detected as OpenAI                                                 |
-| vLLM                  | `http://localhost:8000`     | Auto-detected as OpenAI                                                 |
-| llama.cpp             | `http://localhost:8080`     | Auto-detected as OpenAI                                                 |
-| OpenRouter            | `https://openrouter.ai/api` | Set API key, access 400+ models                                         |
-| text-generation-webui | `http://localhost:5000`     | Enable OpenAI extension in the UI                                       |
-| Kickstand             | `http://localhost:11435`    | Auto-detected as Kickstand; token read from `~/.config/kickstand/token` |
-| Ollama                | `http://localhost:11434`    | Auto-detected as Ollama (native API)                                    |
-| Anthropic             | `https://api.anthropic.com` | Auto-detected as Anthropic                                              |
+| Server                | Base URL                    | Notes                                |
+| --------------------- | --------------------------- | ------------------------------------ |
+| LM Studio             | `http://localhost:1234`     | Auto-detected as OpenAI              |
+| vLLM                  | `http://localhost:8000`     | Auto-detected as OpenAI              |
+| llama.cpp             | `http://localhost:8080`     | Auto-detected as OpenAI              |
+| OpenRouter            | `https://openrouter.ai/api` | Set API key, access 400+ models      |
+| text-generation-webui | `http://localhost:5000`     | Enable OpenAI extension in the UI    |
+| Ollama                | `http://localhost:11434`    | Auto-detected as Ollama (native API) |
+| Anthropic             | `https://api.anthropic.com` | Auto-detected as Anthropic           |
 
 ### Tool support
 

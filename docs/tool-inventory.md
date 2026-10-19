@@ -12,11 +12,11 @@ SideCar ships **87 built-in agent tools** (pinned by `tools.test.ts`) across ~34
 1. **Config gating** — extended tool groups are excluded from the LLM catalog when their `sidecar.*.enabled` flag is off. `TOOL_REGISTRY` is a complete static catalog; the gate is applied **dynamically per request** by `getEnabledBuiltInTools(cfg)` (see `GATED_TOOL_GROUPS` in [tools.ts](../src/agent/tools.ts)).
 2. **Tier stubbing** — `getToolDefinitionsForTier('full', …)` sends non-core built-ins as one-line stubs (name + first sentence + `describe_tool` pointer) instead of full schemas, so extended tools cost ~1 line of catalog each.
 
-The **remaining opportunity** is narrower: a cluster of ~17 _always-on, context-irrelevant_ tools (Kickstand LoRA, database, GitHub-PR, academic) are listed in every session — including a default Ollama user editing TypeScript who will never use them. That's catalog noise a local model can still mis-select against, with no usage signal justifying it.
+The **remaining opportunity** is narrower: a cluster of ~14 _always-on, context-irrelevant_ tools (database, GitHub-PR, academic) are listed in every session — including a default Ollama user editing TypeScript who will never use them. That's catalog noise a local model can still mis-select against, with no usage signal justifying it.
 
 This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gate that cluster (no feature loss), fix two small hygiene gaps, and adopt a lightweight feature-budget norm.
 
-**Status (implemented):** relevance gating shipped for Kickstand/database/Zotero (11 tools, Tier A); GitHub-PR deferred (async signal). The two test gaps are closed (Tier C). See the tiers below for details.
+**Status (implemented):** relevance gating shipped for database, Zotero and three backend-specific tools (11 tools, Tier A); GitHub-PR deferred (async signal). The two test gaps are closed (Tier C). See the tiers below for details.
 
 ## How the catalog is assembled
 
@@ -42,15 +42,14 @@ This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gat
 | Settings          | settings.ts         | 230 | get/update_setting, switch_backend (3)          |
 | Meta              | tools.ts            | —   | ask_user, describe_tool, spawn_agent (3)        |
 
-### Always-on but context-specific — relevance-gating candidates: ~17 tools
+### Always-on but context-specific — relevance-gating candidates: ~14 tools
 
-| Group          | File                           | Tools | Relevant only when…                  | Heavy deps                                              |
-| -------------- | ------------------------------ | ----- | ------------------------------------ | ------------------------------------------------------- |
-| Kickstand LoRA | kickstand.ts                   | 3     | provider is Kickstand                | —                                                       |
-| Database       | database.ts                    | 6     | a DB connection is configured        | pg, mysql2 (bundled); duckdb, better-sqlite3 (external) |
-| GitHub PR      | github.ts                      | 5     | workspace has a GitHub remote w/ PRs | —                                                       |
-| Academic       | zotero.ts, pdf.ts, citation.ts | 5     | research/writing workflow            | pdf-parse (external)                                    |
-| Viz            | vizSpec.ts                     | 1     | diagram output wanted                | mermaid (bundled)                                       |
+| Group     | File                           | Tools | Relevant only when…                  | Heavy deps                                              |
+| --------- | ------------------------------ | ----- | ------------------------------------ | ------------------------------------------------------- |
+| Database  | database.ts                    | 6     | a DB connection is configured        | pg, mysql2 (bundled); duckdb, better-sqlite3 (external) |
+| GitHub PR | github.ts                      | 5     | workspace has a GitHub remote w/ PRs | —                                                       |
+| Academic  | zotero.ts, pdf.ts, citation.ts | 5     | research/writing workflow            | pdf-parse (external)                                    |
+| Viz       | vizSpec.ts                     | 1     | diagram output wanted                | mermaid (bundled)                                       |
 
 ### Default-ON gated groups (in catalog unless disabled): 6 tools
 
@@ -66,13 +65,12 @@ This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gat
 
 Extend the `delegate_task` provider-gate pattern to the context-specific cluster, so a tool is advertised only when it _could_ apply. Implemented via `RELEVANCE_GATED_GROUPS` in [tools.ts](../src/agent/tools.ts) (synchronous config signals, null-safe):
 
-- **Kickstand LoRA** (3) → ✅ included only when `detectProvider(...) === 'kickstand'`.
 - **Database** (6) → ✅ included only when ≥1 profile is configured (`databaseProfiles.length > 0`).
 - **Zotero** (2) → ✅ included only when Zotero credentials are set (`zoteroUserId` + `zoteroApiKey`).
 - **GitHub PR** (5) → ⏸ **deferred.** Remote detection (`GitCLI.getRemoteUrl`) is async; gating it would force the synchronous catalog-assembly path async. The PR tools also degrade gracefully without a remote, so the cost/benefit doesn't justify the ripple yet.
 - **pdf / citation** → intentionally left always-on (broadly useful, need no external setup).
 
-Net effect: a default local-LLM coding session now sheds 11 catalog entries (Kickstand + database + Zotero) with no capability removed — each gate is reversible by configuring the relevant signal. Serves the local-first design goal: smaller models behave better with tighter tool lists, and it cuts per-call token cost on cloud backends.
+Net effect: a default local-LLM coding session now sheds 11 catalog entries (database, Zotero and three backend-specific tools) with no capability removed — each gate is reversible by configuring the relevant signal. Serves the local-first design goal: smaller models behave better with tighter tool lists, and it cuts per-call token cost on cloud backends.
 
 ### Tier B — Make the gate dynamic (consistency fix)
 

@@ -11,13 +11,13 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 
 ## Connection
 
-| Setting                | Type   | Default                  | Description                                                                                                                                                                               |
-| ---------------------- | ------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.baseUrl`      | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
-| `sidecar.apiKey`       | string | `ollama`                 | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers                                    |
-| `sidecar.model`        | string | `gemma4:e4b`             | Model for chat (e.g., `gemma4:e4b`, `ministral-3:latest`, `qwen3-coder:30b`, `claude-sonnet-4-6`, or any model on your server)                                                            |
-| `sidecar.provider`     | enum   | `auto`                   | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`, `openrouter`, `groq`, `fireworks`, `gemini`, `copilot`, `bedrock`. Auto-detects from URL                          |
-| `sidecar.systemPrompt` | string | `""`                     | Custom system prompt appended to the default                                                                                                                                              |
+| Setting                | Type   | Default                  | Description                                                                                                                                            |
+| ---------------------- | ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sidecar.baseUrl`      | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, OpenAI-compatible: any URL   |
+| `sidecar.apiKey`       | string | `ollama`                 | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers |
+| `sidecar.model`        | string | `gemma4:e4b`             | Model for chat (e.g., `gemma4:e4b`, `ministral-3:latest`, `qwen3-coder:30b`, `claude-sonnet-4-6`, or any model on your server)                         |
+| `sidecar.provider`     | enum   | `auto`                   | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `openrouter`, `groq`, `fireworks`, `gemini`, `copilot`, `bedrock`. Auto-detects from URL    |
+| `sidecar.systemPrompt` | string | `""`                     | Custom system prompt appended to the default                                                                                                           |
 
 ### Switching backends (recommended)
 
@@ -31,7 +31,6 @@ You don't have to edit these settings by hand. Click the **⚙ gear** in the cha
 | OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`                                                   |
 | Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                                                           |
 | Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `qwen2p5-coder-32b-instruct`                                                    |
-| Kickstand        | `kickstand`  | `http://localhost:11435`                                  | Token auto-loaded from `~/.config/kickstand/token` — no key prompt              |
 | AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |
 | Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash`                                                              |
 | GitHub Copilot   | `copilot`    | `vscode://github.copilot`                                 | `gpt-4o` (uses your Copilot subscription — no API key)                          |
@@ -48,11 +47,10 @@ When `sidecar.provider` is `auto` (default), SideCar detects the backend from th
 
 - **Port `11434` on any host** (e.g. `http://gpu-box:11434`) → Ollama (native API)
 - **`anthropic.com`** → Anthropic (Messages API with prompt caching)
-- **`localhost:11435`** → Kickstand — reads bearer token from `~/.config/kickstand/token` automatically
 - **`openrouter.ai`** → OpenRouter · **`groq.com`** → Groq · **`fireworks.ai`** → Fireworks · **`generativelanguage.googleapis.com`** → Gemini · **`bedrock-runtime.*.amazonaws.com`** → AWS Bedrock
 - **Any other URL** → SideCar asks the server once, when it first connects: if it answers Ollama's `/api/version`, it is used as Ollama; otherwise it's treated as OpenAI-compatible (`/v1/chat/completions`). Cloud hosts are never asked.
 
-Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or a local Kickstand dev build on a non-standard port.
+Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL.
 
 ### API key storage (SecretStorage)
 
@@ -114,7 +112,7 @@ Each file in the planned-edits card has a **cancel button** — clicking it abor
 | `sidecar.agentTemperature`   | number | `0.2`      | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection                                                                                             |
 | `sidecar.agentMaxIterations` | number | `50`       | Max agent loop iterations                                                                                                                                                                                 |
 | `sidecar.agentMaxTokens`     | number | `200000`   | Max tokens per agent run                                                                                                                                                                                  |
-| `sidecar.maxOutputTokens`    | number | `32768`    | Max tokens per model response, reasoning included. Clamped to the model's output limit (OpenAI) and the context left after the prompt (Ollama, Kickstand). A response that hits it is continued           |
+| `sidecar.maxOutputTokens`    | number | `32768`    | Max tokens per model response, reasoning included. Clamped to the model's output limit (OpenAI) and the context left after the prompt (Ollama). A response that hits it is continued                      |
 | `sidecar.requestTimeout`     | number | `120`      | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable                                                                                               |
 | `sidecar.toolPermissions`    | object | `{}`       | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }`                                                                                                                                         |
 | `sidecar.customModes`        | array  | `[]`       | Custom agent modes with dedicated system prompts and approval behavior. See [Custom modes](agent-mode#custom-modes)                                                                                       |
@@ -380,16 +378,16 @@ Budgets reset on calendar boundaries — daily at midnight local time, weekly on
 
 Four additional settings that pair with the spending budgets above to drive down the cost of agent runs on Anthropic / OpenAI. See the **Cost controls** section in the README for the full rationale.
 
-| Setting                                     | Type    | Default                  | Description                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------- | ------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.promptPruning.enabled`             | boolean | `true`                   | Prune prompts before sending to paid backends. Collapses whitespace, head+tail truncates oversized tool results, and dedupes repeated file content. Safe for agent loops — only lossy on tool output, never on user or assistant messages                                                                            |
-| `sidecar.promptPruning.maxToolResultTokens` | number  | `4000`                   | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]`                               |
-| `sidecar.localToolTrim.enabled`             | boolean | `true`                   | For local models (Ollama/Kickstand), send only the core coding tools (read/edit/search/run/diagnostics) at full schema and compact the rest to one-line stubs the model expands with `describe_tool`. Cuts ~2.5K tokens of tool schema per turn and gives small models a clearer choice. No effect on cloud backends |
-| `sidecar.editFile.resultDiffChars`          | number  | `800`                    | After a successful `edit_file`, append a bounded diff (capped at this many chars) of what actually changed, so the model can self-verify the outcome instead of only seeing `File edited: <path>`. Helps weak local models catch wrong-but-applied edits. `0` disables                                               |
-| `sidecar.delegateTask.enabled`              | boolean | `true`                   | Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research to a local Ollama worker and receive a compact summary. No-op on local-only setups                                                                                                                                 |
-| `sidecar.delegateTask.workerModel`          | string  | `""`                     | Ollama model used by the `delegate_task` worker. Empty = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b`                                                                                                                                                        |
-| `sidecar.delegateTask.maxIterations`        | number  | `10`                     | Maximum agent loop iterations for a delegated worker task.                                                                                                                                                                                                                                                           |
-| `sidecar.delegateTask.workerBaseUrl`        | string  | `http://localhost:11434` | Base URL of the Ollama instance the worker connects to. Must be local or reachable — not an Anthropic / OpenAI URL                                                                                                                                                                                                   |
+| Setting                                     | Type    | Default                  | Description                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | ------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.promptPruning.enabled`             | boolean | `true`                   | Prune prompts before sending to paid backends. Collapses whitespace, head+tail truncates oversized tool results, and dedupes repeated file content. Safe for agent loops — only lossy on tool output, never on user or assistant messages                                                                  |
+| `sidecar.promptPruning.maxToolResultTokens` | number  | `4000`                   | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]`                     |
+| `sidecar.localToolTrim.enabled`             | boolean | `true`                   | For local models (Ollama), send only the core coding tools (read/edit/search/run/diagnostics) at full schema and compact the rest to one-line stubs the model expands with `describe_tool`. Cuts ~2.5K tokens of tool schema per turn and gives small models a clearer choice. No effect on cloud backends |
+| `sidecar.editFile.resultDiffChars`          | number  | `800`                    | After a successful `edit_file`, append a bounded diff (capped at this many chars) of what actually changed, so the model can self-verify the outcome instead of only seeing `File edited: <path>`. Helps weak local models catch wrong-but-applied edits. `0` disables                                     |
+| `sidecar.delegateTask.enabled`              | boolean | `true`                   | Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research to a local Ollama worker and receive a compact summary. No-op on local-only setups                                                                                                                       |
+| `sidecar.delegateTask.workerModel`          | string  | `""`                     | Ollama model used by the `delegate_task` worker. Empty = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b`                                                                                                                                              |
+| `sidecar.delegateTask.maxIterations`        | number  | `10`                     | Maximum agent loop iterations for a delegated worker task.                                                                                                                                                                                                                                                 |
+| `sidecar.delegateTask.workerBaseUrl`        | string  | `http://localhost:11434` | Base URL of the Ollama instance the worker connects to. Must be local or reachable — not an Anthropic / OpenAI URL                                                                                                                                                                                         |
 
 **Session spend tracker** is not a setting — it's always on for Anthropic requests when they return usage data. The `$(credit-card) $0.12` status bar item shows up the moment a paid backend incurs cost. Click it for a per-model breakdown. Manage via:
 
@@ -418,36 +416,6 @@ When enabled, a smaller draft model proposes tokens that the main model verifies
 | `sidecar.speculativeDecoding.lookahead`                  | number  | `4`     | Draft tokens proposed per cycle. Higher = faster on cache hits, more wasted work on misses. Clamped 1–16             |
 | `sidecar.speculativeDecoding.temperature`                | number  | `0.0`   | Draft model temperature (`0` = greedy, fastest)                                                                      |
 | `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` | number  | `0.4`   | If the rolling accept rate drops below this threshold, speculative decoding auto-disables for the session. Range 0–1 |
-
-## Kickstand Advanced Settings (v0.109+)
-
-Settings specific to the [Kickstand](https://github.com/nedonatelli/kickstand) self-hosted backend. Ignored when using Ollama, Anthropic, or other providers.
-
-### RoPE / YaRN long-context scaling
-
-Extend a model's native context window by tuning its positional-encoding parameters at load time.
-
-| Setting                           | Type   | Default | Description                                                                                                                                                                                        |
-| --------------------------------- | ------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.kickstand.nCtx`          | number | `32768` | Context window size (`n_ctx`) passed to Kickstand when loading a model. Increase for longer conversations; decrease to reduce VRAM usage. Ignored when using the RoPE/YaRN `yarnOrigCtx` override. |
-| `sidecar.kickstand.ropeFreqBase`  | number | `0`     | RoPE base frequency override. `0` = model default. Example: `500000` for Llama 3.1 128K extension                                                                                                  |
-| `sidecar.kickstand.ropeFreqScale` | number | `0`     | RoPE frequency scaling factor. `0` = model default. Example: `0.5` for a generic 2× context extension                                                                                              |
-| `sidecar.kickstand.yarnExtFactor` | number | `-1`    | YaRN extrapolation factor. `-1` leaves llama.cpp's built-in YaRN default intact                                                                                                                    |
-| `sidecar.kickstand.yarnOrigCtx`   | number | `0`     | Original training context length for YaRN scaling. `0` = model default                                                                                                                             |
-
-**Example — Llama 3.1 with 128K context:**
-
-```json
-"sidecar.kickstand.ropeFreqBase": 500000
-```
-
-### Flash Attention
-
-| Setting                       | Type    | Default | Description                                                                                                           |
-| ----------------------------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.kickstand.flashAttn` | boolean | `false` | Enable Flash Attention. 2–4× speedup on long contexts with Metal (macOS) or CUDA. Silently ignored on CPU-only builds |
-
-All Kickstand settings are preserved across Kickstand auto-restarts.
 
 ## Adaptive Paste (v0.72+)
 
@@ -814,7 +782,6 @@ The GitHub provider auto-detects `owner/repo` from `git remote get-url origin`. 
 
 **Pre-flight checks** run automatically before:
 
-- Loading a model in Kickstand (`SideCar: Load Model`)
 - Starting a HuggingFace safetensors install
 - Opening an Arena session (`/arena`, `/arena agent`)
 

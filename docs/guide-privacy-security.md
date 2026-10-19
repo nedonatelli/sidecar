@@ -17,7 +17,7 @@ The honest answer is: it depends on your threat model and which features you tur
 
 ### Local backends: nothing
 
-When you use **Ollama** (`http://localhost:11434`) or **Kickstand** (`http://localhost:11435`), every LLM request stays on your machine. No prompt text, no file contents, no tool results ever travel over the network. SideCar has no built-in telemetry of its own — the only network egress is to the backend URL you configure and any web-search or MCP endpoints you add.
+When you use **Ollama** (`http://localhost:11434`), every LLM request stays on your machine. No prompt text, no file contents, no tool results ever travel over the network. SideCar has no built-in telemetry of its own — the only network egress is to the backend URL you configure and any web-search or MCP endpoints you add.
 
 If you're in a sensitive environment and want to verify this, set `sidecar.outboundAllowlist` to a single entry:
 
@@ -68,8 +68,6 @@ After migration, `settings.json` shows the default `"ollama"` placeholder. The a
 ### Per-profile isolation
 
 Each backend profile stores its key in its own SecretStorage slot (`sidecar.profileKey.<id>`). Switching between Anthropic and OpenAI does not clobber either key, and settings sync does not push keys to other devices — per-machine isolation is a design property of SecretStorage.
-
-The **Kickstand** profile has no key at all. SideCar reads the bearer token directly from `~/.config/kickstand/token` on demand, so it never prompts you and never stores anything.
 
 ---
 
@@ -279,21 +277,12 @@ The `web_search` tool blocks queries containing credential-shaped tokens (AWS ac
 
 ### Zero outbound traffic
 
-Point SideCar at a local Ollama or Kickstand instance and nothing leaves your network:
+Point SideCar at a local Ollama instance and nothing leaves your network:
 
 ```json
 "sidecar.baseUrl": "http://localhost:11434",
 "sidecar.provider": "ollama"
 ```
-
-Or for Kickstand:
-
-```json
-"sidecar.baseUrl": "http://localhost:11435",
-"sidecar.provider": "kickstand"
-```
-
-Kickstand reads its bearer token from `~/.config/kickstand/token` with no additional configuration.
 
 ### Disable skill registry sync
 

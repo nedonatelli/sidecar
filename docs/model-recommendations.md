@@ -7,7 +7,7 @@ nav_section: 'Get Started'
 
 # Model Recommendations
 
-SideCar works with local Ollama models, Kickstand, Anthropic, OpenAI, OpenRouter, Groq, and Fireworks. This page helps you pick the right model for your hardware and use case. Numbers come from the [Model Eval Results](model-eval-results.md) page, which documents scores from the deterministic eval harness (92 cases: 57 agent + 35 prompt).
+SideCar works with local Ollama models, Anthropic, OpenAI, OpenRouter, Groq, and Fireworks. This page helps you pick the right model for your hardware and use case. Numbers come from the [Model Eval Results](model-eval-results.md) page, which documents scores from the deterministic eval harness (92 cases: 57 agent + 35 prompt).
 
 ---
 
@@ -116,7 +116,7 @@ These estimates apply to Q4_K_M quantization (the default Ollama pull format). A
 
 > **Unified memory (Apple Silicon):** VRAM and system RAM share the same pool. A 36 GB M3 Max or M4 Pro can comfortably run models up to 14B. For 30B models, close other GPU-heavy applications first. 70B models require at least a 64 GB configuration.
 
-> **Multi-GPU:** Ollama and Kickstand both support splitting large models across multiple GPUs. Set `OLLAMA_NUM_GPU_LAYERS` or use Kickstand's layer-assignment config if you need to run a 30B+ model on a multi-GPU workstation.
+> **Multi-GPU:** Ollama supports splitting large models across multiple GPUs. Set `OLLAMA_NUM_GPU_LAYERS` if you need to run a 30B+ model on a multi-GPU workstation.
 
 ---
 

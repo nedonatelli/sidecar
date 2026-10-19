@@ -148,7 +148,7 @@ These are token-expensive for a frontier model (many `read_file` and `search_fil
 
 Leave `workerBaseUrl` at the default `http://localhost:11434` unless Ollama is running on a different machine. Set `workerModel` to the best local model you have — `qwen3-coder:30b` or `deepseek-coder-v2:16b` for high quality, `qwen2.5-coder:7b` if you are on a low-RAM machine.
 
-Delegation is a no-op if you are already on a local-only setup (Ollama or Kickstand) — the setting only affects paid-backend sessions.
+Delegation is a no-op if you are already on a local-only setup (such as Ollama) — the setting only affects paid-backend sessions.
 
 ---
 

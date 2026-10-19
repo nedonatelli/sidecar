@@ -150,7 +150,7 @@ See [`agent-mode.md`](agent-mode.md) for the full matrix.
 
 ## Tool categories
 
-> The table below shows the **core** groups only. The full 87-tool catalog spans ~34 group files (git, github, database, diagnostics, knowledge, settings, vision, pdf, zotero, citation, deps, ci, research, latex, notebook, profiling, impact, codeGraphQuery, mutationTest, propertyTest, kickstand, mcpDelegate, and more) — see [tools-reference](tools-reference) for the complete list.
+> The table below shows the **core** groups only. The full 87-tool catalog spans ~34 group files (git, github, database, diagnostics, knowledge, settings, vision, pdf, zotero, citation, deps, ci, research, latex, notebook, profiling, impact, codeGraphQuery, mutationTest, propertyTest, mcpDelegate, and more) — see [tools-reference](tools-reference) for the complete list.
 
 | File                                                            | Tools                                                                                                             | Approval                                          |
 | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |

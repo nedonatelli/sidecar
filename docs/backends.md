@@ -363,53 +363,6 @@ Use vLLM when you want to run a full-precision or lightly quantized model with m
 
 ---
 
-## Kickstand
-
-Kickstand is a self-hosted local inference server built alongside SideCar. CLI command: `kick`. It focuses on GPU memory efficiency — loading, unloading, and hot-swapping models with minimal overhead.
-
-### Start the server
-
-```bash
-kick start
-```
-
-Kickstand auto-generates a bearer token at `~/.config/kickstand/token` on first run.
-
-### Configuration
-
-```json
-"sidecar.baseUrl": "http://localhost:11435",
-"sidecar.provider": "kickstand"
-```
-
-**No API key setup required.** SideCar reads `~/.config/kickstand/token` automatically on every request (result cached 60 seconds). You will never see an API key prompt for Kickstand — the `sidecar.apiKey` setting is not used.
-
-The `⚙ gear → Kickstand` profile sets `baseUrl` and `provider` for you.
-
-### Model management
-
-Kickstand exposes model management endpoints that SideCar hooks into directly:
-
-| Operation       | Kickstand endpoint                        |
-| --------------- | ----------------------------------------- |
-| List registry   | `GET /api/v1/models`                      |
-| Pull a model    | `POST /api/v1/models/pull` (SSE progress) |
-| Load into GPU   | `POST /api/v1/models/{id}/load`           |
-| Unload from GPU | `POST /api/v1/models/{id}/unload`         |
-
-These are surfaced in SideCar's model dropdown — you can pull and load models without leaving VS Code.
-
-### Advanced inference features
-
-Kickstand supports capabilities not available in standard Ollama or vLLM setups. Configure these via Kickstand's own settings rather than SideCar:
-
-- **Fill-in-the-Middle (FIM):** optimized code completion using prefix/suffix context — powers SideCar's inline completions on Kickstand.
-- **Flash Attention:** off by default in SideCar — enable per-load with `sidecar.kickstand.flashAttn` (reduces memory usage and increases throughput for long contexts on supported hardware).
-- **LoRA adapters:** load fine-tuned LoRA weights on top of a base model at runtime, without restarting the server.
-- **Grammar-constrained decoding:** force model output to conform to a JSON schema or EBNF grammar — useful for structured tool-call responses.
-
----
-
 ## AWS Bedrock
 
 Run Claude models through AWS Bedrock. Bedrock accepts the native Anthropic Messages format, so tool use, thinking, and streaming all work the same as the direct Anthropic backend — the difference is auth (AWS SigV4) and that the model lives in the URL.

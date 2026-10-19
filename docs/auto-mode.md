@@ -2,7 +2,7 @@
 title: Auto Mode
 layout: docs
 nav_order: 3
-nav_section: "Guides"
+nav_section: 'Guides'
 ---
 
 # Auto Mode
@@ -43,7 +43,7 @@ The default path is `.sidecar/backlog.md`. It is plain markdown. Only lines matc
 
 ## Features
 
-- [ ] Implement rate-limit retry with exponential backoff in KickstandBackend — cap at 3 retries, 2s base delay
+- [ ] Implement rate-limit retry with exponential backoff in OpenAIBackend — cap at 3 retries, 2s base delay
 - [ ] Add `--json` flag to the `sidecar list-models` CLI command and write a test for the output shape
 - [ ] Generate OpenAPI 3.1 spec from the existing route handlers in src/mcpServer/agentServer.ts
 
@@ -56,12 +56,12 @@ The default path is `.sidecar/backlog.md`. It is plain markdown. Only lines matc
 
 A good task is specific enough that the agent can determine on its own when it is done.
 
-| Good | Bad |
-|------|-----|
-| Replace deprecated `fs.exists` calls in `src/util/fileHelpers.ts` with `fs.access` | Improve the file utilities |
-| Add `--json` flag to `sidecar list-models` and write a Vitest test for the output shape | Add more CLI flags |
-| Fix off-by-one in `src/pagination.ts` — page 2 returns 11 results, should return 10 | Fix bugs |
-| Add null check before `user.profile.avatar` in `ProfileCard` (line 47) | Clean up the profile component |
+| Good                                                                                    | Bad                            |
+| --------------------------------------------------------------------------------------- | ------------------------------ |
+| Replace deprecated `fs.exists` calls in `src/util/fileHelpers.ts` with `fs.access`      | Improve the file utilities     |
+| Add `--json` flag to `sidecar list-models` and write a Vitest test for the output shape | Add more CLI flags             |
+| Fix off-by-one in `src/pagination.ts` — page 2 returns 11 results, should return 10     | Fix bugs                       |
+| Add null check before `user.profile.avatar` in `ProfileCard` (line 47)                  | Clean up the profile component |
 
 Vague tasks produce agents that wander, exceed their iteration budget, and are more likely to touch unrelated files.
 
@@ -69,11 +69,11 @@ Vague tasks produce agents that wander, exceed their iteration budget, and are m
 
 You can pin overrides to individual items using `@key:value` tokens in the task text. The dispatcher strips them from the prompt before sending to the model.
 
-| Sentinel | Values | Effect |
-|----------|--------|--------|
-| `@model:name` | any configured model id | Runs this task with the specified model; restores the previous model afterwards |
-| `@shadowMode:always` | `always`, `opt-in`, `off` | Overrides `sidecar.shadowWorkspace.mode` for this task only |
-| `@facets:id1,id2` | comma-separated facet ids | Dispatches named facets instead of the default agent loop |
+| Sentinel             | Values                    | Effect                                                                          |
+| -------------------- | ------------------------- | ------------------------------------------------------------------------------- |
+| `@model:name`        | any configured model id   | Runs this task with the specified model; restores the previous model afterwards |
+| `@shadowMode:always` | `always`, `opt-in`, `off` | Overrides `sidecar.shadowWorkspace.mode` for this task only                     |
+| `@facets:id1,id2`    | comma-separated facet ids | Dispatches named facets instead of the default agent loop                       |
 
 Example:
 
@@ -89,6 +89,7 @@ Example:
 Open the command palette and run **SideCar: Start Auto Mode** (`sidecar.startAutoMode`).
 
 SideCar immediately:
+
 - Resolves the backlog path (relative paths are joined to the workspace root).
 - Creates an `AbortController` to govern the whole session.
 - Starts the dispatcher loop, streaming each task's agent output to the chat panel in real time.
@@ -115,13 +116,13 @@ When the session ends, the panel shows the final summary: how many tasks succeed
 
 `stoppedReason` values and what they mean:
 
-| Value | Meaning |
-|-------|---------|
-| `completed` | All pending items processed |
-| `task-cap` | `maxTasksPerSession` reached |
-| `runtime-cap` | `maxRuntimeMinutes` wall-clock limit reached |
-| `halted-on-failure` | A task failed and `haltOnFailure` is `true` |
-| `cancelled` | Stopped manually via status bar or command |
+| Value               | Meaning                                      |
+| ------------------- | -------------------------------------------- |
+| `completed`         | All pending items processed                  |
+| `task-cap`          | `maxTasksPerSession` reached                 |
+| `runtime-cap`       | `maxRuntimeMinutes` wall-clock limit reached |
+| `halted-on-failure` | A task failed and `haltOnFailure` is `true`  |
+| `cancelled`         | Stopped manually via status bar or command   |
 
 ### Failure log
 
@@ -151,14 +152,14 @@ Set `interTaskCooldownSeconds: 0` only if you are confident in your backlog and 
 
 All settings are under `sidecar.autoMode.*`.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.autoMode.backlogPath` | `.sidecar/backlog.md` | Path to the backlog file. Relative paths resolve from the workspace root. |
-| `sidecar.autoMode.maxTasksPerSession` | `10` | Maximum items to attempt per session (1–100). Stops with `task-cap` when reached. |
-| `sidecar.autoMode.maxRuntimeMinutes` | `240` | Wall-clock time limit in minutes (1–1440). Stops with `runtime-cap` when reached even if items remain. |
-| `sidecar.autoMode.haltOnFailure` | `false` | When `true`, the session stops after the first failure. When `false`, failures are logged and the session continues. |
-| `sidecar.autoMode.autoOpenPR` | `true` | Automatically draft a pull request after a session that ends with `completed`. Requires a configured remote. |
-| `sidecar.autoMode.interTaskCooldownSeconds` | `30` | Seconds to wait between tasks. This is your safe window to stop before the next task starts. |
+| Setting                                     | Default               | Description                                                                                                          |
+| ------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.autoMode.backlogPath`              | `.sidecar/backlog.md` | Path to the backlog file. Relative paths resolve from the workspace root.                                            |
+| `sidecar.autoMode.maxTasksPerSession`       | `10`                  | Maximum items to attempt per session (1–100). Stops with `task-cap` when reached.                                    |
+| `sidecar.autoMode.maxRuntimeMinutes`        | `240`                 | Wall-clock time limit in minutes (1–1440). Stops with `runtime-cap` when reached even if items remain.               |
+| `sidecar.autoMode.haltOnFailure`            | `false`               | When `true`, the session stops after the first failure. When `false`, failures are logged and the session continues. |
+| `sidecar.autoMode.autoOpenPR`               | `true`                | Automatically draft a pull request after a session that ends with `completed`. Requires a configured remote.         |
+| `sidecar.autoMode.interTaskCooldownSeconds` | `30`                  | Seconds to wait between tasks. This is your safe window to stop before the next task starts.                         |
 
 ### Recommended: run with Shadow Workspaces
 
@@ -199,7 +200,7 @@ Input tokens (context + system prompt) typically run 3–5× the output count, s
 
 Agent runs are blocked once the daily spend limit is reached. Set `0` to disable. Check current spend with **SideCar: Show Session Spend** from the command palette.
 
-Local models (Ollama, Kickstand) have no per-token cost — the session length is limited only by your time and compute.
+Local models (Ollama) have no per-token cost — the session length is limited only by your time and compute.
 
 ---
 
