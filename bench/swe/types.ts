@@ -92,6 +92,10 @@ export interface SwePrediction {
    * capture threw", and nothing told them apart.
    */
   captureError?: string;
+  /** Non-file-tool paths recovered from Git for this prediction. */
+  shellChanged?: string[];
+  /** Why automatic shell-path capture was suppressed as possible repo drift. */
+  shellChangeDrift?: import('./captureDiff.js').ShellChangeDrift;
   /**
    * Did the RAG retrieve a file the gold patch touches within the top-k
    * (localization recall)? SWE-bench as a retrieval benchmark. Undefined when
