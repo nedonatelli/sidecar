@@ -92,10 +92,10 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'Groq',
     provider: 'groq',
     baseUrl: 'https://api.groq.com/openai/v1',
-    defaultModel: 'llama-3.3-70b-versatile',
+    defaultModel: 'openai/gpt-oss-120b',
     secretKey: 'sidecar.profileKey.groq',
     description:
-      'Groq LPU inference — thousands of tokens/sec on open-weight models like Llama 3.3, Mixtral, DeepSeek R1 distills. Free tier with rate limits; paid tier for higher throughput. Requires an API key from console.groq.com.',
+      'Groq LPU inference — thousands of tokens/sec on open-weight models like gpt-oss 120B/20B and Qwen. Free tier is not usable for agent work: its 8K tokens/min limit is smaller than a single SideCar request (~11K tokens), so requests fail with 413 — a paid Dev Tier is required. Requires an API key from console.groq.com.',
   },
   {
     id: 'fireworks',

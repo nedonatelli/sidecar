@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIBackend, ModelListError } from './openaiBackend.js';
+import { OpenAIBackend, ModelListError, apiFailureMessage } from './openaiBackend.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -785,5 +785,32 @@ describe("toOpenAIMessages returns a tool call's extra_content", () => {
     );
     const call = out.find((m) => m.role === 'assistant')?.tool_calls?.[0] as { extra_content?: unknown };
     expect(call.extra_content).toEqual(extra);
+  });
+});
+
+describe('apiFailureMessage', () => {
+  const tpmBody =
+    '{"error":{"message":"Request too large for model `openai/gpt-oss-20b` in organization `org_x` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Requested 11620, please reduce your message size and try again.","type":"tokens","code":"rate_limit_exceeded"}}';
+
+  it('explains a request larger than the per-minute budget and keeps the raw reply', () => {
+    const msg = apiFailureMessage(413, 'Payload Too Large', tpmBody);
+    expect(msg).toContain('needs 11,620 tokens but the tier allows 8,000 tokens per minute');
+    expect(msg).toContain('OpenAI API request failed: 413 Payload Too Large — ');
+  });
+
+  it('leaves an ordinary per-minute rate limit alone, since waiting fixes it', () => {
+    const body = tpmBody.replace('Requested 11620', 'Requested 900');
+    expect(apiFailureMessage(429, 'Too Many Requests', body)).toBe(
+      `OpenAI API request failed: 429 Too Many Requests — ${body}`,
+    );
+  });
+
+  it('explains model_not_found, which is what Groq returns for a shut-down model', () => {
+    const msg = apiFailureMessage(
+      400,
+      'Bad Request',
+      '{"error":{"message":"The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}',
+    );
+    expect(msg).toMatch(/^The provider doesn't offer this model to this key/);
   });
 });

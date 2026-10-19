@@ -29,6 +29,29 @@ describe('SpendTracker.record', () => {
     expect(cost).toBeCloseTo(1.0, 4);
   });
 
+  it('prices the Claude 5 models, cache reads included, by the longest matching prefix', () => {
+    const oneMillionEach = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreationInputTokens: 0 };
+    expect(spendTracker.record('claude-opus-5-5', { ...oneMillionEach, cacheReadInputTokens: 0 })).toBeCloseTo(24, 4);
+    // `claude-opus-5` must not take `claude-opus-5-5`'s price, or the reverse.
+    expect(spendTracker.record('claude-opus-5', { ...oneMillionEach, cacheReadInputTokens: 0 })).toBeCloseTo(30, 4);
+    expect(spendTracker.record('claude-sonnet-5-5', { ...oneMillionEach, cacheReadInputTokens: 0 })).toBeCloseTo(12, 4);
+    expect(spendTracker.record('claude-haiku-5-5', { ...oneMillionEach, cacheReadInputTokens: 0 })).toBeCloseTo(0.6, 4);
+    // Fable 5.1's published cache read is $0.25/M, a quarter of Fable 5's $1.
+    const cacheOnly = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 1_000_000 };
+    expect(spendTracker.record('claude-fable-5-1', cacheOnly)).toBeCloseTo(0.25, 4);
+    expect(spendTracker.record('claude-fable-5', cacheOnly)).toBeCloseTo(1, 4);
+  });
+
+  it('prices Opus 4.6 at $5 / $25, not the old $15 / $75', () => {
+    const cost = spendTracker.record('claude-opus-4-6', {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    });
+    expect(cost).toBeCloseTo(30, 4);
+  });
+
   it('prefers provider-reported `costUsd` over the price-table computation', () => {
     // Table would say $1 (haiku × 1M input). Provider reports $0.50 — the
     // per-account discount path. Tracker must trust the reported value.

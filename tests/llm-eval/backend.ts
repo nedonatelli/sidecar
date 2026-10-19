@@ -200,7 +200,7 @@ const BACKENDS: Record<string, ModelBackend> = {
   anthropic: new AnthropicEvalBackend(),
   ollama: new OllamaEvalBackend(),
   openai: new OpenAICompatEvalBackend('openai', 'https://api.openai.com', 'OPENAI_API_KEY', 'gpt-4o-mini'),
-  groq: new OpenAICompatEvalBackend('groq', 'https://api.groq.com/openai', 'GROQ_API_KEY', 'llama-3.3-70b-versatile'),
+  groq: new OpenAICompatEvalBackend('groq', 'https://api.groq.com/openai', 'GROQ_API_KEY', 'openai/gpt-oss-120b'),
   fireworks: new OpenAICompatEvalBackend(
     'fireworks',
     'https://api.fireworks.ai/inference',

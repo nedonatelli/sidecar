@@ -8,8 +8,22 @@ const SPEND_LOG = 'logs/spend.jsonl';
 // Per-million-token USD prices for Anthropic Claude models.
 // Keys are matched by `modelId.startsWith(key)`; pick the longest match.
 // Update when Anthropic publishes new SKUs. Prices are list, not enterprise.
+// Claude 5 and Opus 4.6-4.8 from Anthropic's model table (2026-10-06). Cache
+// writes are the standard 1.25x of input. Cache reads are the published figure
+// where there is one (Fable 5.1 $0.25, Opus 5.5 / Sonnet 5.5 $0.20, Fable 5 $1)
+// and the standard 0.1x otherwise. Haiku 5.5 is the price up to 100K prompt
+// tokens; above that it is $0.50 / $2.50, which this table doesn't model.
 const ANTHROPIC_PRICES: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  'claude-opus-4-6': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
+  'claude-fable-5-1': { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25 },
+  'claude-fable-5': { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 },
+  'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  'claude-opus-5': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+  'claude-sonnet-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+  'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
+  'claude-opus-4-8': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
+  'claude-opus-4-7': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
+  'claude-opus-4-6': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
   'claude-opus-4-5': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
   'claude-opus-4': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
   'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },

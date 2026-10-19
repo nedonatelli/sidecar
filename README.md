@@ -130,11 +130,11 @@ Pick the provider in the backend menu, then paste its key when SideCar asks (or 
 | ------------- | --------------------------------------------------------- | ------------------------------------------- |
 | OpenAI        | `https://api.openai.com`                                  | `gpt-5`                                     |
 | OpenRouter    | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`               |
-| Groq          | `https://api.groq.com/openai/v1`                          | `llama-3.3-70b-versatile`                   |
+| Groq          | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                       |
 | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/deepseek-v4-pro` |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`                          |
 
-> **Rate limits:** every agent request carries SideCar's system prompt (about 26,000 characters) plus the tool definitions, so a provider's tokens-per-minute limit is reached after far fewer requests than with plain chat. Free tiers with low limits, such as Groq's, run out within a few agent turns; use a paid tier for reliable agent work.
+> **Rate limits:** every agent request carries SideCar's system prompt and tool definitions, about 11.5K tokens before any conversation, so a provider's tokens-per-minute limit is reached after far fewer requests than with plain chat. **Groq's free tier does not work:** its 8K TPM limit is smaller than one SideCar request, so every agent request fails with `413 Request too large` — Groq requires a paid Dev Tier.
 
 ### AWS Bedrock
 

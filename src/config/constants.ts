@@ -224,7 +224,17 @@ export function lookupDraftModel(mainModel: string): string | undefined {
 // ---------------------------------------------------------------------------
 
 export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
-  // Anthropic Claude models — 200K context
+  // Anthropic Claude 5 models — 1M context, the default on these models
+  // (Anthropic's model table, 2026-10-06).
+  'claude-fable-5-1': 1_000_000,
+  'claude-fable-5': 1_000_000,
+  'claude-opus-5-5': 1_000_000,
+  'claude-opus-5': 1_000_000,
+  'claude-sonnet-5-5': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
+  'claude-haiku-5-5': 1_000_000,
+
+  // Anthropic Claude 4.x models — 200K context
   'claude-opus-4-7': 200_000,
   'claude-opus-4-5': 200_000,
   'claude-opus-4-1': 200_000,
@@ -278,14 +288,10 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'o3-mini': 200_000,
   'o3-mini-2025-01-31': 200_000,
 
-  // Groq models (context limits as of Jan 2025)
-  'llama-3.3-70b-versatile': 128_000,
-  'llama-3.1-70b-versatile': 128_000,
-  'llama-3.1-8b-instant': 128_000,
-  'llama3-70b-8192': 8_192,
-  'llama3-8b-8192': 8_192,
-  'mixtral-8x7b-32768': 32_768,
-  'gemma2-9b-it': 8_192,
+  // Groq models (context limits as of Oct 2026)
+  'openai/gpt-oss-120b': 131_072,
+  'openai/gpt-oss-20b': 131_072,
+  'qwen/qwen3.8-27b': 131_072,
 
   // Google Gemini models (via OpenAI-compatible or OpenRouter)
   'gemini-1.5-pro': 2_097_152,

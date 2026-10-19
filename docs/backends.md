@@ -228,25 +228,25 @@ Groq runs LLMs on custom LPU (Language Processing Unit) chips, delivering thousa
 
 ```json
 "sidecar.baseUrl": "https://api.groq.com/openai/v1",
-"sidecar.provider": "openai",
-"sidecar.model": "moonshotai/kimi-k2-instruct"
+"sidecar.provider": "groq",
+"sidecar.model": "openai/gpt-oss-120b"
 ```
 
 Set your Groq API key via `SideCar: Set / Refresh API Key`. Get a key at [console.groq.com](https://console.groq.com).
 
+> **Warning — the free tier does not work with SideCar.** Groq's free (`on_demand`) tier caps every model at 8,000 tokens per minute. A single SideCar agent request (system prompt + tool schemas) is ~11,500 tokens, so Groq rejects it with `413 Request too large … tokens per minute (TPM): Limit 8000` before the model runs. Only tool-free requests (plan mode) fit. Use Groq only with a paid Dev Tier account; otherwise pick another backend.
+
 ### Available models
 
-| Model                         | Context | Notes                      |
-| ----------------------------- | ------- | -------------------------- |
-| `moonshotai/kimi-k2-instruct` | 128 k   | Strong coding and tool use |
-| `llama-3.3-70b-versatile`     | 128 k   | General purpose            |
-| `llama-3.1-8b-instant`        | 128 k   | Fastest, lowest latency    |
-| `mixtral-8x7b-32768`          | 32 k    | Strong reasoning           |
-| `gemma2-9b-it`                | 8 k     | Efficient                  |
+| Model                 | Context | Notes                          |
+| --------------------- | ------- | ------------------------------ |
+| `openai/gpt-oss-120b` | 128 k   | Default; strongest tool use    |
+| `openai/gpt-oss-20b`  | 128 k   | Fastest, lowest latency        |
+| `qwen/qwen3.8-27b`    | 128 k   | Preview tier; may be withdrawn |
 
 ### Speed vs. context trade-off
 
-Groq's speed advantage is most pronounced on smaller models. The 8B Llama instant variant can return full agent turns in under a second. Larger models (70B+) are still faster than GPU inference but the gap narrows. Context limits are competitive (128 k on most models) but some Groq-hosted variants have tighter ceilings than the same model on other providers — check the Groq console for current limits.
+Groq's speed advantage is most pronounced on smaller models. `gpt-oss-20b` can return full agent turns in under a second. Larger models (70B+) are still faster than GPU inference but the gap narrows. Context limits are competitive (128 k on most models) but some Groq-hosted variants have tighter ceilings than the same model on other providers — check the Groq console for current limits.
 
 Groq's wire protocol is byte-identical to OpenAI's `/v1/chat/completions` — same request shape, same SSE framing, same `tool_calls` delta format, same `stream_options.include_usage` support.
 
