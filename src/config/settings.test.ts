@@ -260,8 +260,8 @@ describe('estimateCost', () => {
     const cost = estimateCost('claude-opus-4-6', 1000, 500);
     expect(cost).not.toBeNull();
     expect(cost!).toBeGreaterThan(0);
-    // 1000 input * $15/M + 500 output * $75/M = 0.015 + 0.0375 = 0.0525
-    expect(cost!).toBeCloseTo(0.0525, 3);
+    // 1000 input * $5/M + 500 output * $25/M = 0.005 + 0.0125 = 0.0175
+    expect(cost!).toBeCloseTo(0.0175, 3);
   });
 
   it('estimates cost for Claude Sonnet', () => {

@@ -106,8 +106,12 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
   }
 
   // 2. Substring match against the static table — catches
-  //    `models/claude-sonnet-4-6` → `claude-sonnet-4-6` etc.
-  const key = Object.keys(STATIC_MODEL_COSTS).find((k) => model.includes(k));
+  //    `models/claude-sonnet-4-6` → `claude-sonnet-4-6` etc. The longest
+  //    matching key wins, so `claude-opus-5-5` is never priced as
+  //    `claude-opus-5` (or `gpt-4o-mini` as `gpt-4o`) whatever the file order.
+  const key = Object.keys(STATIC_MODEL_COSTS)
+    .filter((k) => model.includes(k))
+    .reduce<string | undefined>((best, k) => (best === undefined || k.length > best.length ? k : best), undefined);
   if (key) {
     const costs = STATIC_MODEL_COSTS[key];
     return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;

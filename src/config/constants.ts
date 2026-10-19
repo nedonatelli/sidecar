@@ -224,7 +224,17 @@ export function lookupDraftModel(mainModel: string): string | undefined {
 // ---------------------------------------------------------------------------
 
 export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
-  // Anthropic Claude models — 200K context
+  // Anthropic Claude 5 models — 1M context, the default on these models
+  // (Anthropic's model table, 2026-10-06).
+  'claude-fable-5-1': 1_000_000,
+  'claude-fable-5': 1_000_000,
+  'claude-opus-5-5': 1_000_000,
+  'claude-opus-5': 1_000_000,
+  'claude-sonnet-5-5': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
+  'claude-haiku-5-5': 1_000_000,
+
+  // Anthropic Claude 4.x models — 200K context
   'claude-opus-4-7': 200_000,
   'claude-opus-4-5': 200_000,
   'claude-opus-4-1': 200_000,
