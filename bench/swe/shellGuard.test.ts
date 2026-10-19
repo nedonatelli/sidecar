@@ -28,10 +28,18 @@ beforeEach(() => {
   session = new ShellSession(root);
 });
 
-afterEach(() => {
+// dispose() asks for the shell to be killed and returns; on Windows the dying
+// shell still holds `root` as its cwd for a while, and removing it fails with
+// EPERM. That was the intermittent pre-commit failure, worse under load: three
+// tests in one hook run while a 31b eval ran, and still one with rmSync's
+// ~1 s of blocking retries. fs.promises.rm retries EPERM with a growing delay
+// (up to ~20 s here) and doesn't block the event loop while it waits.
+const RM = { recursive: true, force: true, maxRetries: 20, retryDelay: 100 } as const;
+
+afterEach(async () => {
   session.dispose();
-  fs.rmSync(root, { recursive: true, force: true });
-  fs.rmSync(outside, { recursive: true, force: true });
+  await fs.promises.rm(root, RM);
+  await fs.promises.rm(outside, RM);
 });
 
 const sh = (cmd: string) => session.execute(cmd, { timeout: 60_000 });
@@ -78,7 +86,7 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
       await sh(leave);
       expect(await guard.afterCommand(session, leave)).not.toBe('');
     } finally {
-      fs.rmSync(sibling, { recursive: true, force: true });
+      await fs.promises.rm(sibling, RM);
     }
   });
 
