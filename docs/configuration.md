@@ -29,7 +29,7 @@ You don't have to edit these settings by hand. Click the **⚙ gear** in the cha
 | Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                               | `claude-haiku-4-5`                                                              |
 | OpenAI           | `openai`     | `https://api.openai.com`                                  | `gpt-4o`                                                                        |
 | OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`                                                   |
-| Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `llama-3.3-70b-versatile`                                                       |
+| Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                                                           |
 | Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `qwen2p5-coder-32b-instruct`                                                    |
 | Kickstand        | `kickstand`  | `http://localhost:11435`                                  | Token auto-loaded from `~/.config/kickstand/token` — no key prompt              |
 | AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |

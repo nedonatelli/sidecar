@@ -168,17 +168,16 @@ In this setup, `sidecar.model` handles intent classification, plan generation, a
 
 ## What to Avoid
 
-| Model                                              | Problem                                                                                                          |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `laguna-xs.2`                                      | Freezes when tool schemas are present — hard incompatibility, not recoverable                                    |
-| `glm-4.7-flash`                                    | >300s prefill on 36 GB hardware; effectively unusable as an agent                                                |
-| `qwen3.6`                                          | Causes kernel panic (OOM) on 36 GB unified-memory hardware when loaded alongside any other model                 |
-| `llama-v3p3-70b-instruct` (Fireworks)              | Exceeds its own 131K context limit when SideCar's tool schemas are included; only works for chat (no agent)      |
-| `meta-llama/llama-4-maverick` (OpenRouter)         | OpenRouter routing has no tool-use endpoint for this model; every agent case 404s                                |
-| `gpt-4o` / `gpt-4o-mini` on free OpenAI tier       | 30K–200K TPM exhausted after 1–8 requests at SideCar's token footprint                                           |
-| `llama-4-scout-17b-16e-instruct` on free Groq tier | 30K TPM exhausted after 1 request; requires a paid Groq account                                                  |
-| `llama-3.3-70b-versatile` on free Groq tier        | 12K TPM is smaller than a single SideCar request; completely unusable                                            |
-| Any model under 3B parameters                      | Too small to reliably follow SideCar's system prompt rules and tool schemas; high failure rates on agentic tasks |
+| Model                                        | Problem                                                                                                          |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `laguna-xs.2`                                | Freezes when tool schemas are present — hard incompatibility, not recoverable                                    |
+| `glm-4.7-flash`                              | >300s prefill on 36 GB hardware; effectively unusable as an agent                                                |
+| `qwen3.6`                                    | Causes kernel panic (OOM) on 36 GB unified-memory hardware when loaded alongside any other model                 |
+| `llama-v3p3-70b-instruct` (Fireworks)        | Exceeds its own 131K context limit when SideCar's tool schemas are included; only works for chat (no agent)      |
+| `meta-llama/llama-4-maverick` (OpenRouter)   | OpenRouter routing has no tool-use endpoint for this model; every agent case 404s                                |
+| `gpt-4o` / `gpt-4o-mini` on free OpenAI tier | 30K–200K TPM exhausted after 1–8 requests at SideCar's token footprint                                           |
+| Any model on the free Groq tier              | 8K TPM is smaller than a single SideCar request (~11.5K); every agent request fails with 413 — Dev Tier required |
+| Any model under 3B parameters                | Too small to reliably follow SideCar's system prompt rules and tool schemas; high failure rates on agentic tasks |
 
 ### Common failure patterns across all models
 

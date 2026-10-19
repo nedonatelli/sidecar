@@ -115,7 +115,7 @@ class GroqAgentBackend implements AgentEvalBackend {
     return process.env.GROQ_API_KEY || '';
   }
   defaultModel(): string {
-    return process.env.SIDECAR_EVAL_MODEL || 'llama-3.3-70b-versatile';
+    return process.env.SIDECAR_EVAL_MODEL || 'openai/gpt-oss-120b';
   }
 }
 

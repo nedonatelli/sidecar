@@ -130,11 +130,11 @@ Pick the provider in the backend menu, then paste its key when SideCar asks (or 
 | ------------- | --------------------------------------------------------- | ------------------------------------------- |
 | OpenAI        | `https://api.openai.com`                                  | `gpt-5`                                     |
 | OpenRouter    | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`               |
-| Groq          | `https://api.groq.com/openai/v1`                          | `llama-3.3-70b-versatile`                   |
+| Groq          | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                       |
 | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/deepseek-v4-pro` |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`                          |
 
-> **Rate limits:** SideCar's system prompt + tool schemas are ~23K tokens per request. `gpt-4o-mini` and `gpt-4.1-mini` share a 200K TPM org-level cap that exhausts after ~8 requests — use `gpt-5` or a model with a higher TPM allocation. Groq's free tier (12K–30K TPM) is exhausted after 1–2 requests; a paid tier is required for reliable use.
+> **Rate limits:** SideCar's system prompt + tool schemas are ~23K tokens per request. `gpt-4o-mini` and `gpt-4.1-mini` share a 200K TPM org-level cap that exhausts after ~8 requests — use `gpt-5` or a model with a higher TPM allocation. **Groq's free tier does not work:** its 8K TPM limit is smaller than one SideCar request, so every agent request fails with `413 Request too large` — Groq requires a paid Dev Tier.
 
 ### AWS Bedrock
 
