@@ -33,6 +33,7 @@ import { getConfig } from '../../src/config/settings.js';
 import { getToolDefinitionsForTier, findTool } from '../../src/agent/tools.js';
 import { STABLE_TOOL_ENV, stableOutputTools } from '../../bench/swe/stableToolOutput.js';
 import { ShellRootGuard, shellGuardTools } from '../../bench/swe/shellGuard.js';
+import { loadHarnessOverrides, applyToSystemPrompt, applyToToolDefinitions } from '../../bench/swe/harnessOverrides.js';
 import { mountWorkspaceRoot } from './workspaceSandbox.js';
 import { parseTasks, sampleTasks } from '../../bench/swe/loader.js';
 import { armConfigOverrides } from '../../bench/swe/arms.js';
@@ -106,6 +107,13 @@ const SHELL_GUARD = process.env.SIDECAR_SWE_SHELL_GUARD !== '0';
 // dotted-label instructions, which select zero tests on them. 'runner' gives
 // each runner its own; unset keeps the old text so the change can be A/B'd.
 const TEST_TARGETS = process.env.SIDECAR_SWE_TEST_TARGETS === 'runner' ? 'runner' : 'legacy';
+// A candidate harness edit (bench/swe/harnessOverrides.ts): system-prompt and
+// tool-description text from the JSON file SIDECAR_SWE_HARNESS_OVERRIDES names.
+// Unset = the shipped harness. Loaded once, so a malformed file fails the run
+// at startup rather than mid-matrix; the manifest records its name and hash.
+const HARNESS_OVERRIDES = process.env.SIDECAR_SWE_HARNESS_OVERRIDES
+  ? loadHarnessOverrides(process.env.SIDECAR_SWE_HARNESS_OVERRIDES)
+  : null;
 // Per-(repo,version) solve environments (uv venvs) so run_tests/run_command work
 // against installed deps. Specs from the committed env-specs.json (generated from
 // swebench's MAP_REPO_VERSION_TO_SPECS). Venvs cached under the env cache base.
@@ -528,7 +536,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // a bearer token to drive a remote OpenAI-compatible endpoint instead — e.g.
     // a Vast box's token-authed /v1 edge (OLLAMA_HOST=http://<host>:<port>), which
     // uses independent HTTP requests rather than a fragile persistent SSH tunnel.
-    const systemPrompt = buildBaseSystemPrompt({
+    const basePrompt = buildBaseSystemPrompt({
       isLocal: true,
       extensionVersion: '0.0.0-bench',
       repoUrl: '',
@@ -536,6 +544,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       root: dir,
       approvalMode: 'autonomous',
     });
+    const systemPrompt = HARNESS_OVERRIDES ? applyToSystemPrompt(basePrompt, HARNESS_OVERRIDES.overrides) : basePrompt;
     // Trajectory: append every event to disk LIVE (not buffered-then-dumped), so
     // a run is watchable mid-flight with `tail -f` — same observability the
     // real product/logger gives, instead of a black box until the solve ends.
@@ -649,7 +658,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // The product's catalog minus the tools the benchmark must not offer --
       // run_tests (wrong runner, false "ok") and web_search (the fix for a
       // public upstream bug can be searched for). Reasons: bench/swe/toolCatalog.ts.
-      toolOverride: sweToolCatalog(getToolDefinitionsForTier('full', undefined, armConfig)),
+      toolOverride: (() => {
+        const catalog = sweToolCatalog(getToolDefinitionsForTier('full', undefined, armConfig));
+        return HARNESS_OVERRIDES ? applyToToolDefinitions(catalog, HARNESS_OVERRIDES.overrides) : catalog;
+      })(),
       // Runs in BOTH arms: this is a zero-token deterministic control, like cycle
       // detection and the thrash defenses, not part of the verification
       // scaffolding under test. A whole-suite invocation is a harness-cost bug
@@ -913,6 +925,9 @@ describe('SWE-bench Lite — prediction generation', () => {
         stableToolOutput: STABLE_OUTPUT,
         shellGuard: SHELL_GUARD,
         testTargets: TEST_TARGETS,
+        harnessOverrides: HARNESS_OVERRIDES
+          ? { name: HARNESS_OVERRIDES.overrides.name, sha256: HARNESS_OVERRIDES.sha256 }
+          : null,
         retrievalCliffGate: CLIFF_GATE,
         // The deterministic control layer. bench/swe/README notes it is not
         // config-gated and runs in BOTH ablation arms, so a scaffold-on/off
