@@ -4,6 +4,22 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Groq defaults to `openai/gpt-oss-120b`.** Groq shut down `llama-3.3-70b-versatile` and
+  `llama-3.1-8b-instant` on 2026-08-16. The backend picker and docs now also warn that
+  Groq's free tier can't run SideCar: its 8K tokens-per-minute limit is smaller than a
+  single agent request (~11.5K tokens), so a paid Dev Tier is required.
+
+### Fixed
+
+- **Two API errors now say what to do instead of offering a Retry that can't work.** A
+  request bigger than the account's whole per-minute token budget (Groq's free tier
+  returns `413`) explains that retrying or compacting won't help and points to settings,
+  and a model the provider no longer serves (`model_not_found`, which is what Groq returns
+  for a shut-down model) says to pick another one. Before, the first offered
+  "Reduce Context" and the second offered "Install Model", which runs an Ollama pull.
+
 ## [0.129.0] - 2026-10-16
 
 Mostly about the agent doing what it meant to do, and nothing else. `edit_file` lands more

@@ -35,6 +35,11 @@ export function classifyError(message: string): {
   ) {
     return { errorType: 'connection', errorAction: 'Check Connection', errorActionCommand: 'openSettings' };
   }
+  // Neither retrying, compacting nor an Ollama pull fixes these, so they must
+  // beat the rate_limit / token_limit / 404-model patterns their raw bodies match.
+  if (lower.includes("too large for this account's tier") || lower.includes("doesn't offer this model")) {
+    return { errorType: 'model', errorAction: 'Open Settings', errorActionCommand: 'openSettings' };
+  }
   if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
     return { errorType: 'rate_limit', errorAction: 'Retry', errorActionCommand: 'retry' };
   }
