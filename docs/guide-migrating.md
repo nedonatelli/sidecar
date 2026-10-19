@@ -33,7 +33,7 @@ Tab to accept, Escape to dismiss — same as Copilot.
 
 ### What is different
 
-**SideCar has a full agent loop; Copilot is primarily completions + chat.** When you give SideCar a task — "add input validation to the user-create endpoint" — it reads files, edits code, runs tests, and iterates until the task is done. It is closer to Copilot Workspace or Cursor than to Copilot Chat. The `sidecar.agentMode` setting controls how autonomously it acts:
+**Both have an agent loop; SideCar runs it on any backend.** Copilot Chat has its own agent mode. When you give SideCar a task — "add input validation to the user-create endpoint" — it reads files, edits code, runs tests, and iterates until the task is done, on whichever model you point it at, including a local Ollama model. The `sidecar.agentMode` setting controls how autonomously it acts:
 
 | Mode                 | Behavior                                                          |
 | -------------------- | ----------------------------------------------------------------- |
@@ -46,13 +46,13 @@ Tab to accept, Escape to dismiss — same as Copilot.
 
 Start with `cautious` — it is the safest onboarding mode and still runs the full agent.
 
-**No Microsoft account required.** SideCar works with a local Ollama model with zero credentials. If you want cloud models, you bring your own API key for Anthropic, OpenAI, Groq, Fireworks, Google Gemini, or OpenRouter. API keys are stored in the OS keychain via VS Code SecretStorage — never in plaintext settings.
+**No GitHub account required.** SideCar works with a local Ollama model with zero credentials. If you want cloud models, you bring your own API key for Anthropic, OpenAI, Groq, Fireworks, Google Gemini, or OpenRouter (or use AWS credentials for Bedrock, or your Copilot plan through the GitHub Copilot backend). Backend API keys are stored in the OS keychain via VS Code SecretStorage — never in plaintext settings.
 
-**Model is configurable.** You are not locked to one provider's model. Switch mid-conversation with `/model claude-sonnet-4-6` or use the model dropdown at the top of the chat panel.
+**Model is configurable.** You are not locked to one provider's model. Switch mid-conversation with `/model claude-sonnet-5-5` or use the model dropdown at the top of the chat panel.
 
-**No Copilot Workspace equivalent by name — but SideCar agent mode is more powerful.** Copilot Workspace is a task → plan → multi-file edit flow. SideCar's default agent mode does all of that in a single turn, plus runs tests, checks lint, iterates on failures, and has safety modes (shadow workspaces, review mode, audit mode) Copilot Workspace does not.
+**Task → plan → multi-file edit in the panel.** SideCar's agent mode plans, edits multiple files, runs tests, checks lint, and iterates on failures in one run. Its write-isolation modes — shadow workspaces (an ephemeral git worktree), review mode, and audit mode — keep changes off your working tree until you accept them.
 
-**Spending visibility.** Copilot costs are baked into your subscription. SideCar tracks per-session spend on paid backends (`/usage`), lets you set daily and weekly budgets (`sidecar.dailyBudget`, `sidecar.weeklyBudget`), and uses Anthropic prompt caching automatically to reduce input token costs by ~90% on cache hits.
+**Spending visibility.** Copilot bills through its plans and usage-based credits. SideCar tracks per-session spend on paid backends (`/usage`), lets you set daily and weekly budgets (`sidecar.dailyBudget`, `sidecar.weeklyBudget`), and uses Anthropic prompt caching automatically to reduce input token costs by ~90% on cache hits.
 
 ### First steps after switching
 
@@ -66,7 +66,7 @@ ollama pull gemma4:e4b
 
 SideCar auto-detects Ollama at `http://localhost:11434`. No configuration needed.
 
-For cloud: click the gear icon in the chat header, choose **Anthropic Claude** (or another backend), and paste your API key when prompted.
+For cloud: click the ☰ menu in the chat header, choose **Backend** → **Anthropic Claude** (or another backend), and choose **Set API Key** to paste your key.
 
 **2. Disable Copilot inline completions if you want SideCar's instead.**
 
@@ -149,11 +149,11 @@ Run `/mcp` in chat to check connection status for all configured servers.
 
 ### What is different
 
-**SideCar runs inside VS Code; Claude Code is a terminal CLI.** This is the core structural difference. You get VS Code UI integration — file decorations on pending changes, an activity-bar badge on files the agent has touched, code actions on diagnostics, the Problems panel for security and lint findings, and Test Explorer integration. You lose the ability to invoke it from an arbitrary terminal.
+**SideCar is a VS Code extension only; Claude Code is a terminal CLI with a VS Code extension.** SideCar's VS Code integration goes further into the editor — file decorations on pending changes, an activity-bar badge on files the agent has touched, code actions on diagnostics, the Problems panel for security and lint findings, and Test Explorer integration. You lose the ability to invoke it from an arbitrary terminal.
 
-**Model is configurable to local Ollama.** Claude Code requires an Anthropic account and API credits. SideCar runs entirely offline on a local Ollama model. If you want Claude models, you can use them — point SideCar at `https://api.anthropic.com` and paste your API key — but it is not required.
+**Model is configurable to local Ollama.** Claude Code requires an Anthropic account (a Claude subscription or API credits). SideCar runs entirely offline on a local Ollama model. If you want Claude models, you can use them — point SideCar at `https://api.anthropic.com` and paste your API key — but it is not required.
 
-**Skills 2.0 frontmatter extends Claude Code's skill format.** Claude Code recognizes `allowed-tools` and `disable-model-invocation` in skill frontmatter. SideCar parses those fields for compatibility and adds:
+**Skills 2.0 frontmatter extends Claude Code's skill format.** Claude Code recognizes `allowed-tools` and `disable-model-invocation` in skill frontmatter. SideCar reads both — `allowed-tools` limits the skill's run to the listed built-in tools, and `disable-model-invocation: true` posts the skill body as the reply without calling the model — and adds:
 
 - `guards:` — activate built-in regression guards (`lint-clean`, `tests-pass`, `no-new-todos`) for the skill's run
 - `preferred-model:` — pin the skill to a specific model (native SideCar field)
@@ -191,7 +191,7 @@ Refactor the specified module. Preserve existing tests. ...
 name: Refactor Module
 description: Refactor a module for clarity and performance
 guards: lint-clean, tests-pass
-preferred-model: claude-sonnet-4-6
+preferred-model: claude-sonnet-5-5
 ---
 
 Refactor the specified module. Preserve existing tests. ...
@@ -214,7 +214,7 @@ The `guards:` field activates SideCar's regression guard hooks for the duration 
 | Typed sub-agent facets   | No                                          | Facets — named specialists with own tool allowlist + preferred model, dispatched in parallel                                              |
 | Review mode              | No                                          | Yes — buffers all writes in-memory; per-file diff review before anything lands on disk                                                    |
 | Audit mode               | No                                          | Yes — atomic flush, deletion coverage, rollback on partial failure                                                                        |
-| Local / offline          | No (requires Anthropic API)                 | Yes — Ollama, LM Studio, vLLM, llama.cpp, any OpenAI-compat server                                                                        |
+| Local / offline          | No (requires an Anthropic account)          | Yes — Ollama, LM Studio, vLLM, llama.cpp, any OpenAI-compat server                                                                        |
 | Model agnostic           | No                                          | Yes — Ollama, Anthropic, OpenAI, Fireworks, OpenRouter, Groq, Gemini, AWS Bedrock, and your existing Copilot subscription via `vscode.lm` |
 
 ---
@@ -223,7 +223,7 @@ The `guards:` field activates SideCar's regression guard hooks for the duration 
 
 **Q: I already pay for Claude Pro/Max. Can I use those credits with SideCar?**
 
-No. Claude Pro and Max are Claude.ai subscription plans for the web/app interface. SideCar uses the Anthropic API, which is a separate billing system. You need an API key from [platform.claude.com](https://platform.claude.com) and separate API credits. If you want to avoid API costs entirely, use a local Ollama model — `gemma4:e4b` or `qwen3-coder:30b` work well for most tasks.
+No. Claude Pro and Max are Claude.ai subscription plans for the web/app interface. SideCar uses the Anthropic API, which is a separate billing system. You need an API key from [platform.claude.com](https://platform.claude.com) and separate API credits. If you want to avoid API costs entirely, use a local Ollama model — `gemma4:e4b` (the default), or `gemma4:31b` on a 32 GB GPU. See [Model Compatibility](model-compatibility).
 
 **Q: My CLAUDE.md has hundreds of lines of instructions. Do I need to rewrite it?**
 
@@ -231,7 +231,7 @@ No. SideCar reads `CLAUDE.md` directly as a fallback when no `SIDECAR.md` is pre
 
 **Q: My `.claude/commands/` skills use `allowed-tools` frontmatter from Claude Code's newer formats. Will they break?**
 
-No. SideCar parses `allowed-tools` and `disable-model-invocation` for compatibility and silently ignores them rather than erroring. Your skills load and run normally. The fields just have no enforcement effect in SideCar today — use SideCar's native facets if you need tool-allowlist enforcement per specialist.
+No. Your skills load and run normally, and SideCar acts on both fields: `allowed-tools` limits the skill's run to the listed built-in tools, and `disable-model-invocation: true` posts the skill body as the reply without calling the model. Note that this differs from Claude Code, where `disable-model-invocation` stops the model from invoking the skill on its own.
 
 **Q: I relied on Claude Code hooks to run `npm test` after every file edit. How do I replicate that?**
 

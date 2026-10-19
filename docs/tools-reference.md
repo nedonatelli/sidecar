@@ -299,7 +299,7 @@ Push local commits on the current branch to the remote.
 | ------------- | ------- | -------- | --------------------------------------------------------------------------------------- |
 | `setUpstream` | boolean | No       | If true, sets the upstream tracking branch for a newly-created branch (default: false). |
 
-Checks branch protection rules before pushing when `sidecar.branchProtection.enabled` is true.
+Checks branch protection rules before pushing when `sidecar.pr.branchProtection.enabled` is true (the default).
 
 **Requires approval.**
 
@@ -786,7 +786,7 @@ Switch SideCar to a different built-in backend profile.
 | --------- | ----------------------------------------------- | -------- | ----------------------------- |
 | `profile` | `"local-ollama"` \| `"anthropic"` \| `"openai"` | Yes      | Backend profile to switch to. |
 
-If the target profile has no stored API key, the tool reports that so the user can run "SideCar: Set API Key".
+If the target profile has no stored API key, the tool reports that so the user can run "SideCar: Set / Refresh API Key".
 
 **Always requires approval.**
 

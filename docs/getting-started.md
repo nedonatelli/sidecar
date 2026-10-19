@@ -55,7 +55,7 @@ Press `⌘⇧P` (`Ctrl+Shift+P` on Windows/Linux) and type **`SideCar:`** — ev
 Use the model dropdown at the top of the chat panel to browse and switch models. Models are organized into two categories:
 
 - **Full Features (Tools)** — models that support function calling (e.g., `qwen3-coder`, `llama3.1`, `command-r`)
-- **Chat-Only** — models that work for conversation but can't use tools (e.g., `gemma2`, `llama2`, `mistral`)
+- **Chat-Only** — models that work for conversation but can't use tools (e.g., `gemma2`, `llama2`)
 
 You can also install new models directly from the dropdown — SideCar will pull them from the Ollama registry.
 
@@ -63,19 +63,19 @@ The default model is `gemma4:e4b` (~10 GB VRAM). For lighter hardware, try `mini
 
 ## Switching backends
 
-The fastest way to move between backends (Ollama, Anthropic, OpenAI, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock) is the **⚙ gear button** in the chat header. It opens a settings menu with a Backend section — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
+The fastest way to move between backends (Ollama, Anthropic, OpenAI, OpenRouter, Groq, Fireworks, Gemini, Copilot, Bedrock) is the **☰ menu button** in the chat header. It opens a settings menu with a **Backend** submenu — pick a profile and SideCar flips `baseUrl`, `provider`, and `model` in one click. Each profile keeps its own API key in VS Code's SecretStorage, so switching doesn't clobber keys you've already set. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
 The sections below describe each backend in detail and also cover the manual settings path if you prefer editing `settings.json`.
 
 ## Using the Anthropic API
 
-**Recommended:** click the ⚙ gear → **Anthropic Claude**. SideCar prompts for your API key on first switch, saves it to the Anthropic-specific SecretStorage slot, and sets `baseUrl` / `provider` / `model` for you.
+**Recommended:** click the ☰ menu → **Backend** → **Anthropic Claude**. SideCar sets `baseUrl` / `provider` / `model` for you; with no key stored yet it offers **Set API Key** and saves the key to the Anthropic-specific SecretStorage slot. The menu entry selects `claude-haiku-4-5` (lowest cost); for agent work, switch `sidecar.model` to a current model such as `claude-sonnet-5-5`.
 
 **Manual:**
 
 1. Set `sidecar.baseUrl` to `https://api.anthropic.com`
 2. Run `SideCar: Set / Refresh API Key` from the command palette and paste your Anthropic API key
-3. Set `sidecar.model` to a Claude model (e.g., `claude-sonnet-4-6`)
+3. Set `sidecar.model` to a Claude model (e.g., `claude-sonnet-5-5`)
 
 SideCar uses prompt caching with Anthropic, reducing input token costs by ~90% on cache hits.
 
@@ -105,19 +105,19 @@ SideCar auto-detects the provider from the URL. If auto-detection gets it wrong,
 
 ### Provider examples
 
-| Server                | Base URL                    | Notes                                |
-| --------------------- | --------------------------- | ------------------------------------ |
-| LM Studio             | `http://localhost:1234`     | Auto-detected as OpenAI              |
-| vLLM                  | `http://localhost:8000`     | Auto-detected as OpenAI              |
-| llama.cpp             | `http://localhost:8080`     | Auto-detected as OpenAI              |
-| OpenRouter            | `https://openrouter.ai/api` | Set API key, access 400+ models      |
-| text-generation-webui | `http://localhost:5000`     | Enable OpenAI extension in the UI    |
-| Ollama                | `http://localhost:11434`    | Auto-detected as Ollama (native API) |
-| Anthropic             | `https://api.anthropic.com` | Auto-detected as Anthropic           |
+| Server                | Base URL                       | Notes                                                 |
+| --------------------- | ------------------------------ | ----------------------------------------------------- |
+| LM Studio             | `http://localhost:1234`        | Auto-detected as OpenAI                               |
+| vLLM                  | `http://localhost:8000`        | Auto-detected as OpenAI                               |
+| llama.cpp             | `http://localhost:8080`        | Auto-detected as OpenAI                               |
+| OpenRouter            | `https://openrouter.ai/api/v1` | Auto-detected as OpenRouter; set API key, 400+ models |
+| text-generation-webui | `http://localhost:5000`        | Enable OpenAI extension in the UI                     |
+| Ollama                | `http://localhost:11434`       | Auto-detected as Ollama (native API)                  |
+| Anthropic             | `https://api.anthropic.com`    | Auto-detected as Anthropic                            |
 
 ### Tool support
 
-Most OpenAI-compatible models support function calling (tool use), which enables SideCar's full agentic capabilities — file editing, shell commands, git operations, etc. If a model doesn't support tools, SideCar falls back to chat-only mode automatically.
+Most OpenAI-compatible models support function calling (tool use), which enables SideCar's full agentic capabilities — file editing, shell commands, git operations, etc. SideCar always sends tool definitions to these servers, so a model without tool support fails agent requests; the automatic chat-only fallback applies only to the Ollama backend. On vLLM, tool calling also needs `--enable-auto-tool-choice` and `--tool-call-parser` (see the [launch example](backends#vllm)).
 
 ## Keyboard shortcuts
 

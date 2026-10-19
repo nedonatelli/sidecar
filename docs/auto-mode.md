@@ -78,7 +78,7 @@ You can pin overrides to individual items using `@key:value` tokens in the task 
 Example:
 
 ```markdown
-- [ ] Refactor the auth middleware to use the new JWT library @model:claude-opus-4-7 @shadowMode:always
+- [ ] Refactor the auth middleware to use the new JWT library @model:claude-opus-5-5 @shadowMode:always
 - [ ] Run the security-auditor facet on src/mcpServer/ @facets:security-auditor
 ```
 
@@ -183,14 +183,14 @@ When using a paid backend (Anthropic, OpenRouter, Groq, Fireworks), Auto Mode ca
 total cost ≈ (tasks) × (avg iterations per task) × (avg tokens per iteration) × (price per token)
 ```
 
-A modest task on a capable model (e.g. claude-sonnet-4-6) tends to run 3–8 agent iterations and consume 2 000–8 000 tokens per task. A 10-task session at 5 000 tokens average costs roughly:
+A modest task on a capable model tends to run 3–8 agent iterations. Input dominates: every iteration resends SideCar's system prompt and tool definitions (about 11.5K tokens) plus the growing conversation. A 10-task session at 5 iterations per task and ~20K input tokens per iteration on `claude-sonnet-5-5` ($2 / $10 per 1M input / output tokens) costs roughly:
 
 ```
-10 × 5 000 = 50 000 tokens
-50 000 × $0.000003 (output) ≈ $0.15 in output tokens
+10 × 5 × 20 000 = 1 000 000 input tokens  ×  $2 / 1M ≈ $2.00
+plus output (a few thousand tokens per task)       ≈ $0.10–$0.50
 ```
 
-Input tokens (context + system prompt) typically run 3–5× the output count, so budget $0.60–$1.00 for a 10-task session on mid-tier cloud models.
+Anthropic prompt caching cuts the repeated system-prompt part of the input on cache hits, so real spend is usually lower. Check actual numbers with `SideCar: Show Session Spend` after a session.
 
 ### Set a daily budget as a safety net
 

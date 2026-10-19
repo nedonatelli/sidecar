@@ -67,10 +67,10 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 
 The following commands are also available from the **Command Palette** (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
-| Command                   | Description                                   |
-| ------------------------- | --------------------------------------------- |
-| `SideCar: Review Changes` | AI-powered review of uncommitted changes      |
-| `SideCar: Summarize PR`   | Generate a PR summary from the current branch |
+| Command                           | Description                                   |
+| --------------------------------- | --------------------------------------------- |
+| `SideCar: Review Changes`         | AI-powered review of uncommitted changes      |
+| `SideCar: Summarize Pull Request` | Generate a PR summary from the current branch |
 
 ---
 
@@ -264,7 +264,7 @@ Run `SideCar: Review Changes` from the Command Palette to get an AI-powered revi
 
 ### Summarize PR (Command Palette)
 
-Run `SideCar: Summarize PR` from the Command Palette to generate a pull request summary from the current branch's changes against the base branch.
+Run `SideCar: Summarize Pull Request` from the Command Palette to generate a pull request summary from the current branch's changes against the base branch.
 
 ---
 
@@ -275,7 +275,7 @@ Run `SideCar: Summarize PR` from the Command Palette to generate a pull request 
 Switches to a different model mid-conversation. The conversation history is preserved. Updates the status bar and saves the preference.
 
 ```
-/model claude-sonnet-4-6
+/model claude-sonnet-5-5
 /model qwen2.5-coder:7b
 ```
 

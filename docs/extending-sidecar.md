@@ -61,7 +61,7 @@ Output format: bullet list grouped by severity.
 
 - `name` + `description` are from YAML frontmatter. Both optional; default to the filename.
 - Content below the frontmatter is the prompt body. Anything goes — plain prose, code examples, JSON templates.
-- Claude Code skill fields (`allowed-tools`, `disable-model-invocation`) are parsed-but-ignored for compatibility.
+- Claude Code skill fields are honored: `allowed-tools` limits the skill's run to the listed built-in tools, and `disable-model-invocation: true` posts the skill body as the reply without calling the model.
 
 ### `guards:` frontmatter (v0.107+)
 
@@ -105,7 +105,7 @@ Scanned in order (later sources override earlier on id collision):
 ---
 id: api-contract-tester
 displayName: API Contract Tester
-preferredModel: claude-haiku-4-5
+preferredModel: claude-haiku-5-5
 toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
 dependsOn: []
 rpcSchema:
@@ -279,7 +279,7 @@ Credentials are stored in the `env` block per server, not in SecretStorage — k
 
 The agent loop's [`HookBus`](../src/agent/loop/policyHook.ts) is an extensibility point for authors who want to inject behavior _inside_ the loop itself — gating turn completion, running post-tool validators, or pushing synthetic user messages to steer the agent.
 
-This surface is available to first-party code (the eight built-in hooks + `sidecar.regressionGuards` config), to callers who construct `AgentOptions.extraPolicyHooks` directly, and to **other VS Code extensions via the SideCar SDK** — `SideCarSdkApi.registerHook(hook)` returns a `Disposable` and registers the hook for every subsequent run (see the SDK section below).
+This surface is available to first-party code (the six built-in hooks + `sidecar.regressionGuards` config), to callers who construct `AgentOptions.extraPolicyHooks` directly, and to **other VS Code extensions via the SideCar SDK** — `SideCarSdkApi.registerHook(hook)` returns a `Disposable` and registers the hook for every subsequent run (see the SDK section below).
 
 ### Interface
 
@@ -314,18 +314,16 @@ The `state` parameter is the mutable `LoopState` — hooks can push messages int
 
 ### Built-in hooks (for reference)
 
-The eight built-ins registered by `defaultPolicyHooks()`, in registration (= execution) order:
+The six built-ins registered by `defaultPolicyHooks()`, in registration (= execution) order:
 
-| Hook                | Phase                              | What it does                                                                                                             |
-| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `autoFix`           | afterToolResults                   | Detects common post-edit errors (lint, tsc, missing imports) and pushes a follow-up message asking the agent to fix them |
-| `isolateRewrite`    | afterToolResults                   | Nudges a model that overwrites whole files toward targeted `edit_file` changes before cycle detection bails              |
-| `unappliedEdit`     | afterToolResults                   | Fires when the model described an edit in a code fence but applied nothing — redirects it to an actual mutation tool     |
-| `stubValidator`     | afterToolResults                   | Rejects placeholder code (`TODO`, `// implement me`) in fresh writes                                                     |
-| `adversarialCritic` | onEmptyResponse                    | Reviews the run's cumulative diff at completion (default **off**; blocking only with `critic.blockOnHighSeverity`)       |
-| `actionReprompt`    | onEmptyResponse                    | Text-only turn on an action-shaped request → one reprompt telling the model to use tools                                 |
-| `completionGate`    | afterToolResults + onEmptyResponse | Tracks whether the agent verified its edits; reprompts on unverified termination (tool recording never injects)          |
-| `analysisCritic`    | onEmptyResponse                    | Fact-checks the final answer of a read-only analysis turn against the gathered read-evidence (default **off**)           |
+| Hook             | Phase                              | What it does                                                                                                             |
+| ---------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `autoFix`        | afterToolResults                   | Detects common post-edit errors (lint, tsc, missing imports) and pushes a follow-up message asking the agent to fix them |
+| `isolateRewrite` | afterToolResults                   | Nudges a model that overwrites whole files toward targeted `edit_file` changes before cycle detection bails              |
+| `unappliedEdit`  | afterToolResults                   | Fires when the model described an edit in a code fence but applied nothing — redirects it to an actual mutation tool     |
+| `stubValidator`  | afterToolResults                   | Rejects placeholder code (`TODO`, `// implement me`) in fresh writes                                                     |
+| `actionReprompt` | onEmptyResponse                    | Text-only turn on an action-shaped request → one reprompt telling the model to use tools                                 |
+| `completionGate` | afterToolResults + onEmptyResponse | Tracks whether the agent verified its edits; reprompts on unverified termination (tool recording never injects)          |
 
 See [`src/agent/loop/builtInHooks.ts`](../src/agent/loop/builtInHooks.ts) for the adapters.
 

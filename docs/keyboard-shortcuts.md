@@ -2,7 +2,7 @@
 title: Keyboard Shortcuts
 layout: docs
 nav_order: 4
-nav_section: "Agent"
+nav_section: 'Agent'
 ---
 
 # Keyboard Shortcuts
@@ -11,33 +11,33 @@ All registered SideCar shortcuts are listed below. Every shortcut can be rebound
 
 ## Chat Panel
 
-| Action | Mac | Windows / Linux | When |
-|--------|-----|-----------------|------|
-| Toggle chat panel | `⌘⇧I` | `Ctrl+Shift+I` | Always |
-| Clear chat | `⌘L` | `Ctrl+L` | Always |
-| Undo all AI changes | `⌘⇧U` | `Ctrl+Shift+U` | Always |
-| Export chat as Markdown | `⌘⇧E` | `Ctrl+Shift+E` | Always |
+| Action                  | Mac   | Windows / Linux | When   |
+| ----------------------- | ----- | --------------- | ------ |
+| Toggle chat panel       | `⌘⇧I` | `Ctrl+Shift+I`  | Always |
+| Clear chat              | `⌘L`  | `Ctrl+L`        | Always |
+| Undo all AI changes     | `⌘⇧U` | `Ctrl+Shift+U`  | Always |
+| Export chat as Markdown | `⌘⇧E` | `Ctrl+Shift+E`  | Always |
 
 ## Inline Edit
 
-| Action | Mac | Windows / Linux | When |
-|--------|-----|-----------------|------|
-| Open inline chat | `⌘I` | `Ctrl+I` | Editor focused |
-| Dismiss inline edit | `Escape` | `Escape` | Editor focused, inline edit pending |
+| Action              | Mac      | Windows / Linux | When                                |
+| ------------------- | -------- | --------------- | ----------------------------------- |
+| Open inline chat    | `⌘I`     | `Ctrl+I`        | Editor focused                      |
+| Dismiss inline edit | `Escape` | `Escape`        | Editor focused, inline edit pending |
 
 ## Agent Actions
 
-| Action | Mac | Windows / Linux | When |
-|--------|-----|-----------------|------|
-| Undo all AI changes | `⌘⇧U` | `Ctrl+Shift+U` | Always |
-| Rename session | `F2` | `F2` | Sessions view focused, item selected |
-| Load session | `Enter` | `Enter` | Sessions view focused, item selected |
+| Action              | Mac     | Windows / Linux | When                                 |
+| ------------------- | ------- | --------------- | ------------------------------------ |
+| Undo all AI changes | `⌘⇧U`   | `Ctrl+Shift+U`  | Always                               |
+| Rename session      | `F2`    | `F2`            | Sessions view focused, item selected |
+| Load session        | `Enter` | `Enter`         | Sessions view focused, item selected |
 
 ## Completions
 
-| Action | Mac | Windows / Linux | When |
-|--------|-----|-----------------|------|
-| Accept next word of inline suggestion | `⌘→` | `Ctrl+Right` | Inline suggestion visible, editor not readonly |
+| Action                                | Mac  | Windows / Linux | When                                           |
+| ------------------------------------- | ---- | --------------- | ---------------------------------------------- |
+| Accept next word of inline suggestion | `⌘→` | `Ctrl+Right`    | Inline suggestion visible, editor not readonly |
 
 ---
 
@@ -73,19 +73,19 @@ To edit `keybindings.json` directly, press `⌘K ⌘S` and click the **Open Keyb
 ]
 ```
 
-The full list of bindable SideCar command IDs:
+Commonly rebound SideCar command IDs (any SideCar command can be bound — search **SideCar** in the shortcuts editor for the full list):
 
-| Command ID | Default action |
-|------------|----------------|
-| `sidecar.toggleChat` | Toggle chat panel |
-| `sidecar.inlineChat` | Open inline chat |
-| `sidecar.clearChat` | Clear chat |
-| `sidecar.undoChanges` | Undo all AI changes |
-| `sidecar.exportChat` | Export chat as Markdown |
-| `sidecar.rejectInlineEdit` | Dismiss pending inline edit |
-| `sidecar.acceptInlineEdit` | Accept pending inline edit (no default binding) |
-| `sidecar.sessions.rename` | Rename session |
-| `sidecar.sessions.load` | Load session |
-| `sidecar.explainSelection` | Explain selection in chat |
-| `sidecar.fixSelection` | Fix selection with agent |
-| `sidecar.refactorSelection` | Refactor selection with agent |
+| Command ID                  | Default action                                  |
+| --------------------------- | ----------------------------------------------- |
+| `sidecar.toggleChat`        | Toggle chat panel                               |
+| `sidecar.inlineChat`        | Open inline chat                                |
+| `sidecar.clearChat`         | Clear chat                                      |
+| `sidecar.undoChanges`       | Undo all AI changes                             |
+| `sidecar.exportChat`        | Export chat as Markdown                         |
+| `sidecar.rejectInlineEdit`  | Dismiss pending inline edit                     |
+| `sidecar.acceptInlineEdit`  | Accept pending inline edit (no default binding) |
+| `sidecar.sessions.rename`   | Rename session                                  |
+| `sidecar.sessions.load`     | Load session                                    |
+| `sidecar.explainSelection`  | Explain selection in chat                       |
+| `sidecar.fixSelection`      | Fix selection with agent                        |
+| `sidecar.refactorSelection` | Refactor selection with agent                   |
