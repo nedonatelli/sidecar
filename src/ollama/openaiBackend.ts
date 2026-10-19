@@ -87,6 +87,31 @@ export function outputCapFor(model: string, baseUrl: string, configured: number)
 export const OUTPUT_CAP_REJECTED =
   /max_tokens|max_completion_tokens|maximum context|context length|context window|too (large|many tokens)/i;
 
+const TPM_CEILING = /tokens per minute \(TPM\): Limit (\d+), Requested (\d+)/;
+
+/**
+ * The error a failed chat request throws. Two provider replies get a plain
+ * explanation in front of the raw body: a request larger than the account's
+ * whole per-minute token budget (Groq's free tier: 413 at 8K TPM), which no
+ * retry or compaction can fix, and a model the provider doesn't serve to this
+ * key -- what Groq answers for a model it has shut down.
+ */
+export function apiFailureMessage(status: number, statusText: string, errorText: string): string {
+  const raw = `OpenAI API request failed: ${status} ${statusText}${errorText ? ` — ${errorText}` : ''}`;
+  const tpm = TPM_CEILING.exec(errorText);
+  if (tpm && Number(tpm[2]) > Number(tpm[1])) {
+    return (
+      `Request too large for this account's tier: it needs ${Number(tpm[2]).toLocaleString('en-US')} tokens ` +
+      `but the tier allows ${Number(tpm[1]).toLocaleString('en-US')} tokens per minute, so retrying won't help. ` +
+      `Upgrade the provider tier or switch backends. (${raw})`
+    );
+  }
+  if (errorText.includes('"model_not_found"')) {
+    return `The provider doesn't offer this model to this key; it may have been retired. Pick another model in the model picker. (${raw})`;
+  }
+  return raw;
+}
+
 /** o-series and gpt-5+ models reject `max_tokens`; they require `max_completion_tokens`. */
 function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
   return /^o\d/i.test(model) || /^gpt-5/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
@@ -366,9 +391,7 @@ export class OpenAIBackend implements ApiBackend {
         if (!response.ok) errorText = await response.text().catch(() => '');
       }
       if (!response.ok) {
-        throw new Error(
-          `OpenAI API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
-        );
+        throw new Error(apiFailureMessage(response.status, response.statusText, errorText));
       }
     }
 
@@ -411,9 +434,7 @@ export class OpenAIBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(
-        `OpenAI API request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
-      );
+      throw new Error(apiFailureMessage(response.status, response.statusText, errorText));
     }
 
     const data = (await response.json()) as { choices: { message: { content: string } }[] };

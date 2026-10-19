@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { apiFailureMessage } from '../../ollama/openaiBackend.js';
 import {
   classifyError,
   languageToExtension,
@@ -180,6 +181,25 @@ describe('classifyError', () => {
   it('classifies content policy errors', () => {
     expect(classifyError('content policy violation').errorType).toBe('content_policy');
     expect(classifyError('request flagged by safety filters').errorType).toBe('content_policy');
+  });
+  it('sends a request bigger than the whole TPM budget to settings, not Retry or Reduce Context', () => {
+    const body =
+      '{"error":{"message":"Request too large for model `openai/gpt-oss-20b` in organization `org_x` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Requested 11620, please reduce your message size and try again.","type":"tokens","code":"rate_limit_exceeded"}}';
+    const result = classifyError(apiFailureMessage(413, 'Payload Too Large', body));
+    expect(result.errorType).toBe('model');
+    expect(result.errorActionCommand).toBe('openSettings');
+  });
+
+  it('sends a model the provider no longer serves to settings, not Install Model', () => {
+    const result = classifyError(
+      apiFailureMessage(
+        400,
+        'Bad Request',
+        '{"error":{"message":"The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}',
+      ),
+    );
+    expect(result.errorType).toBe('model');
+    expect(result.errorActionCommand).toBe('openSettings');
   });
 });
 
