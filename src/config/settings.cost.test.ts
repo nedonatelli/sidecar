@@ -13,8 +13,8 @@ describe('estimateCost', () => {
   it('calculates cost for Claude Opus', () => {
     const cost = estimateCost('claude-opus-4-6', 10000, 5000);
     expect(cost).not.toBeNull();
-    // Opus: $15/M input + $75/M output
-    expect(cost).toBeCloseTo((10000 * 15 + 5000 * 75) / 1_000_000);
+    // Opus 4.6: $5/M input + $25/M output
+    expect(cost).toBeCloseTo((10000 * 5 + 5000 * 25) / 1_000_000);
   });
 
   it('calculates cost for Claude Sonnet', () => {
@@ -27,8 +27,26 @@ describe('estimateCost', () => {
   it('calculates cost for Claude Haiku', () => {
     const cost = estimateCost('claude-haiku-4-5', 10000, 5000);
     expect(cost).not.toBeNull();
-    // Haiku: $0.8/M input + $4/M output
-    expect(cost).toBeCloseTo((10000 * 0.8 + 5000 * 4) / 1_000_000);
+    // Haiku 4.5: $1/M input + $5/M output
+    expect(cost).toBeCloseTo((10000 * 1 + 5000 * 5) / 1_000_000);
+  });
+
+  it('prices the Claude 5 models', () => {
+    const per1M = (model: string) => estimateCost(model, 1_000_000, 1_000_000);
+    expect(per1M('claude-fable-5-1')).toBeCloseTo(10 + 50);
+    expect(per1M('claude-opus-5-5')).toBeCloseTo(4 + 20);
+    expect(per1M('claude-sonnet-5-5')).toBeCloseTo(2 + 10);
+    expect(per1M('claude-haiku-5-5')).toBeCloseTo(0.1 + 0.5);
+  });
+
+  it('prices by the longest matching key, whatever the table order', () => {
+    const per1M = (model: string) => estimateCost(model, 1_000_000, 1_000_000);
+    // `claude-opus-5` is a substring of `claude-opus-5-5`; each keeps its own price.
+    expect(per1M('claude-opus-5')).toBeCloseTo(5 + 25);
+    expect(per1M('claude-opus-5-5')).toBeCloseTo(4 + 20);
+    expect(per1M('anthropic.claude-opus-5-5')).toBeCloseTo(4 + 20);
+    expect(per1M('gpt-4o-mini')).toBeCloseTo(0.15 + 0.6);
+    expect(per1M('gpt-4o')).toBeCloseTo(2.5 + 10);
   });
 
   it('returns null for unknown models', () => {
@@ -92,7 +110,7 @@ describe('runtime model cost overlay', () => {
   });
 
   it('runtime overlay wins over substring match against the static table', () => {
-    // The static table has claude-haiku-4-5 at $0.8 / $4.
+    // The static table has claude-haiku-4-5 at $1 / $5.
     // A runtime override should take precedence even though the substring
     // match would also hit.
     registerModelCost('claude-haiku-4-5', { input: 99, output: 99 });
