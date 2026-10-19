@@ -99,9 +99,6 @@ SideCar ships **80+ built-in tools** available to the agent loop. Most are alway
 | `latex_compile`                     | LaTeX              | Yes      | `sidecar.latex.enabled`                     |
 | `delegate_to_mcp`                   | MCP Delegation     | No       | `sidecar.mcpDelegation.enabled`             |
 | `monorepo_packages`                 | Monorepo           | No       | `sidecar.monorepo.enabled`                  |
-| `kickstand_list_loras`              | Kickstand          | No       | —                                           |
-| `kickstand_attach_lora`             | Kickstand          | Yes      | —                                           |
-| `kickstand_detach_lora`             | Kickstand          | Yes      | —                                           |
 
 **Approval** — `Yes` means the tool pauses for user confirmation in normal mode. `Always` means it pauses even in autonomous mode and cannot be bypassed by `toolPermissions`.
 
@@ -109,7 +106,7 @@ SideCar ships **80+ built-in tools** available to the agent loop. Most are alway
 
 ---
 
-> **Relevance gating:** rows showing `—` are not necessarily always advertised. The Kickstand tools appear only when the provider is Kickstand, the `db_*` tools only when at least one database profile is configured, and the `zotero_*` tools only when Zotero credentials are set (`RELEVANCE_GATED_GROUPS` in `tools.ts`). Tools absent from the catalog for these reasons are by design, not an error.
+> **Relevance gating:** rows showing `—` are not necessarily always advertised. The `db_*` tools appear only when at least one database profile is configured, and the `zotero_*` tools only when Zotero credentials are set (`RELEVANCE_GATED_GROUPS` in `tools.ts`). Tools absent from the catalog for these reasons are by design, not an error.
 
 ## File Operations
 
@@ -785,9 +782,9 @@ Requires `sidecar.delegateTask.enabled: true`.
 
 Switch SideCar to a different built-in backend profile.
 
-| Parameter | Type                                                             | Required | Description                   |
-| --------- | ---------------------------------------------------------------- | -------- | ----------------------------- |
-| `profile` | `"local-ollama"` \| `"anthropic"` \| `"openai"` \| `"kickstand"` | Yes      | Backend profile to switch to. |
+| Parameter | Type                                            | Required | Description                   |
+| --------- | ----------------------------------------------- | -------- | ----------------------------- |
+| `profile` | `"local-ollama"` \| `"anthropic"` \| `"openai"` | Yes      | Backend profile to switch to. |
 
 If the target profile has no stored API key, the tool reports that so the user can run "SideCar: Set API Key".
 
@@ -1255,50 +1252,3 @@ List all packages discovered in the monorepo. No parameters.
 Returns the detected layout type (nx / turbo / pnpm / yarn / lerna) and each package name with its workspace-relative path. Pass a `relativePath` value as `pathPrefix` to `project_knowledge_search` to scope semantic symbol search to a single package.
 
 Requires `sidecar.monorepo.enabled: true`.
-
----
-
-## Kickstand
-
-These tools manage LoRA adapters on a Kickstand-hosted model. They require the active backend to be Kickstand with a loaded model — other backends return a "not supported" error.
-
-### `kickstand_list_loras`
-
-List LoRA adapters currently attached to a Kickstand-hosted model.
-
-| Parameter  | Type   | Required | Description                                |
-| ---------- | ------ | -------- | ------------------------------------------ |
-| `model_id` | string | Yes      | ID of the loaded Kickstand model to query. |
-
-Returns each adapter with its `id`, `path`, and `scale`.
-
----
-
-### `kickstand_attach_lora`
-
-Attach a LoRA adapter to a loaded Kickstand model without reloading the base.
-
-| Parameter  | Type   | Required | Description                                                     |
-| ---------- | ------ | -------- | --------------------------------------------------------------- |
-| `model_id` | string | Yes      | ID of the loaded Kickstand model.                               |
-| `path`     | string | Yes      | Absolute path to the GGUF adapter file on the Kickstand server. |
-| `scale`    | number | No       | Adapter scale (default: 1.0). Valid range: 0.0–2.0.             |
-
-Multiple adapters can stack on one base with per-adapter scaling. The mutation is ephemeral and undoable via `kickstand_detach_lora`.
-
-**Requires approval.**
-
----
-
-### `kickstand_detach_lora`
-
-Detach a LoRA adapter from a loaded Kickstand model.
-
-| Parameter    | Type   | Required | Description                                                                                 |
-| ------------ | ------ | -------- | ------------------------------------------------------------------------------------------- |
-| `model_id`   | string | Yes      | ID of the loaded Kickstand model.                                                           |
-| `adapter_id` | string | Yes      | Adapter ID returned by `kickstand_attach_lora` or visible in `kickstand_list_loras` output. |
-
-The base model stays loaded — only the named adapter is unloaded.
-
-**Requires approval.**

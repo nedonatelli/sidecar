@@ -30,10 +30,10 @@ SideCar operates as a multi-layered system where communication flows between the
                     │  │  Backend    │   │  Backend    │   │
                     │  └─────────────┘   └─────────────┘   │
                     │  ┌─────────────┐   ┌─────────────┐   │
-                    │  │ OpenAI-compat│  │ Kickstand / │   │
-                    │  │ (OpenAI,     │  │ Bedrock /   │   │
-                    │  │ OpenRouter,  │  │ Copilot     │   │
-                    │  │ Groq, Fire-  │  │ (vscode.lm) │   │
+                    │  │ OpenAI-compat│  │ Bedrock /   │   │
+                    │  │ (OpenAI,     │  │ Copilot     │   │
+                    │  │ OpenRouter,  │  │ (vscode.lm) │   │
+                    │  │ Groq, Fire-  │  │             │   │
                     │  │ works,Gemini)│  │             │   │
                     │  └─────────────┘   └─────────────┘   │
                     │                                     │

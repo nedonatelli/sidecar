@@ -6,7 +6,7 @@
 
 [![VS Code Marketplace](https://badgen.net/vs-marketplace/v/nedonatelli.sidecar-ai)](https://marketplace.visualstudio.com/items?itemName=nedonatelli.sidecar-ai)
 
-**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [OpenAI](https://platform.openai.com), [Fireworks AI](https://fireworks.ai), [OpenRouter](https://openrouter.ai), [Google Gemini](https://aistudio.google.com), [Groq](https://groq.com), [AWS Bedrock](https://aws.amazon.com/bedrock/), your GitHub Copilot subscription, [Kickstand](https://github.com/nedonatelli/kickstand) (self-hosted), or any OpenAI-compatible server (vLLM, LM Studio, llama.cpp, a gateway) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
+**SideCar** is a free, self-hosted VS Code extension that serves as a drop-in replacement for GitHub Copilot and Claude Code. Use local [Ollama](https://ollama.com) models, the [Anthropic API](https://api.anthropic.com), [OpenAI](https://platform.openai.com), [Fireworks AI](https://fireworks.ai), [OpenRouter](https://openrouter.ai), [Google Gemini](https://aistudio.google.com), [Groq](https://groq.com), [AWS Bedrock](https://aws.amazon.com/bedrock/), your GitHub Copilot subscription, or any OpenAI-compatible server (vLLM, LM Studio, llama.cpp, a gateway) for AI-powered coding — with full agentic capabilities, inline completions, and tool use.
 
 A free, open-source, local-first **autonomous AI agent for coding** — a full agent loop, not just chat. No subscription, and with local models, no data leaves your machine.
 
@@ -26,33 +26,33 @@ The trade-off: SideCar is VS Code-only, where Cline and Kilo Code reach more edi
 
 Copilot, Cursor, and Claude Code are all capable paid agents. The comparison is no longer "agentic or not" — it's **local-first, IDE-native, and free** vs. cloud-tied and subscription-based.
 
-| Capability                                    | SideCar                   | Copilot              | Cursor             | Claude Code               |
-| --------------------------------------------- | ------------------------- | -------------------- | ------------------ | ------------------------- |
-| Autonomous agent loop                         | Yes                       | Yes                  | Yes                | Yes                       |
-| Model agnostic (any provider)                 | **Yes**                   | Partial              | Partial            | No                        |
-| Fully offline / self-hosted                   | **Yes**                   | No                   | No                 | No                        |
-| HuggingFace model install                     | **Yes**                   | No                   | No                 | No                        |
-| Custom skills system                          | **Yes**                   | Yes                  | Yes (.cursorrules) | Yes                       |
-| Context compaction (manual + auto)            | **Yes**                   | Yes                  | Yes                | Yes                       |
-| Spending budgets & cost tracking              | **Yes**                   | Yes                  | Yes                | Yes                       |
-| Hybrid local-worker delegation                | **Partial**               | No                   | No                 | No                        |
-| Prompt pruner & pre-request caching           | **Yes**                   | No                   | No                 | Partial                   |
-| Plan-then-execute mode                        | **Yes**                   | Yes                  | Yes                | Yes                       |
-| Review mode (batch diff review)               | **Yes**                   | No                   | Partial            | No                        |
-| Native Problems panel integration             | **Yes**                   | No                   | No                 | No                        |
-| Test Explorer integration (agent test runs)   | **Yes**                   | No                   | No                 | No                        |
-| Inline diff streaming in chat                 | **Yes**                   | No                   | No                 | No                        |
-| Status bar health indicator                   | **Yes**                   | Partial              | No                 | No                        |
-| Getting-started walkthrough                   | **Yes**                   | Yes                  | No                 | No                        |
-| Native modal approval for destructive tools   | **Yes**                   | Partial              | Partial            | Partial                   |
-| Conversation steering (type while processing) | **Yes**                   | No                   | Yes                | Yes                       |
-| Works in your existing VS Code                | **Yes**                   | Yes                  | No (fork)          | Yes (extension + CLI)     |
-| MCP support                                   | **Yes** (client + server) | Yes                  | Yes                | Yes                       |
-| Monthly subscription                          | **Free**                  | Free tier; $10–39/mo | from $20/mo        | Usage-based / from $20/mo |
+| Capability                                    | SideCar                   | Copilot               | Cursor                | Claude Code               |
+| --------------------------------------------- | ------------------------- | --------------------- | --------------------- | ------------------------- |
+| Autonomous agent loop                         | Yes                       | Yes                   | Yes                   | Yes                       |
+| Model agnostic (any provider)                 | **Yes**                   | Partial               | Partial               | No                        |
+| Fully offline / self-hosted                   | **Yes**                   | Partial               | No                    | No                        |
+| HuggingFace model install                     | **Yes**                   | No                    | No                    | No                        |
+| Custom skills system                          | **Yes**                   | Yes                   | Yes (skills + rules)  | Yes                       |
+| Context compaction (manual + auto)            | **Yes**                   | Yes                   | Yes                   | Yes                       |
+| Spending budgets & cost tracking              | **Yes**                   | Yes                   | Yes                   | Yes                       |
+| Hybrid local-worker delegation                | **Partial**               | No                    | No                    | No                        |
+| Prompt pruner & pre-request caching           | **Yes**                   | No                    | No                    | Partial                   |
+| Plan-then-execute mode                        | **Yes**                   | Yes                   | Yes                   | Yes                       |
+| Review mode (batch diff review)               | **Yes**                   | No                    | Partial               | No                        |
+| Native Problems panel integration             | **Yes**                   | Partial               | No                    | Partial                   |
+| Test Explorer integration (agent test runs)   | **Yes**                   | Partial               | No                    | No                        |
+| Inline diff streaming in chat                 | **Partial**               | No                    | No                    | No                        |
+| Status bar health indicator                   | **Yes**                   | Partial               | No                    | No                        |
+| Getting-started walkthrough                   | **Yes**                   | Yes                   | No                    | Yes                       |
+| Native modal approval for destructive tools   | **Partial**               | Partial               | Partial               | Partial                   |
+| Conversation steering (type while processing) | **Yes**                   | Yes                   | Yes                   | Yes                       |
+| Works in your existing VS Code                | **Yes**                   | Yes                   | No (fork)             | Yes (extension + CLI)     |
+| MCP support                                   | **Yes** (client + server) | Yes                   | Yes                   | Yes                       |
+| Monthly subscription                          | **Free**                  | Free tier; $10–100/mo | Free tier; from $8/mo | Usage-based / from $20/mo |
 
-> Cursor and Windsurf (now Devin Desktop) are paid editors you switch _into_; SideCar, like Copilot and Cline, runs inside the VS Code you already use.
+> Cursor and Windsurf (now Devin Desktop) are separate editors you switch _into_, each with a free tier and paid plans; SideCar, like Copilot and Cline, runs inside the VS Code you already use.
 
-Beyond the differentiators above, SideCar is **cost-aware** (Anthropic prompt caching, a prompt pruner that trims oversized tool results, `delegate_task` to a local worker, spend tracking and budgets, and an architect/editor model split), **secure by default** (OS-keychain key storage, secrets/vuln scanning, path-traversal protection), and **extensible** (MCP client + server with lazy schema loading, markdown skills, six agent modes plus custom ones). No vendor lock-in: Ollama, Anthropic, OpenAI, OpenRouter, Groq, Fireworks, Gemini, AWS Bedrock, GitHub Copilot, Kickstand, any OpenAI-compatible endpoint, or GGUF from HuggingFace.
+Beyond the differentiators above, SideCar is **cost-aware** (Anthropic prompt caching, a prompt pruner that trims oversized tool results, `delegate_task` to a local worker, spend tracking and budgets, and an architect/editor model split), **secure by default** (OS-keychain key storage, secrets/vuln scanning, path-traversal protection), and **extensible** (MCP client + server with lazy schema loading, markdown skills, six agent modes plus custom ones). No vendor lock-in: Ollama, Anthropic, OpenAI, OpenRouter, Groq, Fireworks, Gemini, AWS Bedrock, GitHub Copilot, any OpenAI-compatible endpoint, or GGUF from HuggingFace.
 
 ## Measured, not claimed
 
@@ -65,16 +65,16 @@ What has been shown:
 
 - **Specific repairs are load-bearing.** Text-protocol call parsing is what
   lets `qwen2.5-coder` call tools at all (it emits calls as JSON in the content
-  field), and stringified-array coercion is what makes `llama3.2`'s `ask_user`
-  calls valid.
+  field), and string-to-array coercion is what makes `llama3.2`'s `ask_user`
+  calls valid (it sends `options: "Yes"` where a list is expected).
 - **Individual mechanisms with recorded A/Bs** — noted inline where they exist,
   because a result on one model is not a general claim.
 
 Mechanisms that cost more than they return are removed rather than kept: the
-adversarial critic was removed in v0.124.0 after measuring net-negative. Each
-completion gate has its own on/off setting (`sidecar.completionGate.enabled`,
-`sidecar.syntaxGate.enabled`, `sidecar.redCheckGate.enabled`,
-`sidecar.behavioralVerificationGate.enabled`) if you want to run leaner.
+adversarial critic was removed in v0.124.0 after measuring net-negative. The
+main gates have on/off settings (`sidecar.completionGate.enabled`,
+`sidecar.syntaxGate.enabled`, `sidecar.redCheckGate.enabled`) if you want to run
+leaner; `sidecar.behavioralVerificationGate.enabled` is off by default.
 
 ## Features
 
@@ -84,7 +84,7 @@ The highlights — [full feature list](https://nedonatelli.github.io/sidecar/fea
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **87 built-in tools**                         | File ops, shell, git, web search, databases, screenshots, code profiling, CI-failure analysis, change-impact analysis, and more — [full list](https://nedonatelli.github.io/sidecar/tools-reference)                                                        |
 | **Local-model scaffolding harness**           | Capability-adaptive machinery for weaker local models: tool-call recovery from model text, grounding/completion gates, tiered reprompt budgets, and a trimmed tool catalog for local backends. Net effect is [measured, not assumed](#measured-not-claimed) |
-| **Completion gate**                           | Blocks "done" until lint and colocated tests have actually run _and passed_ — keys on output evidence, not exit codes; edited files must also parse                                                                                                         |
+| **Completion gate**                           | Holds back "done" until lint and colocated tests have actually run, reading their output rather than trusting exit codes; failing tests get the agent sent back to fix them, and edited files must parse                                                    |
 | **Write isolation**                           | Review/Audit modes (buffer writes in-memory, approve per-file diffs) and Shadow Workspaces (run in an ephemeral `git worktree`; main tree untouched until you accept)                                                                                       |
 | **Parallelism**                               | Fork & parallel solve (N attempts, pick the winner), typed sub-agent facets (named specialists with their own tool allowlist + model), and background agents                                                                                                |
 | **Durable instruction memory** _(A/B-proven)_ | Standing instructions survive context compaction and the session itself, applied automatically in later sessions; review or forget them in the **Remembered Instructions** view                                                                             |
@@ -111,7 +111,7 @@ The highlights — [full feature list](https://nedonatelli.github.io/sidecar/fea
 3. Click the SideCar icon in the activity bar (or `Cmd+Shift+I` / `Ctrl+Shift+I`)
 4. Start chatting — SideCar launches Ollama automatically if it isn't running. If the selected model isn't installed, SideCar offers an **Install Model** action.
 
-**Default model: `gemma4:e4b`** (9 GB, ~10 GB VRAM — the most-dogfooded local model, with the strongest prompt-following of those tested and a cold-start the harness handles automatically). Lighter alternative: `ministral-3:latest` (6 GB, 8 GB VRAM). Low-RAM: `granite4.1:3b` (2 GB). Cloud: configure the Anthropic backend for maximum reliability.
+**Default model: `gemma4:e4b`** (9.6 GB, ~10 GB VRAM — the most-dogfooded local model, with the strongest prompt-following of those tested and a cold-start the harness handles automatically). Lighter alternative: `ministral-3:latest` (6 GB, 8 GB VRAM). Low-RAM: `granite4.1:3b` (2 GB). Cloud: configure the Anthropic backend for maximum reliability.
 
 ### Anthropic (Claude)
 
@@ -134,29 +134,21 @@ Pick the provider in the backend menu, then paste its key when SideCar asks (or 
 | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/deepseek-v4-pro` |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`                          |
 
-> **Rate limits:** SideCar's system prompt + tool schemas are ~23K tokens per request. `gpt-4o-mini` and `gpt-4.1-mini` share a 200K TPM org-level cap that exhausts after ~8 requests — use `gpt-5` or a model with a higher TPM allocation. Groq's free tier (12K–30K TPM) is exhausted after 1–2 requests; a paid tier is required for reliable use.
+> **Rate limits:** every agent request carries SideCar's system prompt (about 26,000 characters) plus the tool definitions, so a provider's tokens-per-minute limit is reached after far fewer requests than with plain chat. Free tiers with low limits, such as Groq's, run out within a few agent turns; use a paid tier for reliable agent work.
 
 ### AWS Bedrock
 
 Claude models through Bedrock, with the same tool use, thinking, and streaming as the direct Anthropic backend.
 
 1. Open the ☰ menu → **AWS Bedrock** under Backend; SideCar asks for the region (change it later with `SideCar: Bedrock: Set Region`). GovCloud regions are supported.
-2. Credentials come from the standard AWS chain — `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`) or `~/.aws/credentials` — or a Bedrock API key via `SideCar: Set / Refresh API Key` or `AWS_BEARER_TOKEN_BEDROCK`.
+2. Credentials come from the standard AWS chain — `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`) or `~/.aws/credentials` (or the file `AWS_SHARED_CREDENTIALS_FILE` names) — or a Bedrock API key via `SideCar: Set / Refresh API Key` or `AWS_BEARER_TOKEN_BEDROCK`.
 3. The model list is read live from your account; the model must be enabled for the region in the Bedrock console.
 
 Prompt caching is not sent on the Bedrock path yet. See [docs/backends.md](docs/backends.md#aws-bedrock).
 
 ### GitHub Copilot
 
-Route requests through your existing Copilot subscription via VS Code's Language Model API — no separate key. Requires the GitHub Copilot extension, signed in. Pick **GitHub Copilot** in the backend menu, or set `sidecar.provider` to `copilot`. Tool calling depends on the Copilot model; SideCar falls back to chat-only when it isn't supported.
-
-### Kickstand (self-hosted)
-
-[Kickstand](https://github.com/nedonatelli/kickstand) is a self-hosted inference server (CLI: `kick`) that loads, unloads, and runs GGUF and MLX models with GPU acceleration.
-
-1. Start it with `kick start` — it auto-generates a bearer token at `~/.config/kickstand/token`
-2. Pick **Kickstand** in the backend menu, or set `sidecar.baseUrl` to `http://localhost:11435`
-3. SideCar reads the token file automatically — no API key prompt needed
+Route requests through your existing Copilot subscription via VS Code's Language Model API — no separate key. Requires the GitHub Copilot extension, signed in. Pick **GitHub Copilot** in the backend menu, or set `sidecar.provider` to `copilot`. Agent mode needs a Copilot model that supports tool calling.
 
 ### Custom endpoint (any OpenAI-compatible server)
 
@@ -181,6 +173,7 @@ Every model below runs the agent smoke suite with **zero infrastructure errors**
 | Model                    | Size   | Notes                                                                              |
 | ------------------------ | ------ | ---------------------------------------------------------------------------------- |
 | **gemma4:e4b** (default) | 9.6 GB | Strongest prompt-following of the local models; the shipped default                |
+| **gemma4:31b**           | 20 GB  | The most capable local model tested; needs a 32 GB GPU (see memory guidance below) |
 | **ornith:9b**            | 5.6 GB | Best small-footprint agent — near-default capability at a third the size           |
 | **ministral-3:latest**   | 6.0 GB | Strong, low-footprint, reliable                                                    |
 | **qwen2.5-coder:7b**     | 4.7 GB | Solid coding baseline; emits text-form tool calls (SideCar's parser recovers them) |
@@ -193,7 +186,7 @@ Every model below runs the agent smoke suite with **zero infrastructure errors**
 
 **Memory guidance — Apple Silicon, 36 GB unified memory.** Sub-10 GB models run comfortably alongside VS Code with headroom for the context cache; the ~19–20 GB MoE coders fit with less room to spare. A dense 14B model at a large context window can exceed unified memory and thrash — lower `sidecar.ollama.numCtx`, or prefer a smaller coder.
 
-**Memory guidance — discrete GPU (tested on 32 GB VRAM).** What matters is VRAM, not system RAM: the model's weights _and_ its context cache must fit on the GPU, or Ollama moves layers to the CPU and generation slows sharply. The context cache grows with the window — `gemma4:e4b` at its full 131K context occupies about 9.7 GB of VRAM. If a larger model runs slowly, check `ollama ps` (the `PROCESSOR` column should read 100% GPU) and lower `sidecar.ollama.numCtx` before switching models.
+**Memory guidance — discrete GPU (tested on 32 GB VRAM).** What matters is VRAM, not system RAM: the model's weights _and_ its context cache must fit on the GPU, or Ollama moves layers to the CPU and generation slows sharply. The context cache grows with the window — `gemma4:e4b` at its full 131K context needs about 10 GB of VRAM. `gemma4:31b` at 131K only just fits a 32 GB card: when other applications hold GPU memory, Windows can move part of the model into system RAM without any error, and prompt processing slows by about 10×, even though `ollama ps` still reports 100% GPU. If a larger model runs slowly, close other GPU-heavy applications and lower `sidecar.ollama.numCtx` before switching models.
 
 More per-model detail: [Model Compatibility](docs/model-compatibility.md).
 
@@ -205,7 +198,7 @@ For maximum reliability, the **Anthropic (Claude)**, **Google Gemini**, and **Fi
 
 SideCar registers as a native VS Code chat participant — type `@sidecar` in the Copilot Chat panel to talk to your configured backend without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` are available. Agent requests follow your `sidecar.agentMode` and ask before acting in a dialog (Copilot's own tool-approval settings don't apply, because SideCar runs its own tools).
 
-**VS Code Agents Window (Preview):** To use SideCar in the dedicated [Agents Window](https://code.visualstudio.com/docs/copilot/agents/agents-window), add the following to your VS Code `settings.json`:
+**VS Code Agents Window (Preview):** To use SideCar in the dedicated [Agents Window](https://code.visualstudio.com/docs/agents/run/agents-window), add the following to your VS Code `settings.json`:
 
 ```json
 "extensions.supportAgentsWindow": {
@@ -250,7 +243,7 @@ Core settings — full reference at [nedonatelli.github.io/sidecar/configuration
 | `sidecar.dailyBudget`                  | `0` (off)                | Daily spend cap in USD (paid backends)                                                         |
 | `sidecar.weeklyBudget`                 | `0` (off)                | Weekly spend cap in USD (paid backends)                                                        |
 
-API keys are stored in VS Code SecretStorage (OS keychain) — set via `SideCar: Set / Refresh API Key`, never in plaintext settings.
+Backend API keys are stored in VS Code SecretStorage (OS keychain) — set via `SideCar: Set / Refresh API Key`, never in plaintext settings. A few optional integrations (`sidecar.webSearch.apiKey`, `sidecar.zotero.apiKey`, `sidecar.mcpServer.authToken`) are plain settings; use keys with minimal permissions there.
 
 ## Documentation
 

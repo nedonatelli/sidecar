@@ -82,7 +82,6 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
 - `ollamaBackend.ts` - Ollama native `/api/chat` protocol
 - `anthropicBackend.ts` - Anthropic Messages API with thinking + tool_use blocks
 - `openaiBackend.ts` - OpenAI-compatible `/v1/chat/completions` (OpenAI, LM Studio, vLLM, llama.cpp)
-- `kickstandBackend.ts` - Kickstand self-hosted (OpenAI-compatible wrapper)
 - `openrouterBackend.ts` - OpenRouter with referrer headers + catalog pricing (subclass of OpenAIBackend)
 - `groqBackend.ts` - Groq LPU inference (empty-body subclass of OpenAIBackend — pure plumbing, no protocol quirks)
 - `fireworksBackend.ts` - Fireworks open-weight model hosting (empty-body subclass of OpenAIBackend)
