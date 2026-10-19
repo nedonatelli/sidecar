@@ -81,6 +81,22 @@ function readNumCtx(data: { parameters?: string; model_info?: Record<string, unk
   return null;
 }
 
+/**
+ * GPU layer count from `SIDECAR_OLLAMA_NUM_GPU`, for headless benchmarks only;
+ * there is no setting, and normal use lets Ollama fit the model. On Windows,
+ * Ollama 0.40's fit leaves too little VRAM for CUDA's own overhead, so when other
+ * apps hold GPU memory, gemma4:31b's buffers spill to system RAM and prompt eval
+ * drops ~10x (measured 2026-10-19: 160 vs 1,800 tok/s at 58 vs 57 layers), and
+ * OLLAMA_GPU_OVERHEAD doesn't reach the llama.cpp runner's fit. Every request
+ * must send it: Ollama reloads the model when options differ. Null when unset.
+ */
+export function envNumGpu(): number | null {
+  const raw = process.env.SIDECAR_OLLAMA_NUM_GPU;
+  if (raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 /** In-flight `/api/show` probes, so concurrent requests don't stampede one model. */
 const numCtxProbes = new Map<string, Promise<void>>();
 
@@ -506,6 +522,8 @@ export class OllamaBackend implements ApiBackend {
     const envSeed = process.env.SIDECAR_AGENT_SEED;
     const seed = agentSeed ?? (envSeed !== undefined && envSeed !== '' ? Number(envSeed) : null);
     if (seed !== null && Number.isFinite(seed)) options.seed = seed;
+    const numGpu = envNumGpu();
+    if (numGpu !== null) options.num_gpu = numGpu;
     // Thinking: ON by default for models that support it. Disabled when the
     // user opts out, OR when the model is on the known-problematic list —
     // thinking tokens make those models stall, time out, or stop emitting tool
@@ -829,7 +847,13 @@ export class OllamaBackend implements ApiBackend {
     // Known from the chat that ran first (the usual case for a summarizer or
     // repair call) or from the override; no extra probe round-trip here.
     const completeNumCtx = await this.resolveNumCtx(model, completeCfg.ollamaNumCtx, false);
-    if (completeNumCtx !== null) body.options = { num_ctx: completeNumCtx };
+    const completeNumGpu = envNumGpu();
+    if (completeNumCtx !== null || completeNumGpu !== null) {
+      body.options = {
+        ...(completeNumCtx !== null ? { num_ctx: completeNumCtx } : {}),
+        ...(completeNumGpu !== null ? { num_gpu: completeNumGpu } : {}),
+      };
+    }
     // V3: Ollama enforces structured output via the `format` field — 'json'
     // for any valid JSON, or a JSON-schema object to constrain the shape.
     if (responseFormat !== undefined) {

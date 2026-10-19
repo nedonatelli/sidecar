@@ -359,6 +359,34 @@ describe('OllamaBackend', () => {
       }
     });
 
+    it('sends SIDECAR_OLLAMA_NUM_GPU as num_gpu on chat and complete, and nothing when unset', async () => {
+      __resetNumCtxProbesForTests();
+      process.env.SIDECAR_OLLAMA_NUM_CTX = '131072';
+      try {
+        mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+        for await (const _ of backend.streamChat('gemma4:31b', '', [{ role: 'user', content: 'hi' }])) void _;
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_gpu).toBeUndefined();
+
+        process.env.SIDECAR_OLLAMA_NUM_GPU = '57';
+        mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+        for await (const _ of backend.streamChat('gemma4:31b', '', [{ role: 'user', content: 'hi' }])) void _;
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_gpu).toBe(57);
+
+        // complete() must send the same value, or Ollama reloads the model between calls.
+        mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ message: { content: 'ok' } }) });
+        await backend.complete('gemma4:31b', '', [{ role: 'user', content: 'hi' }]);
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options).toEqual({ num_ctx: 131_072, num_gpu: 57 });
+
+        process.env.SIDECAR_OLLAMA_NUM_GPU = 'lots';
+        mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+        for await (const _ of backend.streamChat('gemma4:31b', '', [{ role: 'user', content: 'hi' }])) void _;
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options.num_gpu).toBeUndefined();
+      } finally {
+        delete process.env.SIDECAR_OLLAMA_NUM_CTX;
+        delete process.env.SIDECAR_OLLAMA_NUM_GPU;
+      }
+    });
+
     it('still streams at the 32K floor when the probe fails', async () => {
       __resetNumCtxProbesForTests();
       mockFetch.mockRejectedValueOnce(new Error('connection refused'));
