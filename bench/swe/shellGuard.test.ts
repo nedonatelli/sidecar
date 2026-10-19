@@ -28,10 +28,16 @@ beforeEach(() => {
   session = new ShellSession(root);
 });
 
+// dispose() asks for the shell to be killed and returns; on Windows the shell
+// still holds `root` as its cwd for a moment, and rmSync then fails with EPERM.
+// That was the intermittent pre-commit failure, more frequent under load (three
+// tests at once while a 31b eval ran). rmSync retries EPERM itself.
+const RM = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
+
 afterEach(() => {
   session.dispose();
-  fs.rmSync(root, { recursive: true, force: true });
-  fs.rmSync(outside, { recursive: true, force: true });
+  fs.rmSync(root, RM);
+  fs.rmSync(outside, RM);
 });
 
 const sh = (cmd: string) => session.execute(cmd, { timeout: 60_000 });
@@ -78,7 +84,7 @@ describe('ShellRootGuard (#196)', { timeout: 30_000 }, () => {
       await sh(leave);
       expect(await guard.afterCommand(session, leave)).not.toBe('');
     } finally {
-      fs.rmSync(sibling, { recursive: true, force: true });
+      fs.rmSync(sibling, RM);
     }
   });
 
