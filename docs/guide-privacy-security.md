@@ -41,7 +41,7 @@ SideCar does not send your entire filesystem, only what the agent actually needs
 
 ### What SideCar never sends
 
-- **API keys** — stored in VS Code SecretStorage, never serialized into prompts or settings files
+- **API keys** — never serialized into prompts; backend keys are stored in VS Code SecretStorage (see [API key protection](#api-key-protection) for the few integration keys that are plain settings)
 - **Full filesystem scans** — the indexer respects `sidecar.maxFiles` and `.sidecarignore`
 - **Your own telemetry** — SideCar has no analytics endpoint
 
@@ -51,7 +51,9 @@ SideCar does not send your entire filesystem, only what the agent actually needs
 
 ### Keys live in the OS keychain
 
-API keys are stored in **VS Code SecretStorage**, which maps to the macOS Keychain, Windows Credential Manager, or libsecret on Linux. They are never written to `settings.json` or any file on disk in plaintext.
+Backend API keys (`sidecar.apiKey`, `sidecar.fallbackApiKey`, and each backend profile's key) are stored in **VS Code SecretStorage**, which maps to the macOS Keychain, Windows Credential Manager, or libsecret on Linux. They are never written to `settings.json` or any file on disk in plaintext.
+
+**Exceptions — plain settings:** `sidecar.webSearch.apiKey` (Tavily / Brave), `sidecar.zotero.apiKey`, and `sidecar.mcpServer.authToken` are ordinary settings stored in `settings.json`. Use keys with minimal permissions for them, keep them in user settings rather than a committed workspace `.vscode/settings.json`, and remember that Settings Sync can carry them to other machines.
 
 To set or rotate a key, run `SideCar: Set / Refresh API Key` from the Command Palette, or click the key icon in the chat header. An empty input is rejected; values are whitespace-trimmed before storage.
 

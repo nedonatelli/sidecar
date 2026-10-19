@@ -148,7 +148,7 @@ A facet is a `.md` file with YAML-ish frontmatter. The body is the system prompt
 ---
 id: api-contract-tester
 displayName: API Contract Tester
-preferredModel: claude-haiku-4-5
+preferredModel: claude-haiku-5-5
 toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
 skillBundle: []
 dependsOn: ['general-coder']

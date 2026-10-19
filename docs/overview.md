@@ -93,7 +93,7 @@ SideCar is built as a VS Code extension with the following main components:
 
 ### Cloud APIs
 
-- Anthropic Claude models (e.g., `claude-sonnet-4-6`)
+- Anthropic Claude models (e.g., `claude-sonnet-5-5`)
 - OpenAI models (when configured)
 - Other providers via custom API configuration
 

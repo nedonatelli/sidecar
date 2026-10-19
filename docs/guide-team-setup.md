@@ -25,7 +25,8 @@ Some SideCar configuration belongs in the repo and flows to every developer via 
 
 **Per-machine only — never commit:**
 
-- API keys (stored in VS Code's SecretStorage, never written to `settings.json`)
+- Backend API keys (stored in VS Code's SecretStorage, never written to `settings.json`)
+- `sidecar.webSearch.apiKey`, `sidecar.zotero.apiKey`, `sidecar.mcpServer.authToken` — these are plain settings, so keep them in user settings, never in a committed `.vscode/settings.json`
 - `sidecar.model`, `sidecar.baseUrl`, `sidecar.provider` — each developer picks their own backend
 - `sidecar.agentMode` preference
 - `sidecar.dailyBudget` / `sidecar.weeklyBudget` — personal cost controls
@@ -127,7 +128,7 @@ Create `.sidecar/skills/review-code.md`:
 name: Review Code
 description: Review code against our team checklist
 guards: lint-clean, tests-pass
-preferred-model: claude-sonnet-4-6
+preferred-model: claude-sonnet-5-5
 allowed-tools: read_file, grep, list_directory, run_tests
 ---
 
@@ -166,7 +167,7 @@ Create a skill by writing a markdown file with the frontmatter shown below — f
 ---
 name: My Skill
 description: Shown in the slash-command picker and autocomplete
-preferred-model: claude-sonnet-4-6 # pin a model for this skill's run
+preferred-model: claude-sonnet-5-5 # pin a model for this skill's run
 allowed-tools: read_file, grep, edit_file # restrict what the agent can call
 disable-model-invocation: false # set true to inject prompt only, no agent loop
 guards: lint-clean, tests-pass # run built-in guards after every write
@@ -239,7 +240,7 @@ Create `.sidecar/facets/security-reviewer.md`:
 ---
 id: security-reviewer
 displayName: Security Reviewer
-preferredModel: claude-sonnet-4-6
+preferredModel: claude-sonnet-5-5
 toolAllowlist: ['read_file', 'grep', 'list_directory', 'web_search']
 dependsOn: []
 ---
@@ -277,7 +278,7 @@ You can dispatch multiple facets in one batch. Create `.sidecar/facets/api-contr
 ---
 id: api-contract-tester
 displayName: API Contract Tester
-preferredModel: claude-haiku-4-5
+preferredModel: claude-haiku-5-5
 toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
 dependsOn: ['security-reviewer']
 ---
@@ -433,8 +434,8 @@ Each developer should configure their own backend, model, and personal preferenc
 ```json
 {
   "sidecar.provider": "anthropic",
-  "sidecar.model": "claude-sonnet-4-6",
-  "sidecar.editorModel": "claude-haiku-4-5",
+  "sidecar.model": "claude-sonnet-5-5",
+  "sidecar.editorModel": "claude-haiku-5-5",
   "sidecar.agentMode": "cautious",
   "sidecar.dailyBudget": 10,
   "sidecar.completionGate.enabled": true,
@@ -511,27 +512,7 @@ Increase `shellIntegrationTimeoutMs` to 4000 ms or more in containers — the sh
 
 API keys live in VS Code's SecretStorage on the host machine and are **not** automatically available inside the container. Each developer must run `SideCar: Set / Refresh API Key` after opening the Dev Container for the first time.
 
-If the team uses Anthropic and wants the key available without per-developer setup, pass it via the container's environment:
-
-```json
-{
-  "remoteEnv": {
-    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
-  }
-}
-```
-
-Then configure SideCar to read from the environment variable rather than SecretStorage — add to workspace settings:
-
-```json
-{
-  "sidecar.baseUrl": "https://api.anthropic.com",
-  "sidecar.provider": "anthropic",
-  "sidecar.model": "claude-sonnet-4-6"
-}
-```
-
-SideCar will fall back to `process.env.ANTHROPIC_API_KEY` when SecretStorage has no key set. This is acceptable for Dev Containers where the key is sourced from the developer's local environment, not committed to the container image.
+SideCar does not read backend API keys from environment variables such as `ANTHROPIC_API_KEY`; the key must be set through `SideCar: Set / Refresh API Key`. (AWS Bedrock is the exception: it uses the standard AWS credential chain, including `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` and `AWS_BEARER_TOKEN_BEDROCK`, so `remoteEnv` can forward those.)
 
 ### Remote SSH
 

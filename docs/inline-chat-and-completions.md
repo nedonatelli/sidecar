@@ -90,7 +90,7 @@ Enable it:
 "sidecar.nextEdit.enabled": true
 ```
 
-The Next Edit commands ship without default keybindings — run them from the Command Palette (`SideCar: Accept Next Edit`, `… Next Suggestion`, `… Previous Suggestion`, `… Dismiss`) or bind your own keys in Keyboard Shortcuts.
+The Next Edit commands ship without default keybindings — run them from the Command Palette (`SideCar: Next Edit: Jump to First Suggestion`, `… Go to Next Suggestion`, `… Go to Previous Suggestion`, `… Dismiss Suggestions`) or bind your own keys in Keyboard Shortcuts.
 
 Settings: `sidecar.nextEdit.{debounceMs, crossFileEnabled, maxHops, topK, autoTriggerOnSave}` — see [Configuration → Next Edit Suggestions](configuration#next-edit-suggestions-v072).
 

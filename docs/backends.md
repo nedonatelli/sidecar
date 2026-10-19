@@ -7,7 +7,7 @@ nav_section: 'Get Started'
 
 # Backends
 
-SideCar routes all LLM communication through a unified `ApiBackend` interface. You can switch backends at any time via the **⚙ gear** in the chat header or `SideCar: Switch Backend` from the Command Palette — the profile switcher sets `baseUrl`, `provider`, and `model` in one click and keeps each backend's API key in its own SecretStorage slot.
+SideCar routes all LLM communication through a unified `ApiBackend` interface. You can switch backends at any time via the **☰ menu → Backend** in the chat header or `SideCar: Switch Backend` from the Command Palette — the profile switcher sets `baseUrl`, `provider`, and `model` in one click and keeps each backend's API key in its own SecretStorage slot.
 
 For custom setups (non-standard ports, proxies, dev builds), edit `settings.json` directly.
 
@@ -73,9 +73,9 @@ Or set it globally via Ollama's environment variable: `OLLAMA_KEEP_ALIVE=30m`.
 
 ### Tool support
 
-SideCar probes each model for tool/function-calling support via `/api/show` and caches the result. Models known not to support tools fall into chat-only mode automatically — SideCar won't send tool definitions to them and won't attempt to parse tool calls from their output.
+On the Ollama backend, SideCar probes each model for tool/function-calling support via `/api/show` and caches the result. Models known not to support tools fall into chat-only mode automatically — SideCar won't send tool definitions to them and won't attempt to parse tool calls from their output.
 
-At runtime, if a model consistently fails to produce valid tool calls after several attempts, SideCar stops sending tool definitions to it for the session (runtime failure tracking per model name).
+At runtime, if an Ollama model consistently fails to produce valid tool calls after several attempts, SideCar stops sending tool definitions to it for the session (runtime failure tracking per model name).
 
 ### Troubleshooting
 
@@ -108,21 +108,21 @@ SideCar has a dedicated `AnthropicBackend` that uses the native Messages API (`/
 ```json
 "sidecar.baseUrl": "https://api.anthropic.com",
 "sidecar.provider": "anthropic",
-"sidecar.model": "claude-sonnet-4-6"
+"sidecar.model": "claude-sonnet-5-5"
 ```
 
-The `⚙ gear → Anthropic Claude` profile sets all three automatically.
+The **☰ menu → Backend → Anthropic Claude** profile sets the base URL and provider for you and selects `claude-haiku-4-5`, the lowest-cost default; set `sidecar.model` to the model you want for agent work.
 
 ### Recommended models
 
-| Model                        | Use case                                       | Max output tokens |
-| ---------------------------- | ---------------------------------------------- | ----------------- |
-| `claude-sonnet-4-6`          | Agent work, code generation, complex reasoning | 64 000            |
-| `claude-haiku-4-5`           | Fast, budget-friendly completions              | 64 000            |
-| `claude-opus-4`              | Maximum capability, highest cost               | 32 000            |
-| `claude-3-5-sonnet-20241022` | Strong coding, previous generation             | 8 192             |
+| Model               | Use case                                                | Price (input / output per 1M tokens) |
+| ------------------- | ------------------------------------------------------- | ------------------------------------ |
+| `claude-sonnet-5-5` | Agent work, code generation — best speed/capability mix | $2 / $10                             |
+| `claude-opus-5-5`   | Long-running agentic coding and knowledge work          | $4 / $20                             |
+| `claude-haiku-5-5`  | Fast, high-volume, budget-friendly completions          | from $0.10 / $0.50                   |
+| `claude-fable-5-1`  | Demanding reasoning and long-horizon agentic work       | $10 / $50                            |
 
-`claude-sonnet-4-6` is the recommended default for agent tasks — it has the highest output ceiling (64 k tokens), strong tool use, and a good cost/capability ratio.
+`claude-sonnet-5-5` is a good default for agent tasks: strong tool use at a moderate price. Older models (`claude-sonnet-4-6`, `claude-haiku-4-5`, and others) are legacy but still available. Current models and prices: [Anthropic's models overview](https://platform.claude.com/docs/en/about-claude/models/overview).
 
 ### Prompt caching
 
@@ -139,6 +139,9 @@ The backend enforces per-model output token maximums before sending requests —
 | `claude-3-7-sonnet`                                    | 64 000            |
 | `claude-3-5-sonnet` / `claude-3-5-haiku`               | 8 192             |
 | `claude-3-opus` / `claude-3-sonnet` / `claude-3-haiku` | 4 096             |
+| any other model (including the Claude 5 family)        | 64 000            |
+
+The ceiling only caps the request; each response is also limited by `sidecar.maxOutputTokens` (default 32 768).
 
 ### Rate limiting
 
@@ -164,11 +167,11 @@ SideCar's `OpenAIBackend` speaks the standard Chat Completions API (`/v1/chat/co
 "sidecar.model": "gpt-4o"
 ```
 
-The `⚙ gear → OpenAI` profile sets all three automatically (default model `gpt-4o`).
+The **☰ menu → Backend → OpenAI** profile sets all three automatically (default model `gpt-4o`). OpenAI has deprecated `gpt-4o` (shutdown scheduled for 2027-01-14) and `gpt-5` (2026-12-11); pick a current model such as `gpt-6.1-sol` from the model list. See [OpenAI's deprecations page](https://developers.openai.com/api/docs/deprecations).
 
 ### Rate-limit note
 
-SideCar's system prompt + tool schemas total ~23K tokens per request. Free-tier accounts (30K TPM) exhaust their per-minute budget after one or two agent requests, and even paid `gpt-4o-mini` / `gpt-4.1-mini` share a 200K TPM ceiling that agentic workloads can saturate. For sustained agent use, prefer `gpt-5` / `gpt-4o` on a paid tier or a provider with a higher TPM allocation.
+Every agent request carries SideCar's system prompt and tool definitions — about 11.5K tokens before any conversation — so a tokens-per-minute limit is reached after far fewer requests than with plain chat. OpenAI sets its limits per model, and on the lowest paid tier they are in the millions of tokens per minute, far above that footprint. See [OpenAI's rate-limit guide](https://developers.openai.com/api/docs/guides/rate-limits) for your tier.
 
 ---
 
@@ -180,9 +183,11 @@ OpenRouter proxies hundreds of models from Anthropic, OpenAI, Google, Meta, Mist
 
 ```json
 "sidecar.baseUrl": "https://openrouter.ai/api/v1",
-"sidecar.provider": "openai",
-"sidecar.model": "anthropic/claude-sonnet-4-6"
+"sidecar.provider": "openrouter",
+"sidecar.model": "anthropic/claude-sonnet-5.5"
 ```
+
+The **☰ menu → Backend → OpenRouter** profile sets these for you and selects `anthropic/claude-sonnet-4.5`. Keep `provider` on `openrouter` (or `auto`): with `openai`, requests go through the generic OpenAI backend and skip the OpenRouter cost accounting described below.
 
 Set your OpenRouter API key via `SideCar: Set / Refresh API Key`. Get a key at [openrouter.ai](https://openrouter.ai).
 
@@ -190,23 +195,18 @@ Set your OpenRouter API key via `SideCar: Set / Refresh API Key`. Get a key at [
 
 OpenRouter uses fully qualified model IDs in the form `provider/model-name`. Examples:
 
-| Model             | ID                                  |
-| ----------------- | ----------------------------------- |
-| Claude Sonnet 4.6 | `anthropic/claude-sonnet-4-6`       |
-| Claude Haiku 4.5  | `anthropic/claude-haiku-4-5`        |
-| GPT-4o            | `openai/gpt-4o`                     |
-| Gemini 2.0 Flash  | `google/gemini-2.0-flash-001`       |
-| DeepSeek V3       | `deepseek/deepseek-chat-v3-0324`    |
-| Qwen3 235B        | `qwen/qwen3-235b-a22b`              |
-| Llama 3.3 70B     | `meta-llama/llama-3.3-70b-instruct` |
+| Model             | ID                            |
+| ----------------- | ----------------------------- |
+| Claude Sonnet 5.5 | `anthropic/claude-sonnet-5.5` |
+| Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` |
+| GPT-6.1 Sol       | `openai/gpt-6.1-sol`          |
+| Gemini 3.8 Flash  | `google/gemini-3.8-flash`     |
+
+OpenRouter writes version numbers with a dot (`claude-sonnet-5.5`), unlike Anthropic's own API (`claude-sonnet-5-5`). The model picker lists the full live catalog.
 
 ### Free tier
 
-OpenRouter offers free daily credits on selected models (marked with a `:free` suffix). These are rate-limited but useful for evaluation:
-
-```json
-"sidecar.model": "meta-llama/llama-3.3-70b-instruct:free"
-```
+OpenRouter offers free access to selected models, marked with a `:free` suffix on the model ID. These are rate-limited but useful for evaluation; which models are free changes over time, so check the catalog.
 
 ### Cost tracking
 
@@ -260,7 +260,7 @@ Fireworks hosts open-weight models (DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixt
 
 ```json
 "sidecar.baseUrl": "https://api.fireworks.ai/inference/v1",
-"sidecar.provider": "openai",
+"sidecar.provider": "fireworks",
 "sidecar.model": "accounts/fireworks/models/qwen2p5-coder-32b-instruct"
 ```
 
@@ -384,7 +384,7 @@ No API key prompt. SideCar uses the standard AWS credential chain, in order:
 "sidecar.model": "us.anthropic.claude-sonnet-4-20250514-v1:0"
 ```
 
-The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. Switching to the **AWS Bedrock** profile from the ⚙ gear in chat sets `provider` + a default model and then prompts you to pick the region — or run **SideCar: Bedrock: Set Region** any time. So the whole setup (provider, model, key, region) is doable without editing `settings.json`.
+The Bedrock Runtime endpoint is derived as `bedrock-runtime.<region>.amazonaws.com`. Switching to the **AWS Bedrock** profile from the ☰ menu in chat sets `provider` + a default model and then prompts you to pick the region — or run **SideCar: Bedrock: Set Region** any time. So the whole setup (provider, model, key, region) is doable without editing `settings.json`.
 
 **AWS GovCloud** is supported: choose `us-gov-west-1` / `us-gov-east-1` in the region picker (or type any region in the custom entry). The endpoint resolves to `bedrock-runtime.us-gov-west-1.amazonaws.com`, and SigV4/bearer auth and the Anthropic payload are identical to commercial regions — just make sure your Bedrock model access and credentials are in the GovCloud partition.
 
@@ -421,24 +421,19 @@ SideCar uses Google's OpenAI-compatible endpoint at `generativelanguage.googleap
 
 ```json
 "sidecar.baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
-"sidecar.provider": "openai",
-"sidecar.model": "gemini-2.0-flash"
+"sidecar.provider": "gemini",
+"sidecar.model": "gemini-3.8-flash"
 ```
 
 Note the base URL ends at `/openai` — do not append `/v1`. SideCar's `GeminiBackend` constructs the full endpoint as `${baseUrl}/chat/completions` (not `${baseUrl}/v1/chat/completions`).
 
 ### Available models
 
-SideCar fetches the live model list from the Gemini API using your API key. Fallback list when the key is not yet available:
+SideCar fetches the live model list from the Gemini API using your API key. There is no built-in fallback list, so the picker stays empty until a key is set.
 
-| Model                            | Notes                          |
-| -------------------------------- | ------------------------------ |
-| `gemini-2.5-flash-preview-04-17` | Latest Flash, strong reasoning |
-| `gemini-2.0-flash`               | Fast, multimodal, tool use     |
-| `gemini-1.5-pro`                 | Long context (up to 2M tokens) |
-| `gemini-1.5-flash`               | Faster, lower cost             |
+Google recommends `gemini-3.8-flash` for new projects (or `gemini-3.5-flash-lite` for lower cost). The 2.5 models (`gemini-2.5-flash`, `gemini-2.5-pro`) are served only to accounts that already used them, and `gemini-2.0-flash` has been shut down. See [Google's model list](https://ai.google.dev/gemini-api/docs/models).
 
-`gemini-2.0-flash` is the recommended default — it supports function calling (required for full agentic mode), has a 1M token context window, and is free within Google AI Studio's rate limits.
+> The **☰ menu → Backend → Google Gemini** profile still selects `gemini-2.0-flash`, which Google has shut down. After switching, pick a current model from the model list.
 
 ---
 
@@ -450,10 +445,10 @@ SideCar can route requests through the VS Code `vscode.lm` Language Model API, w
 
 ```json
 "sidecar.provider": "copilot",
-"sidecar.model": "copilot/gpt-4o"
+"sidecar.model": "gpt-4o"
 ```
 
-SideCar auto-detects the `copilot` provider and routes requests through `vscode.lm.selectChatModels`. The Copilot extension handles authentication, token management, and rate limiting — SideCar never sees or stores a Copilot token.
+With `sidecar.provider` set to `copilot` (or **GitHub Copilot** picked in the backend menu), SideCar routes requests through `vscode.lm.selectChatModels`. It matches `sidecar.model` against a Copilot model's id, then its family; if neither matches, it uses the first model Copilot offers. The Copilot extension handles authentication, token management, and rate limiting — SideCar never sees or stores a Copilot token.
 
 ### How it works
 
@@ -462,12 +457,12 @@ SideCar's `CopilotBackend` converts its internal `ChatMessage` format to `vscode
 **Limitations:**
 
 - Image and thinking content blocks are silently dropped — the `vscode.lm` API has no equivalent types.
-- Tool/function calling depends on whether the selected Copilot model supports it via the `vscode.lm` tool-use API. Not all Copilot-exposed models do; SideCar falls back to chat-only mode if tools are unsupported.
+- Agent mode needs a Copilot model that supports tool calling through the `vscode.lm` tool-use API. SideCar always sends its tool definitions and does not retry without them, so a model without tool support fails agent requests instead of falling back to chat-only.
 - Rate limiting and quota management are controlled by the Copilot extension. If you hit Copilot limits, SideCar surfaces the VS Code error directly without additional wrapping.
 - `SideCar: Show Session Spend` shows $0.00 for Copilot — spend is billed through your Copilot subscription, not tracked per-token by SideCar.
 
 ### Prerequisites
 
 - GitHub Copilot extension installed and signed in
-- Active Copilot Individual, Business, or Enterprise subscription
-- VS Code 1.90 or later (Language Model API stability requirement)
+- An active GitHub Copilot plan
+- VS Code 1.116.0 or later (SideCar's minimum version)
