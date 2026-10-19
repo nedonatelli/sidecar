@@ -16,6 +16,28 @@ import { AGENT_MAX_OUTPUT_TOKENS } from '../config/constants.js';
 /** How long we'll wait on a rate-limit reset before bailing to the caller. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
+/** listModels failed; `kind` picks the recovery the UI offers (fix the key vs. the connection). */
+export class ModelListError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'auth' | 'connection',
+  ) {
+    super(message);
+    this.name = 'ModelListError';
+  }
+}
+
+/**
+ * Node fetch rejects with an opaque "fetch failed" and keeps the real reason
+ * -- an untrusted certificate, a refused connection, an unknown host -- in
+ * `err.cause`.
+ */
+function fetchFailureReason(err: unknown): string {
+  const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+  if (cause?.message) return cause.code ? `${cause.message} (${cause.code})` : cause.message;
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * Output cap per request. It was a fixed 4096 for every model -- reasoning
  * included, since `max_completion_tokens` covers an o-series/gpt-5 model's
@@ -398,16 +420,29 @@ export class OpenAIBackend implements ApiBackend {
     return data.choices?.[0]?.message?.content || '';
   }
 
-  /** List available models from the /v1/models endpoint. */
+  /**
+   * List available models from the /v1/models endpoint. Throws ModelListError
+   * when the server can't be reached or refuses the request: an empty list
+   * here left the model picker blank with no hint that the key was wrong or
+   * the certificate untrusted.
+   */
   async listModels(): Promise<{ id: string; owned_by?: string }[]> {
+    const url = this.modelsUrl;
+    let response: Response;
     try {
-      const response = await fetch(this.modelsUrl, { headers: this.getHeaders() });
-      if (!response.ok) return [];
-      const data = (await response.json()) as { data: { id: string; owned_by?: string }[] };
-      return data.data || [];
-    } catch {
-      return [];
+      response = await fetch(url, { headers: this.getHeaders() });
+    } catch (err) {
+      throw new ModelListError(`Could not connect to ${url}: ${fetchFailureReason(err)}.`, 'connection');
     }
+    if (!response.ok) {
+      const status = `${response.status} ${response.statusText}`.trim();
+      if (response.status === 401 || response.status === 403) {
+        throw new ModelListError(`${url} answered ${status}. Check the API key.`, 'auth');
+      }
+      throw new ModelListError(`${url} answered ${status}.`, 'connection');
+    }
+    const data = (await response.json()) as { data: { id: string; owned_by?: string }[] };
+    return data.data || [];
   }
 
   // --- Native capabilities ---

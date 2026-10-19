@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIBackend } from './openaiBackend.js';
+import { OpenAIBackend, ModelListError } from './openaiBackend.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -467,16 +467,49 @@ describe('OpenAIBackend', () => {
       expect(models.map((m) => m.id)).toEqual(['gpt-4o', 'gpt-3.5-turbo']);
     });
 
-    it('returns empty array when response is not ok', async () => {
-      mockFetch.mockResolvedValueOnce({ ok: false });
-      const models = await backend.listModels();
-      expect(models).toEqual([]);
+    // An empty list on failure left the model picker blank with no reason.
+    it('throws an auth error naming the URL when the server refuses the key', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' });
+      const err = await backend.listModels().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ModelListError);
+      expect(err).toMatchObject({
+        kind: 'auth',
+        message: 'http://localhost:1234/v1/models answered 401 Unauthorized. Check the API key.',
+      });
     });
 
-    it('returns empty array when fetch throws', async () => {
+    it('treats 403 as an auth error too', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 403, statusText: 'Forbidden' });
+      await expect(backend.listModels()).rejects.toMatchObject({ kind: 'auth' });
+    });
+
+    it('throws a connection error for any other failed status', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' });
+      await expect(backend.listModels()).rejects.toMatchObject({
+        kind: 'connection',
+        message: 'http://localhost:1234/v1/models answered 404 Not Found.',
+      });
+    });
+
+    it("reports the cause Node's fetch hides, such as an untrusted certificate", async () => {
+      const cause = Object.assign(new Error('self-signed certificate in certificate chain'), {
+        code: 'SELF_SIGNED_CERT_IN_CHAIN',
+      });
+      mockFetch.mockRejectedValueOnce(new TypeError('fetch failed', { cause }));
+      await expect(backend.listModels()).rejects.toMatchObject({
+        kind: 'connection',
+        message:
+          'Could not connect to http://localhost:1234/v1/models: ' +
+          'self-signed certificate in certificate chain (SELF_SIGNED_CERT_IN_CHAIN).',
+      });
+    });
+
+    it('falls back to the error message when fetch gives no cause', async () => {
       mockFetch.mockRejectedValueOnce(new Error('network error'));
-      const models = await backend.listModels();
-      expect(models).toEqual([]);
+      await expect(backend.listModels()).rejects.toMatchObject({
+        kind: 'connection',
+        message: 'Could not connect to http://localhost:1234/v1/models: network error.',
+      });
     });
   });
 

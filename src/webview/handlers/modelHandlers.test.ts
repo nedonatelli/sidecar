@@ -93,6 +93,7 @@ import {
   handleKickstandUnloadModel,
   handleDeleteModel,
 } from './modelHandlers.js';
+import { ModelListError } from '../../ollama/openaiBackend.js';
 import { window } from 'vscode';
 
 function mockState(overrides: Record<string, unknown> = {}) {
@@ -148,6 +149,44 @@ describe('loadModels', () => {
     await loadModels(state as never);
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'error', content: expect.stringContaining('Cannot connect') }),
+    );
+  });
+
+  // A server that refused the key answered the reachability probe, then gave
+  // an empty model list: a blank picker with no reason given.
+  it('reports why the model list failed, offering Set API Key first for an auth error', async () => {
+    const showError = vi.spyOn(window, 'showErrorMessage');
+    const reason = 'https://host/v1/models answered 401 Unauthorized. Check the API key.';
+    const state = mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        listLibraryModels: vi.fn().mockRejectedValue(new ModelListError(reason, 'auth')),
+        getProviderType: vi.fn().mockReturnValue('openai-compat'),
+      },
+    });
+    mockFetch.mockResolvedValue({ ok: false, status: 401 });
+
+    await loadModels(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'error', content: `Cannot list models. ${reason}` });
+    await vi.waitFor(() => expect(showError).toHaveBeenCalled());
+    expect(showError.mock.calls[0][1]).toEqual({ title: 'Set API Key' });
+  });
+
+  it('keeps the connection message for errors that are not a model-list failure', async () => {
+    const state = mockState({
+      client: {
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        listLibraryModels: vi.fn().mockRejectedValue(new Error('boom')),
+        getProviderType: vi.fn().mockReturnValue('openai-compat'),
+      },
+    });
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+    await loadModels(state as never);
+
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'error', content: expect.stringContaining('Cannot connect to API at') }),
     );
   });
 

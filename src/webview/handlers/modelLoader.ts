@@ -4,6 +4,7 @@ import type { LibraryModelUI } from '../chatWebview.js';
 import { getConfig } from '../../config/settings.js';
 import { isProviderReachable } from '../../config/providerReachability.js';
 import { modelSupportsTools, probeAllModelToolSupport, getCachedOllamaNumCtx } from '../../ollama/ollamaBackend.js';
+import { ModelListError } from '../../ollama/openaiBackend.js';
 import { surfaceProviderError } from '../errorSurface.js';
 
 export function formatContextLength(n: number): string {
@@ -81,8 +82,10 @@ export async function loadModels(state: ChatState): Promise<void> {
     logger.error('Failed to load models:', err);
     const message = state.client.isLocalOllama()
       ? 'Cannot connect to Ollama. Make sure Ollama is running on localhost:11434.'
-      : `Cannot connect to API at ${config.baseUrl}.`;
+      : err instanceof ModelListError
+        ? `Cannot list models. ${err.message}`
+        : `Cannot connect to API at ${config.baseUrl}.`;
     state.postMessage({ command: 'error', content: message });
-    void surfaceProviderError(message, 'connection');
+    void surfaceProviderError(message, err instanceof ModelListError ? err.kind : 'connection');
   }
 }

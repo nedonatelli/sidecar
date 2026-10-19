@@ -522,11 +522,12 @@ describe('SideCarClient', () => {
       expect(models[0].name).toBe('gpt-4');
     });
 
-    it('returns empty array when OpenAI endpoint fails', async () => {
+    it('throws when the OpenAI endpoint fails, as the Ollama path does', async () => {
       const client = new SideCarClient('gpt-4', 'https://api.openai.com', 'sk-test');
       mockFetch.mockRejectedValueOnce(new Error('network'));
-      const models = await client.listInstalledModels();
-      expect(models).toEqual([]);
+      await expect(client.listInstalledModels()).rejects.toThrow(
+        'Could not connect to https://api.openai.com/v1/models: network.',
+      );
     });
 
     it('lists Gemini models via the backend endpoint, not the Ollama /api/tags fallback', async () => {
