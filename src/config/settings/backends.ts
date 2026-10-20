@@ -122,20 +122,23 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'AWS Bedrock',
     provider: 'bedrock',
     baseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com',
-    defaultModel: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+    // Claude Sonnet 4, the previous default, reached end of life on Bedrock on
+    // 2026-10-14; requests to it fail with ResourceNotFoundException.
+    defaultModel: 'us.anthropic.claude-sonnet-5-5',
     secretKey: null,
     description:
-      'AWS Bedrock for Claude models. No API key — uses your AWS credential chain (AWS_ACCESS_KEY_ID / ~/.aws/credentials). Set sidecar.bedrock.region and use a Bedrock model or inference-profile ID.',
+      'AWS Bedrock for Claude models. Uses a Bedrock API key if you set one, otherwise your AWS credential chain (AWS_ACCESS_KEY_ID / ~/.aws/credentials). Set sidecar.bedrock.region and use a Bedrock model or inference-profile ID.',
   },
   {
     id: 'gemini',
     name: 'Google Gemini',
     provider: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    defaultModel: 'gemini-2.0-flash',
+    // gemini-2.0-flash, the previous default, was shut down on 2026-06-01.
+    defaultModel: 'gemini-3.8-flash',
     secretKey: 'sidecar.profileKey.gemini',
     description:
-      'Google Gemini models (Flash, Pro) via the OpenAI-compatible endpoint. Gemini 2.0 Flash is fast and free-tier friendly. Requires an API key from aistudio.google.com/apikey.',
+      'Google Gemini models via the OpenAI-compatible endpoint. Gemini 3.8 Flash is fast, with a 1M-token context. Requires an API key from aistudio.google.com/apikey.',
   },
   {
     id: 'copilot',
