@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CopilotBackend } from './copilotBackend.js';
+import { CopilotBackend, resolveCopilotModel, _resetCopilotSubstitutionWarnings } from './copilotBackend.js';
+import { logger } from '../system/logger.js';
 import * as vscode from 'vscode';
 import type { ChatMessage, ToolDefinition } from './types.js';
 
@@ -206,6 +207,12 @@ describe('CopilotBackend.listAvailableModels', () => {
     ]);
   });
 
+  it("asks for Copilot's models only (#230)", async () => {
+    vi.mocked(vscode.lm.selectChatModels).mockResolvedValue([]);
+    await CopilotBackend.listAvailableModels();
+    expect(vscode.lm.selectChatModels).toHaveBeenCalledWith({ vendor: 'copilot' });
+  });
+
   it('returns empty array when selectChatModels throws', async () => {
     vi.mocked(vscode.lm.selectChatModels).mockRejectedValue(new Error('not available'));
     const models = await CopilotBackend.listAvailableModels();
@@ -227,5 +234,70 @@ describe('CopilotBackend.getModelContextLength', () => {
     vi.mocked(vscode.lm.selectChatModels).mockResolvedValue([]);
     const len = await CopilotBackend.getModelContextLength('unknown');
     expect(len).toBeNull();
+  });
+
+  it('after a fallback, reports the context of the model the chat path uses (#230)', async () => {
+    // Only Copilot's fallback answers: the configured id and family match nothing.
+    vi.mocked(vscode.lm.selectChatModels).mockImplementation((async (sel?: { vendor?: string }) =>
+      sel?.vendor === 'copilot'
+        ? [{ id: 'gpt-6-luna', name: 'GPT-6 Luna', vendor: 'copilot', maxInputTokens: 272_000 }]
+        : []) as never);
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    // The old lookup stopped after id and family and returned null here.
+    expect(await CopilotBackend.getModelContextLength('gpt-4o')).toBe(272_000);
+    expect((await resolveCopilotModel('gpt-4o'))?.id).toBe('gpt-6-luna');
+    _resetCopilotSubstitutionWarnings();
+    vi.mocked(logger.warn).mockRestore();
+  });
+});
+
+describe('resolveCopilotModel (#230)', () => {
+  type Sel = Parameters<typeof vscode.lm.selectChatModels>[0];
+  const model = (id: string, vendor = 'copilot') =>
+    ({
+      id,
+      name: id.toUpperCase(),
+      vendor,
+      family: id,
+      maxInputTokens: 128_000,
+    }) as unknown as vscode.LanguageModelChat;
+  /** A fake LM registry: Copilot's models plus another extension's, in that order of registration. */
+  const registry = [model('other-ext-model', 'someone-else'), model('gpt-6-luna'), model('claude-sonnet-5-5')];
+  const select = vi.fn(async (sel?: Sel) =>
+    registry.filter(
+      (m) =>
+        (!sel?.id || m.id === sel.id) &&
+        (!sel?.family || m.family === sel.family) &&
+        (!sel?.vendor || m.vendor === sel.vendor),
+    ),
+  ) as unknown as typeof vscode.lm.selectChatModels;
+
+  beforeEach(() => {
+    _resetCopilotSubstitutionWarnings();
+    vi.mocked(select).mockClear();
+  });
+
+  it('uses the configured id when Copilot offers it, with no warning', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    expect((await resolveCopilotModel('claude-sonnet-5-5', select))?.id).toBe('claude-sonnet-5-5');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("falls back to Copilot's own model, never another vendor's, and says so once", async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const chosen = await resolveCopilotModel('gpt-4o', select); // retired from Copilot
+    expect(chosen?.vendor).toBe('copilot');
+    expect(chosen?.id).toBe('gpt-6-luna');
+    expect(vi.mocked(select).mock.calls.at(-1)?.[0]).toEqual({ vendor: 'copilot' });
+    await resolveCopilotModel('gpt-4o', select);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('gpt-4o');
+    warn.mockRestore();
+  });
+
+  it('returns null when Copilot offers no models at all', async () => {
+    const none = vi.fn(async () => []) as unknown as typeof vscode.lm.selectChatModels;
+    expect(await resolveCopilotModel('gpt-4o', none)).toBeNull();
   });
 });
