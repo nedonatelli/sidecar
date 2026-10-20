@@ -101,6 +101,14 @@ describe('parseTextToolCalls', () => {
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('read_file');
     });
+
+    // ML-64 (#164): values were trim()med, so code lost its first-line indent.
+    it('keeps the whitespace of a multi-line value, dropping only the framing newlines', () => {
+      const code = '    return a + b\n\n';
+      const input = `<function=run_command>\n<parameter=cmd>\n${code}\n</parameter>\n<parameter=cwd>\n /proj \n</parameter>\n</function>`;
+      const result = parseTextToolCalls(input, tools);
+      expect(result[0].input).toEqual({ cmd: code, cwd: '/proj' });
+    });
   });
 
   describe('<tool_call>JSON</tool_call> pattern', () => {
@@ -852,6 +860,17 @@ describe('synthesizeFenceWrite (campaign shape: complete file printed, nothing c
   it('does not fire without write_file in the catalog', () => {
     expect(synthesizeFenceWrite(fenceTurn, userMsg, new Set(['read_file']))).toBeNull();
   });
+
+  // ML-67 (#164): a backslash path was cut to its basename.
+  it('keeps the directories of a Windows backslash path, as a forward-slash path', () => {
+    const synth = synthesizeFenceWrite(fenceTurn, 'Now add multiply to src\\pkg\\calculator.py.', toolNames);
+    expect(synth?.input.path).toBe('src/pkg/calculator.py');
+  });
+
+  it('counts the backslash and forward-slash spellings of one path as one target', () => {
+    const synth = synthesizeFenceWrite(fenceTurn, 'Edit src\\calculator.py (that is src/calculator.py).', toolNames);
+    expect(synth?.input.path).toBe('src/calculator.py');
+  });
 });
 
 describe('synthesizeFenceWrite — self-import clobber guard (probe r1, 2026-07-21)', () => {
@@ -951,6 +970,57 @@ describe('parseTextToolCalls — format latch and fences', () => {
     expect(calls.map((c) => [c.name, c.input])).toEqual([
       ['read_file', { path: 'a.ts' }],
       ['grep', { pattern: 'foo' }],
+    ]);
+  });
+
+  // ML-63 (#164): the first call ran twice and the rest were dropped.
+  it('marks only the array entry whose string arguments do not parse', () => {
+    const badArgs = '{"pattern": "a\nb"}'; // raw newline: JSON.parse rejects it
+    const text =
+      '<tool_call>[{"name": "read_file", "arguments": {"path": "a.ts"}}, ' +
+      `{"name": "grep", "arguments": ${JSON.stringify(badArgs)}}]</tool_call>`;
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => [c.name, c.input, c._malformedInputRaw])).toEqual([
+      ['read_file', { path: 'a.ts' }, undefined],
+      ['grep', {}, badArgs],
+    ]);
+  });
+
+  // ML-61 (#164): content holding `</tool_call>` was cut there, and repair wrote the prefix.
+  it('reads past a </tool_call> inside a string value', () => {
+    const pattern = 'a</tool_call>b';
+    const text = `<tool_call>{"name": "grep", "arguments": {"pattern": "${pattern}"}}</tool_call>\nafter`;
+    const { calls, cleanedText } = parseTextToolCallsCleaned(text, tools);
+    expect(calls.map((c) => [c.name, c.input, c._malformedInputRaw])).toEqual([['grep', { pattern }, undefined]]);
+    expect(cleanedText).toBe('after');
+  });
+
+  it('hands the whole body to repair when the value also has raw newlines', () => {
+    const body = '{"name": "grep", "arguments": {"pattern": "a\n</tool_call>\nb"}}';
+    const calls = parseTextToolCalls(`<tool_call>${body}</tool_call>`, tools);
+    expect(calls.map((c) => [c.name, c._malformedInputRaw])).toEqual([['grep', body]]);
+  });
+
+  it('does not fuse a malformed call with the next call', () => {
+    // The first call is a brace short and the second a brace over, so the
+    // string-aware scan closes the first object at the end of the second.
+    const first = '{"name": "grep", "arguments": {"pattern": "x"}';
+    const second = '{"name": "read_file", "arguments": {"path": "a.ts"}}}';
+    const text = `<tool_call>${first}</tool_call>\n<tool_call>${second}</tool_call>`;
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => [c.name, c._malformedInputRaw])).toEqual([
+      ['grep', first],
+      ['read_file', second],
+    ]);
+  });
+
+  it('decodes an array entry that is a JSON-encoded call string', () => {
+    const encoded = JSON.stringify(JSON.stringify({ name: 'grep', arguments: { pattern: 'x\ny' } }));
+    const text = `<tool_call>[{"name": "read_file", "arguments": {"path": "a.ts"}}, ${encoded}, "not a call"]</tool_call>`;
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => [c.name, c.input])).toEqual([
+      ['read_file', { path: 'a.ts' }],
+      ['grep', { pattern: 'x\ny' }],
     ]);
   });
 });
