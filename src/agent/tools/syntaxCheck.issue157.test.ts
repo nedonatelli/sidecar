@@ -121,3 +121,20 @@ describe('ML-39: no coverage is claimed for a grammar that cannot run', () => {
     expect(canParseSyntax('a.rs')).toBe(false);
   });
 });
+
+describe('ML-50: a Python file with more indentation errors than the cap says so', () => {
+  it('sets saturated when the indent scan hit its cap', async () => {
+    const { checkSyntax } = await import('./syntaxCheck.js');
+    const messy = Array.from({ length: 60 }, (_, i) => (i % 2 ? '    x = 1' : 'y = 2')).join('\n') + '\n';
+    const r = await checkSyntax('/w/messy.py', messy);
+    expect(r.broken).toBe(true);
+    expect(r.saturated).toBe(true);
+  });
+
+  it('does not set saturated for a file with a single indentation error', async () => {
+    const { checkSyntax } = await import('./syntaxCheck.js');
+    const r = await checkSyntax('/w/one.py', 'def f():\n    x = 1\n      y = 2\n');
+    expect(r.broken).toBe(true);
+    expect(r.saturated).toBeUndefined();
+  });
+});
