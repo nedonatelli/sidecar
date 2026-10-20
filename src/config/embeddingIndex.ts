@@ -69,9 +69,12 @@ export class EmbeddingIndex implements Disposable {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
   // Cap on concurrent readFile calls triggered by queuePath so a burst of
-  // file-watcher events can't exhaust the OS file-descriptor limit.
+  // file-watcher events can't exhaust the OS file-descriptor limit. Paths
+  // over the cap wait in `pendingReads` (path -> root, so a repeat queues
+  // once) and start as earlier reads finish.
   private activeReads = 0;
   private static readonly MAX_CONCURRENT_READS = 16;
+  private pendingReads = new Map<string, string>();
 
   constructor(sidecarDir: SidecarDir | null) {
     this.sidecarDir = sidecarDir;
@@ -122,21 +125,32 @@ export class EmbeddingIndex implements Disposable {
    * Used by file watchers that only have the path.
    */
   queuePath(relativePath: string, rootPath: string): void {
-    if (this.activeReads >= EmbeddingIndex.MAX_CONCURRENT_READS) {
-      // Drop the read — the file watcher will re-fire on the next save.
-      return;
+    // Over the cap, wait rather than drop. Dropping assumed a later save
+    // would re-queue the file, but activation queues every workspace file
+    // in one synchronous loop: the first 16 reads filled the cap before any
+    // finished, and every other file was dropped, so only ~16 files of a
+    // project were ever embedded and semantic search saw almost nothing (#113).
+    this.pendingReads.set(relativePath, rootPath);
+    this.startReads();
+  }
+
+  /** Start queued reads while there's room under MAX_CONCURRENT_READS. */
+  private startReads(): void {
+    while (this.activeReads < EmbeddingIndex.MAX_CONCURRENT_READS && this.pendingReads.size > 0) {
+      const [relativePath, rootPath] = this.pendingReads.entries().next().value as [string, string];
+      this.pendingReads.delete(relativePath);
+      this.activeReads++;
+      fs.promises
+        .readFile(path.join(rootPath, relativePath), 'utf-8')
+        .then((content) => this.queueUpdate(relativePath, content.slice(0, MAX_INPUT_CHARS)))
+        .catch(() => {
+          // File may have been deleted or be unreadable — skip
+        })
+        .finally(() => {
+          this.activeReads--;
+          this.startReads();
+        });
     }
-    this.activeReads++;
-    const absPath = path.join(rootPath, relativePath);
-    fs.promises
-      .readFile(absPath, 'utf-8')
-      .then((content) => this.queueUpdate(relativePath, content.slice(0, MAX_INPUT_CHARS)))
-      .catch(() => {
-        // File may have been deleted or be unreadable — skip
-      })
-      .finally(() => {
-        this.activeReads--;
-      });
   }
 
   /**
@@ -159,6 +173,7 @@ export class EmbeddingIndex implements Disposable {
    * next to searches, and every read path stays a flat indexed lookup.
    */
   removeFile(relativePath: string): void {
+    this.pendingReads.delete(relativePath);
     this.pendingUpdates.delete(relativePath);
     const removed = this.meta.entries[relativePath];
     if (!removed) return;

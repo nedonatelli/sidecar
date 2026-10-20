@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -98,9 +98,9 @@ describe('EmbeddingIndex', () => {
     index.dispose();
   });
 
-  it('drops queuePath calls when MAX_CONCURRENT_READS cap is reached', () => {
+  it('holds a queuePath call over the MAX_CONCURRENT_READS cap instead of starting it', () => {
     const index = new EmbeddingIndex(null);
-    type EmbeddingIndexInternals = { activeReads: number };
+    type EmbeddingIndexInternals = { activeReads: number; pendingReads: Map<string, string> };
     type EmbeddingIndexStatics = { MAX_CONCURRENT_READS: number };
     const cap = (EmbeddingIndex as unknown as EmbeddingIndexStatics).MAX_CONCURRENT_READS;
     // Artificially fill the active-reads counter to the cap.
@@ -108,8 +108,42 @@ describe('EmbeddingIndex', () => {
 
     index.queuePath('src/app.ts', tempDir);
 
-    // activeReads must remain at the cap — the call was dropped, not started.
+    // Not started (the cap holds), but waiting — not dropped.
     expect((index as unknown as EmbeddingIndexInternals).activeReads).toBe(cap);
+    expect((index as unknown as EmbeddingIndexInternals).pendingReads.get('src/app.ts')).toBe(tempDir);
+    index.dispose();
+  });
+
+  it('reads every file queued in one synchronous burst, not just the first 16 (#113)', async () => {
+    // Activation queues the whole workspace in one loop. The cap used to drop
+    // every path past the 16th, so only ~16 files of a project were embedded.
+    const total = 100;
+    for (let i = 0; i < total; i++) fs.writeFileSync(path.join(tempDir, `f${i}.ts`), `export const v${i} = ${i};`);
+    const index = new EmbeddingIndex(null);
+    const queued = new Set<string>();
+    // Stand in for the embed pipeline, so the test never loads the model.
+    vi.spyOn(index, 'queueUpdate').mockImplementation((rel: string) => {
+      queued.add(rel);
+    });
+
+    for (let i = 0; i < total; i++) index.queuePath(`f${i}.ts`, tempDir);
+    for (let tries = 0; queued.size < total && tries < 200; tries++) await new Promise((r) => setTimeout(r, 10));
+
+    expect(queued.size).toBe(total);
+    expect((index as unknown as { activeReads: number }).activeReads).toBe(0);
+    index.dispose();
+  });
+
+  it('removeFile drops a path still waiting for its read', () => {
+    const index = new EmbeddingIndex(null);
+    type EmbeddingIndexInternals = { activeReads: number; pendingReads: Map<string, string> };
+    const cap = (EmbeddingIndex as unknown as { MAX_CONCURRENT_READS: number }).MAX_CONCURRENT_READS;
+    (index as unknown as EmbeddingIndexInternals).activeReads = cap;
+    index.queuePath('src/gone.ts', tempDir);
+
+    index.removeFile('src/gone.ts');
+
+    expect((index as unknown as EmbeddingIndexInternals).pendingReads.has('src/gone.ts')).toBe(false);
     index.dispose();
   });
 
