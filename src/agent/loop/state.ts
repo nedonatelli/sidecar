@@ -143,6 +143,19 @@ export interface LoopState {
    * the tool rather than of the invocation.
    */
   fileMutations: number;
+  /**
+   * #222: a read-only loop before the first successful edit gets one nudge
+   * instead of a stop. True once that nudge has been spent this run.
+   */
+  readOnlyCycleNudged?: boolean;
+  /**
+   * The normalized signature that earned the nudge. Its earlier repeats stay
+   * in the window, so the frequency pass would stop the very next turn
+   * whatever the model did; it now counts them only when the turn repeats it.
+   */
+  cycleNudgedSig?: string;
+  /** The nudge cycle detection asked the loop to inject this turn, if any. */
+  pendingCycleNudge?: string;
   /** Last run of each shell command, for collapsing exact repeats. */
   commandRuns: Map<string, CommandRunRecord>;
   lastActualInputTokens?: number;

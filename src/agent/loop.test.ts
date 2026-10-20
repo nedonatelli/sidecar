@@ -1264,3 +1264,63 @@ describe('toolCallParseErrorDetail', () => {
     expect(toolCallParseErrorDetail(new Error(message))).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// runAgentLoop — #222: a read-only loop before any edit gets one nudge
+// ---------------------------------------------------------------------------
+describe('runAgentLoop — one nudge before stopping a pre-edit read-only loop (#222)', () => {
+  it('injects the nudge once as a user message, then stops if the model keeps repeating', async () => {
+    const settings = await import('../config/settings.js');
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 20,
+      agentMaxTokens: 100_000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+      promptPruningEnabled: false,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    let calls = 0;
+    async function* sameReadEveryTurn(): AsyncGenerator<StreamEvent> {
+      calls++;
+      yield {
+        type: 'tool_use',
+        toolUse: { type: 'tool_use', id: `r${calls}`, name: 'read_file', input: { path: 'missing.ts' } },
+      };
+      yield { type: 'stop', stopReason: 'tool_use' };
+    }
+    const client = {
+      streamChat: sameReadEveryTurn,
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+      getModel: () => 'mock-model',
+    } as unknown as SideCarClient;
+    const texts: string[] = [];
+    const cb: AgentCallbacks = {
+      onText: (t) => texts.push(t),
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onDone: () => {},
+    };
+
+    const messages = await runAgentLoop(
+      client,
+      [{ role: 'user', content: 'find it' }],
+      cb,
+      new AbortController().signal,
+    );
+
+    const nudges = messages.filter(
+      (m) =>
+        m.role === 'user' && typeof m.content === 'string' && m.content.includes('keeps returning the same result'),
+    );
+    expect(nudges).toHaveLength(1);
+    const all = texts.join('');
+    expect(all).toContain('asking the agent to act on it');
+    // Still terminates: the repeat after the nudge stops the run, as before.
+    expect(all).toContain('Agent stopped');
+    expect(all.indexOf('asking the agent to act on it')).toBeLessThan(all.indexOf('Agent stopped'));
+    expect(calls).toBeLessThan(20);
+    vi.restoreAllMocks();
+  });
+});

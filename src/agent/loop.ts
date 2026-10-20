@@ -961,6 +961,18 @@ export async function runAgentLoop(
         state.termination = 'stuck';
         break;
       }
+      // #222: cycle detection held back a stop for a read-only loop before any
+      // edit and asked for one nudge instead. Same shape as the syntax rescue
+      // above: this turn's repeated calls are dropped (no assistant message, so
+      // no unmatched tool_use) and the nudge replaces them. If the model repeats
+      // again, the repeats are still in the window and the next turn stops.
+      if (state.pendingCycleNudge) {
+        const nudge = state.pendingCycleNudge;
+        state.pendingCycleNudge = undefined;
+        callbacks.onText('\n\n🔁 Same lookup repeated with the same result — asking the agent to act on it...\n');
+        state.messages.push({ role: 'user', content: nudge });
+        continue;
+      }
 
       // An update_plan-only turn is bookkeeping the harness itself demanded —
       // it must not consume the iteration budget. Measured on granite4.1:3b

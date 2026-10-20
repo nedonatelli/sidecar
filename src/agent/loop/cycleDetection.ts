@@ -255,6 +255,8 @@ export function detectCycleAndBail(
   if (state.recentToolCalls.length >= MIN_IDENTICAL_CONSECUTIVE) {
     const lastN = state.recentToolCalls.slice(-MIN_IDENTICAL_CONSECUTIVE);
     if (lastN.every((v) => v === lastN[0])) {
+      const allReadOnly = pendingToolUses.every((tu) => READ_ONLY_TOOLS.has(tu.name));
+      if (nudgeInsteadOfStop(state, callSignature.slice(0, 80), allReadOnly, normEntry.sig)) return false;
       state.logger?.warn(
         `Agent loop cycle detected (${MIN_IDENTICAL_CONSECUTIVE} identical calls) — ${callSignature.slice(0, 100)}`,
       );
@@ -305,6 +307,7 @@ export function detectCycleAndBail(
 
       const hasRepeatedSecondary = lastN.every((e) => e.secondaryHash === lastN[0].secondaryHash);
       if (!editVerifyExempt && (isReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(lastN[0].sig, state)) {
+        if (nudgeInsteadOfStop(state, normEntry.sig.slice(0, 80), isReadOnly, normEntry.sig)) return false;
         state.logger?.warn(
           `Agent loop normalized cycle detected (${minNormalizedRepeats} repeats${isReadOnly ? ', read-only tool' : ', repeated secondary args'}) — ${normEntry.sig.slice(0, 100)}`,
         );
@@ -331,6 +334,11 @@ export function detectCycleAndBail(
     }
     for (const [sig, entries] of sigGroups) {
       if (entries.length < minNormalizedRepeats) continue;
+      // After the #222 nudge, the repeats that earned it are still in the
+      // window: counting them stopped e4b requests-1963 on the turn it took the
+      // nudge and opened the right file. They count again only when this turn
+      // repeats the nudged lookup.
+      if (sig === state.cycleNudgedSig && normEntry.sig !== sig) continue;
       const sigToolName = sig.split(':')[0] ?? '';
       const sigIsReadOnly = READ_ONLY_TOOLS.has(sigToolName);
       const editVerifyExempt = sigIsReadOnly && sigTargetsRecentlyMutatedFile(sig, state);
@@ -341,6 +349,7 @@ export function detectCycleAndBail(
         return false;
       });
       if (!editVerifyExempt && (sigIsReadOnly || hasRepeatedSecondary) && !sigTargetsOnlyGateFiles(sig, state)) {
+        if (nudgeInsteadOfStop(state, sig.slice(0, 80), sigIsReadOnly, sig)) return false;
         state.logger?.warn(
           `Agent loop normalized cycle detected (${entries.length} non-consecutive repeats in window) — ${sig.slice(0, 100)}`,
         );
@@ -669,4 +678,27 @@ function normalizeEntry(pendingToolUses: ToolUseContentBlock[]): NormalizedEntry
   }
 
   return { sig: sigParts.join('|'), secondaryHash: secondaryParts.join('|') };
+}
+
+/**
+ * #222: one nudge instead of a stop for a read-only loop before the first
+ * successful edit. A run stopped there ends with nothing at all, and the loop
+ * isn't reliable: the same 31b config that repeated one `grep` 4 times and was
+ * stopped at turn 10 with an empty patch (django-12125) ran 33 turns with no
+ * loop on a rerun. Read-only repeats were the only pre-edit stops that cost
+ * anything across 200 measured runs (2 of 3); failing-edit resubmits and
+ * pattern loops cost nothing and still stop. Spent once per run: a model that
+ * repeats the nudged lookup again is stopped on that turn, because its repeats
+ * are still in the window. One that moves on is not (see `cycleNudgedSig`).
+ */
+function nudgeInsteadOfStop(state: LoopState, what: string, readOnly: boolean, sig: string): boolean {
+  if (!readOnly || state.fileMutations > 0 || state.readOnlyCycleNudged) return false;
+  state.readOnlyCycleNudged = true;
+  state.cycleNudgedSig = sig;
+  state.pendingCycleNudge =
+    `You have run ${what} several times and it keeps returning the same result, so running it ` +
+    `again won't show you anything new. Act on what it already showed you: open the file it ` +
+    `points to, or make the change. If it didn't find what you need, search for something different.`;
+  state.logger?.info?.(`Agent loop read-only repeat before any edit — nudging once instead of stopping: ${what}`);
+  return true;
 }
