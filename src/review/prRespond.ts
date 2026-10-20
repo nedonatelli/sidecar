@@ -83,7 +83,21 @@ export async function respondToPrComments(deps: PrRespondDeps): Promise<PrRespon
   }
   const { owner, repo } = parsed;
 
-  const api = deps.api ?? new GitHubAPI(await getGitHubToken());
+  // Fetch the token inside error handling, as prPostReview.ts does (#227,
+  // from #118): a declined or failed GitHub sign-in used to throw out of the
+  // command as a raw error instead of the command's own showError + outcome.
+  let api = deps.api;
+  if (!api) {
+    let token: string;
+    try {
+      token = await getGitHubToken();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      deps.ui.showError(`GitHub authentication failed: ${message}`);
+      return { mode: 'error', errorMessage: message };
+    }
+    api = new GitHubAPI(token);
+  }
 
   let prs: PullRequest[];
   try {

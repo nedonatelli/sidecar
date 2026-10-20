@@ -172,10 +172,15 @@ export async function collectRegistryRefs(config: SkillSyncConfigSlice, homeDir:
 
   if (config.skillsUserRegistry.trim().length > 0) {
     const url = config.skillsUserRegistry.trim();
-    const isLocal = await looksLikeLocalPath(url);
+    const localDir = expandHome(url, homeDir);
+    const isLocal = await looksLikeLocalPath(url, localDir);
     refs.push({
       url,
-      managedDir: isLocal ? url : path.join(sidecarDir, 'user-skills'),
+      // Use the expanded path, not the raw `~/…` string (#227, from #121):
+      // the loader reads `managedDir` straight off disk and has no `~`
+      // handling, so a `~/skills` registry was detected as local and then
+      // loaded from a literal `~` directory — zero skills.
+      managedDir: isLocal ? localDir : path.join(sidecarDir, 'user-skills'),
       label: 'user registry',
       tier: 'user',
       isLocal,
@@ -185,11 +190,12 @@ export async function collectRegistryRefs(config: SkillSyncConfigSlice, homeDir:
   for (const rawUrl of config.skillsTeamRegistries) {
     const url = (rawUrl ?? '').trim();
     if (!url) continue;
-    const isLocal = await looksLikeLocalPath(url);
+    const localDir = expandHome(url, homeDir);
+    const isLocal = await looksLikeLocalPath(url, localDir);
     const slug = slugifyRegistryUrl(url);
     refs.push({
       url,
-      managedDir: isLocal ? url : path.join(sidecarDir, 'team-skills', slug),
+      managedDir: isLocal ? localDir : path.join(sidecarDir, 'team-skills', slug),
       label: `team registry \`${slug}\``,
       tier: 'team',
       isLocal,
@@ -214,6 +220,11 @@ function isAllowedGitUrl(url: string): boolean {
   );
 }
 
+/** Expand a leading `~` against `homeDir`; any other value is returned as-is. */
+function expandHome(url: string, homeDir: string): string {
+  return url.startsWith('~') ? path.join(homeDir, url.slice(1)) : url;
+}
+
 /**
  * Decide whether a user-supplied value is a local filesystem path vs a
  * git URL. Uses the "path exists as directory" signal — deliberately
@@ -223,9 +234,8 @@ function isAllowedGitUrl(url: string): boolean {
  * meant a local path that doesn't exist, they'll see a git-clone
  * failure with the URL they typed, which is the right diagnostic.
  */
-async function looksLikeLocalPath(url: string): Promise<boolean> {
+async function looksLikeLocalPath(url: string, expanded: string): Promise<boolean> {
   if (!path.isAbsolute(url) && !url.startsWith('~')) return false;
-  const expanded = url.startsWith('~') ? path.join(os.homedir(), url.slice(1)) : url;
   try {
     return (await fs.promises.stat(expanded)).isDirectory();
   } catch {

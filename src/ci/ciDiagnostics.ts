@@ -61,7 +61,12 @@ export class CiDiagnostics {
     const yamls = await workspace.findFiles('.github/workflows/*.{yml,yaml}', undefined, 20);
     if (yamls.length > 0) {
       const lower = workflowName.toLowerCase().replace(/\s+/g, '-');
-      const match = yamls.find((u) => u.fsPath.toLowerCase().includes(lower));
+      // Match on the file's own name, not its full path (#227, from #118):
+      // `fsPath.includes(name)` let a workflow called "ci" attach to
+      // `deploy.yml` whenever a parent directory (e.g. `ci-tools/`)
+      // contained "ci". An exact stem match wins over a partial one.
+      const stem = (u: Uri): string => (u.path.split('/').pop() ?? '').toLowerCase().replace(/\.ya?ml$/, '');
+      const match = yamls.find((u) => stem(u) === lower) ?? yamls.find((u) => stem(u).includes(lower));
       if (match) return match;
       return yamls[0];
     }

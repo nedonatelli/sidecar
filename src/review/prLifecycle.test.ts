@@ -11,6 +11,11 @@ import {
 import type { GitCLI } from '../github/git.js';
 import type { GitHubAPI } from '../github/api.js';
 import type { PullRequest, CheckRun } from '../github/types.js';
+import { getGitHubToken } from '../github/auth.js';
+
+// #227 (from #118): lets the token-fetch failure path be exercised with
+// `api` left unset. Every other test injects `api`, so this is never called.
+vi.mock('../github/auth.js', () => ({ getGitHubToken: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Tests for prLifecycle.ts.
@@ -149,6 +154,14 @@ describe('markPrReady — bail-out paths', () => {
     expect(ui.calls.showError[0]).toMatch(/detached/i);
   });
 
+  it('returns error (not a raw throw) when GitHub sign-in fails', async () => {
+    vi.mocked(getGitHubToken).mockRejectedValueOnce(new Error('GitHub sign-in is required. Please try again.'));
+    const ui = makeMarkReadyUi();
+    const out = await markPrReady(deps({ ui, api: undefined }));
+    expect(out.mode).toBe('error');
+    expect(ui.calls.showError[0]).toMatch(/GitHub authentication failed: GitHub sign-in is required/);
+  });
+
   it('returns no-remote when remote is null', async () => {
     const out = await markPrReady(deps({ git: makeGit({ remote: null }) }));
     expect(out.mode).toBe('no-remote');
@@ -226,6 +239,14 @@ describe('checkPrCi — bail-out paths', () => {
     const out = await checkPrCi(deps({ ui, git: makeGit({ branch: '' }) }));
     expect(out.mode).toBe('detached-head');
     expect(ui.calls.showError[0]).toMatch(/detached/i);
+  });
+
+  it('returns error (not a raw throw) when GitHub sign-in fails', async () => {
+    vi.mocked(getGitHubToken).mockRejectedValueOnce(new Error('GitHub sign-in is required. Please try again.'));
+    const ui = makeCiUi();
+    const out = await checkPrCi(deps({ ui, api: undefined }));
+    expect(out.mode).toBe('error');
+    expect(ui.calls.showError[0]).toMatch(/GitHub authentication failed: GitHub sign-in is required/);
   });
 
   it('returns no-remote when remote is null', async () => {

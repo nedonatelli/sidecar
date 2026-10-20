@@ -59,7 +59,45 @@ export function parseBundle(raw: string): ParseResult {
     return { ok: false, error: 'Missing or invalid "messages" field.' };
   }
 
+  // Check each message's shape, not just that `messages` is an array (#227,
+  // from #121). The import assigns these straight into the chat state, so a
+  // hand-edited bundle with a bad role or a block missing its text broke the
+  // session later (e.g. `serializeContent` reading `.length` of a missing
+  // tool_result `content`) instead of being rejected here.
+  const badIndex = obj.messages.findIndex((m) => !isChatMessage(m));
+  if (badIndex !== -1) {
+    return { ok: false, error: `Message ${badIndex + 1} is not a valid chat message.` };
+  }
+
   return { ok: true, bundle: parsed as HandoffBundle };
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isContentBlock(v: unknown): boolean {
+  if (!isRecord(v)) return false;
+  switch (v.type) {
+    case 'text':
+      return typeof v.text === 'string';
+    case 'thinking':
+      return typeof v.thinking === 'string';
+    case 'tool_use':
+      return typeof v.id === 'string' && typeof v.name === 'string' && isRecord(v.input);
+    case 'tool_result':
+      return typeof v.tool_use_id === 'string' && typeof v.content === 'string';
+    case 'image':
+      return isRecord(v.source) && typeof v.source.data === 'string';
+    default:
+      return false;
+  }
+}
+
+function isChatMessage(v: unknown): v is ChatMessage {
+  if (!isRecord(v)) return false;
+  if (v.role !== 'user' && v.role !== 'assistant') return false;
+  return typeof v.content === 'string' || (Array.isArray(v.content) && v.content.every(isContentBlock));
 }
 
 export function formatExportedAt(ts: number): string {
