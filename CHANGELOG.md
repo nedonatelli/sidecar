@@ -4,6 +4,29 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.130.1] - 2026-10-20
+
+A patch for two defaults in v0.130.0 that failed on the first request: Gemini and Bedrock
+now start on models those services still run. Semantic search also indexes every file in a
+large change instead of the first 16.
+
+### Fixed
+
+- **Gemini and Bedrock defaults point at models those services still run.** v0.130.0's
+  Gemini default, `gemini-2.0-flash`, was shut down on 2026-06-01, and its Bedrock default,
+  Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-20250514-v1:0`), reached end of life on
+  2026-10-14. Both failed on the first request. Gemini now defaults to `gemini-3.8-flash`
+  and Bedrock to the `us.anthropic.claude-sonnet-5-5` inference profile; the Bedrock model
+  list offers the Claude 5.5 profiles. A model you set yourself is unchanged. (#232)
+- **Semantic search indexes every changed file, not just the first 16.** When many files
+  changed at once (opening a workspace, switching branches, saving in bulk), files that
+  arrived while 16 reads were already running were dropped from the embedding index until
+  they changed again. They now wait their turn. (#233)
+
+### Stats
+- 10006 total tests (558 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.130.0] - 2026-10-19
 
 The rest of the October code review, fixed. Audit Mode's queued commits run, Auto Mode no
