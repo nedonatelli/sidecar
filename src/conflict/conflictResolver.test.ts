@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildConflictPrompt, applyResolutions, resolveConflicts } from './conflictResolver.js';
+import { buildConflictPrompt, applyResolutions, resolveConflicts, cleanResolution } from './conflictResolver.js';
 import type { ConflictBlock, ConflictFile } from './conflictDetector.js';
 
 function makeBlock(overrides: Partial<ConflictBlock> = {}): ConflictBlock {
@@ -165,5 +165,59 @@ describe('resolveConflicts', () => {
     const result = await resolveConflicts(file, client, ac.signal);
     expect(result.resolvedBlocks).toBe(0);
     expect(client.complete).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ML-19 (#165): the resolution used to be .trim()'d
+// ---------------------------------------------------------------------------
+describe('cleanResolution (ML-19)', () => {
+  it("keeps the first line's indentation", () => {
+    expect(cleanResolution('    return a + b;\n')).toBe('    return a + b;');
+  });
+
+  it('drops leading blank lines and trailing whitespace only', () => {
+    expect(cleanResolution('\n\n  \n    x = 1\n    y = 2  \n\n')).toBe('    x = 1\n    y = 2');
+  });
+
+  it('unwraps a code fence around the whole answer instead of writing it', () => {
+    expect(cleanResolution('```python\n    x = 1\n    y = 2\n```')).toBe('    x = 1\n    y = 2');
+    expect(cleanResolution('```\nfoo()\n```\n')).toBe('foo()');
+  });
+
+  it('leaves code that merely contains a fence alone', () => {
+    const md = 'Usage:\n```\nrun()\n```\nmore';
+    expect(cleanResolution(md)).toBe(md);
+  });
+});
+
+describe('applyResolutions line endings (ML-19)', () => {
+  it('writes a multi-line resolution with CRLF into a CRLF file', async () => {
+    const { parseConflictBlocks } = await import('./conflictDetector.js');
+    const original = ['a', '<<<<<<< HEAD', 'x', '=======', 'y', '>>>>>>> b', 'z', ''].join('\r\n');
+    const blocks = parseConflictBlocks(original);
+    const out = applyResolutions(original, blocks, new Map([[0, 'line1\nline2']]));
+    expect(out).toBe(['a', 'line1', 'line2', 'z', ''].join('\r\n'));
+    expect(out.replace(/\r\n/g, '')).not.toContain('\n');
+  });
+});
+
+describe('resolveConflicts keeps indentation end to end (ML-19)', () => {
+  it('a fenced, indented answer lands in an indented CRLF block intact', async () => {
+    const { parseConflictBlocks } = await import('./conflictDetector.js');
+    const original = ['def f():', '<<<<<<< HEAD', '    return 1', '=======', '    return 2', '>>>>>>> b', ''].join(
+      '\r\n',
+    );
+    const file = {
+      fsPath: '/w/f.py',
+      relativePath: 'f.py',
+      blocks: parseConflictBlocks(original),
+      originalContent: original,
+    } as ConflictFile;
+    const client = {
+      complete: vi.fn().mockResolvedValue('```python\n    return 1 + 2\n```'),
+    } as unknown as import('../ollama/client.js').SideCarClient;
+    const { resolvedContent } = await resolveConflicts(file, client);
+    expect(resolvedContent).toBe(['def f():', '    return 1 + 2', ''].join('\r\n'));
   });
 });
