@@ -216,6 +216,29 @@ export function venvLooksIntact(venvDir: string, pythonBin: string): boolean {
 }
 
 /**
+ * Give a Windows venv a `python3` that is the venv's own interpreter.
+ *
+ * A Windows venv's Scripts\ has python.exe but no python3.exe, so under the
+ * agent's Git Bash shell `python3` fell through PATH to the system Python (the
+ * Windows Store alias here). gemma4:31b types `python3` often, so its
+ * reproduction scripts and test runs used the wrong interpreter -- outside the
+ * task's dependencies -- while `python` worked; sympy-12419's "compatibility"
+ * edits to unrelated files were the model working around exactly that. Linux
+ * and macOS venvs already ship python3.
+ *
+ * uv's python.exe is a launcher that reads the venv's pyvenv.cfg, so a copy
+ * under another name runs inside the venv (checked: sys.prefix is the venv).
+ * Runs on every task, not only at build, so venvs cached before this change
+ * get it too; it's a no-op once the copy exists.
+ */
+export function ensurePython3Alias(binDir: string, platform: NodeJS.Platform = process.platform): void {
+  if (platform !== 'win32') return;
+  const python = path.join(binDir, 'python.exe');
+  const python3 = path.join(binDir, 'python3.exe');
+  if (fs.existsSync(python) && !fs.existsSync(python3)) fs.copyFileSync(python, python3);
+}
+
+/**
  * Build (or reuse) the solve environment for a task. Returns null when no local
  * environment is available (native-dep repo, or no spec) — the caller runs
  * without one (blind, Phase-2 territory).
@@ -337,6 +360,8 @@ export function setupTaskEnv(
       install(['pytest']);
     }
   }
+
+  ensurePython3Alias(binDir);
 
   return { venvDir, pythonBin, env, testCmd: spec.test_cmd };
 }
