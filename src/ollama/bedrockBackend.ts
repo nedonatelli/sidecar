@@ -31,8 +31,8 @@ import { streamBedrockChunks } from './awsEventStream.js';
  * stored key or `AWS_BEARER_TOKEN_BEDROCK` — takes precedence and sends
  * `Authorization: Bearer <key>`; otherwise it falls back to **SigV4 signing**
  * with IAM credentials (env vars, then `~/.aws/credentials`). Model IDs are
- * Bedrock model / inference-profile IDs, e.g. `anthropic.claude-3-5-sonnet-
- * 20241022-v2:0` or `us.anthropic.claude-sonnet-4-20250514-v1:0`.
+ * Bedrock model / inference-profile IDs, e.g. `us.anthropic.claude-sonnet-5-5`
+ * or `global.anthropic.claude-opus-5-5` (Claude 5 ids carry no date suffix).
  *
  * Prompt caching (`cache_control`) is intentionally NOT sent here — Bedrock
  * gates it per-account and rejects unknown fields, so v1 sends plain blocks.

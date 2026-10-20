@@ -132,7 +132,7 @@ Pick the provider in the backend menu, then paste its key when SideCar asks (or 
 | OpenRouter    | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`               |
 | Groq          | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                       |
 | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/deepseek-v4-pro` |
-| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash`                          |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash`                          |
 
 > **Rate limits:** every agent request carries SideCar's system prompt and tool definitions, about 11.5K tokens before any conversation, so a provider's tokens-per-minute limit is reached after far fewer requests than with plain chat. **Groq's free tier does not work:** its 8K TPM limit is smaller than one SideCar request, so every agent request fails with `413 Request too large` — Groq requires a paid Dev Tier.
 

@@ -233,6 +233,13 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'claude-sonnet-5-5': 1_000_000,
   'claude-sonnet-5': 1_000_000,
   'claude-haiku-5-5': 1_000_000,
+  // The same models on Bedrock (the lookup is by exact id), per AWS's model cards.
+  'us.anthropic.claude-sonnet-5-5': 1_000_000,
+  'us.anthropic.claude-opus-5-5': 1_000_000,
+  'us.anthropic.claude-haiku-5-5': 1_000_000,
+  'global.anthropic.claude-sonnet-5-5': 1_000_000,
+  'global.anthropic.claude-opus-5-5': 1_000_000,
+  'global.anthropic.claude-haiku-5-5': 1_000_000,
 
   // Anthropic Claude 4.x models — 200K context
   'claude-opus-4-7': 200_000,
@@ -294,6 +301,7 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'qwen/qwen3.8-27b': 131_072,
 
   // Google Gemini models (via OpenAI-compatible or OpenRouter)
+  'gemini-3.8-flash': 1_048_576,
   'gemini-1.5-pro': 2_097_152,
   'gemini-1.5-pro-latest': 2_097_152,
   'gemini-1.5-flash': 1_048_576,

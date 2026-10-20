@@ -262,3 +262,21 @@ describe('discoverAllAvailableModels', () => {
     expect(await discoverAllAvailableModels('http://ollama', 'http://kick')).toEqual([]);
   });
 });
+
+describe('Bedrock defaults point at models Bedrock still serves', () => {
+  // Claude Sonnet 4 reached end of life on Bedrock on 2026-10-14 and the profile
+  // still defaulted to it, so every Bedrock user's first request failed.
+  const retired = /claude-(sonnet|opus)-4-2025|claude-3-|claude-3\./;
+
+  it('the fallback list has no retired Claude models', () => {
+    for (const id of BEDROCK_FALLBACK_MODELS) expect(id, id).not.toMatch(retired);
+    expect(BEDROCK_FALLBACK_MODELS).toContain('us.anthropic.claude-sonnet-5-5');
+  });
+
+  it('the Bedrock profile defaults to a model in the fallback list', async () => {
+    const { BUILT_IN_BACKEND_PROFILES } = await import('../../config/settings.js');
+    const bedrock = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === 'bedrock');
+    expect(bedrock?.defaultModel).toBe('us.anthropic.claude-sonnet-5-5');
+    expect(BEDROCK_FALLBACK_MODELS).toContain(bedrock?.defaultModel);
+  });
+});
