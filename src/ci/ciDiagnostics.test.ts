@@ -110,6 +110,32 @@ describe('CiDiagnostics', () => {
     expect(uri.fsPath).toContain('ci.yml');
   });
 
+  // #227 (from #118): the name was matched against the full path, so a
+  // parent directory containing "ci" made deploy.yml look like the match.
+  it('matches the workflow file name, not a parent directory in its path', async () => {
+    const { workspace, Uri } = await import('vscode');
+    const deploy = Uri.file('/home/me/ci-tools/.github/workflows/deploy.yml');
+    const ci = Uri.file('/home/me/ci-tools/.github/workflows/ci.yml');
+    vi.mocked(workspace.findFiles).mockResolvedValueOnce([deploy, ci]);
+
+    const blocks: FailureBlock[] = [{ stepName: 'Build', errorLines: ['error'], contextBefore: [], exitCode: 1 }];
+    await diags.report(blocks, { ...META, workflowName: 'CI' });
+    const [uri] = vi.mocked(mockCollection.set).mock.calls[0];
+    expect(uri).toBe(ci);
+  });
+
+  it('prefers an exact file-name match over a partial one', async () => {
+    const { workspace, Uri } = await import('vscode');
+    const release = Uri.file('/repo/.github/workflows/release-ci.yml');
+    const ci = Uri.file('/repo/.github/workflows/ci.yaml');
+    vi.mocked(workspace.findFiles).mockResolvedValueOnce([release, ci]);
+
+    const blocks: FailureBlock[] = [{ stepName: 'Build', errorLines: ['error'], contextBefore: [], exitCode: 1 }];
+    await diags.report(blocks, { ...META, workflowName: 'ci' });
+    const [uri] = vi.mocked(mockCollection.set).mock.calls[0];
+    expect(uri).toBe(ci);
+  });
+
   it('falls back to manifest when no workflow file exists', async () => {
     const { workspace, Uri } = await import('vscode');
     const pkg = Uri.file('/repo/package.json');

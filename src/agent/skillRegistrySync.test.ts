@@ -89,6 +89,22 @@ describe('collectRegistryRefs', () => {
     expect(refs[0].managedDir).toBe(localDir);
   });
 
+  // #227 (from #121): a `~/` registry kept the raw `~` in managedDir, which
+  // the skill loader then read as a literal directory name.
+  it('expands a leading ~ in a local-folder ref to the home directory', async () => {
+    fs.mkdirSync(path.join(home, 'my-skills'));
+    fs.mkdirSync(path.join(home, 'team-skills'));
+    const refs = await collectRegistryRefs(
+      makeConfig({ skillsUserRegistry: '~/my-skills', skillsTeamRegistries: ['~/team-skills'] }),
+      home,
+    );
+    expect(refs[0].isLocal).toBe(true);
+    expect(refs[0].managedDir).toBe(path.join(home, 'my-skills'));
+    expect(refs[0].url).toBe('~/my-skills');
+    expect(refs[1].isLocal).toBe(true);
+    expect(refs[1].managedDir).toBe(path.join(home, 'team-skills'));
+  });
+
   it('drops empty-string entries from the team array', async () => {
     const refs = await collectRegistryRefs(
       makeConfig({ skillsTeamRegistries: ['', '   ', 'https://github.com/real/skills'] }),

@@ -3,6 +3,11 @@ import { respondToPrComments, buildRespondPrompt, type PrRespondUi, type PrRespo
 import type { GitCLI } from '../github/git.js';
 import type { GitHubAPI } from '../github/api.js';
 import type { PullRequest, PrReviewThread, PrReviewComment } from '../github/types.js';
+import { getGitHubToken } from '../github/auth.js';
+
+// #227 (from #118): lets the token-fetch failure path be exercised with
+// `api` left unset. Every other test injects `api`, so this is never called.
+vi.mock('../github/auth.js', () => ({ getGitHubToken: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Tests for prRespond.ts.
@@ -128,6 +133,14 @@ describe('respondToPrComments — bail-out paths', () => {
     const out = await respondToPrComments(makeDeps({ ui, git: makeGit({ branch: '' }) }));
     expect(out.mode).toBe('detached-head');
     expect(ui.calls.showError[0]).toMatch(/detached/i);
+  });
+
+  it('returns error (not a raw throw) when GitHub sign-in fails', async () => {
+    vi.mocked(getGitHubToken).mockRejectedValueOnce(new Error('GitHub sign-in is required. Please try again.'));
+    const ui = makeFakeUi();
+    const out = await respondToPrComments(makeDeps({ ui, api: undefined }));
+    expect(out.mode).toBe('error');
+    expect(ui.calls.showError[0]).toMatch(/GitHub authentication failed: GitHub sign-in is required/);
   });
 
   it('returns no-remote when origin is null', async () => {
