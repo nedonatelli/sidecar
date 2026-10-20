@@ -207,6 +207,12 @@ describe('CopilotBackend.listAvailableModels', () => {
     ]);
   });
 
+  it("asks for Copilot's models only (#230)", async () => {
+    vi.mocked(vscode.lm.selectChatModels).mockResolvedValue([]);
+    await CopilotBackend.listAvailableModels();
+    expect(vscode.lm.selectChatModels).toHaveBeenCalledWith({ vendor: 'copilot' });
+  });
+
   it('returns empty array when selectChatModels throws', async () => {
     vi.mocked(vscode.lm.selectChatModels).mockRejectedValue(new Error('not available'));
     const models = await CopilotBackend.listAvailableModels();
@@ -228,6 +234,20 @@ describe('CopilotBackend.getModelContextLength', () => {
     vi.mocked(vscode.lm.selectChatModels).mockResolvedValue([]);
     const len = await CopilotBackend.getModelContextLength('unknown');
     expect(len).toBeNull();
+  });
+
+  it('after a fallback, reports the context of the model the chat path uses (#230)', async () => {
+    // Only Copilot's fallback answers: the configured id and family match nothing.
+    vi.mocked(vscode.lm.selectChatModels).mockImplementation((async (sel?: { vendor?: string }) =>
+      sel?.vendor === 'copilot'
+        ? [{ id: 'gpt-6-luna', name: 'GPT-6 Luna', vendor: 'copilot', maxInputTokens: 272_000 }]
+        : []) as never);
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    // The old lookup stopped after id and family and returned null here.
+    expect(await CopilotBackend.getModelContextLength('gpt-4o')).toBe(272_000);
+    expect((await resolveCopilotModel('gpt-4o'))?.id).toBe('gpt-6-luna');
+    _resetCopilotSubstitutionWarnings();
+    vi.mocked(logger.warn).mockRestore();
   });
 });
 
