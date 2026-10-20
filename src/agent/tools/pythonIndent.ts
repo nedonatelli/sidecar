@@ -37,7 +37,10 @@ export interface IndentError {
 
 /** One logical line: its indent, its 1-based start line, and its code with strings/comments MASKED. */
 interface LogicalLine {
+  /** Indent column with tabs to the next multiple of 8: CPython's structural measure. */
   indent: number;
+  /** Indent column with a tab counted as 1: CPython's consistency check (`altcol`). */
+  altIndent: number;
   line: number;
   code: string;
   /** True when this logical line was joined from a backslash continuation. */
@@ -68,8 +71,16 @@ function logicalLines(source: string): ScanResult {
 
   while (i < n) {
     const lineStart = i;
-    while (i < n && (source[i] === ' ' || source[i] === '\t')) i++;
-    const indent = i - lineStart;
+    // Two columns, as CPython's tokenizer measures them: `indent` with tabs to
+    // the next multiple of 8, `altIndent` with a tab as one column. For an
+    // all-space or all-tab file they order lines identically; they disagree only
+    // where tab width decides the structure, which is CPython's TabError.
+    let indent = 0;
+    while (i < n && (source[i] === ' ' || source[i] === '\t')) {
+      indent = source[i] === '\t' ? (Math.floor(indent / 8) + 1) * 8 : indent + 1;
+      i++;
+    }
+    const altIndent = i - lineStart;
     const startLine = line;
 
     let code = '';
@@ -148,7 +159,7 @@ function logicalLines(source: string): ScanResult {
       i++;
     }
 
-    if (code.trim() !== '') out.push({ indent, line: startLine, code: code.trimEnd(), viaBackslash });
+    if (code.trim() !== '') out.push({ indent, altIndent, line: startLine, code: code.trimEnd(), viaBackslash });
     if (!done && i >= n) break;
   }
 
@@ -157,18 +168,34 @@ function logicalLines(source: string): ScanResult {
 
 const opensBlock = (code: string): boolean => /:\s*$/.test(code);
 
+/** At most this many errors are reported; `saturated` says whether there were more. */
+export const PYTHON_INDENT_ERROR_CAP = 10;
+
 /**
  * Validate Python indentation. Returns [] when the source is fine OR when it
  * cannot be read with confidence — never a guess.
  */
 export function findPythonIndentErrors(source: string): IndentError[] {
-  // Tabs vs spaces: whether a tab-indented line lines up with a space-indented
-  // one depends on tab width, which we will not adjudicate. A file that mixes
-  // both for indentation is skipped rather than risk a false refusal.
-  const indents = source.split('\n').map((l) => /^[ \t]*/.exec(l)?.[0] ?? '');
-  const usesTabs = indents.some((s) => s.includes('\t'));
-  const usesSpaces = indents.some((s) => s.includes(' '));
-  if (usesTabs && usesSpaces) return [];
+  return scanPythonIndent(source).errors;
+}
+
+/**
+ * The errors, capped at PYTHON_INDENT_ERROR_CAP, and whether the cap cut the
+ * list short. The count used to stop at 10 silently, so a file with 50 errors
+ * reported "10" as if that were all of them (ML-50, #157).
+ */
+export function scanPythonIndent(source: string): { errors: IndentError[]; saturated: boolean } {
+  const all = collectIndentErrors(source, PYTHON_INDENT_ERROR_CAP + 1);
+  return { errors: all.slice(0, PYTHON_INDENT_ERROR_CAP), saturated: all.length > PYTHON_INDENT_ERROR_CAP };
+}
+
+function collectIndentErrors(source: string, cap: number): IndentError[] {
+  // Tabs and spaces mixed for indentation used to switch the whole check off,
+  // so an edit that introduced one tab line in a space-indented file was never
+  // checked at all -- and inconsistent tabs are exactly what CPython rejects
+  // (ML-51, #157). Mixed files are now measured the way CPython measures them
+  // (see `indent` / `altIndent` above) and checked like any other, plus
+  // CPython's own TabError rule, `inconsistentTabs` below.
 
   // Form feeds are legal whitespace in Python and can appear INSIDE a line.
   // Vanishingly rare in real code, and modelling them is not worth a false
@@ -186,7 +213,9 @@ export function findPythonIndentErrors(source: string): IndentError[] {
   const errors: IndentError[] = [];
   const stack: number[] = [0];
 
-  for (let k = 1; k < lines.length && errors.length < 10; k++) {
+  errors.push(...inconsistentTabs(lines).slice(0, cap));
+
+  for (let k = 1; k < lines.length && errors.length < cap; k++) {
     const prev = lines[k - 1];
     const cur = lines[k];
     const prevOpens = opensBlock(prev.code);
@@ -232,7 +261,40 @@ export function findPythonIndentErrors(source: string): IndentError[] {
     }
   }
 
-  if (errors.length < 10) errors.push(...orphanedClauses(lines).slice(0, 10 - errors.length));
+  if (errors.length < cap) errors.push(...orphanedClauses(lines).slice(0, cap - errors.length));
+  return errors.sort((a, b) => a.line - b.line).slice(0, cap);
+}
+
+/**
+ * CPython's TabError (`inconsistent use of tabs and spaces in indentation`),
+ * ported from the tokenizer's indent check: each logical line's indent is
+ * measured with tabs as 8 columns (`indent`) and as 1 (`altIndent`), and the
+ * two must tell the same story against the indent stack -- equal where one is
+ * equal, deeper where one is deeper. Where they disagree, the block structure
+ * depends on tab width, and CPython refuses the file. Space-only and tab-only
+ * files can never disagree, so this only ever fires on mixed indentation.
+ */
+function inconsistentTabs(lines: LogicalLine[]): IndentError[] {
+  const errors: IndentError[] = [];
+  const stack: Array<{ col: number; alt: number }> = [{ col: 0, alt: 0 }];
+  const tabError = (line: number): IndentError => ({
+    line,
+    message: `inconsistent use of tabs and spaces in indentation (line ${line})`,
+  });
+  for (const cur of lines) {
+    const top = stack[stack.length - 1];
+    if (cur.indent === top.col) {
+      if (cur.altIndent !== top.alt) errors.push(tabError(cur.line));
+    } else if (cur.indent > top.col) {
+      if (cur.altIndent <= top.alt) errors.push(tabError(cur.line));
+      stack.push({ col: cur.indent, alt: cur.altIndent });
+    } else {
+      while (stack.length > 1 && cur.indent < stack[stack.length - 1].col) stack.pop();
+      const back = stack[stack.length - 1];
+      // An unindent matching no outer level is the structural check's error, not this one.
+      if (cur.indent === back.col && cur.altIndent !== back.alt) errors.push(tabError(cur.line));
+    }
+  }
   return errors;
 }
 
