@@ -104,6 +104,12 @@ export interface SideCarConfig {
   ollamaNumCtx: number | null;
   ollamaDisableThinking: boolean;
   agentMaxIterations: number;
+  /**
+   * True when the user set `sidecar.agentMaxIterations` themselves (user,
+   * workspace or folder level). Only then do callers pass it to the loop;
+   * otherwise the loop uses the model tier's default (#237).
+   */
+  agentMaxIterationsSet: boolean;
   agentMaxMessages: number;
   agentMaxTokens: number;
   /** Per-response output cap (reasoning included) -- see AGENT_MAX_OUTPUT_TOKENS. */
@@ -484,6 +490,17 @@ export function initConfigWatcher(context: import('vscode').ExtensionContext): v
   );
 }
 
+/** Whether a setting has a value the user wrote, at any scope (not just the default). */
+export function isUserSet(
+  inspected: { globalValue?: unknown; workspaceValue?: unknown; workspaceFolderValue?: unknown } | undefined,
+): boolean {
+  return (
+    inspected?.globalValue !== undefined ||
+    inspected?.workspaceValue !== undefined ||
+    inspected?.workspaceFolderValue !== undefined
+  );
+}
+
 /** Clamp a number to a minimum value, falling back to the default if invalid. */
 export function clampMin(value: number | undefined, min: number, fallback: number): number {
   if (value === undefined || typeof value !== 'number' || isNaN(value)) return fallback;
@@ -549,6 +566,7 @@ function readConfig(): SideCarConfig {
     ollamaNumCtx: cfg.get<number | null>('ollama.numCtx', null),
     ollamaDisableThinking: cfg.get<boolean>('ollama.disableThinking', process.env.SIDECAR_DISABLE_THINKING === 'true'),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
+    agentMaxIterationsSet: isUserSet(cfg.inspect<number>('agentMaxIterations')),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),
     agentMaxTokens: clampMin(cfg.get<number>('agentMaxTokens'), 1000, 200000),
     maxOutputTokens: clampMin(cfg.get<number>('maxOutputTokens'), 1024, AGENT_MAX_OUTPUT_TOKENS),

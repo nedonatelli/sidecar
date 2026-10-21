@@ -7,6 +7,7 @@ import {
   CONTEXT_COMPRESSION_THRESHOLD,
   COMPACTION_KEEP_RECENT_TURNS,
   COMPACTION_MAX_SUMMARY_CHARS,
+  DEFAULT_MAX_ITERATIONS,
 } from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,8 @@ describe('medium tier === the loop’s fallback constants', () => {
   it('every knob matches the constant its call site falls back to', () => {
     expect(DEFAULT_SCAFFOLDING_PROFILE).toEqual({
       tier: 'medium',
+      // loop.ts falls back to initLoopState's DEFAULT_MAX_ITERATIONS.
+      maxIterations: DEFAULT_MAX_ITERATIONS,
       burstCap: MAX_TOOL_CALLS_PER_ITERATION,
       maxActionReprompts: MAX_ACTION_REPROMPTS,
       maxGateInjections: MAX_GATE_INJECTIONS,
@@ -52,6 +55,12 @@ describe('medium tier === the loop’s fallback constants', () => {
     // so `true` and "no profile" behave the same. Pinned because a change to
     // `undefined` here would read as harmless and would silently remove the tool.
     expect(resolveScaffoldingProfile('medium').planModeAskUser).toBe(true);
+  });
+
+  it('only the strong tier raises the iteration ceiling (#237)', () => {
+    // claude-haiku-4-5 hit 50 on 32/50 SWE canary tasks; at 150 it tied Claude Code.
+    expect(resolveScaffoldingProfile('strong').maxIterations).toBe(150);
+    expect(resolveScaffoldingProfile('weak').maxIterations).toBe(DEFAULT_MAX_ITERATIONS);
   });
 });
 

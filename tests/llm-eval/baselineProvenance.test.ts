@@ -68,6 +68,15 @@ describe('currentProvenance', () => {
     expect(p.scaffold.features.impactGate).toBe(true);
     expect(p.scaffold.features.completionGate).toBe(false);
   });
+
+  it('records the ceiling the loop applies, which is tiered (#237)', () => {
+    // The harness passes no maxIterations, so the loop uses the tier default.
+    expect(currentProvenance('claude-haiku-4-5', {}).maxIterations).toBe(150);
+    expect(currentProvenance('gemma4:e4b', {}).maxIterations).toBe(50);
+    // A setting the loop never sees on this path doesn't change what it records.
+    expect(currentProvenance('claude-haiku-4-5', { agentMaxIterations: 50 }).maxIterations).toBe(150);
+    expect(currentProvenance('claude-haiku-4-5', { adaptiveScaffoldingEnabled: false }).maxIterations).toBe(50);
+  });
 });
 
 describe('compareProvenance', () => {

@@ -52,6 +52,22 @@ export const COMPACTION_KEEP_RECENT_TURNS = 2;
 /** Character cap on a generated conversation summary. */
 export const COMPACTION_MAX_SUMMARY_CHARS = 800;
 
+/**
+ * Iteration ceiling for an agent run (the medium and weak tiers' default; the
+ * strong tier's is in scaffoldingProfile.ts).
+ *
+ * Raised from 25 to 50. The eval harness capped runs at 8 — three times below
+ * the old default — and 62 of 154 local-model failures across 32 cases were runs
+ * cut off mid-work, recorded as though the model could not do the task. Fixing
+ * that exposed how tight the ceiling is for smaller local models, which need
+ * more turns to reach the same outcome a frontier model reaches in a few.
+ *
+ * A runaway loop is not bounded by this number anyway: cycle detection bails on
+ * repeated identical failures long before the cap, so the cap's real job is to
+ * stop a genuinely stuck-but-varying run, and 25 was cutting off productive ones.
+ */
+export const DEFAULT_MAX_ITERATIONS = 50;
+
 /** Fallback max system prompt characters when model context length is unknown. */
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 

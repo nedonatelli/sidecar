@@ -228,7 +228,7 @@ Core settings — full reference at [nedonatelli.github.io/sidecar/configuration
 | `sidecar.model`                        | `gemma4:e4b`             | Model for chat                                                                                 |
 | `sidecar.provider`                     | `auto`                   | Backend adapter; `auto` detects from the URL. `openai-compat` for any OpenAI-compatible server |
 | `sidecar.agentMode`                    | `cautious`               | `cautious` / `autonomous` / `manual` / `plan` / `review` / `audit` or a custom mode name       |
-| `sidecar.agentMaxIterations`           | `50`                     | Max agent loop iterations                                                                      |
+| `sidecar.agentMaxIterations`           | `50`                     | Max agent loop iterations (150 for strong-tier models when unset)                              |
 | `sidecar.agentMaxTokens`               | `200000`                 | Max tokens per agent run                                                                       |
 | `sidecar.mcpServers`                   | `{}`                     | MCP server definitions (or use `.mcp.json`)                                                    |
 | `sidecar.toolPermissions`              | `{}`                     | Per-tool overrides: `allow` / `deny` / `ask`                                                   |

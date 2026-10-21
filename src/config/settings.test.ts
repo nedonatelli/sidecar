@@ -10,6 +10,7 @@ import {
   detectProvider,
   getConfig,
   clampMin,
+  isUserSet,
   estimateCost,
   BUILT_IN_BACKEND_PROFILES,
   ANTHROPIC_DEFAULT_MODEL,
@@ -216,6 +217,25 @@ describe('getConfig', () => {
     for (const [key, value] of Object.entries(config)) {
       expect(value, `config.${key} should not be undefined`).not.toBeUndefined();
     }
+  });
+});
+
+// #237: an unset sidecar.agentMaxIterations lets the loop use the tier default,
+// so "the user wrote 50" and "the default is 50" must be told apart.
+describe('isUserSet', () => {
+  it('is false when only the default exists', () => {
+    expect(isUserSet({ globalValue: undefined, workspaceValue: undefined })).toBe(false);
+    expect(isUserSet(undefined)).toBe(false);
+  });
+
+  it('is true at any scope the user can write, including a value equal to the default', () => {
+    expect(isUserSet({ globalValue: 50 })).toBe(true);
+    expect(isUserSet({ workspaceValue: 120 })).toBe(true);
+    expect(isUserSet({ workspaceFolderValue: 10 })).toBe(true);
+  });
+
+  it('getConfig reports agentMaxIterationsSet false when nothing is configured', () => {
+    expect(getConfig().agentMaxIterationsSet).toBe(false);
   });
 });
 

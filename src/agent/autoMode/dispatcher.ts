@@ -123,7 +123,8 @@ export async function runAutoMode(
         signal,
         {
           approvalMode: 'autonomous',
-          maxIterations: config.agentMaxIterations,
+          // Unset unless the user set it: the loop applies the tier default (#237).
+          maxIterations: config.agentMaxIterationsSet ? config.agentMaxIterations : undefined,
           maxTokens: config.agentMaxTokens,
           config,
           ...(options.mcpManager ? { mcpManager: options.mcpManager } : {}),
