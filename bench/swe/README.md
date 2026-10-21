@@ -128,9 +128,10 @@ Expect a small local model to land in low single-to-low-double digits absolute â
 
 ## Status
 
-**Latest result (2026-10-20, Haiku 4.5, 50-task canary):** SideCar at shipped
-settings 25/50, Claude Code 30/50, mini-SWE-agent 25/50; SideCar with a
-150-iteration ceiling and per-tier tool budgets 31/50. See
+**Latest result (2026-10-21, Haiku 4.5, 50-task canary, shipped defaults):**
+30/50 at a 97.0% cache hit rate, $0.80 per resolved task, against Claude Code's
+30/50 at $0.65. See [`results/2026-10-21-haiku45-shipped/`](results/2026-10-21-haiku45-shipped/README.md);
+the three-agent comparison that led to these defaults is in
 [`results/2026-10-20-haiku45/`](results/2026-10-20-haiku45/README.md).
 
 The portable core (loader, sampling, official-format prediction emission, arm
