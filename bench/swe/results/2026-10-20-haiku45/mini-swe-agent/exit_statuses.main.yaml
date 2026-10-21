@@ -1,0 +1,58 @@
+instances_by_exit_status:
+    ConnectionError:
+    - django__django-15902
+    - django__django-16255
+    - django__django-16816
+    - matplotlib__matplotlib-18869
+    - matplotlib__matplotlib-23562
+    - matplotlib__matplotlib-24265
+    - matplotlib__matplotlib-25433
+    - mwaskom__seaborn-3010
+    - psf__requests-1963
+    - pydata__xarray-3364
+    - pylint-dev__pylint-6506
+    - pytest-dev__pytest-11148
+    - pytest-dev__pytest-5692
+    - pytest-dev__pytest-7490
+    - scikit-learn__scikit-learn-10949
+    - scikit-learn__scikit-learn-13439
+    LimitsExceeded:
+    - django__django-15347
+    RepeatedFormatError:
+    - django__django-14999
+    - django__django-14730
+    StreamTerminatedError:
+    - django__django-10914
+    - django__django-11583
+    - django__django-11099
+    - django__django-11848
+    Submitted:
+    - django__django-13660
+    - django__django-13401
+    - django__django-14411
+    - django__django-13964
+    - scikit-learn__scikit-learn-25570
+    - sphinx-doc__sphinx-7686
+    - sphinx-doc__sphinx-8474
+    - sphinx-doc__sphinx-8801
+    - sympy__sympy-12419
+    - sympy__sympy-13177
+    - sympy__sympy-13895
+    - sympy__sympy-14396
+    - sympy__sympy-18057
+    - sympy__sympy-18698
+    - sympy__sympy-15346
+    - sympy__sympy-16792
+    - sympy__sympy-20154
+    - sympy__sympy-23262
+    - sympy__sympy-21055
+    - sympy__sympy-21847
+    TimeoutError:
+    - astropy__astropy-12907
+    - django__django-12125
+    - django__django-12470
+    - django__django-13158
+    - django__django-12856
+    - scikit-learn__scikit-learn-14092
+    gaierror:
+    - django__django-15781

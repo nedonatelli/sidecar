@@ -59,10 +59,13 @@ tool-heavy tasks.
 
 Measured (Haiku 4.5, canary, scaffold-on, 150 iterations): **31/50** against
 30/50 at 5.1.0. That's 4 gained and 3 lost, McNemar p = 1.0, so resolve rate is
-**neutral**. Budget refusals went from 54 to 0 and `spawn_agent` workarounds from
-18 to 0 on the clean tasks. Mean turns rose 60→69 at flat wall time, because work
-the subagents used to do now runs in the main loop. The change ships for run
-correctness, not score.
+**neutral**. Across all 50 tasks, refused calls went from 157 to 15 (runs hitting
+a budget: 40 → 8) and `spawn_agent` workarounds from 45 to 0. The remaining 15 are
+`run_command` at its new cap of 60, on 8 tasks: SideCar runs searches through
+`run_command` too, so it needs more shell calls than Claude Code's split counts
+suggested. Mean turns rose 60→69 at flat wall time, because work the subagents
+used to do now runs in the main loop. The change ships for run correctness, not
+score. Full comparison: `bench/swe/results/2026-10-20-haiku45/`.
 
 ### 5.1.0 — the adversarial critic is removed (2026-08)
 

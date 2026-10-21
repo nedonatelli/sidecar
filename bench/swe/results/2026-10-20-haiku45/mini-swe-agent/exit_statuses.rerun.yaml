@@ -1,0 +1,30 @@
+instances_by_exit_status:
+    RepeatedFormatError:
+    - astropy__astropy-12907
+    Submitted:
+    - django__django-10914
+    - django__django-11099
+    - django__django-11583
+    - django__django-11848
+    - django__django-12125
+    - django__django-12856
+    - django__django-12470
+    - django__django-13158
+    - django__django-15781
+    - django__django-15902
+    - django__django-16255
+    - matplotlib__matplotlib-18869
+    - django__django-16816
+    - matplotlib__matplotlib-23562
+    - matplotlib__matplotlib-24265
+    - mwaskom__seaborn-3010
+    - matplotlib__matplotlib-25433
+    - psf__requests-1963
+    - pylint-dev__pylint-6506
+    - pytest-dev__pytest-11148
+    - pydata__xarray-3364
+    - pytest-dev__pytest-5692
+    - pytest-dev__pytest-7490
+    - scikit-learn__scikit-learn-10949
+    - scikit-learn__scikit-learn-14092
+    - scikit-learn__scikit-learn-13439
