@@ -52,6 +52,22 @@ export const COMPACTION_KEEP_RECENT_TURNS = 2;
 /** Character cap on a generated conversation summary. */
 export const COMPACTION_MAX_SUMMARY_CHARS = 800;
 
+/** Per-run call budgets per tool (toolBudget.ts). Tools not listed get DEFAULT_TOOL_CALL_BUDGET. */
+export const TOOL_CALL_BUDGETS: Readonly<Record<string, number>> = {
+  grep: 15,
+  search_files: 15,
+  list_directory: 10,
+  web_search: 5,
+  read_file: 25,
+  write_file: 20,
+  edit_file: 20,
+  run_command: 15,
+  run_tests: 10,
+  get_diagnostics: 10,
+};
+
+export const DEFAULT_TOOL_CALL_BUDGET = 20;
+
 /** Fallback max system prompt characters when model context length is unknown. */
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 

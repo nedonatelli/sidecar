@@ -95,6 +95,18 @@ export type AgentDecision =
       tier?: string;
     }
   | {
+      /**
+       * A call refused by the per-tool budget. Until this record existed a
+       * refusal was visible only inside a tool result: on the 2026-10-20
+       * Haiku SWE canary it fired in 40/50 runs, unnoticed since v0.57.
+       */
+      kind: 'tool_budget';
+      action: 'refused';
+      tool: string;
+      count: number;
+      budget: number;
+    }
+  | {
       kind: 'verification_run';
       /** The command as the model wrote it. */
       command: string;
@@ -161,6 +173,7 @@ export function summarizeDecisions(decisions: readonly AgentDecision[]): Record<
     }
     bump(`${d.kind}.${d.action}`);
     if (d.kind === 'completion_gate') for (const f of d.findings ?? []) bump(`completion_gate.finding.${f}`);
+    if (d.kind === 'tool_budget') bump(`tool_budget.tool.${d.tool}`);
     if (d.kind === 'keep_best_ratchet' && d.action === 'reverted' && d.reason) {
       bump(`keep_best_ratchet.reason.${d.reason}`);
     }

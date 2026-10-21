@@ -5,28 +5,18 @@
  * session (e.g. 50 grep calls without acting on the results). The burst
  * cap in cycleDetection.ts catches per-iteration floods; this module
  * catches slow-burn exhaustion across the entire loop.
+ *
+ * Budgets come from the scaffolding profile when one is resolved, so a strong
+ * model is not held to caps sized for slow-burn floods on small local models.
  */
 
 import type { LoopState } from './state.js';
+import { TOOL_CALL_BUDGETS, DEFAULT_TOOL_CALL_BUDGET } from '../../config/constants.js';
+import { recordDecision } from '../decisions.js';
 
-/**
- * Per-tool call budgets. Tools not listed here get DEFAULT_BUDGET.
- * These limits are per-session (one runAgentLoop invocation).
- */
-const TOOL_BUDGETS: Record<string, number> = {
-  grep: 15,
-  search_files: 15,
-  list_directory: 10,
-  web_search: 5,
-  read_file: 25,
-  write_file: 20,
-  edit_file: 20,
-  run_command: 15,
-  run_tests: 10,
-  get_diagnostics: 10,
-};
-
-const DEFAULT_BUDGET = 20;
+function budgetFor(state: LoopState, toolName: string): number {
+  return state.scaffoldingProfile?.toolBudgets[toolName] ?? TOOL_CALL_BUDGETS[toolName] ?? DEFAULT_TOOL_CALL_BUDGET;
+}
 
 /**
  * Check whether a tool call should be allowed. Returns an error message
@@ -37,17 +27,26 @@ const DEFAULT_BUDGET = 20;
  */
 export function checkToolBudget(state: LoopState, toolName: string): string | null {
   const count = state.toolCallCounts.get(toolName) ?? 0;
-  const budget = TOOL_BUDGETS[toolName] ?? DEFAULT_BUDGET;
+  const budget = budgetFor(state, toolName);
+  if (count < budget) return null;
 
-  if (count >= budget) {
-    return (
-      `Tool "${toolName}" has been called ${count} times this session (budget: ${budget}). ` +
-      `Use a different approach or tool to make progress. If you need more calls to this tool, ` +
-      `explain your reasoning to the user via ask_user.`
-    );
-  }
-
-  return null;
+  recordDecision(
+    state.logger,
+    { kind: 'tool_budget', action: 'refused', tool: toolName, count, budget },
+    `Tool budget refused ${toolName} (${count}/${budget})`,
+    'warn',
+  );
+  // In autonomous mode nobody answers ask_user: a model told to "explain via
+  // ask_user" asked an empty room for permission to run its final verification
+  // (SWE django-12856, 2026-10-20).
+  const next =
+    state.approvalMode === 'autonomous'
+      ? `No one can grant more calls in autonomous mode. Work with the results you already have.`
+      : `If you need more calls to this tool, explain your reasoning to the user via ask_user.`;
+  return (
+    `Tool "${toolName}" has been called ${count} times this session (budget: ${budget}). ` +
+    `Use a different approach or tool to make progress. ${next}`
+  );
 }
 
 /**

@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.1** (2026-10) — per-tool budgets are tiered. The strong tier lifts
+ *   run_command 15→60, read_file 25→50, grep/search_files 15→40,
+ *   list_directory 10→20; medium and weak keep the old values. In autonomous
+ *   mode the refusal no longer points at ask_user. Refusals are recorded as
+ *   `tool_budget` decisions. Evidence: the budget refused claude-haiku-4-5 in
+ *   40/50 SWE canary runs (#236). PATCH: thresholds and a reprompt string
+ *   within an existing mechanism.
  * - **5.0.0** (2026-08) — checks must PASS, and silence is not an answer.
  *   MAJOR twice over: a gate's verification semantics changed and a new
  *   default-on mechanism was added.
@@ -178,7 +185,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.0';
+export const SCAFFOLD_VERSION = '5.1.1';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

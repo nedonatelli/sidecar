@@ -7,6 +7,7 @@ import {
   CONTEXT_COMPRESSION_THRESHOLD,
   COMPACTION_KEEP_RECENT_TURNS,
   COMPACTION_MAX_SUMMARY_CHARS,
+  TOOL_CALL_BUDGETS,
 } from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,7 @@ describe('medium tier === the loop’s fallback constants', () => {
       compressionThreshold: CONTEXT_COMPRESSION_THRESHOLD,
       compactionKeepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
       compactionMaxSummaryChars: COMPACTION_MAX_SUMMARY_CHARS,
+      toolBudgets: TOOL_CALL_BUDGETS,
     });
   });
 
@@ -89,5 +91,16 @@ describe('the tiers that DO differ — the flip’s actual risk surface', () => 
     // A capable model earns lower latency. It does not earn less verification.
     expect(strong.maxActionReprompts).toBe(DEFAULT_SCAFFOLDING_PROFILE.maxActionReprompts);
     expect(strong.maxGateInjections).toBe(DEFAULT_SCAFFOLDING_PROFILE.maxGateInjections);
+  });
+
+  it('strong relaxes exactly the tool budgets that refused Haiku; weak keeps medium’s', () => {
+    // The 2026-10-20 SWE canary: medium's run_command budget of 15 refused
+    // claude-haiku-4-5 in 40/50 runs, cutting off its test runs.
+    const strong = resolveScaffoldingProfile('strong').toolBudgets;
+    const relaxed = Object.keys(TOOL_CALL_BUDGETS).filter((t) => strong[t] !== TOOL_CALL_BUDGETS[t]);
+    expect(relaxed.sort()).toEqual(['grep', 'list_directory', 'read_file', 'run_command', 'search_files']);
+    for (const t of relaxed) expect(strong[t]).toBeGreaterThan(TOOL_CALL_BUDGETS[t]);
+
+    expect(resolveScaffoldingProfile('weak').toolBudgets).toEqual(TOOL_CALL_BUDGETS);
   });
 });

@@ -64,3 +64,17 @@ describe('planModeAskUser (weak-tier plan-mode tool attractor)', () => {
     expect(DEFAULT_SCAFFOLDING_PROFILE.planModeAskUser).toBe(true);
   });
 });
+
+describe('toolBudgets overrides', () => {
+  it('merge per tool instead of replacing the whole map', () => {
+    const p = resolveScaffoldingProfile('medium', { toolBudgets: { run_command: 30 } });
+    expect(p.toolBudgets.run_command).toBe(30);
+    expect(p.toolBudgets.grep).toBe(DEFAULT_SCAFFOLDING_PROFILE.toolBudgets.grep);
+  });
+
+  it('apply on top of the tier, not the medium constants', () => {
+    const p = resolveScaffoldingProfile('strong', { toolBudgets: { grep: 5 } });
+    expect(p.toolBudgets.grep).toBe(5);
+    expect(p.toolBudgets.run_command).toBe(resolveScaffoldingProfile('strong').toolBudgets.run_command);
+  });
+});

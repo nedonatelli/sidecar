@@ -88,6 +88,17 @@ describe('summarizeDecisions', () => {
     expect(out['verification_run.unrecognized']).toBe(1);
   });
 
+  it('counts tool-budget refusals in total and per tool', () => {
+    const out = summarizeDecisions([
+      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
+      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
+      { kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 },
+    ]);
+    expect(out['tool_budget.refused']).toBe(3);
+    expect(out['tool_budget.tool.run_command']).toBe(2);
+    expect(out['tool_budget.tool.grep']).toBe(1);
+  });
+
   it('separates edits that WROTE from edits that only reported success', () => {
     // The measurement this exists for: 704 of 5,689 "successful" edits across
     // 3,510 recorded runs wrote nothing, and every metric counting successful

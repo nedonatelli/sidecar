@@ -38,6 +38,32 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 5.1.1 — per-tool budgets are tiered (2026-10)
+
+PATCH: thresholds and a reprompt string change inside an existing mechanism.
+Medium-tier runs are unchanged; strong-tier runs are not comparable to 5.1.0 on
+tool-heavy tasks.
+
+- **Strong tier lifts the tool budgets.** `run_command` 15→60, `read_file`
+  25→50, `grep`/`search_files` 15→40, `list_directory` 10→20. On the 50-task SWE
+  canary, the medium budgets refused claude-haiku-4-5 in 40/50 runs, mostly
+  `run_command`, which is its test runs. The model routed around the cap by
+  spawning subagents for a fresh budget, calling `ask_user` in autonomous mode,
+  and deleting its own repro scripts. Claude Code, on the same model and tasks
+  with no caps, peaked per task at 51 non-search shell calls, 50 searches and 26
+  reads. ([#236](https://github.com/nedonatelli/sidecar/issues/236))
+- **The refusal no longer points an autonomous run at `ask_user`,** which
+  nobody answers there.
+- **Refusals are recorded** as `tool_budget` decisions, so trajectories and
+  `summarizeDecisions` count them.
+
+Measured (Haiku 4.5, canary, scaffold-on, 150 iterations): **31/50** against
+30/50 at 5.1.0. That's 4 gained and 3 lost, McNemar p = 1.0, so resolve rate is
+**neutral**. Budget refusals went from 54 to 0 and `spawn_agent` workarounds from
+18 to 0 on the clean tasks. Mean turns rose 60→69 at flat wall time, because work
+the subagents used to do now runs in the main loop. The change ships for run
+correctness, not score.
+
 ### 5.1.0 — the adversarial critic is removed (2026-08)
 
 MINOR: a scaffold mechanism was **removed**, so the scaffold descriptor no

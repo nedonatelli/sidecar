@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { checkToolBudget, recordToolUse } from './toolBudget.js';
 import type { LoopState } from './state.js';
+import { resolveScaffoldingProfile } from '../scaffoldingProfile.js';
+import type { AgentDecision } from '../decisions.js';
 
 function makeState(): Pick<LoopState, 'toolCallCounts'> {
   return { toolCallCounts: new Map<string, number>() };
@@ -85,5 +87,56 @@ describe('checkToolBudget', () => {
     // Check again — still returns error, count still 5
     expect(checkToolBudget(state as LoopState, 'web_search')).not.toBeNull();
     expect(state.toolCallCounts.get('web_search')).toBe(5);
+  });
+});
+
+describe('checkToolBudget with a scaffolding profile', () => {
+  function stateWith(overrides: Partial<LoopState>): LoopState {
+    return { toolCallCounts: new Map<string, number>(), ...overrides } as LoopState;
+  }
+  const fill = (state: LoopState, tool: string, n: number) => {
+    for (let i = 0; i < n; i++) recordToolUse(state, tool);
+  };
+
+  it("reads the strong tier's budget instead of the medium constant", () => {
+    const state = stateWith({ scaffoldingProfile: resolveScaffoldingProfile('strong') });
+    fill(state, 'run_command', 15);
+    expect(checkToolBudget(state, 'run_command')).toBeNull();
+    fill(state, 'run_command', 45);
+    expect(checkToolBudget(state, 'run_command')).toContain('budget: 60');
+  });
+
+  it('falls back to the default budget for a tool the profile does not list', () => {
+    const state = stateWith({ scaffoldingProfile: resolveScaffoldingProfile('strong') });
+    fill(state, 'custom_tool', 20);
+    expect(checkToolBudget(state, 'custom_tool')).toContain('budget: 20');
+  });
+
+  it('does not point an autonomous run at ask_user, which nobody answers', () => {
+    const autonomous = stateWith({ approvalMode: 'autonomous' });
+    fill(autonomous, 'web_search', 5);
+    const msg = checkToolBudget(autonomous, 'web_search');
+    expect(msg).not.toContain('ask_user');
+    expect(msg).toContain('autonomous');
+
+    const cautious = stateWith({ approvalMode: 'cautious' });
+    fill(cautious, 'web_search', 5);
+    expect(checkToolBudget(cautious, 'web_search')).toContain('ask_user');
+  });
+
+  it('records each refusal as a structured decision', () => {
+    const decisions: AgentDecision[] = [];
+    const logger = { logDecision: (d: AgentDecision) => decisions.push(d), warn: () => {} };
+    const state = stateWith({ logger: logger as unknown as LoopState['logger'] });
+    fill(state, 'grep', 15);
+    checkToolBudget(state, 'grep');
+    expect(decisions).toEqual([{ kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 }]);
+  });
+
+  it('records nothing for an allowed call', () => {
+    const decisions: AgentDecision[] = [];
+    const logger = { logDecision: (d: AgentDecision) => decisions.push(d) };
+    checkToolBudget(stateWith({ logger: logger as unknown as LoopState['logger'] }), 'grep');
+    expect(decisions).toEqual([]);
   });
 });
