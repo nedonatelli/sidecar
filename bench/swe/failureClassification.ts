@@ -57,6 +57,10 @@ const INFRA_SIGNATURES = [
   // The machine slept mid-task (hostSuspend.ts): its requests stalled and the
   // run looked like a model failure (#259).
   'host suspended for ',
+  // vLLM's engine process died (EngineDeadError). The server answers every
+  // later request with this message; nemotron-3-super on a DGX Spark hit it 27
+  // turns into requests-1963 scaffold-on, recorded as [capability].
+  'enginecore encountered an issue',
 ];
 
 export function classifyFailure(err: unknown): FailureClassification {
