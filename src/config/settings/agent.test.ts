@@ -23,7 +23,7 @@ describe('resolveMode — built-in modes', () => {
 });
 
 describe('resolveMode — unknown mode', () => {
-  it('falls back to cautious for an unrecognised mode string', () => {
+  it('falls back to cautious for an unrecognized mode string', () => {
     const result = resolveMode('some-future-mode', NO_CUSTOMS);
     expect(result.approvalBehavior).toBe('cautious');
     expect(result.isCustom).toBe(false);

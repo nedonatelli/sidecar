@@ -598,13 +598,13 @@ describe('shouldAutoEnablePlanMode', () => {
 // isPlanApproval
 // ---------------------------------------------------------------------------
 describe('isPlanApproval', () => {
-  it('recognises common affirmations', () => {
+  it('recognizes common affirmations', () => {
     for (const word of ['yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay']) {
       expect(isPlanApproval(word)).toBe(true);
     }
   });
 
-  it('recognises action phrases', () => {
+  it('recognizes action phrases', () => {
     expect(isPlanApproval('go ahead')).toBe(true);
     expect(isPlanApproval('do it')).toBe(true);
     expect(isPlanApproval("let's go")).toBe(true);
@@ -642,13 +642,13 @@ describe('isPlanApproval', () => {
 // isPlanRejection
 // ---------------------------------------------------------------------------
 describe('isPlanRejection', () => {
-  it('recognises common rejections', () => {
+  it('recognizes common rejections', () => {
     for (const word of ['no', 'nope', 'nah', 'cancel', 'reject', 'stop', 'abort']) {
       expect(isPlanRejection(word)).toBe(true);
     }
   });
 
-  it('recognises rejection phrases', () => {
+  it('recognizes rejection phrases', () => {
     expect(isPlanRejection('start over')).toBe(true);
     expect(isPlanRejection('scratch that')).toBe(true);
     expect(isPlanRejection('never mind')).toBe(true);
@@ -680,14 +680,14 @@ describe('isPlanRejection', () => {
 // isUndoRequest
 // ---------------------------------------------------------------------------
 describe('isUndoRequest', () => {
-  it('recognises bare undo/revert', () => {
+  it('recognizes bare undo/revert', () => {
     expect(isUndoRequest('undo')).toBe(true);
     expect(isUndoRequest('revert')).toBe(true);
     expect(isUndoRequest('rollback')).toBe(true);
     expect(isUndoRequest('roll back')).toBe(true);
   });
 
-  it('recognises qualified phrases', () => {
+  it('recognizes qualified phrases', () => {
     expect(isUndoRequest('undo that')).toBe(true);
     expect(isUndoRequest('undo the changes')).toBe(true);
     expect(isUndoRequest('revert it')).toBe(true);
@@ -717,7 +717,7 @@ describe('isUndoRequest', () => {
 // isCommitRequest
 // ---------------------------------------------------------------------------
 describe('classifySmallTalk', () => {
-  it('recognises pure greetings', () => {
+  it('recognizes pure greetings', () => {
     expect(classifySmallTalk('hi')).toBe('greeting');
     expect(classifySmallTalk('Hello!')).toBe('greeting');
     expect(classifySmallTalk('hey there')).toBe('greeting');
@@ -725,7 +725,7 @@ describe('classifySmallTalk', () => {
     expect(classifySmallTalk('Hi, SideCar!')).toBe('greeting');
   });
 
-  it('recognises pure gratitude', () => {
+  it('recognizes pure gratitude', () => {
     expect(classifySmallTalk('thanks')).toBe('gratitude');
     expect(classifySmallTalk('thank you so much')).toBe('gratitude');
     expect(classifySmallTalk('thanks, great work!')).toBe('gratitude');
@@ -741,7 +741,7 @@ describe('classifySmallTalk', () => {
     expect(classifySmallTalk('🙏')).toBe('gratitude');
   });
 
-  it('recognises greeting synonyms', () => {
+  it('recognizes greeting synonyms', () => {
     expect(classifySmallTalk('gm')).toBe('greeting');
     expect(classifySmallTalk('morning!')).toBe('greeting');
     expect(classifySmallTalk("what's up?")).toBe('greeting');
@@ -750,7 +750,7 @@ describe('classifySmallTalk', () => {
     expect(classifySmallTalk('👋')).toBe('greeting');
   });
 
-  it('recognises farewells, including thanks-and-bye combos', () => {
+  it('recognizes farewells, including thanks-and-bye combos', () => {
     expect(classifySmallTalk('bye')).toBe('farewell');
     expect(classifySmallTalk('see you later')).toBe('farewell');
     expect(classifySmallTalk('goodnight')).toBe('farewell');
@@ -794,12 +794,12 @@ describe('classifySmallTalk', () => {
 });
 
 describe('isCommitRequest', () => {
-  it('recognises bare commit', () => {
+  it('recognizes bare commit', () => {
     expect(isCommitRequest('commit')).toBe(true);
     expect(isCommitRequest('lgtm')).toBe(true);
   });
 
-  it('recognises qualified phrases', () => {
+  it('recognizes qualified phrases', () => {
     expect(isCommitRequest('commit it')).toBe(true);
     expect(isCommitRequest('commit the changes')).toBe(true);
     expect(isCommitRequest('make a commit')).toBe(true);
@@ -825,7 +825,7 @@ describe('isCommitRequest', () => {
 // isShowDiffRequest
 // ---------------------------------------------------------------------------
 describe('isShowDiffRequest', () => {
-  it('recognises common forms', () => {
+  it('recognizes common forms', () => {
     expect(isShowDiffRequest('diff')).toBe(true);
     expect(isShowDiffRequest('show diff')).toBe(true);
     expect(isShowDiffRequest('what changed')).toBe(true);
@@ -849,7 +849,7 @@ describe('isShowDiffRequest', () => {
 // isDeferredAnswer
 // ---------------------------------------------------------------------------
 describe('isDeferredAnswer', () => {
-  it('recognises common deferrals', () => {
+  it('recognizes common deferrals', () => {
     expect(isDeferredAnswer("I don't know")).toBe(true);
     expect(isDeferredAnswer('your call')).toBe(true);
     expect(isDeferredAnswer('up to you')).toBe(true);
@@ -3378,7 +3378,7 @@ describe('handleRegenerateResponse — content block array', () => {
 // isContinuationRequest
 // ---------------------------------------------------------------------------
 describe('isContinuationRequest', () => {
-  it('recognises continuation words', () => {
+  it('recognizes continuation words', () => {
     expect(isContinuationRequest('continue')).toBe(true);
     expect(isContinuationRequest('keep going')).toBe(true);
     expect(isContinuationRequest('resume')).toBe(true);

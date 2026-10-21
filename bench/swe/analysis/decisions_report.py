@@ -100,9 +100,9 @@ def report(root, by_task=False):
         print(f'  max writes-since-verify per run    mean {mean([s["max_writes_since_verify"] for s in st])}')
         rec = sum(s['verify_recognized'] for s in st)
         unrec = sum(s['verify_unrecognized'] for s in st)
-        print(f'  shell commands as verification     {rec} recognised, {unrec} not')
+        print(f'  shell commands as verification     {rec} recognized, {unrec} not')
         print(f'  first applied edit at iteration    mean {mean([s["first_applied_iter"] for s in st])}')
-        print(f'  first recognised test run at iter  mean {mean([s["first_verify_iter"] for s in st])}'
+        print(f'  first recognized test run at iter  mean {mean([s["first_verify_iter"] for s in st])}'
               f'  ({sum(1 for s in st if s["first_verify_iter"] is None)} runs never ran one)')
         total = collections.Counter()
         for s in st:

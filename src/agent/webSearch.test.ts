@@ -169,7 +169,7 @@ describe('searchWeb — a provider that refuses is BLOCKED, not "no results"', (
     expect((err as SearchProviderBlockedError).provider).toBe('duckduckgo');
   });
 
-  it('the challenge page is recognised even when served with a 200', async () => {
+  it('the challenge page is recognized even when served with a 200', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page(200, CHALLENGE)));
     await expect(searchWeb('x')).rejects.toBeInstanceOf(SearchProviderBlockedError);
   });

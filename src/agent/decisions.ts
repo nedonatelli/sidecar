@@ -11,7 +11,7 @@
 // The same gap forced every analysis script to re-derive production predicates
 // in its own regex. Those copies then drifted: the shipped completion gate
 // counted `\b(vitest|jest|pytest|mocha|go test)\b` as a verification run, so on
-// a Django corpus it recognised almost nothing, while eight analysis scripts
+// a Django corpus it recognized almost nothing, while eight analysis scripts
 // used a much broader pattern and reported 59% of runs "ran a test". Both
 // numbers were defensible; nothing in the pipeline revealed they disagreed.
 //
@@ -98,7 +98,7 @@ export type AgentDecision =
       kind: 'verification_run';
       /** The command as the model wrote it. */
       command: string;
-      /** Whether the PRODUCT recognised it as a test run. The field that stops
+      /** Whether the PRODUCT recognized it as a test run. The field that stops
        *  analysis from re-deriving this predicate and silently disagreeing. */
       recognized: boolean;
       runner?: string;

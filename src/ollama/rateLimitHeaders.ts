@@ -60,7 +60,7 @@ function anthropicResetHeader(headers: Headers | null | undefined, name: string)
  *   "1h30m15s"  → 5415
  *   "500ms"     → 1   (rounded up; we don't track sub-second resolution)
  *
- * Returns undefined if the string has no recognisable segments.
+ * Returns undefined if the string has no recognizable segments.
  *
  * Exported for the test suite — otherwise this would be file-local.
  */
