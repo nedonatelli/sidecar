@@ -491,3 +491,56 @@ describe('ShellSession lifecycle (#114)', () => {
     expect(session.isAlive).toBe(true);
   }, 30_000);
 });
+
+// #260: on POSIX the shell leads its own process group, so disposing it reaches
+// what it started: `runtests.py --parallel` workers survived a task's shell, re-
+// parented to PID 1. Real processes, so POSIX only (on Windows the PIDs a Git
+// Bash `$!` reports are not Windows PIDs; taskkill /T covers Windows).
+describe.skipIf(os.platform() === 'win32')('ShellSession kills what the shell started (#260)', () => {
+  let session: ShellSession;
+  afterEach(() => session?.dispose());
+
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const gone = async (pid: number): Promise<boolean> => {
+    for (let i = 0; i < 40 && alive(pid); i++) await new Promise((r) => setTimeout(r, 100));
+    return !alive(pid);
+  };
+  const pidFrom = (out: string): number => Number(/PID=(\d+)/.exec(out)?.[1]);
+
+  it('dispose kills a process the shell put in the background', async () => {
+    session = new ShellSession(os.tmpdir());
+    const out = (await session.execute('sleep 300 & echo PID=$!')).stdout;
+    const pid = pidFrom(out);
+    expect(alive(pid)).toBe(true);
+    session.dispose();
+    expect(await gone(pid)).toBe(true);
+  }, 30_000);
+
+  it('dispose kills what a background command forked', async () => {
+    session = new ShellSession(os.tmpdir());
+    const id = session.executeBackground('sleep 301 & echo PID=$!; wait');
+    let out = '';
+    for (let i = 0; i < 50 && !/PID=\d+/.test(out); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      out = session.checkBackground(id)?.output ?? '';
+    }
+    const pid = pidFrom(out);
+    expect(alive(pid)).toBe(true);
+    session.dispose();
+    expect(await gone(pid)).toBe(true);
+  }, 30_000);
+
+  it('the exit-time kill takes the same processes, synchronously', async () => {
+    session = new ShellSession(os.tmpdir());
+    const pid = pidFrom((await session.execute('sleep 302 & echo PID=$!')).stdout);
+    session.killNowForExit();
+    expect(await gone(pid)).toBe(true);
+  }, 30_000);
+});

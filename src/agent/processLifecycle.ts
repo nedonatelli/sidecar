@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { Disposable } from 'vscode';
 import { writeFileAtomic } from '../system/atomicWrite.js';
-import { killProcessTree } from '../system/killProcessTree.js';
+import { killProcessTree, signalProcessGroup } from '../system/killProcessTree.js';
 
 /**
  * Wraps a ChildProcess with a deterministic kill chain:
@@ -14,12 +14,17 @@ export class ManagedChildProcess implements Disposable {
   readonly pid: number | undefined;
   private disposed = false;
 
+  /** POSIX: the process leads its own group (spawned detached), so kills signal the group (#260). */
+  private readonly ownsProcessGroup: boolean;
+
   constructor(
     private proc: ChildProcess,
     readonly label: string,
     private registry: ProcessRegistry,
+    opts: { ownsProcessGroup?: boolean } = {},
   ) {
     this.pid = proc.pid;
+    this.ownsProcessGroup = opts.ownsProcessGroup === true;
     registry.register(this);
 
     // Auto-unregister when process exits
@@ -81,17 +86,24 @@ export class ManagedChildProcess implements Disposable {
         return;
       }
 
+      // A process-group leader takes its group with every signal; anything
+      // else is signalled alone.
+      const send = (signal?: NodeJS.Signals): void => {
+        if (this.ownsProcessGroup && signalProcessGroup(proc.pid, signal ?? 'SIGTERM')) return;
+        proc.kill(signal);
+      };
+
       // Stage 0: graceful kill (SIGTERM on Unix, TerminateProcess on Windows)
-      proc.kill();
+      send();
 
       timer = setTimeout(() => {
         if (checkExit()) return;
         // Stage 1: explicit SIGTERM
-        proc.kill('SIGTERM');
+        send('SIGTERM');
         timer = setTimeout(() => {
           if (checkExit()) return;
           // Stage 2: SIGKILL
-          proc.kill('SIGKILL');
+          send('SIGKILL');
           // Hard deadline: 1s after SIGKILL
           timer = setTimeout(() => {
             proc.removeListener('exit', exitHandler);

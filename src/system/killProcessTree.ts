@@ -38,3 +38,30 @@ export function killProcessTree(
     return false;
   }
 }
+
+/**
+ * POSIX: send `signal` to the whole process group that `pid` leads, which is
+ * what a child spawned with `detached: true` does. Returns false when there was
+ * nothing to signal (no pid, or the group is gone), so the caller can fall back
+ * to signalling the process alone.
+ *
+ * Killing only the shell left its descendants running: `runtests.py --parallel`
+ * forks workers, and after the SWE driver disposed a task's shell six of them
+ * were still alive 9 minutes later, re-parented to PID 1 (#260). Every process
+ * a shell starts inherits its group, so signalling the group reaches them.
+ *
+ * @param kill injection seam for tests — the default is process.kill.
+ */
+export function signalProcessGroup(
+  pid: number | undefined,
+  signal: NodeJS.Signals,
+  kill: (pid: number, signal: NodeJS.Signals) => void = (p, s) => process.kill(p, s),
+): boolean {
+  if (!pid) return false;
+  try {
+    kill(-pid, signal);
+    return true;
+  } catch {
+    return false; // ESRCH: the group is already gone.
+  }
+}

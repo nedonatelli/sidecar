@@ -10,6 +10,7 @@ vi.mock('os', async (importOriginal) => ({
 const treeKill = vi.fn((_pid: number | undefined, _isWindows: boolean) => true);
 vi.mock('../system/killProcessTree.js', () => ({
   killProcessTree: (pid: number | undefined, isWindows: boolean) => treeKill(pid, isWindows),
+  signalProcessGroup: () => false,
 }));
 
 import { ManagedChildProcess } from './processLifecycle.js';
