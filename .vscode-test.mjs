@@ -12,10 +12,17 @@ import { assertFreshBuild } from './scripts/lib/buildFreshness.mjs';
 // point. A stale build otherwise passes identically to a fresh one.
 await assertFreshBuild(process.cwd());
 
+// The VS Code build the suites run against. Unpinned, test-cli downloads the
+// newest stable, so a VS Code release could change the environment between two
+// runs of the same commit (#226: on 1.142.0 the TypeScript warm-up timed out on
+// Oct 19 after passing on Oct 15). Move it up deliberately, with a run.
+const VSCODE_VERSION = '1.141.0';
+
 export default defineConfig([
   {
     label: 'workspace',
     files: 'out/src/test/integration/**/*.test.js',
+    version: VSCODE_VERSION,
     extensionDevelopmentPath: '.',
     workspaceFolder: '.',
     mocha: {
@@ -28,6 +35,7 @@ export default defineConfig([
     // workspace run above does not pick them up.
     label: 'empty-window',
     files: 'out/src/test/integration/**/*.etest.js',
+    version: VSCODE_VERSION,
     extensionDevelopmentPath: '.',
     mocha: {
       timeout: 30000,
