@@ -36,7 +36,16 @@ suite('Indexing a workspace with shell scripts (real host)', () => {
 
   suiteSetup(() => {
     setGrammarsPath(path.join(root, 'grammars'));
-    fs.rmSync(abs, { recursive: true, force: true });
+    // The teardown below often can't remove the directory, and it can still be
+    // held when the next host starts. On Oct 21, 3 of 8 teardowns left it behind,
+    // and the next setup's single rmSync threw EPERM. So retry, then carry on.
+    // The files written below have fixed names and contents, so a leftover
+    // directory is overwritten into the same state.
+    try {
+      fs.rmSync(abs, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (err) {
+      console.warn(`could not remove leftover ${DIR}, overwriting it: ${(err as Error).message}`);
+    }
     fs.mkdirSync(abs, { recursive: true });
     // Shell scripts first in name order, so a corrupting parse would come early.
     for (let i = 0; i < SHELLS; i++) fs.writeFileSync(path.join(abs, `a_run${i}.sh`), shell(i));
