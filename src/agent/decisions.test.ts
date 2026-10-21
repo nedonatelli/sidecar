@@ -63,17 +63,6 @@ describe('summarizeDecisions', () => {
     expect(out['completion_gate.finding.needsLint']).toBe(1);
   });
 
-  it('counts tool-budget refusals, in total and per tool (#236)', () => {
-    const out = summarizeDecisions([
-      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
-      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
-      { kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 },
-    ]);
-    expect(out['tool_budget.refused']).toBe(3);
-    expect(out['tool_budget.refused.run_command']).toBe(2);
-    expect(out['tool_budget.refused.grep']).toBe(1);
-  });
-
   it('separates the ratchet revert arms — the distinction the log line buried in prose', () => {
     const out = summarizeDecisions([
       { kind: 'keep_best_ratchet', action: 'armed', projectTestsPassed: false },
@@ -87,8 +76,8 @@ describe('summarizeDecisions', () => {
     expect(out['keep_best_ratchet.reason.regression']).toBe(1);
   });
 
-  it('counts recognised vs unrecognised verification runs separately', () => {
-    // The Django case: the product did not recognise ./tests/runtests.py, while
+  it('counts recognized vs unrecognized verification runs separately', () => {
+    // The Django case: the product did not recognize ./tests/runtests.py, while
     // every analysis script did. With this field the disagreement is visible in
     // the run's own summary instead of requiring a regex diff by hand.
     const out = summarizeDecisions([
@@ -97,6 +86,17 @@ describe('summarizeDecisions', () => {
     ]);
     expect(out['verification_run.recognized']).toBe(1);
     expect(out['verification_run.unrecognized']).toBe(1);
+  });
+
+  it('counts tool-budget refusals in total and per tool', () => {
+    const out = summarizeDecisions([
+      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
+      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
+      { kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 },
+    ]);
+    expect(out['tool_budget.refused']).toBe(3);
+    expect(out['tool_budget.tool.run_command']).toBe(2);
+    expect(out['tool_budget.tool.grep']).toBe(1);
   });
 
   it('separates edits that WROTE from edits that only reported success', () => {
@@ -146,8 +146,8 @@ describe('summarizeDecisions', () => {
 });
 
 describe('verification_run — the record that ends the regex duplication', () => {
-  it('summarises recognised and unrecognised shell commands separately', () => {
-    // The Django case: the shipped gate did not recognise ./tests/runtests.py,
+  it('summarizes recognized and unrecognized shell commands separately', () => {
+    // The Django case: the shipped gate did not recognize ./tests/runtests.py,
     // while every analysis script did. With this field the disagreement shows
     // up in the run's own summary instead of needing a regex diff by hand.
     const out = summarizeDecisions([

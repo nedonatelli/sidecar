@@ -10,12 +10,12 @@ import { INFRA_FAILURE_PREFIX, isWrappedInfraFailure, isInfraFailure } from './a
 // operation was aborted", and because the recorder flushes after every case,
 // the 16 it had reached overwrote a complete 69-case baseline.
 //
-// The recogniser exists because wrapping the original error in a new Error drops
+// The recognizer exists because wrapping the original error in a new Error drops
 // `err.name`, so `isInfraFailure` cannot identify the re-thrown error — the
-// check that classified it in the first place does not recognise its own output.
+// check that classified it in the first place does not recognize its own output.
 
 describe('the infra-failure marker', () => {
-  it('recognises the error runAgentCase actually throws', () => {
+  it('recognizes the error runAgentCase actually throws', () => {
     expect(isWrappedInfraFailure(new Error(`${INFRA_FAILURE_PREFIX}This operation was aborted`))).toBe(true);
   });
 
@@ -32,7 +32,7 @@ describe('the infra-failure marker', () => {
     expect(isWrappedInfraFailure(null)).toBe(false);
   });
 
-  it('is needed because isInfraFailure cannot recognise the wrapped form', () => {
+  it('is needed because isInfraFailure cannot recognize the wrapped form', () => {
     // The exact reason a separate marker exists rather than reusing the
     // classifier. `new Error(...)` loses `err.name === 'AbortError'`, and the
     // message regex has no `aborted` term — so the classifier returns false on

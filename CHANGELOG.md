@@ -38,6 +38,15 @@ Claude 5 models get prices, and an OpenAI-compatible server says why its model l
 
 ### Changed
 
+- **Capable models get higher per-tool budgets** (scaffold 5.1.1, [#236](https://github.com/nedonatelli/sidecar/issues/236)).
+  The per-run budgets in `toolBudget.ts` were sized for small local models and refused
+  claude-haiku-4-5 in 40/50 SWE canary runs, mostly on `run_command`, which is its test
+  runs. The strong tier now allows `run_command` 60, `read_file` 50, `grep` and
+  `search_files` 40, and `list_directory` 20. Weak and medium tiers are unchanged. In
+  autonomous mode, a refusal no longer tells the model to ask the user, since nobody
+  answers there. Refusals are recorded as structured `tool_budget` decisions, and
+  `sidecar.scaffolding.overrides` accepts per-tool `toolBudgets`.
+
 - **Groq defaults to `openai/gpt-oss-120b`.** Groq shut down `llama-3.3-70b-versatile` and
   `llama-3.1-8b-instant` on 2026-08-16. The backend picker and docs now also warn that
   Groq's free tier can't run SideCar: its 8K tokens-per-minute limit is smaller than a
@@ -662,7 +671,7 @@ of what it changed.
 - The vLLM launch example in `docs/backends.md` now includes `--enable-auto-tool-choice`
   and `--tool-call-parser`, without which the agent cannot call tools.
 - **Agent decisions are recorded as structured data.** Completion-gate firings, ratchet
-  reverts, shell commands the gate did or did not recognise as verification, and every
+  reverts, shell commands the gate did or did not recognize as verification, and every
   `edit_file` outcome are emitted as records with fields alongside the existing log line,
   and summarised per run. Each `edit_file` record separates whether the bytes changed, what
   the parse gate actually determined (`ok` / `unchecked` / `not-worse`), and how many times
@@ -2314,7 +2323,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 
 - **Cycle detector frequency-over-window check** — catches hallucinated paths attempted non-consecutively across 8 turns (e.g. `read_file(bad) → list_dir → read_file(bad) → list_dir → read_file(bad)`). Previously only consecutive repeats were caught. (`src/agent/loop/cycleDetection.ts`)
 
-- **`extractTestFiles` Python prefix convention** — `test_*.py` (pytest/unittest prefix pattern) is now recognised alongside `*_test.py`. (`src/agent/completionGate.ts`)
+- **`extractTestFiles` Python prefix convention** — `test_*.py` (pytest/unittest prefix pattern) is now recognized alongside `*_test.py`. (`src/agent/completionGate.ts`)
 
 - **Stop messages include tool name and resource** — cycle detector stop messages now show which tool and resource was stuck, e.g. `"read_file:CLAUDE.md repeated 4 times"` instead of the generic `"same tool call repeated 4 times in a row"`. (`src/agent/loop/cycleDetection.ts`)
 
@@ -2327,7 +2336,7 @@ A session of systematic eval-driven improvements followed by a live dogfooding s
 
 - **Model agent behavior registry** — `src/config/modelAgentBehavior.ts` exports `MODELS_NEEDING_COLD_START` and `MODELS_WITH_PROBLEMATIC_THINKING` with predicate functions. Eval harness automatically skips `setupMessages` for cold-start models (gemma4) and suppresses thinking mode for models where it causes stalling (qwen3:8b/14b/32b). (`src/config/modelAgentBehavior.ts`)
 
-- **Polyglot lint detection** — completion gate now recognises Python and Go lint tools in addition to `eslint`/`tsc`. (`src/agent/completionGate.ts`)
+- **Polyglot lint detection** — completion gate now recognizes Python and Go lint tools in addition to `eslint`/`tsc`. (`src/agent/completionGate.ts`)
 
 - **Live-repo shadow eval** — `tests/llm-eval/liveRepoCase.eval.ts` runs the agent against actual SideCar source files in a temp-dir shadow workspace, producing a real diff. Used for the dogfood dev-loop test. Supports `setupMessages` warm-start and model-specific cold-start skipping.
 
@@ -4723,7 +4732,7 @@ Kickstand QoL release — first-class model management for the Kickstand backend
 
 - **Post-pull warmup verification.** After `ollama pull` completes, SideCar attempts to load the model via `/api/generate` before declaring success. If Ollama returns a 500 (e.g. unsupported architecture in an HF-sourced GGUF), the error is surfaced immediately instead of failing silently on the first chat message.
 
-- **Known-problematic HF GGUF detection.** SideCar now recognises GGUF repos known to fail at load time due to metadata incompatibilities with Ollama's engine. Currently covers Qwen3.5, with a modal warning and suggestion to use the official library model before downloading.
+- **Known-problematic HF GGUF detection.** SideCar now recognizes GGUF repos known to fail at load time due to metadata incompatibilities with Ollama's engine. Currently covers Qwen3.5, with a modal warning and suggestion to use the official library model before downloading.
 
 ### Fixed
 

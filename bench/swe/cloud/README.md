@@ -29,15 +29,15 @@ Configure **≥150 GB disk** — swebench images are large.
 Vast instance is itself a container, and the swebench scorer needs to run Docker
 (it builds/runs a per-task image). So either rent a **Docker-in-Docker /
 privileged-enabled** instance (some templates support it) for the scoring step,
-**or** split it: prediction-gen on the Vast GPU box, scoring via **Modal**
-(`--modal true`, serverless — no Docker-in-Docker headache). Pick a
+**or** split it: prediction-gen on the Vast GPU box, then copy the predictions
+back and score them on any Docker host (`bench/swe/local/run_local.sh`'s scoring
+step runs on a Mac via colima). Modal scoring no longer works: swebench's Modal
+evaluator uses Modal's retired legacy Sandbox filesystem API. Pick a
 high-reliability host; configure ≥150 GB disk.
 
 Alternatives:
 
 - **RunPod** — GPU pod, template-deploy in ~1 min, one box does predict + score.
-- **Modal** — native `--modal true` scoring backend, serverless (no Docker box);
-  pair with any GPU for the prediction step.
 - **Lambda Cloud** — clean GPU VMs; Docker-in-Docker for swebench can need extra setup.
 
 Big clouds (AWS/GCP/Azure GPU VMs) work but are more setup + cost for the same job.

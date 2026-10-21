@@ -1,0 +1,53 @@
+{
+  "model": "claude-haiku-4-5-20251001",
+  "backend": "anthropic",
+  "providerSetting": "anthropic",
+  "ollamaHost": "https://api.anthropic.com",
+  "ollamaVersion": null,
+  "modelDigest": null,
+  "modelSizeBytes": null,
+  "modelModifiedAt": null,
+  "agentTemperature": 0.2,
+  "agentSeed": null,
+  "dataset": "canary.jsonl",
+  "taskCount": 50,
+  "requestedN": 50,
+  "shardIndex": 0,
+  "shardCount": 1,
+  "scaffoldVersion": "5.1.1",
+  "scaffold": {
+    "scaffold-on": {
+      "version": "5.1.1",
+      "features": {
+        "completionGate": true,
+        "autoFix": true,
+        "adaptiveScaffolding": true,
+        "impactGate": true,
+        "numericalContractGate": true,
+        "analyticBoundsGate": false,
+        "keepBestRatchet": true,
+        "injectionGuard": true,
+        "diagnosticsReactiveFix": false
+      }
+    }
+  },
+  "repos": [],
+  "arms": [
+    "scaffold-on"
+  ],
+  "maxIterations": 150,
+  "retrievalTopK": 6,
+  "redCheckRatcheted": false,
+  "stableToolOutput": true,
+  "shellGuard": true,
+  "testTargets": "legacy",
+  "shellCapture": false,
+  "harnessOverrides": null,
+  "retrievalCliffGate": true,
+  "cycleDetectionDisabled": false,
+  "circuitBreakerDisabled": false,
+  "perTaskTimeoutMs": 1200000,
+  "envCacheBase": ".sidecar/cache/swe-repos",
+  "nodeVersion": "v24.12.0",
+  "createdAt": "2026-10-20T21:02:47.353Z"
+}

@@ -7,6 +7,7 @@ import {
   CONTEXT_COMPRESSION_THRESHOLD,
   COMPACTION_KEEP_RECENT_TURNS,
   COMPACTION_MAX_SUMMARY_CHARS,
+  TOOL_CALL_BUDGETS,
   DEFAULT_MAX_ITERATIONS,
 } from '../config/constants.js';
 
@@ -41,8 +42,7 @@ describe('medium tier === the loop’s fallback constants', () => {
       compressionThreshold: CONTEXT_COMPRESSION_THRESHOLD,
       compactionKeepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
       compactionMaxSummaryChars: COMPACTION_MAX_SUMMARY_CHARS,
-      // toolBudget.ts reads `profile?.toolBudgetMultiplier ?? 1`.
-      toolBudgetMultiplier: 1,
+      toolBudgets: TOOL_CALL_BUDGETS,
     });
   });
 
@@ -102,10 +102,14 @@ describe('the tiers that DO differ — the flip’s actual risk surface', () => 
     expect(strong.maxGateInjections).toBe(DEFAULT_SCAFFOLDING_PROFILE.maxGateInjections);
   });
 
-  it('strong relaxes the per-tool budgets; weak keeps them (#236)', () => {
-    // The budgets were sized for slow-burn floods from small local models.
-    // claude-haiku-4-5 hit one on 40/50 SWE canary tasks.
-    expect(resolveScaffoldingProfile('strong').toolBudgetMultiplier).toBe(3);
-    expect(resolveScaffoldingProfile('weak').toolBudgetMultiplier).toBe(1);
+  it('strong relaxes exactly the tool budgets that refused Haiku; weak keeps medium’s', () => {
+    // The 2026-10-20 SWE canary: medium's run_command budget of 15 refused
+    // claude-haiku-4-5 in 40/50 runs, cutting off its test runs.
+    const strong = resolveScaffoldingProfile('strong').toolBudgets;
+    const relaxed = Object.keys(TOOL_CALL_BUDGETS).filter((t) => strong[t] !== TOOL_CALL_BUDGETS[t]);
+    expect(relaxed.sort()).toEqual(['grep', 'list_directory', 'read_file', 'run_command', 'search_files']);
+    for (const t of relaxed) expect(strong[t]).toBeGreaterThan(TOOL_CALL_BUDGETS[t]);
+
+    expect(resolveScaffoldingProfile('weak').toolBudgets).toEqual(TOOL_CALL_BUDGETS);
   });
 });

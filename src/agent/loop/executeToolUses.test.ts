@@ -32,7 +32,6 @@ vi.mock('../localWorker.js', () => ({
 vi.mock('./toolBudget.js', () => ({
   checkToolBudget: vi.fn(() => null),
   recordToolUse: vi.fn(),
-  toolBudgetFor: vi.fn(() => 3),
 }));
 
 import { executeToolUses } from './executeToolUses.js';
@@ -294,28 +293,6 @@ describe('executeToolUses — budget check short-circuit', () => {
       true,
       'tu-read_file',
     );
-  });
-
-  it('records the refusal as a tool_budget decision (#236)', async () => {
-    vi.mocked(checkToolBudget).mockReturnValueOnce('budget spent');
-    const logDecision = vi.fn();
-    const state = catalogState({ logger: { info: vi.fn(), warn: vi.fn(), logDecision } as never });
-    state.toolCallCounts.set('read_file', 3);
-    await executeToolUses(
-      state,
-      [use('read_file')],
-      {} as SideCarClient,
-      {} as AgentOptions,
-      stubCallbacks(),
-      new AbortController().signal,
-    );
-    expect(logDecision).toHaveBeenCalledWith({
-      kind: 'tool_budget',
-      action: 'refused',
-      tool: 'read_file',
-      count: 3,
-      budget: 3,
-    });
   });
 
   it('tells the budget check whether anyone can answer ask_user', async () => {

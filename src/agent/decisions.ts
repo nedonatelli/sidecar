@@ -11,7 +11,7 @@
 // The same gap forced every analysis script to re-derive production predicates
 // in its own regex. Those copies then drifted: the shipped completion gate
 // counted `\b(vitest|jest|pytest|mocha|go test)\b` as a verification run, so on
-// a Django corpus it recognised almost nothing, while eight analysis scripts
+// a Django corpus it recognized almost nothing, while eight analysis scripts
 // used a much broader pattern and reported 59% of runs "ran a test". Both
 // numbers were defensible; nothing in the pipeline revealed they disagreed.
 //
@@ -95,29 +95,26 @@ export type AgentDecision =
       tier?: string;
     }
   | {
-      kind: 'verification_run';
-      /** The command as the model wrote it. */
-      command: string;
-      /** Whether the PRODUCT recognised it as a test run. The field that stops
-       *  analysis from re-deriving this predicate and silently disagreeing. */
-      recognized: boolean;
-      runner?: string;
-      exitCode?: number;
-    }
-  | {
       /**
-       * A tool call refused because the tool's per-run budget was spent
-       * (loop/toolBudget.ts). These used to exist only inside tool results, so
-       * claude-haiku-4-5 hitting a budget on 40 of 50 SWE tasks went unnoticed
-       * until someone read the trajectories (#236).
+       * A call refused by the per-tool budget. Until this record existed a
+       * refusal was visible only inside a tool result: on the 2026-10-20
+       * Haiku SWE canary it fired in 40/50 runs, unnoticed since v0.57.
        */
       kind: 'tool_budget';
       action: 'refused';
       tool: string;
-      /** Calls already made to this tool in the run. */
       count: number;
-      /** The budget in force (base budget × the tier's multiplier). */
       budget: number;
+    }
+  | {
+      kind: 'verification_run';
+      /** The command as the model wrote it. */
+      command: string;
+      /** Whether the PRODUCT recognized it as a test run. The field that stops
+       *  analysis from re-deriving this predicate and silently disagreeing. */
+      recognized: boolean;
+      runner?: string;
+      exitCode?: number;
     };
 
 /** Minimal logger surface this module needs (AgentLogger satisfies it). */
@@ -175,8 +172,8 @@ export function summarizeDecisions(decisions: readonly AgentDecision[]): Record<
       continue;
     }
     bump(`${d.kind}.${d.action}`);
-    if (d.kind === 'tool_budget') bump(`tool_budget.refused.${d.tool}`);
     if (d.kind === 'completion_gate') for (const f of d.findings ?? []) bump(`completion_gate.finding.${f}`);
+    if (d.kind === 'tool_budget') bump(`tool_budget.tool.${d.tool}`);
     if (d.kind === 'keep_best_ratchet' && d.action === 'reverted' && d.reason) {
       bump(`keep_best_ratchet.reason.${d.reason}`);
     }

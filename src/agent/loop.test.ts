@@ -1252,7 +1252,7 @@ describe('toolCallParseErrorDetail', () => {
       'Ollama request failed: 500 Internal Server Error — {"error":"error parsing tool call: raw=\'{...}\', err=unexpected end of JSON input"}',
       "error parsing tool call: raw='{...}', err=unexpected end of JSON input\"}",
     ],
-  ])('recognises %s', (message, detail) => {
+  ])('recognizes %s', (message, detail) => {
     expect(toolCallParseErrorDetail(new Error(message))).toBe(detail);
   });
 

@@ -258,7 +258,7 @@ describe('compressMessages — semantic tiers', () => {
   });
 
   it('other tier: result is preserved when distFromEnd < 2', () => {
-    const msgs = buildMessages('run_tests', LONG, 1); // distFromEnd = 1, unrecognised tool
+    const msgs = buildMessages('run_tests', LONG, 1); // distFromEnd = 1, unrecognized tool
     compressMessages(msgs);
     expect(resultContent(msgs, 1)).toHaveLength(2000);
   });

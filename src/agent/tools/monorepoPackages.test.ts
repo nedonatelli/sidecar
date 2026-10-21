@@ -62,7 +62,7 @@ describe('monorepo_packages tool', () => {
     expect(result).not.toContain('|'); // no table
   });
 
-  it('returns a "no packages found" message for a recognised type with no packages', async () => {
+  it('returns a "no packages found" message for a recognized type with no packages', async () => {
     mockDetect.mockResolvedValue({ type: 'turbo', packages: [] });
 
     const result = await monorepoPackagesTool.executor({}, undefined as never);

@@ -42,7 +42,7 @@ describe('relaxSnippetPattern — a pasted snippet has a searchable term inside 
 
 describe('looksLikePathQuery — grep searches contents, not names', () => {
   it.each(['admin_utils/**', 'model_fields/', 'django/utils/html.py', 'tests/*.py'])(
-    'recognises %j as a path or glob',
+    'recognizes %j as a path or glob',
     (p) => {
       expect(looksLikePathQuery(p)).toBe(true);
     },

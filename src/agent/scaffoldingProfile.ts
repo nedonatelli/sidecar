@@ -6,6 +6,7 @@ import {
   CONTEXT_COMPRESSION_THRESHOLD,
   COMPACTION_KEEP_RECENT_TURNS,
   COMPACTION_MAX_SUMMARY_CHARS,
+  TOOL_CALL_BUDGETS,
   DEFAULT_MAX_ITERATIONS,
 } from '../config/constants.js';
 
@@ -76,17 +77,9 @@ export interface ScaffoldingProfile {
    * historical 800.
    */
   compactionMaxSummaryChars: number;
-  /**
-   * Multiplier on the per-tool budgets in loop/toolBudget.ts (run_command 15,
-   * read_file 25, grep 15, ...). Those budgets exist to stop slow-burn floods
-   * from small local models; on a capable model they block verification.
-   * claude-haiku-4-5 on the 50-task SWE canary hit a budget on 40/50 tasks at
-   * 150 iterations, while Claude Code ran 31 shell commands per task uncapped,
-   * and the model worked around the cap with spawn_agent, unanswerable ask_user
-   * calls and deleting its own repro scripts (#236). Medium == 1, the
-   * historical budgets.
-   */
-  toolBudgetMultiplier: number;
+  /** Per-run call budget per tool (toolBudget.ts). Unlisted tools fall back to
+   *  DEFAULT_TOOL_CALL_BUDGET. */
+  toolBudgets: Readonly<Record<string, number>>;
 }
 
 /**
@@ -111,7 +104,7 @@ export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
   compressionThreshold: CONTEXT_COMPRESSION_THRESHOLD,
   compactionKeepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
   compactionMaxSummaryChars: COMPACTION_MAX_SUMMARY_CHARS,
-  toolBudgetMultiplier: 1,
+  toolBudgets: TOOL_CALL_BUDGETS,
 };
 
 const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
@@ -151,10 +144,21 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
 
     planModeAskUser: true,
 
-    // 3× the per-tool budgets (run_command 45, read_file 75, grep 45): above
-    // the 31 shell commands per task Claude Code used on the same SWE canary,
-    // with a backstop left against a flood (#236).
-    toolBudgetMultiplier: 3,
+    // The medium budgets were sized for slow-burn floods on small local models
+    // (50 greps without acting). On the 2026-10-20 SWE canary they refused
+    // claude-haiku-4-5 in 40/50 runs, mostly run_command at 15 — its test runs.
+    // Haiku routed around them by spawning subagents for a fresh budget,
+    // calling ask_user in autonomous mode, and deleting its own repro scripts.
+    // Claude Code, same model and tasks with no caps, peaked per task at 51
+    // non-search shell calls, 50 searches and 26 reads; these clear that.
+    toolBudgets: {
+      ...TOOL_CALL_BUDGETS,
+      run_command: 60,
+      read_file: 50,
+      grep: 40,
+      search_files: 40,
+      list_directory: 20,
+    },
   },
   medium: { ...DEFAULT_SCAFFOLDING_PROFILE },
   weak: {
@@ -167,7 +171,7 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     compressionThreshold: 0.6,
     compactionKeepRecentTurns: 3,
     compactionMaxSummaryChars: 500,
-    toolBudgetMultiplier: 1,
+    toolBudgets: TOOL_CALL_BUDGETS,
   },
 };
 
@@ -191,5 +195,8 @@ export function resolveScaffoldingProfile(tier: CapabilityTier, overrides?: Scaf
   // Ignore explicit `undefined`s — `getConfiguration` hands back absent keys as
   // undefined, and spreading those would blow away the tier's real values.
   const defined = Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined));
-  return { ...base, ...defined, tier };
+  // Per-tool, not wholesale: `{ toolBudgets: { run_command: 30 } }` should not
+  // drop every other tool to the default budget.
+  const toolBudgets = overrides.toolBudgets ? { ...base.toolBudgets, ...overrides.toolBudgets } : base.toolBudgets;
+  return { ...base, ...defined, toolBudgets, tier };
 }

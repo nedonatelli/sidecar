@@ -54,23 +54,34 @@ unchanged.
   pins the tier default itself.
 - The setting's maximum is now 150.
 
-### 5.1.1 — per-tool budgets by tier (2026-10)
+### 5.1.1 — per-tool budgets are tiered (2026-10)
 
-PATCH: a threshold within an existing mechanism. Medium and weak are
-unchanged.
+PATCH: thresholds and a reprompt string change inside an existing mechanism.
+Medium-tier runs are unchanged; strong-tier runs are not comparable to 5.1.0 on
+tool-heavy tasks.
 
-- **Strong tier gets 3× the per-tool budgets** (`toolBudgetMultiplier: 3` in
-  `ScaffoldingProfile`): `run_command` 15→45, `read_file` 25→75, `grep` 15→45,
-  and so on. The budgets were sized for slow-burn floods from small local
-  models. On the 50-task SWE canary, claude-haiku-4-5 hit one on 40 of 50
-  tasks at 150 iterations, and worked around it by spawning sub-agents for a
-  fresh budget, asking a user who wasn't there, and deleting its own repro
-  scripts. `sidecar.scaffolding.overrides.toolBudgetMultiplier` pins the
-  value. (#236)
-- **The refusal message only offers `ask_user` when someone can answer.** With
-  no clarification UI it says to work with what was gathered.
-- **Budget refusals are recorded** as `tool_budget` decisions, counted in
-  `summarizeDecisions` as `tool_budget.refused` and per tool.
+- **Strong tier lifts the tool budgets.** `run_command` 15→60, `read_file`
+  25→50, `grep`/`search_files` 15→40, `list_directory` 10→20. On the 50-task SWE
+  canary, the medium budgets refused claude-haiku-4-5 in 40/50 runs, mostly
+  `run_command`, which is its test runs. The model routed around the cap by
+  spawning subagents for a fresh budget, calling `ask_user` in autonomous mode,
+  and deleting its own repro scripts. Claude Code, on the same model and tasks
+  with no caps, peaked per task at 51 non-search shell calls, 50 searches and 26
+  reads. ([#236](https://github.com/nedonatelli/sidecar/issues/236))
+- **The refusal only points at `ask_user` when a clarification UI can answer it.**
+  A headless run (the SWE driver, the eval) has none, and was told to ask anyway.
+- **Refusals are recorded** as `tool_budget` decisions, so trajectories and
+  `summarizeDecisions` count them.
+
+Measured (Haiku 4.5, canary, scaffold-on, 150 iterations): **31/50** against
+30/50 at 5.1.0. That's 4 gained and 3 lost, McNemar p = 1.0, so resolve rate is
+**neutral**. Across all 50 tasks, refused calls went from 157 to 15 (runs hitting
+a budget: 40 → 8) and `spawn_agent` workarounds from 45 to 0. The remaining 15 are
+`run_command` at its new cap of 60, on 8 tasks: SideCar runs searches through
+`run_command` too, so it needs more shell calls than Claude Code's split counts
+suggested. Mean turns rose 60→69 at flat wall time, because work the subagents
+used to do now runs in the main loop. The change ships for run correctness, not
+score. Full comparison: `bench/swe/results/2026-10-20-haiku45/`.
 
 ### 5.1.0 — the adversarial critic is removed (2026-08)
 

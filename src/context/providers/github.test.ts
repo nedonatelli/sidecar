@@ -82,7 +82,7 @@ describe('fetchGitHubIssues', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('returns error when exec returns unrecognised remote', async () => {
+  it('returns error when exec returns unrecognized remote', async () => {
     stubExec('https://gitlab.com/owner/repo.git\n');
     const mockFetch = vi.fn();
     const result = await fetchGitHubIssues(baseConfig, WORKSPACE, mockFetch);

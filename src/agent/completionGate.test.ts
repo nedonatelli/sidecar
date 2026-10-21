@@ -545,7 +545,7 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
 
   // Python runners and reproduction scripts. Measured on a 150-run SWE-bench
   // matrix (2026-09-13): django verifies with `./tests/runtests.py <label>`,
-  // repros with `python repro.py`; neither was recognised, so the base gate
+  // repros with `python repro.py`; neither was recognized, so the base gate
   // nagged for verification already done (74% of runs ended gate-exhausted)
   // and the red-check gate fired once while 76 of 92 reproduced runs finished
   // on a red reproduction.

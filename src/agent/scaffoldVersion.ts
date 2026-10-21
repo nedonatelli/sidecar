@@ -88,14 +88,15 @@
  *   `SIDECAR_SWE_MAX_ITERS` all still win. Evidence: claude-haiku-4-5 hit 50 on
  *   32/50 SWE canary tasks and resolved 25/50; at 150 it resolved 30/50 with no
  *   run reaching 150. PATCH: a threshold within an existing mechanism.
- * - **5.1.1** (2026-10) — per-tool budgets by tier (#236). The strong tier
- *   multiplies every per-tool budget by 3 (run_command 15→45, read_file 25→75,
- *   grep 15→45); medium and weak keep the historical budgets, and medium is
- *   pinned by scaffoldingProfileNeutrality.test.ts. A budget refusal no longer
- *   suggests ask_user when no clarification UI can answer, and is recorded as
- *   a `tool_budget` decision. Evidence: claude-haiku-4-5 hit a budget on 40/50
- *   SWE canary tasks at 150 iterations. PATCH: a threshold within an existing
- *   mechanism; nothing added, removed or re-defaulted for medium/weak.
+ * - **5.1.1** (2026-10) — per-tool budgets are tiered (#236). The strong tier
+ *   lifts run_command 15→60, read_file 25→50, grep/search_files 15→40,
+ *   list_directory 10→20 (`toolBudgets` in ScaffoldingProfile); medium and
+ *   weak keep the old values, pinned by scaffoldingProfileNeutrality.test.ts.
+ *   A refusal no longer points at ask_user when no clarification UI can
+ *   answer, and is recorded as a `tool_budget` decision. Evidence: the budget
+ *   refused claude-haiku-4-5 in 40/50 SWE canary runs; with these values,
+ *   15 calls in 8 runs, 31/50 resolved (neutral, McNemar p = 1.0). PATCH:
+ *   thresholds and a reprompt string within an existing mechanism.
  * - **5.0.0** (2026-08) — checks must PASS, and silence is not an answer.
  *   MAJOR twice over: a gate's verification semantics changed and a new
  *   default-on mechanism was added.

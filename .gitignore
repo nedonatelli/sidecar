@@ -62,3 +62,7 @@ docs/agents/
 # swebench's evaluation harness writes run logs and reports to CWD
 logs/run_evaluation/
 *.sidecar-*.json
+
+# Python bytecode (bench/swe tooling)
+__pycache__/
+*.pyc

@@ -507,7 +507,7 @@
           "sidecar.scaffolding.overrides": {
             "type": "object",
             "default": {},
-            "markdownDescription": "Pin individual scaffolding triggers regardless of the model's tier. Applied last, over everything else.\n\nExample: `{ \"burstCap\": 20, \"toolBudgetMultiplier\": 2 }`\n\nKeys: `burstCap`, `maxActionReprompts`, `maxGateInjections`, `planModeAskUser`, `compressionThreshold`, `compactionKeepRecentTurns`, `compactionMaxSummaryChars`, `toolBudgetMultiplier` (multiplies the per-tool call budgets: 3 on the strong tier, 1 otherwise), `maxIterations` (the iteration ceiling when `sidecar.agentMaxIterations` isn't set: 150 on the strong tier, 50 otherwise)."
+            "markdownDescription": "Pin individual scaffolding triggers regardless of the model's tier. Applied last, over everything else.\n\nExample: `{ \"burstCap\": 20, \"maxGateInjections\": 3 }`\n\nKeys: `burstCap`, `maxActionReprompts`, `maxGateInjections`, `planModeAskUser`, `compressionThreshold`, `compactionKeepRecentTurns`, `compactionMaxSummaryChars`, `maxIterations` (the iteration ceiling when `sidecar.agentMaxIterations` isn't set: 150 on the strong tier, 50 otherwise), `toolBudgets`.\n\n`toolBudgets` sets per-run call budgets per tool and merges over the tier's, e.g. `{ \"toolBudgets\": { \"run_command\": 30 } }`."
           },
           "sidecar.plan.externalized": {
             "type": "boolean",

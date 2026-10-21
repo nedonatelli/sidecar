@@ -350,10 +350,10 @@ export function recordToolCall(
   mcpToolMeta?: (name: string) => { server: string; readOnly: boolean } | undefined,
   /**
    * Optional decision sink. When present, every shell command is recorded with
-   * whether THE PRODUCT recognised it as a verification run. That field is the
+   * whether THE PRODUCT recognized it as a verification run. That field is the
    * point: eight analysis scripts each re-derived this predicate in their own
    * regex and the copies drifted — the shipped gate once counted only
-   * `vitest|jest|pytest|mocha|go test`, so on a Django corpus it recognised
+   * `vitest|jest|pytest|mocha|go test`, so on a Django corpus it recognized
    * almost nothing while the scripts reported 59% of runs "ran a test". Both
    * numbers were defensible and nothing revealed they disagreed.
    */
@@ -537,7 +537,7 @@ export function recordToolCall(
     // Test runners. The JS/Go list is the original; the Python forms were
     // added after a 150-run SWE-bench matrix (2026-09-13) in which every
     // django task verified with `./tests/runtests.py <label>` and every repro
-    // with `python repro.py`, and NEITHER was recognised here. Two costs,
+    // with `python repro.py`, and NEITHER was recognized here. Two costs,
     // both measured: the base gate demanded verification of edits that had
     // been verified (222 "unverified edit(s)" reprompts; 74% of runs ended
     // with the gate exhausted), and the red-check gate -- the one refusal
@@ -550,7 +550,7 @@ export function recordToolCall(
     const testMatch = cmd.match(
       /(?:^|[\s;&|/])(vitest|jest|pytest|py\.test|mocha|go\s+test|tox|nose2?|runtests\.py|manage\.py\s+test|-m\s+unittest)\b([^|;&]*)/,
     );
-    // Record the verdict for EVERY shell command, recognised or not. That
+    // Record the verdict for EVERY shell command, recognized or not. That
     // second case is the valuable one: it is how a drift between the product's
     // predicate and an analysis script's copy becomes visible instead of
     // producing two defensible numbers that quietly disagree.
@@ -562,7 +562,7 @@ export function recordToolCall(
         recognized: testMatch !== null,
         runner: testMatch?.[1],
       },
-      `Shell command ${testMatch ? `recognised as a test run (${testMatch[1]})` : 'not recognised as verification'}: ${cmd.slice(0, 120)}`,
+      `Shell command ${testMatch ? `recognized as a test run (${testMatch[1]})` : 'not recognized as verification'}: ${cmd.slice(0, 120)}`,
     );
     if (testMatch) {
       const outcome = classifyTestResult(resultText);

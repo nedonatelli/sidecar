@@ -68,7 +68,7 @@ export function guardStdin(command: string, shellPath = env.shell): string {
   const posix = /(^|\/)(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
   if (posix) return `{ ${command}\n} < /dev/null`;
   if (/cmd\.exe$/.test(shell)) return `(${command}) < NUL`;
-  // fish, nushell, PowerShell, or anything unrecognised: leave alone. A command
+  // fish, nushell, PowerShell, or anything unrecognized: leave alone. A command
   // that hangs is recoverable; a command that cannot parse is not.
   return command;
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { checkToolBudget, recordToolUse, toolBudgetFor, baseToolBudget } from './toolBudget.js';
 import { resolveScaffoldingProfile } from '../scaffoldingProfile.js';
 import type { LoopState } from './state.js';
+import type { AgentDecision } from '../decisions.js';
 
 function makeState(): Pick<LoopState, 'toolCallCounts' | 'scaffoldingProfile'> {
   return { toolCallCounts: new Map<string, number>() };
@@ -13,35 +14,30 @@ function spend(state: Pick<LoopState, 'toolCallCounts'>, tool: string, n: number
 
 // #236: claude-haiku-4-5 hit a budget on 40/50 SWE canary tasks.
 describe('tool budgets per tier (#236)', () => {
-  it('strong gets 3× every budget; medium and weak keep the historical ones', () => {
+  it('medium and weak keep the historical budgets; so does a run with no profile', () => {
     for (const tool of ['run_command', 'read_file', 'grep', 'web_search', 'some_unlisted_tool']) {
-      const at = (tier: 'strong' | 'medium' | 'weak') =>
-        toolBudgetFor({ ...makeState(), scaffoldingProfile: resolveScaffoldingProfile(tier) } as LoopState, tool);
-      expect(at('strong')).toBe(baseToolBudget(tool) * 3);
-      expect(at('medium')).toBe(baseToolBudget(tool));
-      expect(at('weak')).toBe(baseToolBudget(tool));
+      for (const tier of ['medium', 'weak'] as const) {
+        const state = { ...makeState(), scaffoldingProfile: resolveScaffoldingProfile(tier) } as LoopState;
+        expect(toolBudgetFor(state, tool)).toBe(baseToolBudget(tool));
+      }
+      expect(toolBudgetFor(makeState() as LoopState, tool)).toBe(baseToolBudget(tool));
     }
     expect(baseToolBudget('run_command')).toBe(15);
+    expect(baseToolBudget('some_unlisted_tool')).toBe(20);
   });
 
-  it('no profile (adaptive scaffolding off) is the historical budget', () => {
-    expect(toolBudgetFor(makeState() as LoopState, 'run_command')).toBe(15);
+  it('strong lifts the five measured tools and leaves the rest', () => {
+    const strong = { ...makeState(), scaffoldingProfile: resolveScaffoldingProfile('strong') } as LoopState;
+    const want = { run_command: 60, read_file: 50, grep: 40, search_files: 40, list_directory: 20 };
+    for (const [tool, budget] of Object.entries(want)) expect(toolBudgetFor(strong, tool)).toBe(budget);
+    expect(toolBudgetFor(strong, 'write_file')).toBe(baseToolBudget('write_file'));
   });
 
-  it('a strong-tier run_command is refused at 45, not 15', () => {
-    const state = { ...makeState(), scaffoldingProfile: resolveScaffoldingProfile('strong') };
-    spend(state, 'run_command', 15);
-    expect(checkToolBudget(state as LoopState, 'run_command')).toBeNull();
-    spend(state, 'run_command', 30);
-    expect(checkToolBudget(state as LoopState, 'run_command')).toContain('budget: 45');
-  });
-
-  it('sidecar.scaffolding.overrides can pin the multiplier', () => {
-    const state = {
-      ...makeState(),
-      scaffoldingProfile: resolveScaffoldingProfile('medium', { toolBudgetMultiplier: 2 }),
-    };
-    expect(toolBudgetFor(state as LoopState, 'grep')).toBe(30);
+  it("sidecar.scaffolding.overrides.toolBudgets pins one tool and keeps the tier's others", () => {
+    const profile = resolveScaffoldingProfile('strong', { toolBudgets: { run_command: 30 } });
+    const state = { ...makeState(), scaffoldingProfile: profile } as LoopState;
+    expect(toolBudgetFor(state, 'run_command')).toBe(30);
+    expect(toolBudgetFor(state, 'read_file')).toBe(50);
   });
 });
 
@@ -142,5 +138,58 @@ describe('checkToolBudget', () => {
     // Check again — still returns error, count still 5
     expect(checkToolBudget(state as LoopState, 'web_search')).not.toBeNull();
     expect(state.toolCallCounts.get('web_search')).toBe(5);
+  });
+});
+
+describe('checkToolBudget with a scaffolding profile', () => {
+  function stateWith(overrides: Partial<LoopState>): LoopState {
+    return { toolCallCounts: new Map<string, number>(), ...overrides } as LoopState;
+  }
+  const fill = (state: LoopState, tool: string, n: number) => {
+    for (let i = 0; i < n; i++) recordToolUse(state, tool);
+  };
+
+  it("reads the strong tier's budget instead of the medium constant", () => {
+    const state = stateWith({ scaffoldingProfile: resolveScaffoldingProfile('strong') });
+    fill(state, 'run_command', 15);
+    expect(checkToolBudget(state, 'run_command')).toBeNull();
+    fill(state, 'run_command', 45);
+    expect(checkToolBudget(state, 'run_command')).toContain('budget: 60');
+  });
+
+  it('falls back to the default budget for a tool the profile does not list', () => {
+    const state = stateWith({ scaffoldingProfile: resolveScaffoldingProfile('strong') });
+    fill(state, 'custom_tool', 20);
+    expect(checkToolBudget(state, 'custom_tool')).toContain('budget: 20');
+  });
+
+  it('the refusal offers ask_user only when a clarification UI can answer, whatever the approval mode', () => {
+    // Keyed on the UI, not the mode: the extension's autonomous mode still has a
+    // person at the chat panel, and a headless run has no one in any mode.
+    const autonomous = stateWith({ approvalMode: 'autonomous' });
+    fill(autonomous, 'web_search', 5);
+    expect(checkToolBudget(autonomous, 'web_search')).not.toContain('ask_user');
+    expect(checkToolBudget(autonomous, 'web_search', { canAskUser: true })).toContain('ask_user');
+
+    const cautious = stateWith({ approvalMode: 'cautious' });
+    fill(cautious, 'web_search', 5);
+    expect(checkToolBudget(cautious, 'web_search')).not.toContain('ask_user');
+    expect(checkToolBudget(cautious, 'web_search', { canAskUser: true })).toContain('ask_user');
+  });
+
+  it('records each refusal as a structured decision', () => {
+    const decisions: AgentDecision[] = [];
+    const logger = { logDecision: (d: AgentDecision) => decisions.push(d), warn: () => {} };
+    const state = stateWith({ logger: logger as unknown as LoopState['logger'] });
+    fill(state, 'grep', 15);
+    checkToolBudget(state, 'grep');
+    expect(decisions).toEqual([{ kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 }]);
+  });
+
+  it('records nothing for an allowed call', () => {
+    const decisions: AgentDecision[] = [];
+    const logger = { logDecision: (d: AgentDecision) => decisions.push(d) };
+    checkToolBudget(stateWith({ logger: logger as unknown as LoopState['logger'] }), 'grep');
+    expect(decisions).toEqual([]);
   });
 });

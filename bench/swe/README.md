@@ -127,6 +127,11 @@ Expect a small local model to land in low single-to-low-double digits absolute �
 
 ## Status
 
+**Latest result (2026-10-20, Haiku 4.5, 50-task canary):** SideCar at shipped
+settings 25/50, Claude Code 30/50, mini-SWE-agent 25/50; SideCar with a
+150-iteration ceiling and per-tier tool budgets 31/50. See
+[`results/2026-10-20-haiku45/`](results/2026-10-20-haiku45/README.md).
+
 The portable core (loader, sampling, official-format prediction emission, arm
 config, ablation math, report) is built and unit-tested. The live
 prediction-generation driver lives in `tests/llm-eval/swe.eval.ts` (it needs the
@@ -208,3 +213,8 @@ stub), and a keyword retrieval block so the agent starts oriented.
 - `report.ts` — the ablation report
 - `*.test.ts` — unit tests (run in the normal `npm test`)
 - `../../tests/llm-eval/swe.eval.ts` — the live driver
+- `local/run_local.sh` — predict + score + ablate on a Mac (Ollama, or a cloud API with `PROVIDER`)
+- `local/score_local.sh` — the official scorer in local Docker, for any agent's predictions
+- `baselines/` — reference agents (Claude Code headless, mini-SWE-agent) on the same tasks
+- `analysis/compare_agents.py` — resolve rates, paired McNemar, per-repo, and trajectory telemetry across agents
+- `results/` — committed results of finished campaigns; trajectories live in release assets

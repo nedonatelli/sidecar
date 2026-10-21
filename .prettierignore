@@ -21,3 +21,10 @@ skills/fabric/
 
 # Byte-domain test corpus — the exact bytes ARE the fixture
 src/agent/tools/__corpus__/
+
+# Benchmark result data, kept byte-for-byte as the scorer and drivers wrote it
+bench/swe/results/**/*.json
+bench/swe/results/**/*.jsonl
+bench/swe/results/**/*.yaml
+bench/swe/results/**/ablation.md
+bench/swe/results/**/comparison.md

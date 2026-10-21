@@ -57,8 +57,8 @@ FORMAT RULES:
 EXAMPLE OUTPUT:
 feat(agent): add plan-mode approval shortcuts and numbered-list routing
 
-- Add isPlanApproval() to recognise "yes/sure/go ahead" as plan execution
-- Add isPlanRejection() to recognise "no/cancel/scratch that" as plan discard
+- Add isPlanApproval() to recognize "yes/sure/go ahead" as plan execution
+- Add isPlanRejection() to recognize "no/cancel/scratch that" as plan discard
 - Route any other message while pendingPlan is set to handleRevisePlan
 - Add isUndoRequest() shortcut — "undo/revert/rollback" → handleUndoChanges
 - Add isCommitRequest() shortcut — "commit it/lgtm" → handleGenerateCommit
