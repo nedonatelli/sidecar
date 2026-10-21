@@ -278,6 +278,12 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'claude-3-sonnet-20240229': 200_000,
   'claude-3-haiku-20240307': 200_000,
 
+  // OpenAI GPT-6 (#229). The 922K max INPUT from OpenAI's model pages, not the
+  // 1.05M window (which includes output). Astra and 6.1 Sol are left out: their
+  // max input isn't published, and Chat Completions can't send them tools.
+  'gpt-6-sol': 922_000,
+  'gpt-6-luna': 922_000,
+
   // OpenAI GPT-4 models
   'gpt-4o': 128_000,
   'gpt-4o-2024-11-20': 128_000,

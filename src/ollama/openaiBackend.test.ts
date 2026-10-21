@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIBackend, ModelListError, apiFailureMessage } from './openaiBackend.js';
+import { OpenAIBackend, ModelListError, apiFailureMessage, outputCapFor } from './openaiBackend.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -812,5 +812,73 @@ describe('apiFailureMessage', () => {
       '{"error":{"message":"The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}',
     );
     expect(msg).toMatch(/^The provider doesn't offer this model to this key/);
+  });
+});
+
+// #229: GPT-6 request bodies, per OpenAI's model pages and reasoning guide
+// (checked 2026-10-21).
+describe('OpenAIBackend GPT-6 request bodies (#229)', () => {
+  const toolDef = {
+    name: 'read_file',
+    description: 'Read a file',
+    input_schema: { type: 'object' as const, properties: { path: { type: 'string' } }, required: ['path'] },
+  };
+
+  beforeEach(() => mockFetch.mockReset());
+
+  async function bodyFor(model: string, opts: { tools?: boolean; baseUrl?: string } = {}) {
+    const backend = new OpenAIBackend(opts.baseUrl ?? 'https://api.openai.com', 'k');
+    mockFetch.mockResolvedValueOnce({ ok: true, body: sseBody([chunk('ok', true), '[DONE]']) });
+    for await (const _e of backend.streamChat(
+      model,
+      '',
+      [{ role: 'user', content: 'hi' }],
+      undefined,
+      opts.tools ? [toolDef] : undefined,
+    )) {
+      // consume
+    }
+    return JSON.parse(mockFetch.mock.calls.at(-1)![1].body);
+  }
+
+  it.each(['gpt-6-sol', 'gpt-6-luna', 'gpt-6-luna-2026-09-01'])(
+    '%s: max_completion_tokens, no temperature, and reasoning_effort none with tools',
+    async (model) => {
+      const body = await bodyFor(model, { tools: true });
+      expect(body.max_completion_tokens).toBe(32_768);
+      expect(body).not.toHaveProperty('max_tokens');
+      expect(body).not.toHaveProperty('temperature');
+      // Without it these models reject function calls on Chat Completions.
+      expect(body.reasoning_effort).toBe('none');
+    },
+  );
+
+  it('sends no reasoning_effort without tools, leaving the model its default', async () => {
+    expect(await bodyFor('gpt-6-sol')).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('never sends reasoning_effort to a model outside sol/luna', async () => {
+    for (const model of ['gpt-5', 'gpt-4o', 'o3-mini']) {
+      expect(await bodyFor(model, { tools: true }), model).not.toHaveProperty('reasoning_effort');
+    }
+  });
+
+  it('caps gpt-6 output at its 128K limit on the official API', () => {
+    expect(outputCapFor('gpt-6-luna', 'https://api.openai.com', 200_000)).toBe(128_000);
+  });
+
+  it.each(['gpt-6.1-sol', 'gpt-6-astra'])(
+    '%s with tools fails with an explanation before any request is sent',
+    async (model) => {
+      await expect(bodyFor(model, { tools: true })).rejects.toThrow(
+        /can't call tools through OpenAI's Chat Completions/,
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('the same models without tools, or on another host, are still sent', async () => {
+    expect((await bodyFor('gpt-6-astra')).model).toBe('gpt-6-astra');
+    expect((await bodyFor('gpt-6-astra', { tools: true, baseUrl: 'http://localhost:1234' })).model).toBe('gpt-6-astra');
   });
 });
