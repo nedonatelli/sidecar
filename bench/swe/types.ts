@@ -170,6 +170,12 @@ export interface SwePrediction {
   cacheHitRate?: number | null;
   /** Cache-aware USD cost at list prices; null for a model with no price (local Ollama). */
   costUsd?: number | null;
+  /**
+   * Time the host spent suspended during the task (wall clock ahead of the
+   * monotonic clock past 30 s, #259). Present only when it happened; the task's
+   * failureReason then starts "host suspended for", which classifies as infra.
+   */
+  suspendedMs?: number;
 }
 
 /** Token totals for one SWE run. */

@@ -40,6 +40,7 @@ import { armConfigOverrides } from '../../bench/swe/arms.js';
 import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVersion.js';
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { classifyFailure } from '../../bench/swe/failureClassification.js';
+import { startSuspendWatch, suspendReason } from '../../bench/swe/hostSuspend.js';
 import { captureDiff, snapshotShellWorkspace } from '../../bench/swe/captureDiff.js';
 import type { DroppedPath, ShellChangeDrift, ShellChangeSnapshot } from '../../bench/swe/captureDiff.js';
 import { wholeSuiteGuard } from '../../bench/swe/wholeSuiteGuard.js';
@@ -464,6 +465,8 @@ function getRepoIndex(repo: string, dir: string): Promise<SymbolEmbeddingIndex> 
 
 async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   const start = Date.now();
+  // A host suspend mid-task makes stalled requests look like model failures (#259).
+  const suspendWatch = startSuspendWatch();
   // Each benchmark task is independent — clear the backend circuit breaker so a
   // flaky earlier task (transient network blips against a remote endpoint) can't
   // leave the breaker OPEN and fast-fail every subsequent task. The breaker is a
@@ -855,6 +858,11 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     if (restoreMock) restoreMock();
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
+  // A suspend outranks whatever the run then reported (a timeout, an empty
+  // patch): the cause was the host, so it is labeled infra and kept, after the
+  // prefix, for reading. A patch the run produced anyway still counts.
+  const suspendedMs = suspendWatch.suspendedMs();
+  if (suspendedMs) failureReason = suspendReason(suspendedMs) + (failureReason ? `; then: ${failureReason}` : '');
   return {
     instance_id: task.instance_id,
     arm,
@@ -863,6 +871,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     terminationBucket,
     toolCalls,
     failureReason,
+    ...(suspendedMs ? { suspendedMs } : {}),
     ...(captureDropped.length > 0 ? { captureDropped } : {}),
     ...(captureError ? { captureError } : {}),
     ...(shellChanged.length > 0 ? { shellChanged } : {}),
@@ -1014,7 +1023,11 @@ describe('SWE-bench Lite — prediction generation', () => {
             // nothing like a capability failure. Without the tag here you have
             // to cross-reference the `solve failed` line above to tell them
             // apart while scanning a log.
-            const kind = p.failureReason ? classifyFailure(new Error(p.failureReason)).kind : null;
+            const kind = p.suspendedMs
+              ? 'infra:suspend'
+              : p.failureReason
+                ? classifyFailure(new Error(p.failureReason)).kind
+                : null;
             console.info(
               `[swe]   ${task.instance_id} ${arm}: ${p.model_patch ? `${p.model_patch.length}b patch` : 'EMPTY'}` +
                 `${kind ? ` [${kind}]` : ''} ` +
@@ -1030,6 +1043,14 @@ describe('SWE-bench Lite — prediction generation', () => {
         fs.writeFileSync(path.join(OUT, `preds.${arm}.jsonl`), toPredictionsJsonl(predictions, MODEL, arm));
       }
       console.info(`[swe] wrote predictions to ${OUT}/preds.{${ARMS.join(',')}}.jsonl (+ predictions.meta.jsonl)`);
+      // The tasks a host suspend spoiled, to rerun (#259).
+      const suspended = predictions.filter((p) => p.suspendedMs);
+      if (suspended.length > 0) {
+        console.warn(
+          `[swe] ${suspended.length} task(s) ran across a host suspend; rerun them awake: ` +
+            suspended.map((p) => `${p.instance_id} (${p.arm}, ${Math.round(p.suspendedMs! / 1000)}s)`).join(', '),
+        );
+      }
       expect(predictions).toHaveLength(tasks.length * ARMS.length);
     },
     N * ARMS.length * PER_TASK_MS + 60_000,
