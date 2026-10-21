@@ -49,6 +49,10 @@ function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[],
   const meanDurationMs = mean(scored.map((p) => p.durationMs));
   const meanTurns = mean(scored.map((p) => p.turns ?? 0));
   const meanScaffoldInterventions = mean(scored.map((p) => p.scaffoldInterventions ?? 0));
+  // Cost (#261): only runs that carry a price. Older meta files and local
+  // models have none, so the arm reports null rather than a misleading $0.
+  const priced = scored.map((p) => p.costUsd).filter((c): c is number => typeof c === 'number');
+  const totalCost = priced.reduce((s, c) => s + c, 0);
   return {
     arm,
     resolved: resolvedIds.length,
@@ -63,6 +67,8 @@ function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[],
     emptyPatches: scored.filter((p) => p.model_patch.trim() === '').length,
     // Stall count over the full arm, for reporting how much was excluded.
     infraFailures: predictions.filter((p) => p.arm === arm && isInfraFailure(p)).length,
+    meanCostUsd: priced.length ? totalCost / priced.length : null,
+    costPerResolvedUsd: priced.length && resolvedIds.length ? totalCost / resolvedIds.length : null,
   };
 }
 

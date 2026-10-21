@@ -26,6 +26,8 @@ export interface SweEnvelope {
 
 const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
 const sec = (ms: number): string => `${(ms / 1000).toFixed(0)}s`;
+/** A dollar figure, or an em dash when the run carried no price (local models, older meta files). */
+const usd = (x: number | null): string => (x === null ? '—' : `$${x.toFixed(x < 1 ? 3 : 2)}`);
 
 export function formatAblationReport(report: AblationReport, env: SweEnvelope): string {
   const lift = report.liftPct;
@@ -70,14 +72,17 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
   lines.push('');
   lines.push('## Resolve rates');
   lines.push('');
-  lines.push('| Arm | Resolved | Rate (95% CI) | Empty patches | Mean latency | Mean turns | Scaffold fires |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- |');
+  lines.push(
+    '| Arm | Resolved | Rate (95% CI) | Empty patches | Mean latency | Mean turns | Scaffold fires | Mean cost | Cost / resolved |',
+  );
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
   const armCI: Record<string, [number, number]> = { [report.on.arm]: sg.onCI, [report.off.arm]: sg.offCI };
   for (const a of [report.on, report.off]) {
     const [lo, hi] = armCI[a.arm];
     lines.push(
       `| ${a.arm} | ${a.resolved} / ${a.total} | ${pct(a.resolveRate)} [${pct(lo)}, ${pct(hi)}] | ${a.emptyPatches} | ` +
-        `${sec(a.meanDurationMs)} | ${a.meanTurns.toFixed(1)} | ${a.meanScaffoldInterventions.toFixed(1)} |`,
+        `${sec(a.meanDurationMs)} | ${a.meanTurns.toFixed(1)} | ${a.meanScaffoldInterventions.toFixed(1)} | ` +
+        `${usd(a.meanCostUsd ?? null)} | ${usd(a.costPerResolvedUsd ?? null)} |`,
     );
   }
   lines.push('');

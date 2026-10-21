@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { spendTracker, formatUsd } from './spendTracker.js';
+import { spendTracker, formatUsd, anthropicCostFor } from './spendTracker.js';
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -128,51 +128,75 @@ describe('SpendTracker.record', () => {
   });
 });
 
-describe('cache token billing (input_tokens includes cache tokens)', () => {
+describe('cache token billing (input_tokens EXCLUDES cache tokens) (#261)', () => {
   beforeEach(() => spendTracker.reset());
 
-  it('does not double-count cache tokens — they are a subset of inputTokens', () => {
-    // Anthropic's input_tokens INCLUDES cache_creation and cache_read tokens.
-    // Example: 100K input tokens, 80K from cache read, 10K cache write, 10K regular.
-    // Before the fix, we'd charge: 100K×input + 80K×cacheRead + 10K×cacheWrite
-    // Correct: 10K×input + 80K×cacheRead + 10K×cacheWrite
-    //
-    // Using Haiku prices: input=$1/M, output=$5/M, cacheWrite=$1.25/M, cacheRead=$0.1/M
+  // Anthropic's prompt-caching docs: input_tokens counts only the tokens after
+  // the last cache breakpoint, and
+  //   total_input_tokens = cache_read_input_tokens + cache_creation_input_tokens + input_tokens
+  // The three are priced separately and summed. These tests used to encode the
+  // opposite (cache tokens as a subset of input_tokens), which priced a cached
+  // request's uncached input at $0.
+  // Haiku 4.5: input $1/M, output $5/M, cache write $1.25/M, cache read $0.10/M.
+
+  it('prices uncached input, cache writes and cache reads separately and sums them', () => {
     const cost = spendTracker.record('claude-haiku-4-5', {
-      inputTokens: 100_000, // Total input (includes cache)
+      inputTokens: 10_000, // after the last breakpoint
       outputTokens: 0,
-      cacheCreationInputTokens: 10_000, // Written to cache
-      cacheReadInputTokens: 80_000, // Read from cache
+      cacheCreationInputTokens: 10_000,
+      cacheReadInputTokens: 80_000,
     });
-    // Regular = 100K - 10K - 80K = 10K tokens @ $1/M = $0.01
-    // Cache write = 10K @ $1.25/M = $0.0125
-    // Cache read = 80K @ $0.1/M = $0.008
-    // Total = $0.01 + $0.0125 + $0.008 = $0.0305
-    expect(cost).toBeCloseTo(0.0305, 4);
+    // 10K x $1 + 10K x $1.25 + 80K x $0.10 = $0.01 + $0.0125 + $0.008
+    expect(cost).toBeCloseTo(0.0305, 6);
   });
 
-  it('handles 100% cache read (no regular input tokens)', () => {
-    // All input tokens come from cache read
+  it('bills the uncached input of a cached request (the old subtraction priced it at $0)', () => {
     const cost = spendTracker.record('claude-haiku-4-5', {
-      inputTokens: 50_000,
+      inputTokens: 2_000,
+      outputTokens: 500,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 50_000,
+    });
+    // 2K x $1 + 500 x $5 + 50K x $0.10 = $0.002 + $0.0025 + $0.005
+    expect(cost).toBeCloseTo(0.0095, 6);
+  });
+
+  it('a request served entirely from cache costs only the cache reads', () => {
+    const cost = spendTracker.record('claude-haiku-4-5', {
+      inputTokens: 0,
       outputTokens: 0,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 50_000,
     });
-    // Regular = 0, cache read = 50K @ $0.1/M = $0.005
-    expect(cost).toBeCloseTo(0.005, 4);
+    expect(cost).toBeCloseTo(0.005, 6);
   });
 
-  it('handles 100% cache write (no regular or read tokens)', () => {
-    // All input tokens are cache creation
+  it('a cache write is priced at 1.25x input', () => {
     const cost = spendTracker.record('claude-haiku-4-5', {
-      inputTokens: 50_000,
+      inputTokens: 0,
       outputTokens: 0,
       cacheCreationInputTokens: 50_000,
       cacheReadInputTokens: 0,
     });
-    // Regular = 0, cache write = 50K @ $1.25/M = $0.0625
-    expect(cost).toBeCloseTo(0.0625, 4);
+    expect(cost).toBeCloseTo(0.0625, 6);
+  });
+
+  it("prices Sonnet 5.5 cache reads at Anthropic's $0.10/M (0.05x input), not Sonnet 5's $0.20", () => {
+    const cacheOnly = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 1_000_000 };
+    expect(spendTracker.record('claude-sonnet-5-5', cacheOnly)).toBeCloseTo(0.1, 6);
+    expect(spendTracker.record('claude-sonnet-5', cacheOnly)).toBeCloseTo(0.2, 6);
+    expect(spendTracker.record('claude-opus-5-5', cacheOnly)).toBeCloseTo(0.2, 6);
+  });
+
+  it('anthropicCostFor is the same price, and null for a model with no Anthropic price', () => {
+    const usage = {
+      inputTokens: 1_000,
+      outputTokens: 1_000,
+      cacheCreationInputTokens: 1_000,
+      cacheReadInputTokens: 1_000,
+    };
+    expect(anthropicCostFor('claude-haiku-4-5', usage)).toBeCloseTo((1 + 5 + 1.25 + 0.1) / 1_000, 9);
+    expect(anthropicCostFor('gemma4:e4b', usage)).toBeNull();
   });
 });
 
