@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeAblation, computeRatchetComparison } from './ablation.js';
+import { formatAblationReport } from './report.js';
 import type { SwePrediction, SweTask } from './types.js';
 
 const tasks: SweTask[] = [
@@ -49,6 +50,47 @@ describe('computeAblation', () => {
     // empty, not a stall — must stay counted, all 3 tasks scored.
     expect(report.infraExcludedIds).toEqual([]);
     expect(report.on.total).toBe(3);
+  });
+
+  it('reports no cost when the runs carry none (older meta files, local models)', () => {
+    expect(report.on.meanCostUsd).toBeNull();
+    expect(report.on.costPerResolvedUsd).toBeNull();
+  });
+});
+
+describe('computeAblation — cost per run and per resolved task (#261)', () => {
+  const priced: SwePrediction[] = predictions.map((p) => ({
+    ...p,
+    costUsd: p.arm === 'scaffold-on' ? 0.3 : p.instance_id === 't2' ? null : 0.2,
+  }));
+  const report = computeAblation(tasks, priced, new Set(['t1', 't2']), new Set(['t1', 't3']));
+
+  it('mean cost is over the priced runs only', () => {
+    expect(report.on.meanCostUsd).toBeCloseTo(0.3, 9);
+    expect(report.off.meanCostUsd).toBeCloseTo(0.2, 9); // t2's unpriced run is left out, not counted as $0
+  });
+
+  it('cost per resolved task is the total priced cost over resolved tasks', () => {
+    expect(report.on.costPerResolvedUsd).toBeCloseTo(0.9 / 2, 9);
+    expect(report.off.costPerResolvedUsd).toBeCloseTo(0.4 / 2, 9);
+  });
+
+  it('ablation.md shows both, and an em dash for an arm with no price', () => {
+    const env = {
+      model: 'claude-haiku-4-5',
+      quantization: 'n/a',
+      backend: 'anthropic',
+      contextTokens: 200_000,
+      dataset: 'canary',
+      taskCount: 3,
+      maxIterations: 150,
+      swebenchHarnessVersion: '5.0.2',
+    };
+    const md = formatAblationReport(report, env);
+    expect(md).toContain('| Mean cost | Cost / resolved |');
+    expect(md).toMatch(/\| scaffold-on \|.*\| \$0\.300 \| \$0\.450 \|/);
+    const unpriced = formatAblationReport(computeAblation(tasks, predictions, new Set(['t1']), new Set(['t1'])), env);
+    expect(unpriced).toMatch(/\| scaffold-on \|.*\| — \| — \|/);
   });
 });
 
