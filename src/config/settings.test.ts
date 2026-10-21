@@ -256,6 +256,14 @@ describe('estimateCost', () => {
     expect(estimateCost('llama3:latest', 1000, 500)).toBeNull();
   });
 
+  it('prices the GPT-6 models from their OpenAI model pages (#229)', () => {
+    // per 1M tokens: sol $2/$10, 6.1 sol $2/$10, luna $0.10/$0.50, astra $10/$50
+    expect(estimateCost('gpt-6-sol', 1_000_000, 1_000_000)).toBeCloseTo(12, 6);
+    expect(estimateCost('gpt-6.1-sol', 1_000_000, 1_000_000)).toBeCloseTo(12, 6);
+    expect(estimateCost('gpt-6-luna', 1_000_000, 1_000_000)).toBeCloseTo(0.6, 6);
+    expect(estimateCost('gpt-6-astra', 1_000_000, 1_000_000)).toBeCloseTo(60, 6);
+  });
+
   it('estimates cost for Claude Opus', () => {
     const cost = estimateCost('claude-opus-4-6', 1000, 500);
     expect(cost).not.toBeNull();

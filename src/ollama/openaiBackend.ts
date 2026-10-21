@@ -56,6 +56,7 @@ function fetchFailureReason(err: unknown): string {
  * instead; that is handled by one retry without the field (see streamChat).
  */
 const OPENAI_MODEL_MAX_OUTPUT: ReadonlyArray<[RegExp, number]> = [
+  [/^gpt-6/i, 128_000],
   [/^gpt-5/i, 128_000],
   [/^o1-mini/i, 65_536],
   [/^o\d/i, 100_000],
@@ -112,14 +113,46 @@ export function apiFailureMessage(status: number, statusText: string, errorText:
   return raw;
 }
 
-/** o-series and gpt-5+ models reject `max_tokens`; they require `max_completion_tokens`. */
-function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
-  return /^o\d/i.test(model) || /^gpt-5/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
+/** The reasoning families: o-series, and gpt-5 onward (gpt-6 included, #229). */
+function isReasoningModel(model: string): boolean {
+  return /^o\d/i.test(model) || /^gpt-([5-9]|\d{2,})/i.test(model);
 }
 
-/** o1/o3/o4/gpt-5 reasoning models reject the `temperature` parameter with a 400. */
-function supportsTemperature(model: string): boolean {
-  return !/^o\d/i.test(model) && !/^gpt-5/i.test(model);
+/**
+ * Reasoning models reject `max_tokens`; they require `max_completion_tokens`
+ * (`max_tokens` is deprecated on Chat Completions). gpt-6 was sent
+ * `max_tokens` because only /^gpt-5/ was matched.
+ */
+export function maxTokensKey(model: string): 'max_tokens' | 'max_completion_tokens' {
+  return isReasoningModel(model) ? 'max_completion_tokens' : 'max_tokens';
+}
+
+/**
+ * o1/o3/o4/gpt-5 reasoning models reject the `temperature` parameter with a
+ * 400. gpt-6 is treated the same: OpenAI's docs don't say it accepts one, and
+ * a rejected parameter fails the whole agent turn.
+ */
+export function supportsTemperature(model: string): boolean {
+  return !isReasoningModel(model);
+}
+
+/**
+ * gpt-6-sol and gpt-6-luna take function calls on Chat Completions only with
+ * `reasoning_effort: "none"`; their default is `medium` (OpenAI model pages,
+ * checked 2026-10-21). Snapshot ids (`gpt-6-luna-2026-…`) match too.
+ */
+export function needsReasoningNoneForTools(model: string): boolean {
+  return /^gpt-6-(sol|luna)(-|$)/i.test(model);
+}
+
+/**
+ * Models whose function calling Chat Completions does not support at all:
+ * "Chat Completions does not support function calling with GPT-6 Astra or
+ * GPT-6.1 Sol" (OpenAI reasoning guide). SideCar only speaks Chat
+ * Completions, so an agent turn to them can't work; say so before sending.
+ */
+export function chatCompletionsCannotCallTools(model: string): boolean {
+  return /^gpt-6(\.1-sol|-astra)(-|$)/i.test(model);
 }
 
 /**
@@ -338,6 +371,13 @@ export class OpenAIBackend implements ApiBackend {
     const openaiMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
     const functionTools = tools && tools.length > 0 ? toFunctionTools(tools) : undefined;
 
+    if (functionTools && isOfficialOpenAI(this.baseUrl) && chatCompletionsCannotCallTools(model)) {
+      throw new Error(
+        `${model} can't call tools through OpenAI's Chat Completions API, which SideCar uses, so agent requests ` +
+          `to it fail. Pick gpt-6-sol or gpt-6-luna in the model picker.`,
+      );
+    }
+
     const outputCap = outputCapFor(model, this.baseUrl, cfg.maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS);
     const body: Record<string, unknown> = {
       model,
@@ -352,6 +392,8 @@ export class OpenAIBackend implements ApiBackend {
       // numbers instead of heuristic estimates.
       stream_options: { include_usage: true },
       ...(tools && tools.length > 0 && supportsTemperature(model) ? { temperature: cfg.agentTemperature } : {}),
+      // Without it, gpt-6-sol/luna reject the tools (see needsReasoningNoneForTools).
+      ...(functionTools && needsReasoningNoneForTools(model) ? { reasoning_effort: 'none' } : {}),
       ...this.extraBodyFields(),
     };
 
