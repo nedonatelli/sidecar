@@ -191,6 +191,22 @@ If the model responds with nothing (empty content, `done` immediately):
 - **Tool definitions overwhelm the model** — 80+ tool definitions add ~20K chars. Smaller models may not handle this well. Try a larger model or use chat-only mode
 - **Wrong model format** — some models don't support the chat template or tool format. Try a different model
 
+## vLLM: "EngineCore encountered an issue"
+
+If an agent request against a vLLM server fails with `EngineCore encountered an issue` (or `EngineCore encountered a fatal error`) and the next requests get 502 or connection refused for several minutes, the server's engine died and is reloading the model. The message carries no cause: vLLM only reports that it lost a GPU worker. A run that hits it is an infrastructure failure, not a model failure, so retry the task once the server is back.
+
+The usual cause is the GPU worker being killed for using too much memory. Check where the kill is recorded:
+
+- **Multi-node (Ray):** Ray's memory monitor kills a worker once the node passes 95% memory. Look for `Killing 1 worker(s)` and `Top 10 memory users` in `raylet.out` under `/tmp/ray/session_*/logs/` on the head node (inside the container, if vLLM runs in one).
+- **Single node:** the kernel OOM killer (`journalctl -k | grep -i oom`).
+
+Agent traffic triggers this where chat traffic doesn't. Each turn resends a longer history, so the server sees many different prompt lengths, and PyTorch's CUDA allocator keeps a new block for each one. Those blocks sit outside the `--gpu-memory-utilization` budget and are never released. On unified-memory machines such as DGX Spark, GPU memory is system RAM, so the growth eats the node's headroom until the worker is killed, often within minutes of a SWE-bench run starting.
+
+To fix it on the server:
+
+1. **Set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** in the environment of every process that holds a GPU. With Ray, that means each node's Ray environment (for example `docker run -e …` on every container); setting it only on `vllm serve` doesn't reach the Ray workers. On two DGX Sparks serving Nemotron 3 Super, this cut the growth over a 30-turn agent session from 3.3 GB to 0.1 GB.
+2. **Leave headroom.** Prefill working memory still grows with prompt length, up to the `--max-num-batched-tokens` chunk (about 4 GB per node at 16384). Keep free memory well above that under load; lower `--gpu-memory-utilization` or `--max-num-batched-tokens` if it isn't.
+
 ## Getting help
 
 - [GitHub Issues](https://github.com/nedonatelli/sidecar/issues) — report bugs or request features
