@@ -14,9 +14,10 @@ await assertFreshBuild(process.cwd());
 
 // The VS Code build the suites run against. Unpinned, test-cli downloads the
 // newest stable, so a VS Code release could change the environment between two
-// runs of the same commit (#226: on 1.142.0 the TypeScript warm-up timed out on
-// Oct 19 after passing on Oct 15). Move it up deliberately, with a run.
-const VSCODE_VERSION = '1.141.0';
+// runs of the same commit (#226: on 1.142.0 the TypeScript warm-up timed out
+// twice on Oct 19, then passed 5 of 5 on Oct 21). Move it up deliberately, with
+// a run, and keep it near the current stable so the suite tests what users run.
+const VSCODE_VERSION = '1.142.0';
 
 export default defineConfig([
   {
