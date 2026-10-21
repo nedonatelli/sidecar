@@ -23,7 +23,9 @@ export interface RawSymbol {
   name: string;
   qualifiedName: string;
   kind: string;
+  /** 0-based first line, as both analyzers report it (tree-sitter rows, the regex analyzer's line index). */
   startLine: number;
+  /** 0-based last line, inclusive. */
   endLine: number;
 }
 
@@ -38,8 +40,12 @@ export function symbolInputsFrom(relativePath: string, content: string, symbols:
   const ordinals = assignOrdinals(symbols.map((s) => s.qualifiedName));
   const out: SymbolEmbedInput[] = [];
   symbols.forEach((s, i) => {
-    const startIdx = Math.max(0, s.startLine - 1);
-    const endIdx = Math.min(lines.length, s.endLine);
+    // The analyzers' ranges are 0-based and inclusive; SymbolEmbedInput's are
+    // 1-based. This read them as 1-based (#113): every body started one line
+    // early and lost its last line, and project_knowledge_search reported each
+    // symbol one line above where it is.
+    const startIdx = Math.max(0, s.startLine);
+    const endIdx = Math.min(lines.length, s.endLine + 1);
     if (endIdx <= startIdx) return;
     const body = lines.slice(startIdx, Math.min(endIdx, startIdx + MAX_BODY_LINES)).join('\n');
     if (!body.trim()) return;
@@ -48,8 +54,8 @@ export function symbolInputsFrom(relativePath: string, content: string, symbols:
       qualifiedName: s.qualifiedName,
       name: s.name,
       kind: s.kind,
-      startLine: s.startLine,
-      endLine: s.endLine,
+      startLine: startIdx + 1,
+      endLine: endIdx,
       body,
       ordinal: ordinals[i],
     });

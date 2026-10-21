@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SymbolGraph, GRAPH_VERSION, type SymbolEntry, type ImportEdge } from './symbolGraph.js';
+import { resolveImportPath } from '../astContext/importScan.js';
 
 function sym(name: string, file: string, opts?: Partial<SymbolEntry>): SymbolEntry {
   return {
@@ -102,6 +103,21 @@ describe('SymbolGraph', () => {
     const exports = graph.getExportsOf('src/a.ts');
     expect(exports).toHaveLength(1);
     expect(exports[0].name).toBe('pub');
+  });
+
+  // #113: the indexer builds edges with resolveImportPath, which gives an
+  // extensionless module path. findReferences looked importers up by the
+  // defining file's own path and found none, for `./utils` and `./utils.js` alike.
+  it.each(['./utils', './utils.js'])('findReferences and getDependents follow a real `%s` import', (spec) => {
+    const graph = new SymbolGraph();
+    const toFile = resolveImportPath('src/app.ts', spec)!;
+    graph.addFile('src/utils.ts', [sym('helper', 'src/utils.ts')], [], 'h1');
+    graph.addFile('src/app.ts', [], [imp('src/app.ts', toFile, ['helper'])], 'h2');
+    graph.setFileContent('src/utils.ts', 'export function helper() { return 1; }');
+    graph.setFileContent('src/app.ts', `import { helper } from '${spec}';\nconst result = helper();\n`);
+
+    expect(graph.getDependents('src/utils.ts')).toEqual(['src/app.ts']);
+    expect(graph.findReferences('helper').some((r) => r.file === 'src/app.ts')).toBe(true);
   });
 
   it('findReferences finds usages in importing files', () => {
