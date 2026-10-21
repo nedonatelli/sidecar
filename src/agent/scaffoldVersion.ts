@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.2** (2026-10) — iteration ceiling by tier (#237). When neither the
+ *   caller nor the user sets one, the strong tier's default ceiling is 150
+ *   (`maxIterations` in ScaffoldingProfile); medium and weak keep 50, pinned
+ *   by scaffoldingProfileNeutrality.test.ts. An explicit
+ *   `sidecar.agentMaxIterations`, a skill's own value, and the SWE harness's
+ *   `SIDECAR_SWE_MAX_ITERS` all still win. Evidence: claude-haiku-4-5 hit 50 on
+ *   32/50 SWE canary tasks and resolved 25/50; at 150 it resolved 30/50 with no
+ *   run reaching 150. PATCH: a threshold within an existing mechanism.
  * - **5.1.1** (2026-10) — per-tool budgets by tier (#236). The strong tier
  *   multiplies every per-tool budget by 3 (run_command 15→45, read_file 25→75,
  *   grep 15→45); medium and weak keep the historical budgets, and medium is
@@ -186,7 +194,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.1';
+export const SCAFFOLD_VERSION = '5.1.2';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
