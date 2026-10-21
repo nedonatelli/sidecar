@@ -38,6 +38,24 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 5.1.1 — per-tool budgets by tier (2026-10)
+
+PATCH: a threshold within an existing mechanism. Medium and weak are
+unchanged.
+
+- **Strong tier gets 3× the per-tool budgets** (`toolBudgetMultiplier: 3` in
+  `ScaffoldingProfile`): `run_command` 15→45, `read_file` 25→75, `grep` 15→45,
+  and so on. The budgets were sized for slow-burn floods from small local
+  models. On the 50-task SWE canary, claude-haiku-4-5 hit one on 40 of 50
+  tasks at 150 iterations, and worked around it by spawning sub-agents for a
+  fresh budget, asking a user who wasn't there, and deleting its own repro
+  scripts. `sidecar.scaffolding.overrides.toolBudgetMultiplier` pins the
+  value. (#236)
+- **The refusal message only offers `ask_user` when someone can answer.** With
+  no clarification UI it says to work with what was gathered.
+- **Budget refusals are recorded** as `tool_budget` decisions, counted in
+  `summarizeDecisions` as `tool_budget.refused` and per tool.
+
 ### 5.1.0 — the adversarial critic is removed (2026-08)
 
 MINOR: a scaffold mechanism was **removed**, so the scaffold descriptor no

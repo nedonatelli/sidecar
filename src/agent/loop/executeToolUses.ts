@@ -8,7 +8,8 @@ import { advancePlanPastWrite } from '../plans/externalPlan.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import type { LoopState } from './state.js';
-import { checkToolBudget, recordToolUse } from './toolBudget.js';
+import { checkToolBudget, recordToolUse, toolBudgetFor } from './toolBudget.js';
+import { recordDecision } from '../decisions.js';
 import { resolveIterationTools } from './streamTurn.js';
 import { parseMangledToolName } from './textParsing.js';
 import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
@@ -186,9 +187,17 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     return { type: 'tool_result', tool_use_id: toolUse.id, content: toolUse._withheldReason, is_error: true };
   }
 
-  // Per-tool rate limiting: check budget before executing
-  const budgetError = checkToolBudget(state, toolUse.name);
+  // Per-tool rate limiting: check budget before executing. ask_user is only
+  // suggested when a clarification UI can answer it.
+  const budgetError = checkToolBudget(state, toolUse.name, { canAskUser: options.clarifyFn !== undefined });
   if (budgetError) {
+    const count = state.toolCallCounts.get(toolUse.name) ?? 0;
+    const budget = toolBudgetFor(state, toolUse.name);
+    recordDecision(
+      state.logger,
+      { kind: 'tool_budget', action: 'refused', tool: toolUse.name, count, budget },
+      `Tool budget: refused ${toolUse.name} (${count}/${budget} calls used)`,
+    );
     callbacks.onToolResult(toolUse.name, budgetError, true, toolUse.id);
     return {
       type: 'tool_result',
