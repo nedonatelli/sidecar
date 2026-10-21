@@ -83,7 +83,7 @@ Yes, via model routing. Set `sidecar.modelRouting.enabled: true` and define rule
 
 SideCar has two-tier cycle detection built in. A normalized-signature buffer catches "same tool, same file, different content" loops after 10 repeats (configurable via `sidecar.scaffolding.cycleDetectionMinRepeats`); the exact-match check fires one repeat later. When either trips, the agent halts automatically and posts a message in chat explaining what happened.
 
-If you are seeing a loop that was not caught: press Escape or click Stop to abort the run, then steer the agent with a follow-up message. You can also lower `sidecar.agentMaxIterations` (default 50) to set a harder cap.
+If you are seeing a loop that was not caught: press Escape or click Stop to abort the run, then steer the agent with a follow-up message. You can also lower `sidecar.agentMaxIterations` (default 50, or 150 for strong-tier models such as Claude) to set a harder cap.
 
 ### How do I prevent the agent from touching certain files?
 

@@ -399,13 +399,13 @@
             "type": "number",
             "default": 50,
             "minimum": 1,
-            "maximum": 100,
+            "maximum": 150,
             "order": 23,
             "tags": [
               "sidecar",
               "agent"
             ],
-            "markdownDescription": "Maximum number of agent loop iterations before the agent stops. Each iteration is one model call plus any tools it chose. Hitting this limit usually means the agent is stuck in a cycle — inspect the chat and narrow the task."
+            "markdownDescription": "Maximum number of agent loop iterations before the agent stops. Each iteration is one model call plus any tools it chose.\n\nIf you don't set this, the limit depends on the model's capability tier: **150** for strong models (Claude, GPT, Gemini) and **50** for everything else. A value you set here applies to every model. Hitting the limit usually means the agent is stuck in a cycle — inspect the chat and narrow the task."
           },
           "sidecar.agentMaxMessages": {
             "type": "number",

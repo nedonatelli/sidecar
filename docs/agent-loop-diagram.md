@@ -141,7 +141,7 @@ The verification story at completion is the **deterministic** layer: the complet
 - **Gate — total injection cap.** `MAX_GATE_INJECTIONS = 2` (in [`src/config/constants.ts`](../src/config/constants.ts)) bounds gate reprompts per run; after that the gate logs a warning and allows termination with unverified edits rather than looping forever. The syntax gate mirrors this with its own `MAX_SYNTAX_GATE_INJECTIONS = 2`.
 - **Action reprompt / unapplied-edit nudge** — one injection per run each.
 - **Degenerate-output bail.** Token-salad output is discarded and retried once; a second occurrence ends the run as `stuck` instead of returning garbage.
-- **Loop — iteration cap.** `sidecar.agentMaxIterations` (default **50**, raised from 25 in v0.122 after measuring that no failing run reached the old ceiling). Ultimate backstop.
+- **Loop — iteration cap.** `sidecar.agentMaxIterations` (default **50**, raised from 25 in v0.122 after measuring that no failing run reached the old ceiling; **150** for strong-tier models when the setting is unset, after claude-haiku-4-5 hit 50 on 32 of 50 SWE-bench tasks). Ultimate backstop.
 - **Cycle detection.** Same tool+args tuple repeated N times triggers `detectCycleAndBail` — with two refinements: soft-blocked circular rewrites are excluded from the count (the executor already blocks them), and the bail is deferred one turn when a pending write is about to be soft-blocked, so the block and escalation reach the model instead of the run dying with zero feedback.
 - **Burst cap.** Too many tools attempted in one iteration triggers `exceedsBurstCap`.
 - **Plan-turn refund bound.** `update_plan`-only turns refund their iteration at most `MAX_PLAN_STEPS` times per run.
@@ -252,7 +252,7 @@ Every exit sets a `state.termination` reason; all paths route through `finalize(
 | `aborted`          | User Stop (checked at iteration start, post-compression, and between streaming and dispatch), or checkpoint refused    |
 | `out-of-resources` | Pre-turn compression couldn't fit under the token budget, or a stream turn timed out (first-token / per-event timeout) |
 | `stuck`            | Degenerate output twice, burst cap exceeded, or cycle detected                                                         |
-| `max-iterations`   | The iteration counter ran out (`sidecar.agentMaxIterations`, default 50)                                               |
+| `max-iterations`   | The iteration counter ran out (`sidecar.agentMaxIterations`, default 50, or 150 for strong-tier models)                |
 
 A `PolicyEnforcementError` thrown by any hook also halts the run — surfaced with the hook name and phase, finalized, then rethrown with partial messages attached for caller persistence.
 

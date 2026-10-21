@@ -675,7 +675,10 @@ export async function handleUserMessage(
       durableMemoryStore: state.durableMemoryStore ?? undefined,
       mcpManager: state.mcpManager,
       approvalMode: effectiveApprovalMode,
-      maxIterations: matchedSkill?.maxIterations ?? config.agentMaxIterations,
+      // Unset unless a skill or the user set it, so the loop applies the model
+      // tier's default ceiling (#237).
+      maxIterations:
+        matchedSkill?.maxIterations ?? (config.agentMaxIterationsSet ? config.agentMaxIterations : undefined),
       maxTokens: effectiveMaxTokens,
       ...(skillToolOverride && { toolOverride: skillToolOverride }),
       ...(resumePlan && { initialPlan: resumePlan }),

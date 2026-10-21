@@ -6,6 +6,7 @@ import {
   CONTEXT_COMPRESSION_THRESHOLD,
   COMPACTION_KEEP_RECENT_TURNS,
   COMPACTION_MAX_SUMMARY_CHARS,
+  DEFAULT_MAX_ITERATIONS,
 } from '../config/constants.js';
 
 // ---------------------------------------------------------------------------
@@ -33,6 +34,14 @@ export interface ScaffoldingProfile {
   /** The capability tier this profile was resolved from — lets consumers
    *  branch on weak/medium/strong directly. */
   tier: CapabilityTier;
+  /**
+   * The iteration ceiling when the caller passed none and the user hasn't set
+   * `sidecar.agentMaxIterations` (an explicit value always wins). At 50,
+   * claude-haiku-4-5 hit the ceiling on 32 of 50 SWE canary tasks and resolved
+   * 25/50; at 150 it resolved 30/50, tying Claude Code with no task reaching
+   * 150 (#237). Medium == DEFAULT_MAX_ITERATIONS.
+   */
+  maxIterations: number;
   /** Max tool calls in one turn before the burst cap breaks the loop. */
   burstCap: number;
   /** Max action/stall reprompts before giving up nudging the model. */
@@ -83,6 +92,7 @@ export interface ScaffoldingProfile {
  */
 export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
   tier: 'medium',
+  maxIterations: DEFAULT_MAX_ITERATIONS,
   burstCap: MAX_TOOL_CALLS_PER_ITERATION,
   maxActionReprompts: MAX_ACTION_REPROMPTS,
   maxGateInjections: MAX_GATE_INJECTIONS,
@@ -95,6 +105,9 @@ export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
 const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
   strong: {
     tier: 'strong',
+    // 150, the measured configuration: haiku 4.5 resolved 30/50 SWE canary
+    // tasks at 150 against 25/50 at 50, and no run reached 150 (#237).
+    maxIterations: 150,
     // Latency wins — a capable model handles a bigger burst and holds more
     // context before paying the summarization cost. Safe to relax.
     burstCap: 16,
@@ -129,6 +142,7 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
   medium: { ...DEFAULT_SCAFFOLDING_PROFILE },
   weak: {
     tier: 'weak',
+    maxIterations: DEFAULT_MAX_ITERATIONS,
     burstCap: 12,
     maxActionReprompts: 3,
     maxGateInjections: 3,
