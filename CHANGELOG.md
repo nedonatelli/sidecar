@@ -4,6 +4,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Capable models get higher per-tool budgets** (scaffold 5.1.1, [#236](https://github.com/nedonatelli/sidecar/issues/236)).
+  The per-run budgets in `toolBudget.ts` were sized for small local models and refused
+  claude-haiku-4-5 in 40/50 SWE canary runs, mostly on `run_command`, which is its test
+  runs. The strong tier now allows `run_command` 60, `read_file` 50, `grep` and
+  `search_files` 40, and `list_directory` 20. Weak and medium tiers are unchanged. When
+  nobody can answer a question (no clarification UI), a refusal no longer tells the model
+  to ask the user. Refusals are recorded as structured `tool_budget` decisions, and
+  `sidecar.scaffolding.overrides` accepts per-tool `toolBudgets`.
+
 ## [0.130.1] - 2026-10-20
 
 A patch for two defaults in v0.130.0 that failed on the first request: Gemini and Bedrock
@@ -37,15 +48,6 @@ that are making progress. On the provider side, Groq moves off a model it shut d
 Claude 5 models get prices, and an OpenAI-compatible server says why its model list is empty.
 
 ### Changed
-
-- **Capable models get higher per-tool budgets** (scaffold 5.1.1, [#236](https://github.com/nedonatelli/sidecar/issues/236)).
-  The per-run budgets in `toolBudget.ts` were sized for small local models and refused
-  claude-haiku-4-5 in 40/50 SWE canary runs, mostly on `run_command`, which is its test
-  runs. The strong tier now allows `run_command` 60, `read_file` 50, `grep` and
-  `search_files` 40, and `list_directory` 20. Weak and medium tiers are unchanged. In
-  autonomous mode, a refusal no longer tells the model to ask the user, since nobody
-  answers there. Refusals are recorded as structured `tool_budget` decisions, and
-  `sidecar.scaffolding.overrides` accepts per-tool `toolBudgets`.
 
 - **Groq defaults to `openai/gpt-oss-120b`.** Groq shut down `llama-3.3-70b-versatile` and
   `llama-3.1-8b-instant` on 2026-08-16. The backend picker and docs now also warn that
