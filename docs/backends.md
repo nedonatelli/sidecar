@@ -349,6 +349,8 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \
 
 The last two flags turn on tool calling, which SideCar's agent needs to edit files and run commands. The parser depends on the model family (`hermes` for Qwen 2.5; see vLLM's tool-calling docs for others).
 
+For long agent sessions, also start the server with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` in its environment. Without it, the varying prompt lengths of an agent run can grow vLLM's memory until the engine is killed. See [Troubleshooting](troubleshooting#vllm-enginecore-encountered-an-issue).
+
 ### vLLM vs. Ollama
 
 |                          | vLLM                                 | Ollama                |

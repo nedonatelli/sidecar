@@ -18,7 +18,9 @@ tests accept both.
 - **scaffold-on `failureReason` is infrastructure.** `EngineCore encountered an
 issue` is vLLM's message for a dead engine. The SWE failure classifier didn't
   recognize it, so the run reads as a capability failure; the patch counted
-  regardless, because a salvaged patch always does.
+  regardless, because a salvaged patch always does. The engine died because
+  Ray's memory monitor killed its GPU worker; see
+  [Troubleshooting](../../../../../docs/troubleshooting.md#vllm-enginecore-encountered-an-issue).
 - **`terminationBucket: bad-reasoning` on both arms doesn't mean bad reasoning.**
   The loop's failure taxonomy has no infrastructure bucket, so a backend error
   lands there. Scaffold-off resolved the task in 11 turns but didn't end
