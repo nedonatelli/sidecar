@@ -123,12 +123,12 @@ If placeholders are detected, SideCar reprompts the model to replace them with c
 
 ## Safety guardrails
 
-| Setting                      | Default  | Description                                                        |
-| ---------------------------- | -------- | ------------------------------------------------------------------ |
-| `sidecar.agentMaxIterations` | `50`     | Max loop iterations before auto-stop                               |
-| `sidecar.agentMaxTokens`     | `200000` | Max total tokens before auto-stop                                  |
-| `sidecar.agentTemperature`   | `0.2`    | Temperature for tool-calling requests (lower = more deterministic) |
-| `sidecar.requestTimeout`     | `120`    | Timeout per LLM request in seconds (0 to disable)                  |
+| Setting                      | Default  | Description                                                                  |
+| ---------------------------- | -------- | ---------------------------------------------------------------------------- |
+| `sidecar.agentMaxIterations` | `50`     | Max loop iterations before auto-stop (150 for strong-tier models when unset) |
+| `sidecar.agentMaxTokens`     | `200000` | Max total tokens before auto-stop                                            |
+| `sidecar.agentTemperature`   | `0.2`    | Temperature for tool-calling requests (lower = more deterministic)           |
+| `sidecar.requestTimeout`     | `120`    | Timeout per LLM request in seconds (0 to disable)                            |
 
 Additional safety mechanisms:
 
@@ -232,23 +232,8 @@ SideCar ships with 80+ built-in tools the agent can use. The table below covers 
 | `research_set_project_status` _(gated)_       | Set overall research project status                                                                   |
 | `research_list_projects` _(gated)_            | List all research projects                                                                            |
 | `research_export_report` _(gated)_            | Generate a Markdown report from a research project                                                    |
-| `kickstand_list_loras` _(Kickstand only)_     | List LoRA adapters currently attached to a loaded Kickstand model                                     |
-| `kickstand_attach_lora` _(Kickstand only)_    | Attach a LoRA adapter to a loaded Kickstand model without reloading — requires approval               |
-| `kickstand_detach_lora` _(Kickstand only)_    | Detach a previously-attached LoRA adapter — requires approval                                         |
 
 _(gated)_ = off by default; enable via the corresponding `sidecar.*` feature flag. Additional tools can be added via [MCP servers](mcp-servers) and [custom tools](hooks-and-tasks#custom-tools).
-
-### Kickstand LoRA tools _(new in v0.67.1)_
-
-When the active backend exposes a `loraAdapters` capability (Kickstand does; other backends don't), three agent tools are available for runtime LoRA management:
-
-- `kickstand_list_loras(model_id)` — read-only inventory. Returns `[{ id, path, scale }]` for every adapter currently attached to a loaded model.
-- `kickstand_attach_lora(model_id, path, scale?)` — attach a GGUF adapter at an absolute server-readable path. `scale` defaults to `1.0`; Kickstand accepts 0.0–2.0. Multiple adapters stack on one base. Returns the Kickstand-assigned adapter id in the human-readable summary.
-- `kickstand_detach_lora(model_id, adapter_id)` — detach by id. Pair with `kickstand_list_loras` to find the id.
-
-Use cases: role-shape a model mid-task (attach a Python adapter before touching `src/python/**`, detach when moving on), A/B test adapter scales without reloading the base, stack multiple domain adapters for polyglot projects. Non-Kickstand backends return a clear "not supported — use `switch_backend`" message instead of crashing the tool loop.
-
-The attach + detach tools require user approval per call (like `git_commit` / `run_command`); listing is read-only. Approval is **not** mandatory-always the way `update_setting` is — autonomous-mode users can opt into auto-approve via `toolPermissions` since LoRA state is ephemeral + undoable. See [Kickstand model & adapter management](slash-commands#kickstand-model--adapter-management-new-in-v067) for the palette-only equivalents.
 
 ### Hybrid delegation — `delegate_task`
 

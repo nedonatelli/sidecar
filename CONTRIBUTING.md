@@ -39,7 +39,7 @@ change" holds.
 src/
   agent/          # Agent loop, tool executor, sub-agents, memory, skills
   config/         # Settings, workspace index, constants, trust, reachability
-  ollama/         # LLM backends (Ollama, Anthropic, OpenAI, Kickstand, Bedrock, Copilot, Gemini, Groq, Fireworks, OpenRouter)
+  ollama/         # LLM backends (Ollama, Anthropic, OpenAI, Bedrock, Copilot, Gemini, Groq, Fireworks, OpenRouter)
   webview/        # Chat UI handlers, state management, webview HTML
   terminal/       # Shell session management
   github/         # GitHub API and auth

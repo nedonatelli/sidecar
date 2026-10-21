@@ -93,16 +93,9 @@ SideCar is built as a VS Code extension with the following main components:
 
 ### Cloud APIs
 
-- Anthropic Claude models (e.g., `claude-sonnet-4-6`)
+- Anthropic Claude models (e.g., `claude-sonnet-5-5`)
 - OpenAI models (when configured)
 - Other providers via custom API configuration
-
-### Kickstand _(new in v0.67)_
-
-- Self-hosted LLM backend with managed GPU memory and model lifecycle
-- **Hot-swap LoRA adapters** on loaded models without reloading — attach a fine-tuned style/domain adapter via `SideCar: Kickstand: Load LoRA Adapter`, stack multiple adapters with per-adapter scaling, detach with `Kickstand: Unload LoRA Adapter`
-- **Browse HuggingFace repos** directly from the command palette — `SideCar: Browse & Pull Models` walks the repo, renders each GGUF/MLX file with its size and quantization, and pulls the pick via Kickstand's streaming pull endpoint
-- Managed via the existing `Kickstand: Load Model` / `Kickstand: Unload Model` command-palette entries
 
 ## Quick Start
 

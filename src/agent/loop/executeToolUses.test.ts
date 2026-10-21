@@ -294,6 +294,23 @@ describe('executeToolUses — budget check short-circuit', () => {
       'tu-read_file',
     );
   });
+
+  it('tells the budget check whether anyone can answer ask_user', async () => {
+    const run = (options: AgentOptions) =>
+      executeToolUses(
+        catalogState(),
+        [use('read_file')],
+        {} as SideCarClient,
+        options,
+        stubCallbacks(),
+        new AbortController().signal,
+      );
+    vi.mocked(executeTool).mockResolvedValue({ type: 'tool_result', tool_use_id: 'tu-read_file', content: 'ok' });
+    await run({} as AgentOptions);
+    expect(checkToolBudget).toHaveBeenLastCalledWith(expect.anything(), 'read_file', { canAskUser: false });
+    await run({ clarifyFn: async () => 'yes' } as AgentOptions);
+    expect(checkToolBudget).toHaveBeenLastCalledWith(expect.anything(), 'read_file', { canAskUser: true });
+  });
 });
 
 describe('executeToolUses — parallel execution + error promotion', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findPythonIndentErrors } from './pythonIndent.js';
+import { findPythonIndentErrors, scanPythonIndent, PYTHON_INDENT_ERROR_CAP } from './pythonIndent.js';
 
 const errs = (src: string) => findPythonIndentErrors(src);
 const clean = (src: string) => expect(errs(src)).toEqual([]);
@@ -85,9 +85,8 @@ describe('findPythonIndentErrors — must NOT fire on valid Python', () => {
     clean('x = "# not a comment"\ny = 2\n');
   });
 
-  it('mixed tabs and spaces are skipped entirely rather than adjudicated', () => {
+  it('tab-only indentation is fine', () => {
     clean('def f():\n\tif True:\n\t\treturn 1\n');
-    clean('def f():\n    if True:\n\t\treturn 1\n'); // ambiguous → no opinion
   });
 });
 
@@ -153,5 +152,47 @@ describe('findPythonIndentErrors — must fire on real IndentationErrors', () =>
   it('bounds the error list rather than cascading', () => {
     const messy = Array.from({ length: 50 }, (_, i) => (i % 2 ? '    x = 1' : 'y = 2')).join('\n');
     expect(errs(messy).length).toBeLessThanOrEqual(10);
+  });
+});
+
+// #157 ML-51: mixed tabs and spaces used to switch the whole check off. Each
+// case's verdict below is CPython's own (`compile()` on 3.14).
+describe('findPythonIndentErrors — mixed tabs and spaces, judged as CPython does (ML-51)', () => {
+  it('flags indentation whose structure depends on tab width (CPython: TabError)', () => {
+    // 4 spaces, then 2 tabs: deeper at tab width 8, but shallower at tab width 1.
+    const e = errs('def f():\n    if True:\n\t\treturn 1\n');
+    expect(e.length).toBeGreaterThan(0);
+    expect(e[0]).toMatchObject({ line: 3 });
+    expect(e[0].message).toContain('inconsistent use of tabs and spaces');
+  });
+
+  it('accepts mixing that means the same at any tab width (CPython: OK)', () => {
+    // A tab-indented function and a space-indented one: each block is internally consistent.
+    clean('def f():\n\treturn 1\n\ndef g():\n    return 2\n');
+    // A tab, then a tab plus 4 spaces: deeper at both widths.
+    clean('class A:\n\tdef f(self):\n\t    return 1\n');
+  });
+
+  it('checks a space-indented file that an edit gave one tab-indented line', () => {
+    // The edit's line is a TabError; the old check skipped the whole file.
+    const e = errs('def f():\n        x = 1\n\ty = 2\n');
+    expect(e.map((x) => x.message).join(' ')).toContain('inconsistent use of tabs and spaces');
+  });
+});
+
+// #157 ML-50: the count stopped at the cap with nothing saying so.
+describe('scanPythonIndent saturation (ML-50)', () => {
+  const broken = (n: number) => Array.from({ length: n }, (_, i) => (i % 2 ? '    x = 1' : 'y = 2')).join('\n');
+
+  it('says the list was cut short when there are more errors than the cap', () => {
+    const r = scanPythonIndent(broken(60));
+    expect(r.errors).toHaveLength(PYTHON_INDENT_ERROR_CAP);
+    expect(r.saturated).toBe(true);
+  });
+
+  it('is not saturated when every error fits', () => {
+    const r = scanPythonIndent('def f():\n    x = 1\n      y = 2\n');
+    expect(r.errors.length).toBeLessThan(PYTHON_INDENT_ERROR_CAP);
+    expect(r.saturated).toBe(false);
   });
 });

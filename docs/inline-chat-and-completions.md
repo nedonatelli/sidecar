@@ -46,7 +46,6 @@ SideCar routes completions differently per backend:
 | Backend       | Completion method                             | Notes                                                                        |
 | ------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
 | Ollama        | FIM endpoint (`/api/generate` with `suffix`)  | Requires a model with FIM support (qwen2.5-coder, codestral, deepseek-coder) |
-| Kickstand     | Native FIM path (`ks_build_fim_tokens`)       | Grammar-constrained; fastest local option                                    |
 | Anthropic     | Messages API with fill-in context             | No native FIM; less accurate for mid-file insertions                         |
 | OpenAI-compat | `/v1/completions` FIM if available, else chat | Depends on the server                                                        |
 
@@ -77,7 +76,6 @@ Leave `completionDraftModel` empty to auto-discover the smallest available model
 ### Tips
 
 - Point `sidecar.completionModel` at a small fast model (`qwen2.5-coder:1.5b`, `deepseek-coder:1.3b`) while keeping a larger model for the sidebar agent — completions are latency-sensitive, chat turns are not
-- For Kickstand, `sidecar.kickstand.flashAttn: true` gives a 2–4× speed boost on long contexts with Metal or CUDA, which helps completion latency
 - Lower `completionDebounceMs` for snappier suggestions at the cost of more GPU pressure
 
 ---
@@ -92,7 +90,7 @@ Enable it:
 "sidecar.nextEdit.enabled": true
 ```
 
-The Next Edit commands ship without default keybindings — run them from the Command Palette (`SideCar: Accept Next Edit`, `… Next Suggestion`, `… Previous Suggestion`, `… Dismiss`) or bind your own keys in Keyboard Shortcuts.
+The Next Edit commands ship without default keybindings — run them from the Command Palette (`SideCar: Next Edit: Jump to First Suggestion`, `… Go to Next Suggestion`, `… Go to Previous Suggestion`, `… Dismiss Suggestions`) or bind your own keys in Keyboard Shortcuts.
 
 Settings: `sidecar.nextEdit.{debounceMs, crossFileEnabled, maxHops, topK, autoTriggerOnSave}` — see [Configuration → Next Edit Suggestions](configuration#next-edit-suggestions-v072).
 

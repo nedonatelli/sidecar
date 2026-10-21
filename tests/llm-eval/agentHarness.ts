@@ -802,9 +802,12 @@ export async function runAgentCase(
     runError = err instanceof Error ? err : new Error(String(err));
   } finally {
     session.close(runError ? 'error' : 'natural');
+    // The shell goes first: it ran after the two awaits below, so a teardown
+    // that threw left it, and every background command it started, alive (#245).
+    // A live shell also holds the sandbox as its cwd, which the teardown deletes.
+    toolRuntime.dispose();
     snapshot = await sandbox.snapshot().catch(() => ({}));
     await sandbox.teardown();
-    toolRuntime.dispose();
   }
 
   const durationMs = Date.now() - start;

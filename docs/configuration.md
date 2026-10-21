@@ -11,17 +11,17 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 
 ## Connection
 
-| Setting                | Type   | Default                  | Description                                                                                                                                                                               |
-| ---------------------- | ------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.baseUrl`      | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, Kickstand: `http://localhost:11435`, OpenAI-compatible: any URL |
-| `sidecar.apiKey`       | string | `ollama`                 | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers                                    |
-| `sidecar.model`        | string | `gemma4:e4b`             | Model for chat (e.g., `gemma4:e4b`, `ministral-3:latest`, `qwen3-coder:30b`, `claude-sonnet-4-6`, or any model on your server)                                                            |
-| `sidecar.provider`     | enum   | `auto`                   | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `kickstand`, `openrouter`, `groq`, `fireworks`, `gemini`, `copilot`, `bedrock`. Auto-detects from URL                          |
-| `sidecar.systemPrompt` | string | `""`                     | Custom system prompt appended to the default                                                                                                                                              |
+| Setting                | Type   | Default                  | Description                                                                                                                                                          |
+| ---------------------- | ------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.baseUrl`      | string | `http://localhost:11434` | API base URL. Ollama: `http://localhost:11434`, Anthropic: `https://api.anthropic.com`, OpenAI: `https://api.openai.com`, OpenAI-compatible: any URL                 |
+| `sidecar.apiKey`       | string | `ollama`                 | API key. **Stored in VS Code SecretStorage** (see below). Ignored for local Ollama, required for Anthropic, OpenAI, and some OpenAI-compatible servers               |
+| `sidecar.model`        | string | `gemma4:e4b`             | Model for chat (e.g., `gemma4:e4b`, `ministral-3:latest`, `qwen3-coder:30b`, `claude-sonnet-5-5`, or any model on your server)                                       |
+| `sidecar.provider`     | enum   | `auto`                   | Backend provider: `auto`, `ollama`, `anthropic`, `openai`, `openai-compat`, `openrouter`, `groq`, `fireworks`, `gemini`, `copilot`, `bedrock`. Auto-detects from URL |
+| `sidecar.systemPrompt` | string | `""`                     | Custom system prompt appended to the default                                                                                                                         |
 
 ### Switching backends (recommended)
 
-You don't have to edit these settings by hand. Click the **⚙ gear** in the chat header and pick a backend from the **Backend** section of the settings menu — SideCar's built-in profiles flip `baseUrl`, `provider`, and `model` in one click:
+You don't have to edit these settings by hand. Click the **☰ menu** in the chat header and pick a backend from the **Backend** submenu — SideCar's built-in profiles flip `baseUrl`, `provider`, and `model` in one click:
 
 | Profile          | Provider     | Base URL                                                  | Default model                                                                   |
 | ---------------- | ------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -30,15 +30,16 @@ You don't have to edit these settings by hand. Click the **⚙ gear** in the cha
 | OpenAI           | `openai`     | `https://api.openai.com`                                  | `gpt-4o`                                                                        |
 | OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`                                                   |
 | Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                                                           |
-| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `qwen2p5-coder-32b-instruct`                                                    |
-| Kickstand        | `kickstand`  | `http://localhost:11435`                                  | Token auto-loaded from `~/.config/kickstand/token` — no key prompt              |
+| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/qwen2p5-coder-32b-instruct`                          |
 | AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |
-| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash`                                                              |
+| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash` (shut down by Google — pick a current model after switching) |
 | GitHub Copilot   | `copilot`    | `vscode://github.copilot`                                 | `gpt-4o` (uses your Copilot subscription — no API key)                          |
+
+Some profile defaults are older models. The Anthropic entry selects the lowest-cost `claude-haiku-4-5`; current Claude models are `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5`, and `claude-fable-5-1`. Google has shut down `gemini-2.0-flash` and recommends `gemini-3.8-flash`. OpenAI has deprecated `gpt-4o` (shutdown scheduled for 2027-01-14). Set `sidecar.model` after switching if you want a different model. The menu also has a **Custom endpoint** entry for any OpenAI-compatible server: it asks for the URL and then the API key, and sets `sidecar.provider` to `openai-compat`.
 
 Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your OpenAI key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
-On first switch to a profile that needs a key, SideCar will surface a warning with a "Set API Key" button that chains into the standard `SideCar: Set API Key` flow — the key is stored under the correct profile slot automatically.
+On first switch to a profile that needs a key, SideCar will surface a warning with a "Set API Key" button that chains into the standard `SideCar: Set / Refresh API Key` flow — the key is stored under the correct profile slot automatically.
 
 For custom setups (non-standard ports, Anthropic-compatible proxies, etc.) the settings table above is still the right path — the profile switcher only covers the built-in providers.
 
@@ -48,15 +49,16 @@ When `sidecar.provider` is `auto` (default), SideCar detects the backend from th
 
 - **Port `11434` on any host** (e.g. `http://gpu-box:11434`) → Ollama (native API)
 - **`anthropic.com`** → Anthropic (Messages API with prompt caching)
-- **`localhost:11435`** → Kickstand — reads bearer token from `~/.config/kickstand/token` automatically
 - **`openrouter.ai`** → OpenRouter · **`groq.com`** → Groq · **`fireworks.ai`** → Fireworks · **`generativelanguage.googleapis.com`** → Gemini · **`bedrock-runtime.*.amazonaws.com`** → AWS Bedrock
 - **Any other URL** → SideCar asks the server once, when it first connects: if it answers Ollama's `/api/version`, it is used as Ollama; otherwise it's treated as OpenAI-compatible (`/v1/chat/completions`). Cloud hosts are never asked.
 
-Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL, or a local Kickstand dev build on a non-standard port.
+Set `sidecar.provider` explicitly if auto-detection doesn't match your setup — for example, if you're running an Anthropic-compatible proxy on a custom URL.
 
 ### API key storage (SecretStorage)
 
-API keys are stored in **VS Code's SecretStorage**, not in plaintext `settings.json`. This applies to both `sidecar.apiKey` and `sidecar.fallbackApiKey`.
+Backend API keys are stored in **VS Code's SecretStorage**, not in plaintext `settings.json`. This applies to `sidecar.apiKey`, `sidecar.fallbackApiKey`, and each backend profile's key.
+
+Three optional integrations are **not** in SecretStorage: `sidecar.webSearch.apiKey`, `sidecar.zotero.apiKey`, and `sidecar.mcpServer.authToken` are plain settings stored in `settings.json`. Use keys with minimal permissions there, and keep them in user settings rather than a committed workspace `.vscode/settings.json`.
 
 **Setting or refreshing your key:**
 
@@ -108,17 +110,17 @@ Each file in the planned-edits card has a **cancel button** — clicking it abor
 
 ## Agent behavior
 
-| Setting                      | Type   | Default    | Description                                                                                                                                                                                               |
-| ---------------------------- | ------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.agentMode`          | string | `cautious` | Agent mode: `cautious`, `autonomous`, `manual`, `plan`, `review`, or a custom mode name from `sidecar.customModes`. See [Agent Mode → Approval modes](agent-mode#approval-modes) for the behavior of each |
-| `sidecar.agentTemperature`   | number | `0.2`      | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection                                                                                             |
-| `sidecar.agentMaxIterations` | number | `50`       | Max agent loop iterations                                                                                                                                                                                 |
-| `sidecar.agentMaxTokens`     | number | `200000`   | Max tokens per agent run                                                                                                                                                                                  |
-| `sidecar.maxOutputTokens`    | number | `32768`    | Max tokens per model response, reasoning included. Clamped to the model's output limit (OpenAI) and the context left after the prompt (Ollama, Kickstand). A response that hits it is continued           |
-| `sidecar.requestTimeout`     | number | `120`      | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable                                                                                               |
-| `sidecar.toolPermissions`    | object | `{}`       | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }`                                                                                                                                         |
-| `sidecar.customModes`        | array  | `[]`       | Custom agent modes with dedicated system prompts and approval behavior. See [Custom modes](agent-mode#custom-modes)                                                                                       |
-| `sidecar.bgMaxConcurrent`    | number | `3`        | Maximum number of background agents that can run simultaneously (1–10)                                                                                                                                    |
+| Setting                      | Type   | Default    | Description                                                                                                                                                                                                        |
+| ---------------------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sidecar.agentMode`          | string | `cautious` | Agent mode: `cautious`, `autonomous`, `manual`, `plan`, `review`, `audit`, or a custom mode name from `sidecar.customModes`. See [Agent Mode → Approval modes](agent-mode#approval-modes) for the behavior of each |
+| `sidecar.agentTemperature`   | number | `0.2`      | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection                                                                                                      |
+| `sidecar.agentMaxIterations` | number | `50`       | Max agent loop iterations. If unset, 150 for strong-tier models (Claude, GPT, Gemini) and 50 for the rest                                                                                                          |
+| `sidecar.agentMaxTokens`     | number | `200000`   | Max tokens per agent run                                                                                                                                                                                           |
+| `sidecar.maxOutputTokens`    | number | `32768`    | Max tokens per model response, reasoning included. Clamped to the model's output limit (OpenAI) and the context left after the prompt (Ollama). A response that hits it is continued                               |
+| `sidecar.requestTimeout`     | number | `120`      | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable                                                                                                        |
+| `sidecar.toolPermissions`    | object | `{}`       | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }`                                                                                                                                                  |
+| `sidecar.customModes`        | array  | `[]`       | Custom agent modes with dedicated system prompts and approval behavior. See [Custom modes](agent-mode#custom-modes)                                                                                                |
+| `sidecar.bgMaxConcurrent`    | number | `3`        | Maximum number of background agents that can run simultaneously (1–10)                                                                                                                                             |
 
 ## Model Management
 
@@ -128,7 +130,7 @@ Each file in the planned-edits card has a **cancel button** — clicking it abor
 | --------------------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sidecar.editorModel` | string | `""`    | Secondary model for agent execution turns. When set, planning turns (no prior tool calls) use `sidecar.model`; execution turns (following tool calls) use this model. Leave empty to disable the split. |
 
-Set `sidecar.editorModel` to a cheaper/faster model (e.g. `claude-haiku-4-5`) to reduce cost on long agent runs without sacrificing planning quality.
+Set `sidecar.editorModel` to a cheaper/faster model (e.g. `claude-haiku-5-5`) to reduce cost on long agent runs without sacrificing planning quality.
 
 ### Fallback backend
 
@@ -197,14 +199,12 @@ Pinned files appear in a dedicated "Pinned Files" section before relevance-score
 
 ## Large file & monorepo handling
 
-| Setting                          | Type    | Default          | Description                                                                                                  |
-| -------------------------------- | ------- | ---------------- | ------------------------------------------------------------------------------------------------------------ |
-| `sidecar.workspaceRoots`         | array   | `[]`             | Specific workspace roots to index (empty = all folders). Use for monorepos to focus on specific sub-projects |
-| `sidecar.maxFileSizeBytes`       | number  | `102400` (100KB) | Maximum file size to fully read. Larger files get summaries first/last lines                                 |
-| `sidecar.streamingReadThreshold` | number  | `51200` (50KB)   | Files above this size use summary mode (head/tail lines) instead of full content                             |
-| `sidecar.maxTraversalDepth`      | number  | `10`             | Maximum directory nesting depth for context inclusion. Set lower for shallow indexing in large projects      |
-| `sidecar.enableLazyIndexing`     | boolean | `true`           | Defer indexing slow/large directories until explicitly needed                                                |
-| `sidecar.maxIndexedFiles`        | number  | `1000`           | Maximum indexed files before lazy-loading remainder. Improves startup time in huge repos                     |
+| Setting                          | Type   | Default          | Description                                                                                                  |
+| -------------------------------- | ------ | ---------------- | ------------------------------------------------------------------------------------------------------------ |
+| `sidecar.workspaceRoots`         | array  | `[]`             | Specific workspace roots to index (empty = all folders). Use for monorepos to focus on specific sub-projects |
+| `sidecar.maxFileSizeBytes`       | number | `102400` (100KB) | Maximum file size to fully read. Larger files get summaries first/last lines                                 |
+| `sidecar.streamingReadThreshold` | number | `51200` (50KB)   | Files above this size use summary mode (head/tail lines) instead of full content                             |
+| `sidecar.maxTraversalDepth`      | number | `10`             | Maximum directory nesting depth for context inclusion. Set lower for shallow indexing in large projects      |
 
 ### Streaming reads
 
@@ -380,16 +380,16 @@ Budgets reset on calendar boundaries — daily at midnight local time, weekly on
 
 Four additional settings that pair with the spending budgets above to drive down the cost of agent runs on Anthropic / OpenAI. See the **Cost controls** section in the README for the full rationale.
 
-| Setting                                     | Type    | Default                  | Description                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------- | ------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.promptPruning.enabled`             | boolean | `true`                   | Prune prompts before sending to paid backends. Collapses whitespace, head+tail truncates oversized tool results, and dedupes repeated file content. Safe for agent loops — only lossy on tool output, never on user or assistant messages                                                                            |
-| `sidecar.promptPruning.maxToolResultTokens` | number  | `4000`                   | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]`                               |
-| `sidecar.localToolTrim.enabled`             | boolean | `true`                   | For local models (Ollama/Kickstand), send only the core coding tools (read/edit/search/run/diagnostics) at full schema and compact the rest to one-line stubs the model expands with `describe_tool`. Cuts ~2.5K tokens of tool schema per turn and gives small models a clearer choice. No effect on cloud backends |
-| `sidecar.editFile.resultDiffChars`          | number  | `800`                    | After a successful `edit_file`, append a bounded diff (capped at this many chars) of what actually changed, so the model can self-verify the outcome instead of only seeing `File edited: <path>`. Helps weak local models catch wrong-but-applied edits. `0` disables                                               |
-| `sidecar.delegateTask.enabled`              | boolean | `true`                   | Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research to a local Ollama worker and receive a compact summary. No-op on local-only setups                                                                                                                                 |
-| `sidecar.delegateTask.workerModel`          | string  | `""`                     | Ollama model used by the `delegate_task` worker. Empty = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b`                                                                                                                                                        |
-| `sidecar.delegateTask.maxIterations`        | number  | `10`                     | Maximum agent loop iterations for a delegated worker task.                                                                                                                                                                                                                                                           |
-| `sidecar.delegateTask.workerBaseUrl`        | string  | `http://localhost:11434` | Base URL of the Ollama instance the worker connects to. Must be local or reachable — not an Anthropic / OpenAI URL                                                                                                                                                                                                   |
+| Setting                                     | Type    | Default                  | Description                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | ------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.promptPruning.enabled`             | boolean | `true`                   | Prune prompts before sending to paid backends. Collapses whitespace, head+tail truncates oversized tool results, and dedupes repeated file content. Safe for agent loops — only lossy on tool output, never on user or assistant messages                                                                  |
+| `sidecar.promptPruning.maxToolResultTokens` | number  | `4000`                   | Maximum token count for any single `tool_result` block sent to a paid backend. Longer results are head+tail truncated with an elision marker. Raise this for frontier models with large context windows; lower it to reduce cost on exploration-heavy tasks. Clamped to `[200, 20000]`                     |
+| `sidecar.localToolTrim.enabled`             | boolean | `true`                   | For local models (Ollama), send only the core coding tools (read/edit/search/run/diagnostics) at full schema and compact the rest to one-line stubs the model expands with `describe_tool`. Cuts ~2.5K tokens of tool schema per turn and gives small models a clearer choice. No effect on cloud backends |
+| `sidecar.editFile.resultDiffChars`          | number  | `800`                    | After a successful `edit_file`, append a bounded diff (capped at this many chars) of what actually changed, so the model can self-verify the outcome instead of only seeing `File edited: <path>`. Helps weak local models catch wrong-but-applied edits. `0` disables                                     |
+| `sidecar.delegateTask.enabled`              | boolean | `true`                   | Expose the `delegate_task` tool to paid backends. The orchestrator can offload read-only research to a local Ollama worker and receive a compact summary. No-op on local-only setups                                                                                                                       |
+| `sidecar.delegateTask.workerModel`          | string  | `""`                     | Ollama model used by the `delegate_task` worker. Empty = reuse the chat model. Recommended: a code-tuned model like `qwen3-coder:30b` or `deepseek-coder:33b`                                                                                                                                              |
+| `sidecar.delegateTask.maxIterations`        | number  | `10`                     | Maximum agent loop iterations for a delegated worker task.                                                                                                                                                                                                                                                 |
+| `sidecar.delegateTask.workerBaseUrl`        | string  | `http://localhost:11434` | Base URL of the Ollama instance the worker connects to. Must be local or reachable — not an Anthropic / OpenAI URL                                                                                                                                                                                         |
 
 **Session spend tracker** is not a setting — it's always on for Anthropic requests when they return usage data. The `$(credit-card) $0.12` status bar item shows up the moment a paid backend incurs cost. Click it for a per-model breakdown. Manage via:
 
@@ -415,39 +415,7 @@ When enabled, a smaller draft model proposes tokens that the main model verifies
 | -------------------------------------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------------- |
 | `sidecar.speculativeDecoding.enabled`                    | boolean | `true`  | Enable speculative FIM decoding. Auto-disabled if the backend doesn't support a draft model                          |
 | `sidecar.completionDraftModel`                           | string  | `""`    | Draft model (e.g. `qwen2.5-coder:0.5b`). Empty = auto-discover the smallest available model on the active backend    |
-| `sidecar.speculativeDecoding.lookahead`                  | number  | `4`     | Draft tokens proposed per cycle. Higher = faster on cache hits, more wasted work on misses. Clamped 1–16             |
-| `sidecar.speculativeDecoding.temperature`                | number  | `0.0`   | Draft model temperature (`0` = greedy, fastest)                                                                      |
 | `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` | number  | `0.4`   | If the rolling accept rate drops below this threshold, speculative decoding auto-disables for the session. Range 0–1 |
-
-## Kickstand Advanced Settings (v0.109+)
-
-Settings specific to the [Kickstand](https://github.com/nedonatelli/kickstand) self-hosted backend. Ignored when using Ollama, Anthropic, or other providers.
-
-### RoPE / YaRN long-context scaling
-
-Extend a model's native context window by tuning its positional-encoding parameters at load time.
-
-| Setting                           | Type   | Default | Description                                                                                                                                                                                        |
-| --------------------------------- | ------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.kickstand.nCtx`          | number | `32768` | Context window size (`n_ctx`) passed to Kickstand when loading a model. Increase for longer conversations; decrease to reduce VRAM usage. Ignored when using the RoPE/YaRN `yarnOrigCtx` override. |
-| `sidecar.kickstand.ropeFreqBase`  | number | `0`     | RoPE base frequency override. `0` = model default. Example: `500000` for Llama 3.1 128K extension                                                                                                  |
-| `sidecar.kickstand.ropeFreqScale` | number | `0`     | RoPE frequency scaling factor. `0` = model default. Example: `0.5` for a generic 2× context extension                                                                                              |
-| `sidecar.kickstand.yarnExtFactor` | number | `-1`    | YaRN extrapolation factor. `-1` leaves llama.cpp's built-in YaRN default intact                                                                                                                    |
-| `sidecar.kickstand.yarnOrigCtx`   | number | `0`     | Original training context length for YaRN scaling. `0` = model default                                                                                                                             |
-
-**Example — Llama 3.1 with 128K context:**
-
-```json
-"sidecar.kickstand.ropeFreqBase": 500000
-```
-
-### Flash Attention
-
-| Setting                       | Type    | Default | Description                                                                                                           |
-| ----------------------------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.kickstand.flashAttn` | boolean | `false` | Enable Flash Attention. 2–4× speedup on long contexts with Metal (macOS) or CUDA. Silently ignored on CPU-only builds |
-
-All Kickstand settings are preserved across Kickstand auto-restarts.
 
 ## Adaptive Paste (v0.72+)
 
@@ -657,7 +625,6 @@ These settings tune the Audit Mode buffer behaviour. See [Agent Mode → Review 
 | `sidecar.retrieval.graphExpansion.maxHits`   | number  | `8`      | Cap on symbols added via graph walk per retrieval call.                                                                                                                                                       |
 | `sidecar.projectKnowledge.enabled`           | boolean | `true`   | Enable the Project Knowledge Index — semantic symbol search via tree-sitter + MiniLM embeddings. Disable to turn off background indexing entirely.                                                            |
 | `sidecar.projectKnowledge.graphWalkDepth`    | number  | `2`      | Hops to walk the symbol graph after a vector hit. `1` = direct callers only; `2` = callers of callers. Higher values surface more context at the cost of more tokens.                                         |
-| `sidecar.projectKnowledge.maxGraphHits`      | number  | `10`     | Cap on symbols added via graph walk per `project_knowledge_search` call. Guards against popular symbols drowning results.                                                                                     |
 | `sidecar.projectKnowledge.backend`           | string  | `"flat"` | Vector storage backend. `"flat"` = in-memory `Float32Array` (fast up to ~100k symbols). `"lance"` = LanceDB for persistent out-of-memory storage (requires `@lancedb/lancedb`).                               |
 | `sidecar.projectKnowledge.maxSymbolsPerFile` | number  | `500`    | Safety cap on embedded symbols per file. Prevents auto-generated files from monopolising the embedder queue.                                                                                                  |
 | `sidecar.merkleIndex.enabled`                | boolean | `true`   | Enable content-addressed Merkle tree over the symbol index. Prunes candidate files via embedding descent before scoring leaves — significant speedup on large codebases.                                      |
@@ -680,11 +647,10 @@ SideCar uses **Retrieval-Augmented Generation (RAG)** to inject relevant documen
 
 ### RAG Configuration
 
-| Setting                            | Type    | Default | Description                                                                        |
-| ---------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------- |
-| `sidecar.enableDocumentationRAG`   | boolean | `true`  | Enable documentation retrieval for every user message                              |
-| `sidecar.ragMaxDocEntries`         | number  | `20`    | Maximum number of documentation entries to inject per message (1-20)               |
-| `sidecar.ragUpdateIntervalMinutes` | number  | `60`    | Re-index documentation every N minutes (5-360). Set to `0` to disable auto-refresh |
+| Setting                          | Type    | Default | Description                                                          |
+| -------------------------------- | ------- | ------- | -------------------------------------------------------------------- |
+| `sidecar.enableDocumentationRAG` | boolean | `true`  | Enable documentation retrieval for every user message                |
+| `sidecar.ragMaxDocEntries`       | number  | `20`    | Maximum number of documentation entries to inject per message (1-20) |
 
 Documentation is automatically discovered in:
 
@@ -810,11 +776,10 @@ The GitHub provider auto-detects `owner/repo` from `git remote get-url origin`. 
 
 `MemoryPressureMonitor` polls free RAM every 30 seconds and GPU memory via `nvidia-smi` / `rocm-smi`. A right-side status bar item shows live RAM% and GPU% — colour-coded red when free RAM < 1 GiB, yellow when < 2 GiB. Click it to force a poll, or use the command palette:
 
-- `SideCar: Refresh Memory Status` (`sidecar.memory.refresh`) — force an immediate poll
+- `SideCar: Refresh Memory Stats` (`sidecar.memory.refresh`) — force an immediate poll
 
 **Pre-flight checks** run automatically before:
 
-- Loading a model in Kickstand (`SideCar: Load Model`)
 - Starting a HuggingFace safetensors install
 - Opening an Arena session (`/arena`, `/arena agent`)
 
@@ -930,7 +895,6 @@ The tool auto-detects the main `.tex` file in the workspace root; pass `file="pa
 | `sidecar.docTests.floatTolerance`            | number  | `1e-9`              | Default relative tolerance passed to `pytest.approx()` for numeric example constraints.                                                         |
 | `sidecar.docTests.outputDir`                 | string  | `"tests/from_docs"` | Directory where synthesized test files are written, relative to workspace root.                                                                 |
 | `sidecar.docTests.requireConstraintApproval` | boolean | `true`              | Present the constraint manifest for review before calling `synthesize_tests`. When `false`, tests are synthesized immediately after extraction. |
-| `sidecar.docTests.testFramework`             | string  | `"pytest"`          | Test framework to target when synthesizing tests.                                                                                               |
 
 The synthesis loop: `extract_constraints` parses docs into a typed constraint manifest → `synthesize_tests` generates a complete test file from approved constraints → `classify_test_failure` triages failures back to `impl_wrong`, `doc_wrong`, or `extraction_wrong`.
 
@@ -942,7 +906,7 @@ The synthesis loop: `extract_constraints` parses docs into a typed constraint ma
 | `sidecar.ci.analysis.jobFilter`   | array   | `["*"]`   | Glob patterns matched against CI job names. `["*"]` = all failed jobs. Narrow to e.g. `["test", "lint"]` to skip unrelated jobs. |
 | `sidecar.ci.analysis.maxLogBytes` | number  | `4000000` | Maximum bytes to download per CI job log. Logs larger than this are tailed.                                                      |
 
-Requires a GitHub token with `actions:read` scope configured via `SideCar: Set GitHub Token`.
+Uses your VS Code GitHub sign-in (requested with `repo` scope); SideCar asks you to sign in the first time a GitHub feature needs it.
 
 ## Persistent Executive Function (v0.94+)
 

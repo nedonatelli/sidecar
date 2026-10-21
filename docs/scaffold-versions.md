@@ -38,6 +38,22 @@ release) note it in `CHANGELOG.md`. This is part of the release checklist.
 
 ## Registry
 
+### 5.1.2 — iteration ceiling by tier (2026-10)
+
+PATCH: a threshold within an existing mechanism. Medium and weak are
+unchanged.
+
+- **Strong tier defaults to 150 iterations** (`maxIterations: 150` in
+  `ScaffoldingProfile`) when neither the caller nor the user sets a ceiling.
+  Medium and weak keep 50. On the 50-task SWE canary, claude-haiku-4-5 hit
+  the 50-iteration ceiling on 32 of 50 tasks and resolved 25/50; at 150 it
+  resolved 30/50, tying Claude Code, with no run reaching 150. (#237)
+- **What wins over the tier default:** an explicit `sidecar.agentMaxIterations`
+  (including an explicit 50), a skill's own `maxIterations`, and the SWE
+  harness's `SIDECAR_SWE_MAX_ITERS` (default 50). `sidecar.scaffolding.overrides.maxIterations`
+  pins the tier default itself.
+- The setting's maximum is now 150.
+
 ### 5.1.1 — per-tool budgets are tiered (2026-10)
 
 PATCH: thresholds and a reprompt string change inside an existing mechanism.
@@ -52,8 +68,8 @@ tool-heavy tasks.
   and deleting its own repro scripts. Claude Code, on the same model and tasks
   with no caps, peaked per task at 51 non-search shell calls, 50 searches and 26
   reads. ([#236](https://github.com/nedonatelli/sidecar/issues/236))
-- **The refusal no longer points an autonomous run at `ask_user`,** which
-  nobody answers there.
+- **The refusal only points at `ask_user` when a clarification UI can answer it.**
+  A headless run (the SWE driver, the eval) has none, and was told to ask anyway.
 - **Refusals are recorded** as `tool_budget` decisions, so trajectories and
   `summarizeDecisions` count them.
 

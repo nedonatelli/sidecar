@@ -177,7 +177,7 @@ Options, in order of least to most disruptive:
    ]
    ```
 
-3. Switch to a larger model for the task. `/model claude-sonnet-4-6` or a 30B+ local model handles complex implementations that smaller models defer on.
+3. Switch to a larger model for the task. `/model claude-sonnet-5-5` or a 30B+ local model handles complex implementations that smaller models defer on.
 
 ---
 
@@ -277,20 +277,10 @@ The draft model should be from the same model family as your main model and at l
 On paid backends, planning turns (where the agent is thinking about what to do) and execution turns (where it's calling tools) have different complexity. Use a cheaper model for execution turns:
 
 ```json
-"sidecar.editorModel": "claude-haiku-4-5"
+"sidecar.editorModel": "claude-haiku-5-5"
 ```
 
-With this set, `sidecar.model` handles planning turns; `claude-haiku-4-5` handles execution turns. The agent stays smart where it matters and fast where it doesn't.
-
-**Flash Attention (Kickstand only).**
-
-If you're using Kickstand, Flash Attention gives a 2–4x speedup on long contexts:
-
-```json
-"sidecar.kickstand.flashAttn": true
-```
-
-Requires a Metal (macOS) or CUDA build. Silently ignored on CPU-only.
+With this set, `sidecar.model` handles planning turns; `claude-haiku-5-5` handles execution turns. The agent stays smart where it matters and fast where it doesn't.
 
 ---
 

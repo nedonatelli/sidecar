@@ -95,14 +95,14 @@ This is the single highest-impact cost reduction for agent runs. Instead of usin
 - **Planner (expensive model):** turns where no tools have been called yet — reading the task, planning the approach, writing the initial code outline.
 - **Editor (cheap model):** turns where tools are already in flight — `edit_file`, `write_file`, `run_tests`, `run_command`, and follow-up reasoning based on tool results.
 
-In a typical 15-turn agent run, roughly 2 turns are planning turns and 13 are execution turns. Execution turns make up 85–90% of total token spend. Routing them to Haiku instead of Sonnet cuts the cost of those turns by ~73% (Haiku input: $0.80/1M vs. Sonnet: $3/1M; output: $4/1M vs. $15/1M).
+In a typical 15-turn agent run, roughly 2 turns are planning turns and 13 are execution turns. Execution turns make up 85–90% of total token spend. Routing them to Haiku instead of Sonnet cuts the list price of those turns by ~95% (Haiku 5.5: from $0.10 / $0.50 per 1M input / output tokens; Sonnet 5.5: $2 / $10).
 
 Configure it:
 
 ```json
 {
-  "sidecar.model": "claude-sonnet-4-6",
-  "sidecar.editorModel": "claude-haiku-4-5-20251001"
+  "sidecar.model": "claude-sonnet-5-5",
+  "sidecar.editorModel": "claude-haiku-5-5"
 }
 ```
 
@@ -114,7 +114,7 @@ The agent loop routes automatically: turns where `messages` contains no prior to
 
 ```json
 {
-  "sidecar.model": "claude-haiku-4-5-20251001",
+  "sidecar.model": "claude-haiku-5-5",
   "sidecar.editorModel": "qwen2.5-coder:7b"
 }
 ```
@@ -148,7 +148,7 @@ These are token-expensive for a frontier model (many `read_file` and `search_fil
 
 Leave `workerBaseUrl` at the default `http://localhost:11434` unless Ollama is running on a different machine. Set `workerModel` to the best local model you have — `qwen3-coder:30b` or `deepseek-coder-v2:16b` for high quality, `qwen2.5-coder:7b` if you are on a low-RAM machine.
 
-Delegation is a no-op if you are already on a local-only setup (Ollama or Kickstand) — the setting only affects paid-backend sessions.
+Delegation is a no-op if you are already on a local-only setup (such as Ollama) — the setting only affects paid-backend sessions.
 
 ---
 
@@ -185,7 +185,7 @@ Enable it:
 ```json
 {
   "sidecar.modelRouting.enabled": true,
-  "sidecar.modelRouting.defaultModel": "claude-haiku-4-5-20251001"
+  "sidecar.modelRouting.defaultModel": "claude-haiku-5-5"
 }
 ```
 
@@ -196,21 +196,21 @@ Then define rules. Rules are evaluated in order; the first match wins:
   "sidecar.modelRouting.rules": [
     {
       "when": "agent-loop.complexity=high",
-      "model": "claude-sonnet-4-6",
-      "fallbackModel": "claude-haiku-4-5-20251001",
+      "model": "claude-sonnet-5-5",
+      "fallbackModel": "claude-haiku-5-5",
       "sessionBudget": 2.0
     },
     {
       "when": "agent-loop",
-      "model": "claude-haiku-4-5-20251001"
+      "model": "claude-haiku-5-5"
     },
     {
       "when": "chat.prompt~=/architect|design|tradeoff/i",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-sonnet-5-5"
     },
     {
       "when": "summarize",
-      "model": "claude-haiku-4-5-20251001"
+      "model": "claude-haiku-5-5"
     }
   ]
 }
@@ -224,13 +224,14 @@ Enable `sidecar.modelRouting.dryRun` first to log routing decisions without appl
 
 **Cost profile for the Claude family (approximate list prices):**
 
-| Model                       | Input / 1M | Output / 1M |
-| --------------------------- | ---------- | ----------- |
-| `claude-opus-4-7`           | $15        | $75         |
-| `claude-sonnet-4-6`         | $3         | $15         |
-| `claude-haiku-4-5-20251001` | $0.80      | $4          |
+| Model               | Input / 1M | Output / 1M |
+| ------------------- | ---------- | ----------- |
+| `claude-fable-5-1`  | $10        | $50         |
+| `claude-opus-5-5`   | $4         | $20         |
+| `claude-sonnet-5-5` | $2         | $10         |
+| `claude-haiku-5-5`  | from $0.10 | from $0.50  |
 
-Haiku has a 96% eval score on SideCar's 92-case harness — essentially identical to Sonnet on agentic tasks. Use Sonnet or Opus only for tasks that genuinely require deeper reasoning (novel architectural design, complex debugging with ambiguous root causes, security audits).
+Source: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). The legacy `claude-haiku-4-5` ($1 / $5) scored 96% on SideCar's older 92-case eval harness (2026-05); the Claude 5 models have not been run through it. Use Sonnet or Opus for tasks that genuinely require deeper reasoning (novel architectural design, complex debugging with ambiguous root causes, security audits).
 
 ---
 
@@ -260,7 +261,7 @@ Ordered by savings impact, highest first:
 
 3. **Set a daily budget** (`sidecar.dailyBudget`) — prevents a single runaway session from wiping out a week's budget. Set this before you start any automation or overnight runs.
 
-4. **Use Haiku as the default model** — if you are currently using Sonnet as your main model for chat and light agent tasks, switch to `claude-haiku-4-5-20251001`. It scores 96% on the SideCar eval harness and costs ~4x less per input token and ~4x less per output token than Sonnet. Reserve Sonnet for routing rules that target genuinely complex tasks.
+4. **Use Haiku as the default model** — if you are currently using Sonnet as your main model for chat and light agent tasks, switch to `claude-haiku-5-5`. It costs about 20× less per token than Sonnet 5.5 at list price (Haiku was the top scorer on SideCar's older eval harness, measured on the legacy `claude-haiku-4-5`). Reserve Sonnet for routing rules that target genuinely complex tasks.
 
 5. **Lower `maxToolResultTokens` on exploration tasks** — if you are scanning a large codebase with many file reads and searches, drop `sidecar.promptPruning.maxToolResultTokens` to 1,500–2,000. The agent gets the important parts of each result without accumulating thousands of tokens per turn from verbose grep output.
 

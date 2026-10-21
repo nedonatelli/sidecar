@@ -1,6 +1,6 @@
 import type { ChatMessage, ToolDefinition } from '../../ollama/types.js';
 import type { CommandRunRecord } from './commandDedup.js';
-import { LOCAL_CONTEXT_CAP } from '../../config/constants.js';
+import { LOCAL_CONTEXT_CAP, DEFAULT_MAX_ITERATIONS } from '../../config/constants.js';
 import { getContentLength } from '../../ollama/types.js';
 import type { ApprovalMode } from '../executor.js';
 import type { AgentLogger } from '../logger.js';
@@ -45,20 +45,9 @@ import { EpisodicMemoryStore } from '../episodicMemory.js';
 //     separate parameters.
 // ---------------------------------------------------------------------------
 
-/**
- * Iteration ceiling for an agent run.
- *
- * Raised from 25 to 50. The eval harness capped runs at 8 — three times below
- * the old default — and 62 of 154 local-model failures across 32 cases were runs
- * cut off mid-work, recorded as though the model could not do the task. Fixing
- * that exposed how tight the ceiling is for smaller local models, which need
- * more turns to reach the same outcome a frontier model reaches in a few.
- *
- * A runaway loop is not bounded by this number anyway: cycle detection bails on
- * repeated identical failures long before the cap, so the cap's real job is to
- * stop a genuinely stuck-but-varying run, and 25 was cutting off productive ones.
- */
-export const DEFAULT_MAX_ITERATIONS = 50;
+// The iteration ceiling's default lives in config/constants.ts so the scaffolding
+// profile can use it without importing this module; re-exported for callers.
+export { DEFAULT_MAX_ITERATIONS };
 
 /** One entry in the normalized-call ring buffer. */
 export interface NormalizedEntry {
@@ -97,7 +86,12 @@ export interface LoopState {
    * the global.
    */
   readonly config: SideCarConfig;
-  readonly maxIterations: number;
+  /**
+   * The iteration ceiling. Set by initLoopState from the caller's value, then,
+   * when the caller passed none, replaced ONCE at loop start by the scaffolding
+   * tier's default (#237). Not changed after that.
+   */
+  maxIterations: number;
   readonly maxTokens: number;
   readonly approvalMode: ApprovalMode;
   readonly tools: ToolDefinition[];
@@ -143,6 +137,19 @@ export interface LoopState {
    * the tool rather than of the invocation.
    */
   fileMutations: number;
+  /**
+   * #222: a read-only loop before the first successful edit gets one nudge
+   * instead of a stop. True once that nudge has been spent this run.
+   */
+  readOnlyCycleNudged?: boolean;
+  /**
+   * The normalized signature that earned the nudge. Its earlier repeats stay
+   * in the window, so the frequency pass would stop the very next turn
+   * whatever the model did; it now counts them only when the turn repeats it.
+   */
+  cycleNudgedSig?: string;
+  /** The nudge cycle detection asked the loop to inject this turn, if any. */
+  pendingCycleNudge?: string;
   /** Last run of each shell command, for collapsing exact repeats. */
   commandRuns: Map<string, CommandRunRecord>;
   lastActualInputTokens?: number;

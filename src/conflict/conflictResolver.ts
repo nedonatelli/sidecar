@@ -30,6 +30,23 @@ export function buildConflictPrompt(block: ConflictBlock): string {
 }
 
 /**
+ * The model's answer, as code to write. Replaces a plain `.trim()`, which
+ * took the first line's indentation with it, so a resolved block inside a
+ * function or class started at column 0 (ML-19, #165). Now:
+ *   - a code fence around the whole answer (```lang ... ```) is unwrapped
+ *     instead of written into the file, despite the prompt asking for code only;
+ *   - only leading BLANK lines are dropped, so the first line keeps its indent;
+ *   - trailing whitespace and newlines are dropped (applyResolutions puts the
+ *     span's own line ending back).
+ */
+export function cleanResolution(raw: string): string {
+  let text = raw;
+  const fenced = text.trim().match(/^```[^\n]*\r?\n([\s\S]*?)\r?\n```$/);
+  if (fenced) text = fenced[1];
+  return text.replace(/^(?:[ \t]*\r?\n)+/, '').trimEnd();
+}
+
+/**
  * Reconstruct file text by replacing each block's span with the LLM's resolution.
  * Processes blocks in reverse order so earlier offsets remain stable.
  */
@@ -51,7 +68,10 @@ export function applyResolutions(
     // resolution (drop the block) still removes the whole span.
     const span = result.slice(block.startOffset, block.endOffset);
     const eol = span.endsWith('\r\n') ? '\r\n' : span.endsWith('\n') ? '\n' : '';
-    const text = resolved !== '' && eol && !resolved.endsWith('\n') ? resolved + eol : resolved;
+    // The model answers with LF; in a CRLF file that mixed line endings into
+    // the resolved block (ML-19). Match the conflict span's own line ending.
+    const body = eol === '\r\n' ? resolved.replace(/\r?\n/g, '\r\n') : resolved;
+    const text = body !== '' && eol && !body.endsWith('\n') ? body + eol : body;
     result = result.slice(0, block.startOffset) + text + result.slice(block.endOffset);
   }
 
@@ -79,7 +99,7 @@ export async function resolveConflicts(
 
     try {
       const resolved = await client.complete([{ role: 'user', content: prompt }], maxTokens, signal);
-      resolutions.set(block.index, resolved.trim());
+      resolutions.set(block.index, cleanResolution(resolved));
       resolvedBlocks++;
     } catch (err) {
       // AbortError: stop iterating

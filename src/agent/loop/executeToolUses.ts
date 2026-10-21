@@ -186,8 +186,10 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     return { type: 'tool_result', tool_use_id: toolUse.id, content: toolUse._withheldReason, is_error: true };
   }
 
-  // Per-tool rate limiting: check budget before executing
-  const budgetError = checkToolBudget(state, toolUse.name);
+  // Per-tool rate limiting: check budget before executing (a refusal is
+  // recorded as a tool_budget decision there). ask_user is only suggested when
+  // a clarification UI can answer it.
+  const budgetError = checkToolBudget(state, toolUse.name, { canAskUser: options.clarifyFn !== undefined });
   if (budgetError) {
     callbacks.onToolResult(toolUse.name, budgetError, true, toolUse.id);
     return {

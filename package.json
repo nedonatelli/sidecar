@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.129.0",
+  "version": "0.130.1",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -77,7 +77,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Model to use for chat. **Recommended local default: `gemma4:e4b`** (9 GB, ~10 GB VRAM; the most-dogfooded local model, strongest prompt-following).\n\nExamples:\n\n- Ollama: `gemma4:e4b`, `ministral-3:latest` (6 GB, lighter), `granite4.1:3b` (2 GB low-RAM), `qwen2.5-coder:7b`\n- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
+            "markdownDescription": "Model to use for chat. **Recommended local default: `gemma4:e4b`** (9.6 GB, ~10 GB VRAM; the most-dogfooded local model, strongest prompt-following).\n\nExamples:\n\n- Ollama: `gemma4:e4b`, `ministral-3:latest` (6 GB, lighter), `granite4.1:3b` (2 GB low-RAM), `qwen2.5-coder:7b`\n- Anthropic: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`\n- OpenAI: `gpt-5`, `gpt-4o`, `gpt-4o-mini`\n\nPick keyboard-first with `SideCar: Select Model`."
           },
           "sidecar.editorModel": {
             "type": "string",
@@ -399,13 +399,13 @@
             "type": "number",
             "default": 50,
             "minimum": 1,
-            "maximum": 100,
+            "maximum": 150,
             "order": 23,
             "tags": [
               "sidecar",
               "agent"
             ],
-            "markdownDescription": "Maximum number of agent loop iterations before the agent stops. Each iteration is one model call plus any tools it chose. Hitting this limit usually means the agent is stuck in a cycle — inspect the chat and narrow the task."
+            "markdownDescription": "Maximum number of agent loop iterations before the agent stops. Each iteration is one model call plus any tools it chose.\n\nIf you don't set this, the limit depends on the model's capability tier: **150** for strong models (Claude, GPT, Gemini) and **50** for everything else. A value you set here applies to every model. Hitting the limit usually means the agent is stuck in a cycle — inspect the chat and narrow the task."
           },
           "sidecar.agentMaxMessages": {
             "type": "number",
@@ -507,7 +507,7 @@
           "sidecar.scaffolding.overrides": {
             "type": "object",
             "default": {},
-            "markdownDescription": "Pin individual scaffolding triggers regardless of the model's tier. Applied last, over everything else.\n\nExample: `{ \"burstCap\": 20, \"maxGateInjections\": 3 }`\n\nKeys: `burstCap`, `maxActionReprompts`, `maxGateInjections`, `planModeAskUser`, `compressionThreshold`, `compactionKeepRecentTurns`, `compactionMaxSummaryChars`, `toolBudgets`.\n\n`toolBudgets` sets per-run call budgets per tool and merges over the tier's, e.g. `{ \"toolBudgets\": { \"run_command\": 30 } }`."
+            "markdownDescription": "Pin individual scaffolding triggers regardless of the model's tier. Applied last, over everything else.\n\nExample: `{ \"burstCap\": 20, \"maxGateInjections\": 3 }`\n\nKeys: `burstCap`, `maxActionReprompts`, `maxGateInjections`, `planModeAskUser`, `compressionThreshold`, `compactionKeepRecentTurns`, `compactionMaxSummaryChars`, `maxIterations` (the iteration ceiling when `sidecar.agentMaxIterations` isn't set: 150 on the strong tier, 50 otherwise), `toolBudgets`.\n\n`toolBudgets` sets per-run call budgets per tool and merges over the tier's, e.g. `{ \"toolBudgets\": { \"run_command\": 30 } }`."
           },
           "sidecar.plan.externalized": {
             "type": "boolean",

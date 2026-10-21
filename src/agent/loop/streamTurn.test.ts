@@ -212,6 +212,29 @@ describe('resolveTurnContent text tool call parsing', () => {
     );
     expect(result.pendingToolUses).toHaveLength(1);
   });
+
+  // ML-60 (#164): repeated-content stripping ran before the call was parsed.
+  it('parses a call before stripping, so a paragraph repeated from history stays in its content', () => {
+    const repeated = Array.from({ length: 8 }, (_, i) => `def helper_${i}(value):\n    return value * ${i}`).join('\n');
+    expect(repeated.length).toBeGreaterThanOrEqual(200);
+    const content = `import math\n\n${repeated}\n\nprint(helper_1(2))`;
+    const state = stubLoopState({
+      approvalMode: 'autonomous',
+      messages: [
+        { role: 'user', content: 'write helpers.py' },
+        { role: 'assistant', content: `Here is the plan.\n\n${repeated}\n\nShall I write it?` },
+        { role: 'user', content: 'yes' },
+      ] as never,
+    });
+    (state as any).tools = [
+      { name: 'write_file', description: 'Writes a file', input_schema: { type: 'object', properties: {} } },
+    ];
+    const text = `<function=write_file>\n<parameter=path>\nhelpers.py\n</parameter>\n<parameter=content>\n${content}\n</parameter>\n</function>`;
+    const turn = { fullText: text, pendingToolUses: [], stopReason: 'stop', terminated: undefined };
+    const result = resolveTurnContent(turn as never, state, makeCallbacks());
+    expect(result.pendingToolUses).toHaveLength(1);
+    expect(result.pendingToolUses[0].input).toEqual({ path: 'helpers.py', content });
+  });
 });
 
 describe('streamOneTurn answer-in-thinking fallback', () => {
@@ -399,6 +422,22 @@ describe('fence-write coercion — already-done escape', () => {
       expect.any(String),
     );
     expect(result.pendingToolUses).toHaveLength(1);
+  });
+
+  // ML-60 (#164): stripping collapsed blank-line runs inside the fence first.
+  it('synthesizes the write from the raw fence, blank-line runs intact', () => {
+    const body = 'import os\n\n\nclass Config:\n    pass\n';
+    const state = makeCoercionState('<tool_output tool="edit_file">\nFile edited: src/other.ts\n</tool_output>');
+    state.messages.splice(1, 0, { role: 'assistant', content: 'x'.repeat(200) } as never);
+    (state as any).userRequestText = 'update src/config.py';
+    const turn = {
+      fullText: `Updated:\n\`\`\`python\n${body}\`\`\`\n`,
+      pendingToolUses: [],
+      stopReason: 'stop',
+      terminated: undefined,
+    };
+    const result = resolveTurnContent(turn as never, state, makeCallbacks());
+    expect(result.fenceWrite).toEqual({ path: 'src/config.py', content: body });
   });
 });
 

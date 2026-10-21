@@ -189,8 +189,9 @@ describe('SymbolIndexer', () => {
             qualifiedName: 'requireAuth',
             type: 'function',
             filePath: 'src/auth.ts',
-            startLine: 1,
-            endLine: 3,
+            // Graph symbols are 0-based (the analyzers' convention): lines 0-2.
+            startLine: 0,
+            endLine: 2,
             exported: true,
           },
         ],

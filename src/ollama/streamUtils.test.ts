@@ -244,6 +244,25 @@ describe('parseTextToolCallsStream', () => {
     expect(events).toHaveLength(0);
   });
 
+  // ML-58 (#164): raw newlines in a JSON string made the call vanish before repair.
+  it('hands a malformed <tool_call> naming a known tool on for repair', () => {
+    const state = createTextToolCallState([WRITE_FILE_TOOL]);
+    const body = '{"name":"write_file","arguments":{"path":"a.py","content":"x = 1\ny = 2"}}';
+    const events = feed([`<tool_call>\n${body}\n</tool_call>`], state);
+    expect(events).toHaveLength(1);
+    const ev0 = events[0] as unknown as { toolUse: Record<string, unknown> };
+    expect(ev0.toolUse).toMatchObject({ name: 'write_file', input: {}, _malformedInputRaw: body });
+  });
+
+  it('does not hand repair a body cut off at a </tool_call> inside a string', () => {
+    const state = createTextToolCallState([WRITE_FILE_TOOL]);
+    const events = feed(
+      ['<tool_call>{"name":"write_file","arguments":{"path":"a.py","content":"x</tool_call>y"}}</tool_call>'],
+      state,
+    );
+    expect(events.some((e) => e.type === 'tool_use')).toBe(false);
+  });
+
   it('drops <tool_call> for unknown tool names', () => {
     const state = createTextToolCallState([READ_FILE_TOOL]);
     const events = feed(['<tool_call>{"name":"nope","arguments":{}}</tool_call>'], state);
@@ -285,6 +304,20 @@ describe('parseTextToolCallsStream', () => {
     // Whatever is emitted as text must not include the intercepted function block
     expect(textParts.join('')).not.toContain('<function=read_file>');
     expect(textParts.join('')).not.toContain('<parameter=path>');
+  });
+
+  // ML-64 (#164): values were trim()med, so code lost its first-line indent.
+  it('keeps the whitespace of a multi-line parameter value', () => {
+    const state = createTextToolCallState([WRITE_FILE_TOOL]);
+    const code = '    x = 1\n    y = 2\n\n';
+    const events = feed(
+      [
+        `<function=write_file>\n<parameter=path>\n a.py \n</parameter>\n<parameter=content>\n${code}\n</parameter>\n</function>`,
+      ],
+      state,
+    );
+    const tu = events.find((e) => e.type === 'tool_use') as unknown as { toolUse: { input: Record<string, unknown> } };
+    expect(tu.toolUse.input).toEqual({ path: 'a.py', content: code });
   });
 
   it('flushes an unclosed tool-call body as text at stream end', () => {

@@ -68,6 +68,22 @@ export const TOOL_CALL_BUDGETS: Readonly<Record<string, number>> = {
 
 export const DEFAULT_TOOL_CALL_BUDGET = 20;
 
+/**
+ * Iteration ceiling for an agent run (the medium and weak tiers' default; the
+ * strong tier's is in scaffoldingProfile.ts).
+ *
+ * Raised from 25 to 50. The eval harness capped runs at 8 — three times below
+ * the old default — and 62 of 154 local-model failures across 32 cases were runs
+ * cut off mid-work, recorded as though the model could not do the task. Fixing
+ * that exposed how tight the ceiling is for smaller local models, which need
+ * more turns to reach the same outcome a frontier model reaches in a few.
+ *
+ * A runaway loop is not bounded by this number anyway: cycle detection bails on
+ * repeated identical failures long before the cap, so the cap's real job is to
+ * stop a genuinely stuck-but-varying run, and 25 was cutting off productive ones.
+ */
+export const DEFAULT_MAX_ITERATIONS = 50;
+
 /** Fallback max system prompt characters when model context length is unknown. */
 export const DEFAULT_MAX_SYSTEM_CHARS = 80_000;
 
@@ -249,6 +265,13 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'claude-sonnet-5-5': 1_000_000,
   'claude-sonnet-5': 1_000_000,
   'claude-haiku-5-5': 1_000_000,
+  // The same models on Bedrock (the lookup is by exact id), per AWS's model cards.
+  'us.anthropic.claude-sonnet-5-5': 1_000_000,
+  'us.anthropic.claude-opus-5-5': 1_000_000,
+  'us.anthropic.claude-haiku-5-5': 1_000_000,
+  'global.anthropic.claude-sonnet-5-5': 1_000_000,
+  'global.anthropic.claude-opus-5-5': 1_000_000,
+  'global.anthropic.claude-haiku-5-5': 1_000_000,
 
   // Anthropic Claude 4.x models — 200K context
   'claude-opus-4-7': 200_000,
@@ -270,6 +293,12 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'claude-3-opus-20240229': 200_000,
   'claude-3-sonnet-20240229': 200_000,
   'claude-3-haiku-20240307': 200_000,
+
+  // OpenAI GPT-6 (#229). The 922K max INPUT from OpenAI's model pages, not the
+  // 1.05M window (which includes output). Astra and 6.1 Sol are left out: their
+  // max input isn't published, and Chat Completions can't send them tools.
+  'gpt-6-sol': 922_000,
+  'gpt-6-luna': 922_000,
 
   // OpenAI GPT-4 models
   'gpt-4o': 128_000,
@@ -310,6 +339,7 @@ export const MODEL_CONTEXT_LENGTHS: Record<string, number> = {
   'qwen/qwen3.8-27b': 131_072,
 
   // Google Gemini models (via OpenAI-compatible or OpenRouter)
+  'gemini-3.8-flash': 1_048_576,
   'gemini-1.5-pro': 2_097_152,
   'gemini-1.5-pro-latest': 2_097_152,
   'gemini-1.5-flash': 1_048_576,

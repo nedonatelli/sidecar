@@ -152,10 +152,15 @@ export class PkiTreeProvider implements TreeDataProvider<PkiItem>, Disposable {
     }
     await this.symbolEmbeddings.clearAll();
     this.refresh();
+    // Re-embed every symbol the graph already holds. queueUpdate alone rebuilt
+    // nothing (#113): each unchanged file hit the indexer's size:mtime
+    // short-circuit, so the command emptied the index and left it empty.
+    const { queued } = await this.symbolIndexer.replaySymbolsToEmbeddingIndex();
+    // Files changed on disk since they were indexed still get re-parsed.
     for (const file of this.workspaceIndex.getFiles()) {
       this.symbolIndexer.queueUpdate(file.relativePath);
     }
-    void window.showInformationMessage('SideCar PKI: rebuilding index from scratch…');
+    void window.showInformationMessage(`SideCar PKI: rebuilding the index from scratch (${queued} symbols queued)…`);
   }
 
   async search(): Promise<void> {

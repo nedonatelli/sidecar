@@ -4,6 +4,38 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.130.1] - 2026-10-20
+
+A patch for two defaults in v0.130.0 that failed on the first request: Gemini and Bedrock
+now start on models those services still run. Semantic search also indexes every file in a
+large change instead of the first 16.
+
+### Fixed
+
+- **Gemini and Bedrock defaults point at models those services still run.** v0.130.0's
+  Gemini default, `gemini-2.0-flash`, was shut down on 2026-06-01, and its Bedrock default,
+  Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-20250514-v1:0`), reached end of life on
+  2026-10-14. Both failed on the first request. Gemini now defaults to `gemini-3.8-flash`
+  and Bedrock to the `us.anthropic.claude-sonnet-5-5` inference profile; the Bedrock model
+  list offers the Claude 5.5 profiles. A model you set yourself is unchanged. (#232)
+- **Semantic search indexes every changed file, not just the first 16.** When many files
+  changed at once (opening a workspace, switching branches, saving in bulk), files that
+  arrived while 16 reads were already running were dropped from the embedding index until
+  they changed again. They now wait their turn. (#233)
+
+### Stats
+- 10006 total tests (558 test files)
+- 87 built-in tools, 11 skills
+
+## [0.130.0] - 2026-10-19
+
+The rest of the October code review, fixed. Audit Mode's queued commits run, Auto Mode no
+longer marks unfinished work done, and PR replies reach their comments. CI failures keep the
+output that explains them, voice transcription and cron schedules work, and Windows gets
+working lint, dependency analysis and shell quoting. Cycle detection no longer stops runs
+that are making progress. On the provider side, Groq moves off a model it shut down, the
+Claude 5 models get prices, and an OpenAI-compatible server says why its model list is empty.
+
 ### Changed
 
 - **Capable models get higher per-tool budgets** (scaffold 5.1.1, [#236](https://github.com/nedonatelli/sidecar/issues/236)).
@@ -19,6 +51,19 @@ All notable changes to the SideCar extension will be documented in this file.
   `llama-3.1-8b-instant` on 2026-08-16. The backend picker and docs now also warn that
   Groq's free tier can't run SideCar: its 8K tokens-per-minute limit is smaller than a
   single agent request (~11.5K tokens), so a paid Dev Tier is required.
+- **An OpenAI-compatible server's model list says why it failed.** A refused API key, an
+  untrusted certificate or a refused connection used to leave the model picker blank. The
+  picker now shows the reason (`…/v1/models answered 401 Unauthorized. Check the API key.`,
+  or the certificate error Node hides behind `fetch failed`), and an authentication failure
+  offers **Set API Key** first. Switching backend no longer clears the configured model when
+  the list fails.
+- **Claude 5 models have prices and context windows.** Fable 5.1, Opus 5.5, Sonnet 5.5 and
+  Haiku 5.5 (and Fable 5, Opus 5, Sonnet 5, Opus 4.8 and 4.7) were missing from the cost
+  tables, so spend tracking showed nothing for them. **Opus 4.6 is now priced at $5 / $25**;
+  estimates were three times too high. Haiku 4.5 is $1 / $5 everywhere. (#223)
+- **Shell commands quote paths with double quotes.** `run_tests`, `latex_compile` and
+  `profile_code` now show `"path"` instead of `'path'`, which bash, `cmd.exe` and PowerShell
+  all read the same way. (#117)
 
 ### Fixed
 
@@ -28,6 +73,89 @@ All notable changes to the SideCar extension will be documented in this file.
   and a model the provider no longer serves (`model_not_found`, which is what Groq returns
   for a shut-down model) says to pick another one. Before, the first offered
   "Reduce Context" and the second offered "Install Model", which runs an Ollama pull.
+- **Cycle detection no longer stops runs that are making progress.**
+  - Reading one file in ranges, or alternating `grep` and `read_file` with different
+    arguments, was taken for a loop after four calls, and the run stopped with nothing done.
+    A repeated read now has to repeat its arguments too, and read-only scans stop at
+    `sidecar.scaffolding.cycleDetectionMinRepeats` (10 by default), not at 4. (#202)
+  - Calls that differed only after their first 80 characters, such as ten different
+    commands sharing a long `cd … &&` prefix, were read as one call repeated. Calls now
+    compare on their whole value. (#209)
+- **Audit Mode commits run.** Commits the agent queued in Audit Mode were never made; Accept
+  now stages the applied files and commits them. Restoring after a reload keeps anything
+  buffered in the meantime. (#115)
+- **Auto Mode only marks finished work done.** An item was marked done even when its run was
+  stopped or its sandbox changes were rejected, failed to apply or were deferred, and a
+  failing item was retried until the session cap. A stop now ends the session without marking
+  anything, unapplied changes count as a failure, and an item that fails twice is skipped.
+  Stop also works again after a restart. (#115)
+- **Scheduled runs on a file with unsaved changes keep their work.** The run's patch was
+  discarded and the run recorded as a success; it's now saved under
+  `.sidecar/scheduled-patches/` and recorded as not applied. (#115)
+- **PR replies reach their comments.** Every `reply_pr_comment` from **Respond to PR** targeted
+  a line number instead of a comment id, and GitHub answered 404. (#118)
+- **CI failures keep their output.** In GitHub Actions logs the command output and its
+  `##[error]` come after the step's header group, and that was exactly the part being
+  dropped. Repeated errors in one step are merged. (#118)
+- **`git_diff` with no refs shows staged and unstaged changes**, as it said it did, and the
+  commit-message helper sees up to 8,000 characters of the diff instead of 400. (#118)
+- **Memory, compaction and logs keep what they should.** (#116)
+  - Memory evicted the newest entry instead of the oldest least-used one.
+  - The thinking log re-appended its whole buffer on every update and grew quadratically.
+  - The audit log recorded every tool call in a turn but the last with empty input.
+  - A second compaction lost the user messages the first had kept verbatim.
+  - Routing a summary to a cheaper model left that model selected afterwards.
+  - `@paths:` sections in SIDECAR.md with a hyphen in the glob applied everywhere.
+  - A stub scan erased a file's secret warnings.
+- **Reverts, restores and review applies keep a file's encoding.** Five restore paths still
+  wrote UTF-8, so reverting a Windows-1252 file garbled it or converted it. (#165)
+- **Each cautious-mode preview has its own diff.** Two cautious edits to one file shared one
+  preview document, so the second replaced the first in the tab you were still reviewing.
+  The bytes written were always right. (#156)
+- **Cron schedules fire when they say.** `0-23/6` fired every hour, `n/step` and weekday 7
+  (Sunday) were rejected, day-of-month and weekday were combined the wrong way, and a
+  malformed expression silently never fired; it's now rejected with a warning. (#121)
+- **Mutation testing no longer counts unparseable mutants as killed**, which inflated the
+  score, and no longer mutates the `>` of `->`. (#121)
+- **`render_viz` bar charts escape their labels**, so a `<` or `&` no longer breaks the
+  image. (#121)
+- **Windows:** (#117)
+  - Auto-detected JavaScript lint never ran, because `npm`/`npx` need a shell there.
+  - Dependency analysis reported every dependency as unused.
+  - Quoted paths reached `cmd.exe` with the quotes as part of the file name.
+  - `latex_compile` auto-detect always failed, and `system_monitor` always showed 0% CPU.
+  - Drift diagnostics ignored their `node_modules`/`dist` exclusions.
+  - **Restart Ollama** works, and the error card's restart button sends it on every platform.
+  - Voice recording starts under the default PowerShell execution policy.
+- **Remote voice transcription works.** Audio was uploaded as headerless PCM, which
+  Whisper-compatible APIs reject; it's sent as WAV now. Long recordings no longer overflow
+  the webview's stack. (#120)
+- **Model installs:** a failed safetensors import no longer leaves the progress bar up, and
+  a second install in the same chat no longer makes Cancel stop the wrong download. (#120)
+- **The Sessions view** refreshes when a chat saves, and shows branches of a deleted parent.
+  (#120)
+- **MCP:**
+  - Tool names are made valid and unique.
+  - A server disconnected while still connecting no longer comes back.
+  - The agent server aborts a task when its client disconnects, `stop()` no longer waits for
+    running tasks, and a request whose handling fails gets an error response instead of
+    hanging. (#120)
+- **`/batch` runs with the chat system prompt**, not whichever prompt the last command left
+  behind. (#120)
+- **Amazon Bedrock should authenticate.** Every InvokeModel call failed with
+  `SignatureDoesNotMatch` because the request path was signed encoded once, where AWS encodes
+  it twice. It now matches AWS's canonical form and botocore, but hasn't yet been tried
+  against a live endpoint. `AWS_SHARED_CREDENTIALS_FILE` is honoured. (#112)
+- **`gpt-oss` is no longer treated as a hosted frontier model.** (#112)
+- **A safetensors download that runs out of disk space fails** instead of hanging. (#112)
+- **macOS memory preflight counts inactive pages as available**, as Activity Monitor and
+  psutil do. (#120)
+- **Errors that used to vanish are logged.** Background index saves, editor event hooks and
+  the audit-log write could fail with nothing reported.
+
+### Stats
+- 10001 total tests (558 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.129.0] - 2026-10-16
 

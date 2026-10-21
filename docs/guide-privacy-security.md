@@ -17,7 +17,7 @@ The honest answer is: it depends on your threat model and which features you tur
 
 ### Local backends: nothing
 
-When you use **Ollama** (`http://localhost:11434`) or **Kickstand** (`http://localhost:11435`), every LLM request stays on your machine. No prompt text, no file contents, no tool results ever travel over the network. SideCar has no built-in telemetry of its own — the only network egress is to the backend URL you configure and any web-search or MCP endpoints you add.
+When you use **Ollama** (`http://localhost:11434`), every LLM request stays on your machine. No prompt text, no file contents, no tool results ever travel over the network. SideCar has no built-in telemetry of its own — the only network egress is to the backend URL you configure and any web-search or MCP endpoints you add.
 
 If you're in a sensitive environment and want to verify this, set `sidecar.outboundAllowlist` to a single entry:
 
@@ -41,7 +41,7 @@ SideCar does not send your entire filesystem, only what the agent actually needs
 
 ### What SideCar never sends
 
-- **API keys** — stored in VS Code SecretStorage, never serialized into prompts or settings files
+- **API keys** — never serialized into prompts; backend keys are stored in VS Code SecretStorage (see [API key protection](#api-key-protection) for the few integration keys that are plain settings)
 - **Full filesystem scans** — the indexer respects `sidecar.maxFiles` and `.sidecarignore`
 - **Your own telemetry** — SideCar has no analytics endpoint
 
@@ -51,7 +51,9 @@ SideCar does not send your entire filesystem, only what the agent actually needs
 
 ### Keys live in the OS keychain
 
-API keys are stored in **VS Code SecretStorage**, which maps to the macOS Keychain, Windows Credential Manager, or libsecret on Linux. They are never written to `settings.json` or any file on disk in plaintext.
+Backend API keys (`sidecar.apiKey`, `sidecar.fallbackApiKey`, and each backend profile's key) are stored in **VS Code SecretStorage**, which maps to the macOS Keychain, Windows Credential Manager, or libsecret on Linux. They are never written to `settings.json` or any file on disk in plaintext.
+
+**Exceptions — plain settings:** `sidecar.webSearch.apiKey` (Tavily / Brave), `sidecar.zotero.apiKey`, and `sidecar.mcpServer.authToken` are ordinary settings stored in `settings.json`. Use keys with minimal permissions for them, keep them in user settings rather than a committed workspace `.vscode/settings.json`, and remember that Settings Sync can carry them to other machines.
 
 To set or rotate a key, run `SideCar: Set / Refresh API Key` from the Command Palette, or click the key icon in the chat header. An empty input is rejected; values are whitespace-trimmed before storage.
 
@@ -68,8 +70,6 @@ After migration, `settings.json` shows the default `"ollama"` placeholder. The a
 ### Per-profile isolation
 
 Each backend profile stores its key in its own SecretStorage slot (`sidecar.profileKey.<id>`). Switching between Anthropic and OpenAI does not clobber either key, and settings sync does not push keys to other devices — per-machine isolation is a design property of SecretStorage.
-
-The **Kickstand** profile has no key at all. SideCar reads the bearer token directly from `~/.config/kickstand/token` on demand, so it never prompts you and never stores anything.
 
 ---
 
@@ -279,21 +279,12 @@ The `web_search` tool blocks queries containing credential-shaped tokens (AWS ac
 
 ### Zero outbound traffic
 
-Point SideCar at a local Ollama or Kickstand instance and nothing leaves your network:
+Point SideCar at a local Ollama instance and nothing leaves your network:
 
 ```json
 "sidecar.baseUrl": "http://localhost:11434",
 "sidecar.provider": "ollama"
 ```
-
-Or for Kickstand:
-
-```json
-"sidecar.baseUrl": "http://localhost:11435",
-"sidecar.provider": "kickstand"
-```
-
-Kickstand reads its bearer token from `~/.config/kickstand/token` with no additional configuration.
 
 ### Disable skill registry sync
 

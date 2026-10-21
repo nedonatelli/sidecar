@@ -5,7 +5,7 @@ import type { SideCarClient } from '../ollama/client.js';
 import type { ChatMessage } from '../ollama/types.js';
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
-import { getGitHubToken } from '../github/auth.js';
+import { githubApiForCommand } from '../github/apiForCommand.js';
 import {
   summarizeProtection,
   formatProtectionMarkdown,
@@ -71,7 +71,7 @@ export interface DraftPrDeps {
   readonly git?: GitCLI;
   /**
    * Injection seam for tests. Production omits; handler constructs a
-   * fresh `GitHubAPI` with the token from `getGitHubToken()`.
+   * fresh `GitHubAPI` from the user's token (`githubApiForCommand`).
    */
   readonly api?: GitHubAPI;
 }
@@ -134,6 +134,13 @@ export async function runDraftPullRequest(deps: DraftPrDeps): Promise<DraftPrOut
     return { mode: 'no-changes' };
   }
 
+  // Sign in now, before generating the title and pushing (#227). The token was
+  // first fetched after `git push`, so a declined sign-in left the branch
+  // pushed, no PR, and a raw exception. Without a token there is no PR to open.
+  const resolved = await githubApiForCommand(deps.api, (m) => deps.ui.showError(m));
+  if ('errorMessage' in resolved) return { mode: 'error', errorMessage: resolved.errorMessage };
+  const { api } = resolved;
+
   // Fetch branch-protection rules for the base. Non-fatal — a token
   // without `repo` scope or a missing branch just means we can't
   // surface the rules, not that the flow should fail. The GitHub API
@@ -141,7 +148,6 @@ export async function runDraftPullRequest(deps: DraftPrDeps): Promise<DraftPrOut
   // note in telemetry-friendly log only.
   let protectionLines: readonly ProtectionSummaryLine[] = [];
   try {
-    const api = deps.api ?? new GitHubAPI(await getGitHubToken());
     const protection = await api.getBranchProtection(owner, repo, baseBranch);
     protectionLines = summarizeProtection(protection);
   } catch {
@@ -218,8 +224,7 @@ export async function runDraftPullRequest(deps: DraftPrDeps): Promise<DraftPrOut
     return { mode: 'error', errorMessage: message };
   }
 
-  // Call GitHub API to create the PR.
-  const api = deps.api ?? new GitHubAPI(await getGitHubToken());
+  // Call GitHub API to create the PR (the client was built before the push).
   const draft = deps.config.draftByDefault;
   try {
     const pr = await api.createPR(owner, repo, finalTitle, currentBranch, baseBranch, generated.body, draft);

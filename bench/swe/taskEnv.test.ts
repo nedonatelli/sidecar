@@ -1,5 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { editableTarget, pythonForUv, setupPyPins, setupTaskEnv, usesPytest, type SpecMap } from './taskEnv.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import {
+  editableTarget,
+  ensurePython3Alias,
+  pythonForUv,
+  setupPyPins,
+  setupTaskEnv,
+  usesPytest,
+  type SpecMap,
+} from './taskEnv.js';
 
 describe('setupPyPins (#216)', () => {
   it("turns sphinx's setup.py sed pins into constraints", () => {
@@ -67,5 +78,37 @@ describe('editableTarget (#216)', () => {
     expect(editableTarget('python -m pip install -e .')).toBe('.');
     expect(editableTarget('python -m pip install .')).toBe('.');
     expect(editableTarget(undefined)).toBe('.');
+  });
+});
+
+describe('ensurePython3Alias', () => {
+  let bin: string;
+  beforeEach(() => {
+    bin = fs.mkdtempSync(path.join(os.tmpdir(), 'venv-scripts-'));
+    fs.writeFileSync(path.join(bin, 'python.exe'), 'launcher-bytes');
+  });
+  afterEach(() => fs.rmSync(bin, { recursive: true, force: true }));
+
+  it('adds python3.exe as a copy of the venv python.exe on Windows', () => {
+    ensurePython3Alias(bin, 'win32');
+    expect(fs.readFileSync(path.join(bin, 'python3.exe'), 'utf-8')).toBe('launcher-bytes');
+  });
+
+  it('leaves an existing python3.exe alone', () => {
+    fs.writeFileSync(path.join(bin, 'python3.exe'), 'already-there');
+    ensurePython3Alias(bin, 'win32');
+    expect(fs.readFileSync(path.join(bin, 'python3.exe'), 'utf-8')).toBe('already-there');
+  });
+
+  it('does nothing off Windows, where venvs already ship python3', () => {
+    ensurePython3Alias(bin, 'linux');
+    ensurePython3Alias(bin, 'darwin');
+    expect(fs.existsSync(path.join(bin, 'python3.exe'))).toBe(false);
+  });
+
+  it('does nothing when the venv has no python.exe', () => {
+    fs.rmSync(path.join(bin, 'python.exe'));
+    expect(() => ensurePython3Alias(bin, 'win32')).not.toThrow();
+    expect(fs.existsSync(path.join(bin, 'python3.exe'))).toBe(false);
   });
 });

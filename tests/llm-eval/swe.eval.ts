@@ -54,6 +54,7 @@ import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
 import { unloadModelRequest } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
+import { emptyTotals, addUsage, cacheHitRate, runCostUsd } from '../../bench/swe/runCost.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -508,6 +509,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // measured, not guessed. peak = the largest prompt the model was asked to
   // prefill in this solve.
   let peakInputTokens = 0;
+  // Token totals over every request in the solve, priced at the end (#261).
+  const tokens = emptyTotals();
   // Turn count = the highest loop iteration reached (each iteration is a full
   // model generation pass). The on-vs-off latency axis: scaffold-on can drive
   // MORE turns when a gate re-prompts or an autofix bounces an edit.
@@ -636,7 +639,12 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       onUsage: (usage) => {
         // Ground-truth context size: what the model actually prefilled this turn.
         if (usage.inputTokens > peakInputTokens) peakInputTokens = usage.inputTokens;
-        traj(`  CONTEXT in=${usage.inputTokens}tok out=${usage.outputTokens}tok (peak_in=${peakInputTokens})`);
+        addUsage(tokens, usage);
+        const cached = usage.cacheReadInputTokens || usage.cacheCreationInputTokens;
+        traj(
+          `  CONTEXT in=${usage.inputTokens}tok out=${usage.outputTokens}tok (peak_in=${peakInputTokens})` +
+            (cached ? ` cache_read=${usage.cacheReadInputTokens} cache_write=${usage.cacheCreationInputTokens}` : ''),
+        );
       },
       onIterationStart: (info) => {
         // The loop increments iteration at the top of each pass, so the last
@@ -868,6 +876,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     loopControls,
     decisionCounts,
     provider,
+    tokens,
+    cacheHitRate: cacheHitRate(tokens),
+    costUsd: runCostUsd(MODEL, tokens),
   };
 }
 

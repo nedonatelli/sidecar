@@ -42,7 +42,7 @@
 
 import * as path from 'path';
 import { getGrammarsPath } from '../../parsing/registry.js';
-import { findPythonIndentErrors } from './pythonIndent.js';
+import { scanPythonIndent } from './pythonIndent.js';
 
 /** File extension → tree-sitter grammar name. Mirrors the shipped wasm set. */
 //
@@ -247,8 +247,11 @@ async function checkSyntaxUnbounded(filePath: string, content: string): Promise<
   // findPythonIndentErrors closes that gap; it is validated against 4,001
   // CPython-accepted files with zero false positives and fails open on anything
   // it cannot read confidently. See pythonIndent.ts / pythonIndentCorpus.test.ts.
+  let indentSaturated = false;
   if (grammar === 'python') {
-    const indentErrors = findPythonIndentErrors(content);
+    const indent = scanPythonIndent(content);
+    const indentErrors = indent.errors;
+    indentSaturated = indent.saturated;
     if (indentErrors.length > 0) {
       count += indentErrors.length;
       if (firstLine === undefined || indentErrors[0].line < firstLine) firstLine = indentErrors[0].line;
@@ -258,7 +261,8 @@ async function checkSyntaxUnbounded(filePath: string, content: string): Promise<
   return {
     broken: count > 0,
     errorCount: count,
-    ...(complete ? {} : { saturated: true }),
+    // Either half can hit its cap: the tree walk, or the indent scan's 10 (ML-50).
+    ...(complete && !indentSaturated ? {} : { saturated: true }),
     ...(firstLine !== undefined ? { firstErrorLine: firstLine } : {}),
     checked: true,
   };

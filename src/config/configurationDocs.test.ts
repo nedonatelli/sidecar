@@ -7,6 +7,19 @@ import { resolve } from 'path';
 // silently fall behind the schema (it had drifted 17 settings behind). Mirrors
 // the count-pin approach in tools.test.ts and settingsSchema.test.ts.
 
+// Settings deliberately left out of the docs. The Kickstand backend isn't
+// released, so the docs no longer present it while its code stays dormant in
+// the extension. Remove these when Kickstand ships (document them again) or
+// when its settings are removed from package.json.
+const UNDOCUMENTED_ON_PURPOSE = new Set([
+  'sidecar.kickstand.flashAttn',
+  'sidecar.kickstand.nCtx',
+  'sidecar.kickstand.ropeFreqBase',
+  'sidecar.kickstand.ropeFreqScale',
+  'sidecar.kickstand.yarnExtFactor',
+  'sidecar.kickstand.yarnOrigCtx',
+]);
+
 describe('docs/configuration.md coverage', () => {
   it('documents every setting declared in package.json contributes.configuration', () => {
     const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
@@ -19,7 +32,11 @@ describe('docs/configuration.md coverage', () => {
     for (const s of sections) for (const key of Object.keys(s.properties ?? {})) declared.add(key);
 
     const doc = readFileSync(resolve(process.cwd(), 'docs/configuration.md'), 'utf8');
-    const missing = [...declared].filter((key) => !doc.includes(key)).sort();
+    const missing = [...declared].filter((key) => !doc.includes(key) && !UNDOCUMENTED_ON_PURPOSE.has(key)).sort();
+    // An exemption must still name a real setting, so a renamed or removed one
+    // can't linger here and hide the next undocumented setting.
+    const staleExemptions = [...UNDOCUMENTED_ON_PURPOSE].filter((key) => !declared.has(key));
+    expect(staleExemptions, 'UNDOCUMENTED_ON_PURPOSE names settings package.json no longer declares').toEqual([]);
 
     expect(
       missing,

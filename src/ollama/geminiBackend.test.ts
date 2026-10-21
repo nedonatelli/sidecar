@@ -100,8 +100,17 @@ describe('Gemini provider detection', () => {
     expect(geminiProfile).toBeDefined();
     expect(geminiProfile?.provider).toBe('gemini');
     expect(geminiProfile?.baseUrl).toContain('googleapis.com');
-    expect(geminiProfile?.defaultModel).toBe('gemini-2.0-flash');
+    // gemini-2.0-flash was shut down on 2026-06-01; the menu must not select it.
+    expect(geminiProfile?.defaultModel).toBe('gemini-3.8-flash');
     expect(geminiProfile?.secretKey).not.toBeNull();
+  });
+
+  it('offers only currently served models when the live model list is unavailable', () => {
+    // Google shut these down or retired them; picking one from the fallback list failed.
+    for (const dead of ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.5-flash-preview-04-17']) {
+      expect(GEMINI_DEFAULT_MODELS).not.toContain(dead);
+    }
+    expect(GEMINI_DEFAULT_MODELS).toContain('gemini-3.8-flash');
   });
 });
 

@@ -2,7 +2,7 @@
 title: RAG & Memory
 layout: docs
 nav_order: 5
-nav_section: "Configuration"
+nav_section: 'Configuration'
 ---
 
 # Doc Index, Semantic Search & Agent Memory
@@ -28,10 +28,10 @@ SideCar embeds your workspace files using a local ONNX model (all-MiniLM-L6-v2, 
 
 ### Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.enableSemanticSearch` | `true` | Enable ONNX-based semantic file search |
-| `sidecar.semanticSearchWeight` | `0.6` | Blend ratio (0 = keyword only, 1 = embeddings only) |
+| Setting                        | Default | Description                                         |
+| ------------------------------ | ------- | --------------------------------------------------- |
+| `sidecar.enableSemanticSearch` | `true`  | Enable ONNX-based semantic file search              |
+| `sidecar.semanticSearchWeight` | `0.6`   | Blend ratio (0 = keyword only, 1 = embeddings only) |
 
 The model loads lazily in the background. Until it's ready, SideCar falls back to keyword-based scoring with no impact on usability.
 
@@ -48,21 +48,19 @@ The Doc Index automatically discovers and indexes your project's documentation, 
 1. **Discovery** — On startup, SideCar crawls your workspace for documentation files:
    - `README*` files in the project root
    - All `.md` files in `docs/`, `doc/`, and `wiki/` directories
-   
 2. **Indexing** — Each markdown file is parsed and indexed by:
    - Headings (h1-h6) — title matches score 3x higher
    - Paragraphs — body text is indexed for keyword search
-   
 3. **Retrieval** — For every user message:
    - Your message is searched against the index using keyword matching
    - Relevant entries are ranked by relevance score
    - Top matches are injected into the system prompt
-   
 4. **Context Injection** — Matched documentation is injected after skill injection and before workspace context, respecting the remaining context budget
 
 ### Example
 
 **Your documentation** (`docs/AUTHENTICATION.md`):
+
 ```markdown
 # Authentication
 
@@ -76,9 +74,11 @@ We use JWT tokens for stateless authentication. Tokens are signed with the RS256
 ```
 
 **Your request**:
+
 > "How should I implement login?"
 
 **What happens**:
+
 1. SideCar searches the docs index for "login" and "authentication"
 2. Finds `docs/AUTHENTICATION.md` with high relevance
 3. The JWT token section is injected into the system prompt
@@ -88,11 +88,10 @@ We use JWT tokens for stateless authentication. Tokens are signed with the RS256
 
 The Doc Index is enabled by default but fully configurable:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.enableDocumentationRAG` | `true` | Enable/disable the Doc Index. Key is named `...RAG` for backward compatibility with existing user configs; it controls the keyword-based index, not embedding RAG. |
-| `sidecar.ragMaxDocEntries` | `5` | Max documentation sections per message (1-20) |
-| `sidecar.ragUpdateIntervalMinutes` | `60` | Re-index documentation every N minutes (5-360, or 0 to disable) |
+| Setting                          | Default | Description                                                                                                                                                        |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sidecar.enableDocumentationRAG` | `true`  | Enable/disable the Doc Index. Key is named `...RAG` for backward compatibility with existing user configs; it controls the keyword-based index, not embedding RAG. |
+| `sidecar.ragMaxDocEntries`       | `20`    | Max documentation sections per message (1-20)                                                                                                                      |
 
 ### Tips
 
@@ -142,6 +141,7 @@ Memories are categorized by type to organize learning:
 - **Conventions** — Project-specific naming patterns, folder structures, file organization
 
 Example pattern:
+
 ```json
 {
   "id": "mem-1234",
@@ -158,11 +158,13 @@ Example pattern:
 ### Persistence
 
 Agent memory is stored as JSON in:
+
 ```
 .sidecar/memory/agent-memories.json
 ```
 
 The file is automatically:
+
 - **Created** on first memory recording
 - **Loaded** when SideCar starts (asynchronously)
 - **Updated** after every new memory or use-count increment
@@ -173,10 +175,10 @@ You can safely delete this file at any time to reset learning. It will be recrea
 
 Agent memory is enabled by default:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `sidecar.enableAgentMemory` | `true` | Enable/disable agent memory |
-| `sidecar.agentMemoryMaxEntries` | `500` | Max memories to retain (10-500) |
+| Setting                         | Default | Description                     |
+| ------------------------------- | ------- | ------------------------------- |
+| `sidecar.enableAgentMemory`     | `true`  | Enable/disable agent memory     |
+| `sidecar.agentMemoryMaxEntries` | `500`   | Max memories to retain (10-500) |
 
 ### Tips
 
@@ -218,7 +220,7 @@ All three are searched and injected for every message. The agent can cross-refer
 
 - **Check file locations**: Documentation must be in `README*`, `docs/**`, `doc/**`, or `wiki/**`
 - **Check file types**: Only `.md` files are indexed
-- **Re-index**: Set `sidecar.ragUpdateIntervalMinutes` to 0 and set to desired value to force a refresh
+- **Re-index**: the Doc Index is built once when SideCar starts and is not refreshed automatically — run **Developer: Reload Window** to re-index after adding or moving docs
 - **Verify settings**: Check that `sidecar.enableDocumentationRAG` is `true` (key name kept for backward compatibility)
 
 ### Agent memory seems stale
@@ -229,7 +231,7 @@ All three are searched and injected for every message. The agent can cross-refer
 
 ### Too much/too few results injected
 
-- **RAG**: Adjust `sidecar.ragMaxDocEntries` (default 5) to inject more or fewer documentation sections
+- **RAG**: Adjust `sidecar.ragMaxDocEntries` (default 20) to inject more or fewer documentation sections
 - **Memory**: Adjust the search in the code if needed — currently hardcoded to retrieve 5 memory entries
 - **Budget**: Both systems respect remaining context budget. If your workspace is large, fewer RAG/memory results fit
 

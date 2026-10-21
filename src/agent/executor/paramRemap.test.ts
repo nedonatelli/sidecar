@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { remapParamSynonyms, coerceParamTypes, stripEchoedCarriageReturns } from './paramRemap.js';
+import { shellTools } from '../tools/shell.js';
+import { gitTools } from '../tools/git.js';
+import { databaseTools } from '../tools/database.js';
+import { fsTools } from '../tools/fs.js';
+import type { ToolDefinition } from '../../ollama/types.js';
+
+type ToolInputSchema = ToolDefinition['input_schema'];
 
 const WRITE_FILE_SCHEMA = {
   type: 'object' as const,
@@ -179,6 +186,60 @@ describe('coerceParamTypes (string → array, the recurring ask_user bounce)', (
     const out = coerceParamTypes(input, ASK_SCHEMA);
     expect(out.input).toBe(input);
     expect(out.notes).toEqual([]);
+  });
+});
+
+// #249: XML-form calls (`<parameter=k>v</parameter>`) deliver every value as a
+// string, and tools read booleans loosely. Each row uses the REAL tool schema.
+describe('coerceParamTypes: strings for declared booleans and numbers (#249)', () => {
+  const schemaOf = (name: string): ToolInputSchema => {
+    const t = [...shellTools, ...gitTools, ...databaseTools, ...fsTools].find((x) => x.definition.name === name);
+    if (!t) throw new Error(`no tool ${name}`);
+    return t.definition.input_schema;
+  };
+
+  it.each([
+    // db_migrate_up checks `=== true`: "true" ran the migration instead of the preview.
+    ['db_migrate_up', 'dry_run', 'true', true],
+    // run_command checks `if (input.background)`: "false" is truthy.
+    ['run_command', 'background', 'false', false],
+    // git_pull checks `if (input.rebase)`: "false" rebased.
+    ['git_pull', 'rebase', 'false', false],
+    // edit_file checks `=== true`: "true" was ignored.
+    ['edit_file', 'replace_all', 'true', true],
+    ['edit_file', 'replace_all', ' TRUE ', true],
+  ])('%s %s=%j reaches the tool as %j', (tool, key, raw, expected) => {
+    expect((schemaOf(tool).properties?.[key] as { type?: string }).type).toBe('boolean');
+    const out = coerceParamTypes({ [key]: raw }, schemaOf(tool));
+    expect(out.input[key]).toBe(expected);
+    // Logged, not shown to the model: an XML-form model can't write a typed value.
+    expect(out.notes).toEqual([]);
+    expect(out.logOnly?.[0]).toContain(`'${key}' expects a boolean`);
+  });
+
+  it('a numeric string becomes a number; integer schemas refuse fractions', () => {
+    const schema = {
+      type: 'object' as const,
+      properties: { start_line: { type: 'number' }, count: { type: 'integer' } },
+    };
+    expect(coerceParamTypes({ start_line: ' 5 ', count: '3' }, schema).input).toEqual({ start_line: 5, count: 3 });
+    expect(coerceParamTypes({ count: '2.5' }, schema).input).toEqual({ count: '2.5' });
+  });
+
+  it('leaves an ambiguous string alone, so validation and the tool still see it', () => {
+    const schema = { type: 'object' as const, properties: { flag: { type: 'boolean' }, n: { type: 'number' } } };
+    for (const input of [{ flag: 'yes' }, { flag: '1' }, { n: '5a' }, { n: '' }, { n: 'Infinity' }]) {
+      const out = coerceParamTypes(input, schema);
+      expect(out.input).toBe(input);
+      expect(out.logOnly).toBeUndefined();
+    }
+  });
+
+  it('native calls with real booleans and numbers are untouched', () => {
+    const input = { background: false, timeout: 30 };
+    const out = coerceParamTypes(input, schemaOf('run_command'));
+    expect(out.input).toBe(input);
+    expect(out.logOnly).toBeUndefined();
   });
 });
 

@@ -14,8 +14,17 @@ import type { LoopState } from './state.js';
 import { TOOL_CALL_BUDGETS, DEFAULT_TOOL_CALL_BUDGET } from '../../config/constants.js';
 import { recordDecision } from '../decisions.js';
 
-function budgetFor(state: LoopState, toolName: string): number {
-  return state.scaffoldingProfile?.toolBudgets[toolName] ?? TOOL_CALL_BUDGETS[toolName] ?? DEFAULT_TOOL_CALL_BUDGET;
+/**
+ * The budget for a tool in this run: the scaffolding profile's table when one
+ * is resolved, else the historical (medium-tier) table.
+ */
+export function toolBudgetFor(state: LoopState, toolName: string): number {
+  return state.scaffoldingProfile?.toolBudgets[toolName] ?? baseToolBudget(toolName);
+}
+
+/** The medium-tier budget for a tool: TOOL_CALL_BUDGETS, else DEFAULT_TOOL_CALL_BUDGET. */
+export function baseToolBudget(toolName: string): number {
+  return TOOL_CALL_BUDGETS[toolName] ?? DEFAULT_TOOL_CALL_BUDGET;
 }
 
 /**
@@ -23,11 +32,22 @@ function budgetFor(state: LoopState, toolName: string): number {
  * string when the budget is exhausted; returns null when the call is
  * allowed. Does NOT increment the counter — call `recordToolUse` after
  * the tool executes so denied, aborted, or pre-approval-gated calls
- * don't consume budget.
+ * don't consume budget. A refusal is recorded as a `tool_budget` decision.
+ *
+ * `canAskUser` says whether anyone can answer `ask_user`: the run has a
+ * clarification UI. Without one, the message used to send the model to
+ * ask_user anyway, and claude-haiku-4-5 asked an empty room for permission to
+ * run its final verification (SWE django-12856, 2026-10-20). This keys on the
+ * UI, not the approval mode: in the extension's autonomous mode a person is
+ * still at the chat panel to answer.
  */
-export function checkToolBudget(state: LoopState, toolName: string): string | null {
+export function checkToolBudget(
+  state: LoopState,
+  toolName: string,
+  opts: { canAskUser?: boolean } = {},
+): string | null {
   const count = state.toolCallCounts.get(toolName) ?? 0;
-  const budget = budgetFor(state, toolName);
+  const budget = toolBudgetFor(state, toolName);
   if (count < budget) return null;
 
   recordDecision(
@@ -36,17 +56,12 @@ export function checkToolBudget(state: LoopState, toolName: string): string | nu
     `Tool budget refused ${toolName} (${count}/${budget})`,
     'warn',
   );
-  // In autonomous mode nobody answers ask_user: a model told to "explain via
-  // ask_user" asked an empty room for permission to run its final verification
-  // (SWE django-12856, 2026-10-20).
-  const next =
-    state.approvalMode === 'autonomous'
-      ? `No one can grant more calls in autonomous mode. Work with the results you already have.`
-      : `If you need more calls to this tool, explain your reasoning to the user via ask_user.`;
-  return (
-    `Tool "${toolName}" has been called ${count} times this session (budget: ${budget}). ` +
-    `Use a different approach or tool to make progress. ${next}`
-  );
+  const next = opts.canAskUser
+    ? `Use a different approach or tool to make progress. If you need more calls to this tool, ` +
+      `explain your reasoning to the user via ask_user.`
+    : `No more calls to this tool will run in this session, and no one is available to raise the limit. ` +
+      `Work with what you have already gathered, or use a different tool.`;
+  return `Tool "${toolName}" has been called ${count} times this session (budget: ${budget}). ${next}`;
 }
 
 /**

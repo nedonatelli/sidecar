@@ -10,15 +10,17 @@ const SPEND_LOG = 'logs/spend.jsonl';
 // Update when Anthropic publishes new SKUs. Prices are list, not enterprise.
 // Claude 5 and Opus 4.6-4.8 from Anthropic's model table (2026-10-06). Cache
 // writes are the standard 1.25x of input. Cache reads are the published figure
-// where there is one (Fable 5.1 $0.25, Opus 5.5 / Sonnet 5.5 $0.20, Fable 5 $1)
-// and the standard 0.1x otherwise. Haiku 5.5 is the price up to 100K prompt
+// where there is one (Fable 5.1 $0.25, Opus 5.5 $0.20 and Sonnet 5.5 $0.10 --
+// both 0.05x of input -- and Fable 5 $1) and the standard 0.1x otherwise.
+// Sonnet 5.5's was $0.20, Sonnet 5's figure; Anthropic's pricing table says
+// $0.10 (checked 2026-10-21). Haiku 5.5 is the price up to 100K prompt
 // tokens; above that it is $0.50 / $2.50, which this table doesn't model.
 const ANTHROPIC_PRICES: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   'claude-fable-5-1': { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25 },
   'claude-fable-5': { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 },
   'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
   'claude-opus-5': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 },
   'claude-sonnet-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
   'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
   'claude-opus-4-8': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
@@ -44,6 +46,32 @@ function priceFor(model: string): { input: number; output: number; cacheWrite: n
     }
   }
   return best ? ANTHROPIC_PRICES[best] : null;
+}
+
+/**
+ * USD cost of one request's usage at Anthropic list prices, or `null` for a
+ * model not in the table.
+ *
+ * Anthropic's `input_tokens` EXCLUDES the cache tokens: it counts only the
+ * tokens after the last cache breakpoint, and total input is
+ * `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`
+ * (prompt-caching docs). So the three are priced separately and summed.
+ * This used to subtract the cache tokens from `input_tokens`, on the belief
+ * they were included: in any cached request they are larger, so uncached
+ * input clamped to 0 and was never billed (#261).
+ *
+ * Cache writes are priced at the 5-minute rate, the only TTL SideCar sets.
+ */
+export function anthropicCostFor(model: string, usage: TokenUsage): number | null {
+  const price = priceFor(model);
+  if (!price) return null;
+  return (
+    (usage.inputTokens * price.input +
+      usage.outputTokens * price.output +
+      usage.cacheCreationInputTokens * price.cacheWrite +
+      usage.cacheReadInputTokens * price.cacheRead) /
+    1_000_000
+  );
 }
 
 export interface ModelSpend {
@@ -138,24 +166,9 @@ class SpendTracker {
       // otherwise call "unknown" and skip.
       cost = usage.costUsd;
     } else {
-      const price = priceFor(model);
-      if (!price) return 0; // Unknown (non-Anthropic) model — nothing to bill.
-
-      // IMPORTANT: Anthropic's `input_tokens` INCLUDES cache_creation and cache_read tokens.
-      // They are NOT additive — cache tokens are a subset of input tokens with different pricing.
-      // Correct formula:
-      //   - Regular input tokens = inputTokens - cacheCreation - cacheRead
-      //   - Cache write tokens charged at cacheWrite rate (1.25x input)
-      //   - Cache read tokens charged at cacheRead rate (0.1x input)
-      const regularInputTokens = Math.max(
-        0,
-        usage.inputTokens - usage.cacheCreationInputTokens - usage.cacheReadInputTokens,
-      );
-      cost =
-        (regularInputTokens * price.input) / 1_000_000 +
-        (usage.outputTokens * price.output) / 1_000_000 +
-        (usage.cacheCreationInputTokens * price.cacheWrite) / 1_000_000 +
-        (usage.cacheReadInputTokens * price.cacheRead) / 1_000_000;
+      const priced = anthropicCostFor(model, usage);
+      if (priced === null) return 0; // Unknown (non-Anthropic) model — nothing to bill.
+      cost = priced;
     }
 
     const existing = this.byModel.get(model);

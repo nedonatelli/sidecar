@@ -1,4 +1,5 @@
 import type { StreamEvent, ToolDefinition, ToolUseContentBlock } from './types.js';
+import { findBalancedEnd } from '../agent/delimiters.js';
 
 // ---------------------------------------------------------------------------
 // Shared tool definition conversion
@@ -156,7 +157,7 @@ export function* parseTextToolCallsStream(text: string, state: TextToolCallState
       if (toolUse) {
         yield { type: 'tool_use', toolUse };
       }
-      // If parsing failed we silently drop — matches post-stream parser behavior.
+      // Unparseable with no known tool name: dropped, as the post-stream parser does.
 
       state.inBody = false;
       state.bodyKind = null;
@@ -256,6 +257,19 @@ export function* flushTextToolCallsStream(state: TextToolCallState): Generator<S
   }
 }
 
+/**
+ * The value of a `<parameter=key>value</parameter>` tag. ML-64 (#164): this
+ * was `trim()`med, which stripped the first line's indentation and the
+ * trailing blank lines from code passed as `content`. Only the framing
+ * newline after the opening tag and before the closing tag (the Qwen3-coder
+ * layout) is dropped from a multi-line value; a single-line value (a path, a
+ * number) is still trimmed.
+ */
+export function xmlParameterValue(raw: string): string {
+  const value = raw.replace(/^[ \t]*\r?\n/, '').replace(/\r?\n[ \t]*$/, '');
+  return /[\r\n]/.test(value) ? value : value.trim();
+}
+
 function parseToolCallBody(
   kind: 'fn' | 'tc',
   toolName: string | null,
@@ -267,7 +281,7 @@ function parseToolCallBody(
     const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
     let pm;
     while ((pm = paramPattern.exec(body)) !== null) {
-      input[pm[1]] = pm[2].trim();
+      input[pm[1]] = xmlParameterValue(pm[2]);
     }
     return {
       type: 'tool_use',
@@ -295,7 +309,23 @@ function parseToolCallBody(
       input,
     };
   } catch {
-    return null;
+    // ML-58 (#164): malformed JSON (raw newlines inside a string value, most
+    // often) was dropped here, before repair could see it. Mirror the
+    // post-stream parser: salvage a known tool name and hand the raw body on
+    // as `_malformedInputRaw` for constrained repair. Only a body whose object
+    // closes at its end: an unclosed one is cut off, or its `</tool_call>` was
+    // inside a string (ML-61), and repair would close and run the prefix.
+    const raw = body.trim();
+    if (!raw.startsWith('{') || findBalancedEnd(raw, 0, { dialect: 'json' }) !== raw.length - 1) return null;
+    const m = raw.match(/"(?:name|function)"\s*:\s*"(\w+)"/);
+    if (!m || !state.toolNames.has(m[1])) return null;
+    return {
+      type: 'tool_use',
+      id: `stream_tc_${state.idCounter.n++}`,
+      name: m[1],
+      input: {},
+      _malformedInputRaw: raw,
+    };
   }
 }
 

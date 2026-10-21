@@ -52,7 +52,7 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
   - `keepBestRatchet.ts` / `keepBestRatchetWiring.ts` — snapshot → apply → re-verify → revert-on-regression (default on)
   - `forceFinalAnswer.ts` — answer-forcing for tool-heavy runs that end without a user-facing answer
   - `policyHook.ts` — `PolicyHook` interface + `HookBus` registration class (phases: beforeIteration, afterToolResults, onEmptyResponse, onTermination); `AgentOptions.extraPolicyHooks` and SDK-registered hooks add to the bus
-  - `builtInHooks.ts` — `defaultPolicyHooks()` wraps the **eight** built-in policies as `PolicyHook` adapters, registered in order: autoFix → isolateRewrite → unappliedEdit → stubValidator → adversarialCritic → actionReprompt → completionGate → analysisCritic
+  - `builtInHooks.ts` — `defaultPolicyHooks()` wraps the **six** built-in policies as `PolicyHook` adapters, registered in order: autoFix → isolateRewrite → unappliedEdit → stubValidator → actionReprompt → completionGate
   - `notifications.ts` emits iteration telemetry + checkpoint prompts
   - `finalize.ts` runs the post-loop teardown + next-step suggestions
 
@@ -82,7 +82,6 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
 - `ollamaBackend.ts` - Ollama native `/api/chat` protocol
 - `anthropicBackend.ts` - Anthropic Messages API with thinking + tool_use blocks
 - `openaiBackend.ts` - OpenAI-compatible `/v1/chat/completions` (OpenAI, LM Studio, vLLM, llama.cpp)
-- `kickstandBackend.ts` - Kickstand self-hosted (OpenAI-compatible wrapper)
 - `openrouterBackend.ts` - OpenRouter with referrer headers + catalog pricing (subclass of OpenAIBackend)
 - `groqBackend.ts` - Groq LPU inference (empty-body subclass of OpenAIBackend — pure plumbing, no protocol quirks)
 - `fireworksBackend.ts` - Fireworks open-weight model hosting (empty-body subclass of OpenAIBackend)

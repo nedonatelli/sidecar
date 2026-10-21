@@ -13,7 +13,7 @@ import { sidecarFetch } from './sidecarFetch.js';
  * Configure the profile with:
  *   baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai'
  *   apiKey:  your Google AI Studio key
- *   model:   'gemini-2.0-flash' | 'gemini-1.5-pro' | ...
+ *   model:   'gemini-3.8-flash' | ...
  */
 
 /**
@@ -64,10 +64,11 @@ export class GeminiBackend extends OpenAIBackend {
   }
 }
 
-/** Fallback model list when the API key isn't available at startup. */
-export const GEMINI_DEFAULT_MODELS = [
-  'gemini-2.5-flash-preview-04-17',
-  'gemini-2.0-flash',
-  'gemini-1.5-pro',
-  'gemini-1.5-flash',
-];
+/**
+ * Fallback model list when the API key isn't available at startup. Every
+ * entry here used to be shut down or preview-only: Google shut down
+ * gemini-2.0-flash on 2026-06-01 and recommends gemini-3.8-flash (GA,
+ * 1,048,576-token context, function calling), so a model picked from this
+ * list couldn't answer. List only models Google currently serves.
+ */
+export const GEMINI_DEFAULT_MODELS = ['gemini-3.8-flash'];

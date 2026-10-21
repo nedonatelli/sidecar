@@ -3,6 +3,8 @@ import * as path from 'path';
 import { describeScaffold, type ScaffoldDescriptor } from '../../src/agent/scaffoldVersion.js';
 import { hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
 import { DEFAULT_MAX_ITERATIONS } from '../../src/agent/loop/state.js';
+import { resolveModelCapability } from '../../src/ollama/modelCapability.js';
+import { resolveScaffoldingProfile, type ScaffoldingOverrides } from '../../src/agent/scaffoldingProfile.js';
 
 /**
  * The conditions a recorded baseline was measured under.
@@ -64,10 +66,23 @@ export function currentProvenance(model: string, runConfig: Record<string, unkno
     model,
     extensionVersion: readExtensionVersion(),
     thinkingEnabled: runConfig.ollamaDisableThinking !== true && !hasProblematicThinking(model),
-    maxIterations:
-      typeof runConfig.agentMaxIterations === 'number' ? runConfig.agentMaxIterations : DEFAULT_MAX_ITERATIONS,
+    maxIterations: harnessMaxIterations(model, runConfig),
     scaffold: describeScaffold(runConfig),
   };
+}
+
+/**
+ * The ceiling the agent loop applies to an eval run. The harness passes no
+ * maxIterations (per-case values aside), so the loop uses the model tier's
+ * default when adaptive scaffolding is on, and DEFAULT_MAX_ITERATIONS when it
+ * is off. This used to read `runConfig.agentMaxIterations`, a setting the loop
+ * never sees on this path, so a strong model at 150 (#237) would have been
+ * recorded at 50.
+ */
+export function harnessMaxIterations(model: string, runConfig: Record<string, unknown>): number {
+  if (runConfig.adaptiveScaffoldingEnabled === false) return DEFAULT_MAX_ITERATIONS;
+  const overrides = runConfig.scaffoldingOverrides as ScaffoldingOverrides | undefined;
+  return resolveScaffoldingProfile(resolveModelCapability(model).tier, overrides).maxIterations;
 }
 
 const major = (version: string): string => version.split('.')[0];

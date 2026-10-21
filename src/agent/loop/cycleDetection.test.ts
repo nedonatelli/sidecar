@@ -118,7 +118,9 @@ describe('detectCycleAndBail', () => {
     // to be the distinguishing check — but the 4-repeat exact behavior still exists.)
     // This test confirms the exact check is still in place via logger call count.
     const warn = vi.fn();
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
     const state = stubLoopStateWithMinRepeats(3, {
+      readOnlyCycleNudged: true,
       logger: { warn, info: vi.fn(), debug: vi.fn(), error: vi.fn() } as unknown as LoopState['logger'],
     });
     const cb = stubCallbacks();
@@ -324,7 +326,8 @@ describe('detectCycleAndBail — normalized signature pass', () => {
   });
 
   it('STILL bails 3 reads of a file that is never edited (genuine scan loop)', () => {
-    const state = stubLoopStateWithMinRepeats(3);
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopStateWithMinRepeats(3, { readOnlyCycleNudged: true });
     const cb = stubCallbacks();
     expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(false);
     expect(detectCycleAndBail([makeToolUse('read_file', { path: 'a.ts' })], state, cb)).toBe(false);
@@ -411,7 +414,8 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // (interleaved tools break the streak), and the interleaved tools use
     // distinct normalized sigs so no length-2 cycle forms. The new
     // frequency-over-window check accumulates 3 occurrences and fires.
-    const state = stubLoopStateWithMinRepeats(3);
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopStateWithMinRepeats(3, { readOnlyCycleNudged: true });
     const cb = stubCallbacks();
     const bad = [makeToolUse('read_file', { path: 'bad.ts' })];
     const g = [makeToolUse('grep', { pattern: 'foo' })];
@@ -471,7 +475,8 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // Model attempts to read a non-existent file, gets ENOENT, does other exploration,
     // comes back to the same hallucinated path repeatedly. After 3 occurrences the
     // frequency-over-window check fires even though no 3 calls are consecutive.
-    const state = stubLoopStateWithMinRepeats(3);
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopStateWithMinRepeats(3, { readOnlyCycleNudged: true });
     const cb = stubCallbacks();
     const bad = [makeToolUse('read_file', { path: 'src/agent/loop/runAgentLoop.ts' })];
 
@@ -492,7 +497,8 @@ describe('detectCycleAndBail — normalized signature pass', () => {
     // so calls 1-3 test normalized, call 4 fires exact first.
     // (Both checks fire on the 3rd call for identical calls since normalized
     // threshold is 3 — confirm the message is about "same resource".)
-    const state = stubLoopStateWithMinRepeats(3);
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopStateWithMinRepeats(3, { readOnlyCycleNudged: true });
     const cb = stubCallbacks();
     const call = [makeToolUse('read_file', { path: 'x.ts' })];
     expect(detectCycleAndBail(call, state, cb)).toBe(false);
@@ -545,7 +551,8 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
   }
 
   it('defaults to 10 repeats when config does not set cycleDetectionMinRepeats', () => {
-    const state = stubLoopState(); // no config override — falls back to the default
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopState({ readOnlyCycleNudged: true }); // no config override — falls back to the default
     const cb = stubCallbacks();
     const results = pushRepeatedScan(state, cb, 10);
     expect(results.slice(0, 9)).toEqual(Array(9).fill(false));
@@ -554,7 +561,8 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
   });
 
   it('honors a smaller configured threshold (5)', () => {
-    const state = stubLoopStateWithMinRepeats(5);
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopStateWithMinRepeats(5, { readOnlyCycleNudged: true });
     const cb = stubCallbacks();
     const results = pushRepeatedScan(state, cb, 5);
     expect(results.slice(0, 4)).toEqual(Array(4).fill(false));
@@ -573,7 +581,8 @@ describe('detectCycleAndBail — configurable normalized-repeat threshold', () =
     // With the OLD fixed CYCLE_WINDOW=8, a threshold of 10 could never fire
     // (you can't observe 10 occurrences in an 8-slot window). Confirm the
     // 10th repeat actually bails — proof the window grew to accommodate it.
-    const state = stubLoopStateWithMinRepeats(10);
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopStateWithMinRepeats(10, { readOnlyCycleNudged: true });
     const cb = stubCallbacks();
     const results = pushRepeatedScan(state, cb, 10);
     expect(results[9]).toBe(true);
@@ -894,7 +903,8 @@ describe('read-only exploration is not a cycle (#202)', () => {
   });
 
   it('stops a read-only scan of one file at cycleDetectionMinRepeats, not at 4', () => {
-    const state = stubLoopStateWithMinRepeats(6);
+    // The #222 pre-edit nudge is spent, so this tests the stop threshold itself.
+    const state = stubLoopStateWithMinRepeats(6, { readOnlyCycleNudged: true });
     const { results } = run(
       state,
       Array.from({ length: 6 }, (_, i) => read({ startLine: i * 100 + 1, endLine: i * 100 + 50 })),
@@ -960,5 +970,79 @@ describe('signatures compare the whole primary value (#209)', () => {
     for (let i = 0; i < 10 && cb.texts.length === 0; i++) detectCycleAndBail(long, state, cb);
     expect(cb.texts.length).toBe(1);
     expect(cb.texts[0].length).toBeLessThan(300);
+  });
+});
+
+describe('#222: one nudge before stopping a read-only loop that has made no edit', () => {
+  const grep = () => [makeToolUse('grep', { path: 'django/db/migrations/', pattern: 'x' })];
+
+  it('nudges instead of stopping on the 4th identical grep before any edit, then stops on the 5th', () => {
+    const state = stubLoopState({ fileMutations: 0 });
+    const cb = stubCallbacks();
+    for (let i = 0; i < 3; i++) expect(detectCycleAndBail(grep(), state, cb)).toBe(false);
+    // 4th: the old stop, now a nudge -- no "Agent stopped" line.
+    expect(detectCycleAndBail(grep(), state, cb)).toBe(false);
+    expect(state.pendingCycleNudge).toContain('keeps returning the same result');
+    expect(cb.texts.join('')).not.toContain('Agent stopped');
+    // The loop injects and clears it; the model repeats anyway -> stopped as before.
+    state.pendingCycleNudge = undefined;
+    expect(detectCycleAndBail(grep(), state, cb)).toBe(true);
+    expect(cb.texts.join('')).toContain('Agent stopped');
+  });
+
+  it('is spent once per run: a second read-only loop stops without a nudge', () => {
+    const state = stubLoopState({ fileMutations: 0, readOnlyCycleNudged: true });
+    const cb = stubCallbacks();
+    for (let i = 0; i < 3; i++) detectCycleAndBail(grep(), state, cb);
+    expect(detectCycleAndBail(grep(), state, cb)).toBe(true);
+    expect(state.pendingCycleNudge).toBeUndefined();
+  });
+
+  it('does not nudge once the run has made a successful edit', () => {
+    const state = stubLoopState({ fileMutations: 1 });
+    const cb = stubCallbacks();
+    for (let i = 0; i < 3; i++) detectCycleAndBail(grep(), state, cb);
+    expect(detectCycleAndBail(grep(), state, cb)).toBe(true);
+    expect(state.pendingCycleNudge).toBeUndefined();
+  });
+
+  it('does not nudge a resubmitted failing edit -- those stops cost nothing in the measurements', () => {
+    const state = stubLoopState({ fileMutations: 0 });
+    const cb = stubCallbacks();
+    const edit = () => [makeToolUse('edit_file', { path: 'a.py', search: 'x', replace: 'y' })];
+    let stopped = false;
+    for (let i = 0; i < 6 && !stopped; i++) stopped = detectCycleAndBail(edit(), state, cb);
+    expect(stopped).toBe(true);
+    expect(state.pendingCycleNudge).toBeUndefined();
+  });
+
+  it('nudges the non-consecutive read-only repeat too (e4b requests-1963 shape)', () => {
+    const state = stubLoopStateWithMinRepeats(3, { fileMutations: 0 });
+    const cb = stubCallbacks();
+    const read = () => [makeToolUse('read_file', { path: 'requests/models.py' })];
+    const other = (i: number) => [makeToolUse('list_directory', { path: `d${i}` })];
+    const seq = [read(), other(1), read(), other(2), read()];
+    const results = seq.map((tu) => detectCycleAndBail(tu, state, cb));
+    expect(results).not.toContain(true);
+    expect(state.pendingCycleNudge).toBeDefined();
+  });
+
+  it('lets the model act on the nudge: a different call next is not stopped, a repeat is', () => {
+    // Live e4b requests-1963 (seed 33): after the nudge the model opened
+    // requests/sessions.py, the right file, and was stopped on that turn because
+    // the greps that earned the nudge were still counted in the window.
+    const state = stubLoopStateWithMinRepeats(3, { fileMutations: 0 });
+    const cb = stubCallbacks();
+    const read = () => [makeToolUse('read_file', { path: 'requests/models.py' })];
+    const other = (i: number) => [makeToolUse('list_directory', { path: `d${i}` })];
+    for (const tu of [read(), other(1), read(), other(2), read()]) detectCycleAndBail(tu, state, cb);
+    expect(state.pendingCycleNudge).toBeDefined();
+    state.pendingCycleNudge = undefined;
+    const sessions = [makeToolUse('read_file', { path: 'requests/sessions.py' })];
+    expect(detectCycleAndBail(sessions, state, cb)).toBe(false);
+    expect(cb.texts.join('')).not.toContain('Agent stopped');
+    // Going back to the nudged lookup stops the run on that turn.
+    expect(detectCycleAndBail(read(), state, cb)).toBe(true);
+    expect(cb.texts.join('')).toContain('Agent stopped');
   });
 });

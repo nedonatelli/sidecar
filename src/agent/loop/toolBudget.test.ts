@@ -1,12 +1,63 @@
 import { describe, it, expect } from 'vitest';
-import { checkToolBudget, recordToolUse } from './toolBudget.js';
-import type { LoopState } from './state.js';
+import { checkToolBudget, recordToolUse, toolBudgetFor, baseToolBudget } from './toolBudget.js';
 import { resolveScaffoldingProfile } from '../scaffoldingProfile.js';
+import type { LoopState } from './state.js';
 import type { AgentDecision } from '../decisions.js';
 
-function makeState(): Pick<LoopState, 'toolCallCounts'> {
+function makeState(): Pick<LoopState, 'toolCallCounts' | 'scaffoldingProfile'> {
   return { toolCallCounts: new Map<string, number>() };
 }
+
+function spend(state: Pick<LoopState, 'toolCallCounts'>, tool: string, n: number) {
+  for (let i = 0; i < n; i++) recordToolUse(state as LoopState, tool);
+}
+
+// #236: claude-haiku-4-5 hit a budget on 40/50 SWE canary tasks.
+describe('tool budgets per tier (#236)', () => {
+  it('medium and weak keep the historical budgets; so does a run with no profile', () => {
+    for (const tool of ['run_command', 'read_file', 'grep', 'web_search', 'some_unlisted_tool']) {
+      for (const tier of ['medium', 'weak'] as const) {
+        const state = { ...makeState(), scaffoldingProfile: resolveScaffoldingProfile(tier) } as LoopState;
+        expect(toolBudgetFor(state, tool)).toBe(baseToolBudget(tool));
+      }
+      expect(toolBudgetFor(makeState() as LoopState, tool)).toBe(baseToolBudget(tool));
+    }
+    expect(baseToolBudget('run_command')).toBe(15);
+    expect(baseToolBudget('some_unlisted_tool')).toBe(20);
+  });
+
+  it('strong lifts the five measured tools and leaves the rest', () => {
+    const strong = { ...makeState(), scaffoldingProfile: resolveScaffoldingProfile('strong') } as LoopState;
+    const want = { run_command: 60, read_file: 50, grep: 40, search_files: 40, list_directory: 20 };
+    for (const [tool, budget] of Object.entries(want)) expect(toolBudgetFor(strong, tool)).toBe(budget);
+    expect(toolBudgetFor(strong, 'write_file')).toBe(baseToolBudget('write_file'));
+  });
+
+  it("sidecar.scaffolding.overrides.toolBudgets pins one tool and keeps the tier's others", () => {
+    const profile = resolveScaffoldingProfile('strong', { toolBudgets: { run_command: 30 } });
+    const state = { ...makeState(), scaffoldingProfile: profile } as LoopState;
+    expect(toolBudgetFor(state, 'run_command')).toBe(30);
+    expect(toolBudgetFor(state, 'read_file')).toBe(50);
+  });
+});
+
+describe('the refusal message only offers ask_user when someone can answer (#236)', () => {
+  it('with no clarification UI it says to use what was gathered, and never names ask_user', () => {
+    const state = makeState();
+    spend(state, 'run_command', 15);
+    const msg = checkToolBudget(state as LoopState, 'run_command')!;
+    expect(msg).not.toContain('ask_user');
+    expect(msg).toContain('Work with what you have already gathered');
+    // The default is the no-UI wording: a caller that says nothing is not promised a human.
+    expect(checkToolBudget(state as LoopState, 'run_command', { canAskUser: false })).toBe(msg);
+  });
+
+  it('with a clarification UI it keeps the ask_user route', () => {
+    const state = makeState();
+    spend(state, 'run_command', 15);
+    expect(checkToolBudget(state as LoopState, 'run_command', { canAskUser: true })).toContain('ask_user');
+  });
+});
 
 describe('checkToolBudget', () => {
   it('allows a tool call within budget', () => {
@@ -112,16 +163,18 @@ describe('checkToolBudget with a scaffolding profile', () => {
     expect(checkToolBudget(state, 'custom_tool')).toContain('budget: 20');
   });
 
-  it('does not point an autonomous run at ask_user, which nobody answers', () => {
+  it('the refusal offers ask_user only when a clarification UI can answer, whatever the approval mode', () => {
+    // Keyed on the UI, not the mode: the extension's autonomous mode still has a
+    // person at the chat panel, and a headless run has no one in any mode.
     const autonomous = stateWith({ approvalMode: 'autonomous' });
     fill(autonomous, 'web_search', 5);
-    const msg = checkToolBudget(autonomous, 'web_search');
-    expect(msg).not.toContain('ask_user');
-    expect(msg).toContain('autonomous');
+    expect(checkToolBudget(autonomous, 'web_search')).not.toContain('ask_user');
+    expect(checkToolBudget(autonomous, 'web_search', { canAskUser: true })).toContain('ask_user');
 
     const cautious = stateWith({ approvalMode: 'cautious' });
     fill(cautious, 'web_search', 5);
-    expect(checkToolBudget(cautious, 'web_search')).toContain('ask_user');
+    expect(checkToolBudget(cautious, 'web_search')).not.toContain('ask_user');
+    expect(checkToolBudget(cautious, 'web_search', { canAskUser: true })).toContain('ask_user');
   });
 
   it('records each refusal as a structured decision', () => {

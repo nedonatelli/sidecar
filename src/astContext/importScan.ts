@@ -259,9 +259,18 @@ export function parseImport(
   return null;
 }
 
+/** A JS/TS module extension on a specifier's last segment: `.js .jsx .mjs .cjs .ts .tsx .mts .cts`. */
+const MODULE_EXT = /\.[cm]?[jt]sx?$/;
+
 /**
- * Best-effort resolution of a relative import path to a file path.
- * Tries common extensions (.ts, .tsx, .js, .jsx) and index files.
+ * Best-effort resolution of a relative import path to an EXTENSIONLESS module
+ * path (`./b`, `./b.js` and `./b.ts` from `src/a.ts` all give `src/b`). Graph
+ * lookups match a file by its path and by its extensionless form.
+ *
+ * The extension is dropped because ESM TypeScript imports `./b.js` for the
+ * file `b.ts`: kept, `src/b.js` matched neither `src/b.ts` nor `src/b`, so
+ * find_references, impact analysis and graph context missed every
+ * cross-file caller in repos written that way, this one included (#113).
  */
 export function resolveImportPath(importerFile: string, moduleSpecifier: string): string | null {
   // Only resolve relative imports
@@ -280,5 +289,7 @@ export function resolveImportPath(importerFile: string, moduleSpecifier: string)
     }
   }
 
+  const last = resolved.length - 1;
+  if (last >= 0) resolved[last] = resolved[last].replace(MODULE_EXT, '');
   return resolved.join('/');
 }

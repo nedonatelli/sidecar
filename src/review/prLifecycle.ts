@@ -1,6 +1,6 @@
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
-import { getGitHubToken } from '../github/auth.js';
+import { githubApiForCommand } from '../github/apiForCommand.js';
 import type { PullRequest, CheckRun } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,12 @@ export async function markPrReady(deps: PrMarkReadyDeps): Promise<PrMarkReadyOut
   }
   const { owner, repo } = parsed;
 
-  const api = deps.api ?? new GitHubAPI(await getGitHubToken());
+  // Fetch the token inside error handling, as prPostReview.ts does (#227,
+  // from #118): a declined or failed GitHub sign-in used to throw out of the
+  // command as a raw error instead of the command's own showError + outcome.
+  const resolved = await githubApiForCommand(deps.api, (m) => deps.ui.showError(m));
+  if ('errorMessage' in resolved) return { mode: 'error', errorMessage: resolved.errorMessage };
+  const { api } = resolved;
 
   let prs: PullRequest[];
   try {
@@ -175,7 +180,10 @@ export async function checkPrCi(deps: PrCiDeps): Promise<PrCiOutcome> {
   }
   const { owner, repo } = parsed;
 
-  const api = deps.api ?? new GitHubAPI(await getGitHubToken());
+  // Token fetched inside error handling — see markPrReady (#227, from #118).
+  const resolved = await githubApiForCommand(deps.api, (m) => deps.ui.showError(m));
+  if ('errorMessage' in resolved) return { mode: 'error', errorMessage: resolved.errorMessage };
+  const { api } = resolved;
 
   let prs: PullRequest[];
   try {

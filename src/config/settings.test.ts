@@ -10,6 +10,7 @@ import {
   detectProvider,
   getConfig,
   clampMin,
+  isUserSet,
   estimateCost,
   BUILT_IN_BACKEND_PROFILES,
   ANTHROPIC_DEFAULT_MODEL,
@@ -219,6 +220,25 @@ describe('getConfig', () => {
   });
 });
 
+// #237: an unset sidecar.agentMaxIterations lets the loop use the tier default,
+// so "the user wrote 50" and "the default is 50" must be told apart.
+describe('isUserSet', () => {
+  it('is false when only the default exists', () => {
+    expect(isUserSet({ globalValue: undefined, workspaceValue: undefined })).toBe(false);
+    expect(isUserSet(undefined)).toBe(false);
+  });
+
+  it('is true at any scope the user can write, including a value equal to the default', () => {
+    expect(isUserSet({ globalValue: 50 })).toBe(true);
+    expect(isUserSet({ workspaceValue: 120 })).toBe(true);
+    expect(isUserSet({ workspaceFolderValue: 10 })).toBe(true);
+  });
+
+  it('getConfig reports agentMaxIterationsSet false when nothing is configured', () => {
+    expect(getConfig().agentMaxIterationsSet).toBe(false);
+  });
+});
+
 describe('clampMin', () => {
   it('returns the value when above minimum', () => {
     expect(clampMin(50, 1, 25)).toBe(50);
@@ -254,6 +274,14 @@ describe('clampMin', () => {
 describe('estimateCost', () => {
   it('returns null for unknown models', () => {
     expect(estimateCost('llama3:latest', 1000, 500)).toBeNull();
+  });
+
+  it('prices the GPT-6 models from their OpenAI model pages (#229)', () => {
+    // per 1M tokens: sol $2/$10, 6.1 sol $2/$10, luna $0.10/$0.50, astra $10/$50
+    expect(estimateCost('gpt-6-sol', 1_000_000, 1_000_000)).toBeCloseTo(12, 6);
+    expect(estimateCost('gpt-6.1-sol', 1_000_000, 1_000_000)).toBeCloseTo(12, 6);
+    expect(estimateCost('gpt-6-luna', 1_000_000, 1_000_000)).toBeCloseTo(0.6, 6);
+    expect(estimateCost('gpt-6-astra', 1_000_000, 1_000_000)).toBeCloseTo(60, 6);
   });
 
   it('estimates cost for Claude Opus', () => {

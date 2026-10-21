@@ -1,6 +1,6 @@
 import { GitCLI } from '../github/git.js';
 import { GitHubAPI } from '../github/api.js';
-import { getGitHubToken } from '../github/auth.js';
+import { githubApiForCommand } from '../github/apiForCommand.js';
 import type { PullRequest, PrReviewThread, PrReviewComment } from '../github/types.js';
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,11 @@ export async function reviewPrComments(deps: PrReviewDeps): Promise<PrReviewOutc
   }
   const { owner, repo } = parsed;
 
-  const api = deps.api ?? new GitHubAPI(await getGitHubToken());
+  // A declined or failed GitHub sign-in ends the command with its own error
+  // outcome instead of a raw throw (#227).
+  const resolved = await githubApiForCommand(deps.api, (m) => deps.ui.showError(m));
+  if ('errorMessage' in resolved) return { mode: 'error', errorMessage: resolved.errorMessage };
+  const { api } = resolved;
 
   let prs: PullRequest[];
   try {

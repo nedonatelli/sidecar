@@ -430,14 +430,6 @@ export async function runAgentLoop(
   // sync-around-helper-call dance.
   const state = initLoopState(messages, options);
 
-  // One line naming the run's model + mode. Every run's iterations, tool
-  // calls, and bail warnings were previously anonymous in the log — during
-  // dogfood, distinguishing "which model produced this trajectory" required
-  // asking the user (llama3.2 vs gemma4 behave nothing alike).
-  state.logger?.info(
-    `Agent run ${state.runId}: model=${state.modelOverride ?? client.getModel()} mode=${state.approvalMode} maxIterations=${state.maxIterations}`,
-  );
-
   // Capability-driven scaffolding intensity (A2). Only applied when the user
   // opts in; otherwise scaffoldingProfile stays undefined and the loop reads
   // the historical constants (behavior-neutral). Resolved once at loop start
@@ -451,7 +443,20 @@ export async function runAgentLoop(
     state.logger?.info(
       `Scaffolding tier '${capability.tier}' for ${capability.model} — ${capability.reasons.join('; ')}`,
     );
+    // #237: with no ceiling from the caller (callers pass one only when the user
+    // set sidecar.agentMaxIterations, or a skill sets its own), the tier's
+    // default applies: 150 for a strong model, 50 otherwise.
+    if (!options.maxIterations) state.maxIterations = state.scaffoldingProfile.maxIterations;
   }
+
+  // One line naming the run's model + mode. Every run's iterations, tool
+  // calls, and bail warnings were previously anonymous in the log — during
+  // dogfood, distinguishing "which model produced this trajectory" required
+  // asking the user (llama3.2 vs gemma4 behave nothing alike). Logged after the
+  // tier is resolved so maxIterations is the ceiling actually in force.
+  state.logger?.info(
+    `Agent run ${state.runId}: model=${state.modelOverride ?? client.getModel()} mode=${state.approvalMode} maxIterations=${state.maxIterations}`,
+  );
 
   // Keep-best ratchet IO (§2.1). Built once, rooted at the loop's effective
   // working dir (cwdOverride → Shadow Workspace / mounted root). Null when the
@@ -960,6 +965,18 @@ export async function runAgentLoop(
         if (rescue === 'injected') continue;
         state.termination = 'stuck';
         break;
+      }
+      // #222: cycle detection held back a stop for a read-only loop before any
+      // edit and asked for one nudge instead. Same shape as the syntax rescue
+      // above: this turn's repeated calls are dropped (no assistant message, so
+      // no unmatched tool_use) and the nudge replaces them. If the model repeats
+      // again, the repeats are still in the window and the next turn stops.
+      if (state.pendingCycleNudge) {
+        const nudge = state.pendingCycleNudge;
+        state.pendingCycleNudge = undefined;
+        callbacks.onText('\n\n🔁 Same lookup repeated with the same result — asking the agent to act on it...\n');
+        state.messages.push({ role: 'user', content: nudge });
+        continue;
       }
 
       // An update_plan-only turn is bookkeeping the harness itself demanded —

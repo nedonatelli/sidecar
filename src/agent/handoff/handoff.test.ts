@@ -86,6 +86,45 @@ describe('parseBundle', () => {
     if (r.ok) expect(r.bundle.version).toBe(1);
   });
 
+  // #227 (from #121): only `Array.isArray(messages)` was checked, so any
+  // array element was accepted and loaded straight into the chat.
+  it.each([
+    ['a non-object message', ['hello']],
+    ['an unknown role', [{ role: 'system', content: 'x' }]],
+    ['non-string, non-array content', [{ role: 'user', content: 42 }]],
+    ['an unknown block type', [{ role: 'user', content: [{ type: 'video', url: 'x' }] }]],
+    ['a text block without text', [{ role: 'assistant', content: [{ type: 'text' }] }]],
+    ['a tool_result without string content', [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1' }] }]],
+  ])('rejects a bundle containing %s', (_label, messages) => {
+    const r = parseBundle(JSON.stringify({ version: 1, exportedAt: 0, task: 'x', note: '', messages }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/message 1/i);
+  });
+
+  it('accepts structured content blocks', () => {
+    const messages = [
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'hmm' },
+          { type: 'text', text: 'reading' },
+          { type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'a.ts' } },
+        ],
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok', is_error: false }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'see screenshot' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+        ],
+      },
+    ];
+    const r = parseBundle(JSON.stringify({ version: 1, exportedAt: 0, task: 'go', note: '', messages }));
+    expect(r.ok).toBe(true);
+  });
+
   it('round-trips buildBundle output', () => {
     const messages = [msg('user', 'add tests'), msg('assistant', 'sure')];
     const bundle = buildBundle(messages, 'in progress');

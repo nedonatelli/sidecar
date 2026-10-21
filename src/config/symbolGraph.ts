@@ -309,8 +309,19 @@ export class SymbolGraph {
 
   /** Files that import this file (incoming dependents). */
   getDependents(filePath: string): string[] {
-    const edges = this.importedBy.get(filePath) || [];
-    return [...new Set(edges.map((e) => e.fromFile))];
+    return [...new Set(this.edgesInto(filePath).map((e) => e.fromFile))];
+  }
+
+  /**
+   * Import edges pointing at `filePath`. Edges store the extensionless module
+   * path (resolveImportPath), while callers pass a file with its extension, so
+   * both keys are looked up. findReferences passed `src/b.ts` straight to the
+   * map and found no importers at all, for any import style (#113).
+   */
+  private edgesInto(filePath: string): ImportEdge[] {
+    const bare = filePath.replace(/\.[^./]+$/, '');
+    const direct = this.importedBy.get(filePath) ?? [];
+    return bare === filePath ? direct : [...direct, ...(this.importedBy.get(bare) ?? [])];
   }
 
   /** Get all call sites where `symbolName` is called. */
@@ -525,7 +536,7 @@ export class SymbolGraph {
         candidateFiles.add(dep);
       }
       // Also check files that import with a matching binding name
-      const allDependents = this.importedBy.get(def.filePath) || [];
+      const allDependents = this.edgesInto(def.filePath);
       for (const edge of allDependents) {
         if (edge.importedNames.includes(symbolName) || edge.importedNames.includes('*')) {
           candidateFiles.add(edge.fromFile);

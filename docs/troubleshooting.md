@@ -35,9 +35,9 @@ If you get a "model not found" error:
 
 | Error            | Solution                                                                |
 | ---------------- | ----------------------------------------------------------------------- |
-| 401 Unauthorized | Check your API key in `sidecar.apiKey`                                  |
+| 401 Unauthorized | Re-enter your key with `SideCar: Set / Refresh API Key`                 |
 | 403 Forbidden    | Verify your API key has the correct permissions                         |
-| 404 Not Found    | Check the model name (e.g., `claude-sonnet-4-6`, not `claude-3-sonnet`) |
+| 404 Not Found    | Check the model name (e.g., `claude-sonnet-5-5`, not `claude-3-sonnet`) |
 | 429 Rate Limited | SideCar retries automatically with backoff. Wait a moment and try again |
 | Base URL wrong   | Set `sidecar.baseUrl` to exactly `https://api.anthropic.com`            |
 
@@ -47,13 +47,12 @@ Some models don't support function calling:
 
 - `gemma`, `gemma2`
 - `llama2`
-- `mistral`
 - `neural-chat`
 - `starling-lm`
 
-SideCar auto-detects these and runs in **chat-only mode**. You'll see a "Chat-Only" badge in the header. Chat still works, but the agent can't use tools (read files, run commands, etc.).
+On the Ollama backend, SideCar auto-detects these and runs in **chat-only mode**. You'll see a "Chat-Only" badge in the header. Chat still works, but the agent can't use tools (read files, run commands, etc.). Other backends always send tool definitions, so a model without tool support fails agent requests there instead.
 
-Switch to a tool-capable model like `qwen3-coder`, `llama3.1`, or `command-r` for full agentic features.
+Switch to a tool-capable model such as `gemma4:e4b` (the default) or `ministral-3` for full agentic features — see [Model Compatibility](model-compatibility).
 
 ## Slow model loading
 
@@ -133,7 +132,7 @@ Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `
 
 - Click the **Stop button** (red button that replaces Send during processing)
 - **Cycle detection** — SideCar automatically halts if the agent repeats the same tool call with identical arguments
-- Check `sidecar.agentMaxIterations` (default: 50) and `sidecar.agentMaxTokens` (default: 200,000)
+- Check `sidecar.agentMaxIterations` (default: 50, or 150 for strong-tier models) and `sidecar.agentMaxTokens` (default: 200,000)
 - Lower these values if the agent runs too long on your hardware
 
 ## Inline completions not working
@@ -182,7 +181,7 @@ Click the action button on the error card to resolve common issues quickly.
 
 - **Rate limit (429)**: Anthropic has per-minute and per-day token limits. SideCar automatically retries with exponential backoff. If you hit limits frequently, either upgrade your tier or set `sidecar.dailyBudget` to throttle yourself.
 - **Server error (overloaded)**: Anthropic occasionally returns 529/overloaded during peak demand. Wait 30 seconds and retry, or use the `/model` command to switch to a different provider temporarily.
-- **Token limit**: Long conversations exceed the model's context window. Use `/compact` to summarize older turns, or `/reset` to start fresh.
+- **Token limit**: Long conversations exceed the model's context window. Use `/compact` to summarize older turns, or clear the chat (`Cmd+L` / `Ctrl+L`) to start fresh.
 
 ## Model returns empty responses
 

@@ -94,12 +94,16 @@ export const ANTHROPIC_FALLBACK_MODELS = [
 // separate signed call), so the picker shows a static set of common Claude
 // model / cross-region inference-profile IDs. Users can type any other Bedrock
 // model id into the model input. GovCloud uses the same ids under its partition.
+//
+// Only models Bedrock currently serves (AWS model cards, 2026-10-19). The
+// previous list was Sonnet 4 (end of life 2026-10-14), Opus 4 and Claude 3.x,
+// so a model picked from it failed. The us. geo profiles are what the default
+// us-east-1 endpoint reaches, GovCloud included; global. covers other regions.
 export const BEDROCK_FALLBACK_MODELS = [
-  'us.anthropic.claude-sonnet-4-20250514-v1:0',
-  'us.anthropic.claude-opus-4-20250514-v1:0',
-  'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
-  'anthropic.claude-3-5-sonnet-20241022-v2:0',
-  'anthropic.claude-3-5-haiku-20241022-v1:0',
+  'us.anthropic.claude-sonnet-5-5',
+  'us.anthropic.claude-opus-5-5',
+  'us.anthropic.claude-haiku-5-5',
+  'global.anthropic.claude-sonnet-5-5',
 ];
 
 /** Fields the installed-model listing needs from the client instance. */

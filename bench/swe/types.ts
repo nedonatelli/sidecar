@@ -160,6 +160,24 @@ export interface SwePrediction {
   decisionCounts?: Record<string, number>;
   /** The backend the client resolved to for this task -- recorded, never assumed. */
   provider?: string;
+  /**
+   * The run's token usage, summed over every model request (#261). Anthropic
+   * reports the three input kinds separately: `input` is uncached input only.
+   * Undefined on meta files written before this field existed.
+   */
+  tokens?: RunTokenTotals;
+  /** cacheRead / (input + cacheCreation + cacheRead); null when no input was reported. */
+  cacheHitRate?: number | null;
+  /** Cache-aware USD cost at list prices; null for a model with no price (local Ollama). */
+  costUsd?: number | null;
+}
+
+/** Token totals for one SWE run. */
+export interface RunTokenTotals {
+  input: number;
+  output: number;
+  cacheCreation: number;
+  cacheRead: number;
 }
 
 /** One line of the official `swebench` predictions JSONL. */
@@ -195,6 +213,10 @@ export interface ArmReport {
    * Counted over the full task set, before exclusion, for reporting.
    */
   infraFailures: number;
+  /** Mean `costUsd` over the arm's priced runs; null when none was priced (#261). */
+  meanCostUsd: number | null;
+  /** Total cost of the arm's priced runs divided by resolved tasks; null with no price or no resolve. */
+  costPerResolvedUsd: number | null;
 }
 
 /**
