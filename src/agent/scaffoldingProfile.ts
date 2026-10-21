@@ -67,6 +67,17 @@ export interface ScaffoldingProfile {
    * historical 800.
    */
   compactionMaxSummaryChars: number;
+  /**
+   * Multiplier on the per-tool budgets in loop/toolBudget.ts (run_command 15,
+   * read_file 25, grep 15, ...). Those budgets exist to stop slow-burn floods
+   * from small local models; on a capable model they block verification.
+   * claude-haiku-4-5 on the 50-task SWE canary hit a budget on 40/50 tasks at
+   * 150 iterations, while Claude Code ran 31 shell commands per task uncapped,
+   * and the model worked around the cap with spawn_agent, unanswerable ask_user
+   * calls and deleting its own repro scripts (#236). Medium == 1, the
+   * historical budgets.
+   */
+  toolBudgetMultiplier: number;
 }
 
 /**
@@ -90,6 +101,7 @@ export const DEFAULT_SCAFFOLDING_PROFILE: ScaffoldingProfile = {
   compressionThreshold: CONTEXT_COMPRESSION_THRESHOLD,
   compactionKeepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
   compactionMaxSummaryChars: COMPACTION_MAX_SUMMARY_CHARS,
+  toolBudgetMultiplier: 1,
 };
 
 const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
@@ -125,6 +137,11 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     maxGateInjections: MAX_GATE_INJECTIONS,
 
     planModeAskUser: true,
+
+    // 3× the per-tool budgets (run_command 45, read_file 75, grep 45): above
+    // the 31 shell commands per task Claude Code used on the same SWE canary,
+    // with a backstop left against a flood (#236).
+    toolBudgetMultiplier: 3,
   },
   medium: { ...DEFAULT_SCAFFOLDING_PROFILE },
   weak: {
@@ -136,6 +153,7 @@ const PROFILES: Record<CapabilityTier, ScaffoldingProfile> = {
     compressionThreshold: 0.6,
     compactionKeepRecentTurns: 3,
     compactionMaxSummaryChars: 500,
+    toolBudgetMultiplier: 1,
   },
 };
 

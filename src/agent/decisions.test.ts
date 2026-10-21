@@ -63,6 +63,17 @@ describe('summarizeDecisions', () => {
     expect(out['completion_gate.finding.needsLint']).toBe(1);
   });
 
+  it('counts tool-budget refusals, in total and per tool (#236)', () => {
+    const out = summarizeDecisions([
+      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
+      { kind: 'tool_budget', action: 'refused', tool: 'run_command', count: 15, budget: 15 },
+      { kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 },
+    ]);
+    expect(out['tool_budget.refused']).toBe(3);
+    expect(out['tool_budget.refused.run_command']).toBe(2);
+    expect(out['tool_budget.refused.grep']).toBe(1);
+  });
+
   it('separates the ratchet revert arms — the distinction the log line buried in prose', () => {
     const out = summarizeDecisions([
       { kind: 'keep_best_ratchet', action: 'armed', projectTestsPassed: false },

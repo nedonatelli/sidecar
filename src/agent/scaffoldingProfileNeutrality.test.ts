@@ -38,6 +38,8 @@ describe('medium tier === the loop’s fallback constants', () => {
       compressionThreshold: CONTEXT_COMPRESSION_THRESHOLD,
       compactionKeepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
       compactionMaxSummaryChars: COMPACTION_MAX_SUMMARY_CHARS,
+      // toolBudget.ts reads `profile?.toolBudgetMultiplier ?? 1`.
+      toolBudgetMultiplier: 1,
     });
   });
 
@@ -89,5 +91,12 @@ describe('the tiers that DO differ — the flip’s actual risk surface', () => 
     // A capable model earns lower latency. It does not earn less verification.
     expect(strong.maxActionReprompts).toBe(DEFAULT_SCAFFOLDING_PROFILE.maxActionReprompts);
     expect(strong.maxGateInjections).toBe(DEFAULT_SCAFFOLDING_PROFILE.maxGateInjections);
+  });
+
+  it('strong relaxes the per-tool budgets; weak keeps them (#236)', () => {
+    // The budgets were sized for slow-burn floods from small local models.
+    // claude-haiku-4-5 hit one on 40/50 SWE canary tasks.
+    expect(resolveScaffoldingProfile('strong').toolBudgetMultiplier).toBe(3);
+    expect(resolveScaffoldingProfile('weak').toolBudgetMultiplier).toBe(1);
   });
 });

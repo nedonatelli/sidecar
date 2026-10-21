@@ -28,23 +28,49 @@ const TOOL_BUDGETS: Record<string, number> = {
 
 const DEFAULT_BUDGET = 20;
 
+/** The base (medium-tier) budget for a tool, before the tier multiplier. */
+export function baseToolBudget(toolName: string): number {
+  return TOOL_BUDGETS[toolName] ?? DEFAULT_BUDGET;
+}
+
+/**
+ * The budget for a tool in this run: the base budget times the scaffolding
+ * profile's `toolBudgetMultiplier` (1 when no profile is resolved, i.e. the
+ * historical behavior).
+ */
+export function toolBudgetFor(state: LoopState, toolName: string): number {
+  const multiplier = state.scaffoldingProfile?.toolBudgetMultiplier ?? 1;
+  return Math.round(baseToolBudget(toolName) * multiplier);
+}
+
 /**
  * Check whether a tool call should be allowed. Returns an error message
  * string when the budget is exhausted; returns null when the call is
  * allowed. Does NOT increment the counter — call `recordToolUse` after
  * the tool executes so denied, aborted, or pre-approval-gated calls
  * don't consume budget.
+ *
+ * `canAskUser` says whether anyone can answer `ask_user` (the run has a
+ * clarification UI). Without one, the message used to send the model to
+ * ask_user anyway: claude-haiku-4-5 on the SWE canary wrote "I've exhausted my
+ * run_command budget (15 calls) and cannot execute the final test
+ * verification" to a question nobody would answer (#236).
  */
-export function checkToolBudget(state: LoopState, toolName: string): string | null {
+export function checkToolBudget(
+  state: LoopState,
+  toolName: string,
+  opts: { canAskUser?: boolean } = {},
+): string | null {
   const count = state.toolCallCounts.get(toolName) ?? 0;
-  const budget = TOOL_BUDGETS[toolName] ?? DEFAULT_BUDGET;
+  const budget = toolBudgetFor(state, toolName);
 
   if (count >= budget) {
-    return (
-      `Tool "${toolName}" has been called ${count} times this session (budget: ${budget}). ` +
-      `Use a different approach or tool to make progress. If you need more calls to this tool, ` +
-      `explain your reasoning to the user via ask_user.`
-    );
+    const next = opts.canAskUser
+      ? `Use a different approach or tool to make progress. If you need more calls to this tool, ` +
+        `explain your reasoning to the user via ask_user.`
+      : `No more calls to this tool will run in this session, and no one is available to raise the limit. ` +
+        `Work with what you have already gathered, or use a different tool.`;
+    return `Tool "${toolName}" has been called ${count} times this session (budget: ${budget}). ${next}`;
   }
 
   return null;

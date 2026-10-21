@@ -103,6 +103,21 @@ export type AgentDecision =
       recognized: boolean;
       runner?: string;
       exitCode?: number;
+    }
+  | {
+      /**
+       * A tool call refused because the tool's per-run budget was spent
+       * (loop/toolBudget.ts). These used to exist only inside tool results, so
+       * claude-haiku-4-5 hitting a budget on 40 of 50 SWE tasks went unnoticed
+       * until someone read the trajectories (#236).
+       */
+      kind: 'tool_budget';
+      action: 'refused';
+      tool: string;
+      /** Calls already made to this tool in the run. */
+      count: number;
+      /** The budget in force (base budget × the tier's multiplier). */
+      budget: number;
     };
 
 /** Minimal logger surface this module needs (AgentLogger satisfies it). */
@@ -160,6 +175,7 @@ export function summarizeDecisions(decisions: readonly AgentDecision[]): Record<
       continue;
     }
     bump(`${d.kind}.${d.action}`);
+    if (d.kind === 'tool_budget') bump(`tool_budget.refused.${d.tool}`);
     if (d.kind === 'completion_gate') for (const f of d.findings ?? []) bump(`completion_gate.finding.${f}`);
     if (d.kind === 'keep_best_ratchet' && d.action === 'reverted' && d.reason) {
       bump(`keep_best_ratchet.reason.${d.reason}`);
