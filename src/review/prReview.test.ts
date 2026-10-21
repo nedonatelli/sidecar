@@ -3,6 +3,9 @@ import { reviewPrComments, formatPrReviewMarkdown, type PrReviewUi, type PrRevie
 import type { GitCLI } from '../github/git.js';
 import type { GitHubAPI } from '../github/api.js';
 import type { PullRequest, PrReviewThread, PrReviewComment } from '../github/types.js';
+import { getGitHubToken } from '../github/auth.js';
+
+vi.mock('../github/auth.js', () => ({ getGitHubToken: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Tests for prReview.ts.
@@ -143,6 +146,14 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('reviewPrComments — bail-out paths', () => {
+  it('returns error (not a raw throw) when GitHub sign-in fails (#227)', async () => {
+    vi.mocked(getGitHubToken).mockRejectedValueOnce(new Error('GitHub sign-in is required. Please try again.'));
+    const ui = makeFakeUi();
+    const out = await reviewPrComments(makeDeps({ ui, api: undefined }));
+    expect(out.mode).toBe('error');
+    expect(ui.calls.showError[0]).toMatch(/GitHub authentication failed: GitHub sign-in is required/);
+  });
+
   it('returns detached-head when current branch is empty', async () => {
     const ui = makeFakeUi();
     const out = await reviewPrComments(makeDeps({ ui, git: makeGit({ branch: '' }) }));

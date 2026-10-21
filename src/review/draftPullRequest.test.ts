@@ -12,6 +12,9 @@ import type { SideCarClient } from '../ollama/client.js';
 import type { GitCLI } from '../github/git.js';
 import type { GitHubAPI } from '../github/api.js';
 import type { GitHubPR } from '../github/types.js';
+import { getGitHubToken } from '../github/auth.js';
+
+vi.mock('../github/auth.js', () => ({ getGitHubToken: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Tests for draftPullRequest.ts.
@@ -152,6 +155,21 @@ beforeEach(() => {
 });
 
 describe('runDraftPullRequest — bailout paths', () => {
+  it('a failed GitHub sign-in stops before the title is generated or anything is pushed (#227)', async () => {
+    vi.mocked(getGitHubToken).mockRejectedValueOnce(new Error('GitHub sign-in is required. Please try again.'));
+    const git = makeGitStub();
+    const client = makeClientStub();
+    const complete = vi.spyOn(client as unknown as { complete: (...a: unknown[]) => unknown }, 'complete');
+    const deps = makeDeps({ git: git as unknown as GitCLI, client, api: undefined });
+    const out = await runDraftPullRequest(deps);
+    expect(out.mode).toBe('error');
+    // The token used to be fetched after `git push`: the branch went up with no PR.
+    expect(git.pushWithUpstream).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    const errors = (deps.ui as unknown as { calls: { showError: string[] } }).calls.showError;
+    expect(errors[0]).toMatch(/GitHub authentication failed: GitHub sign-in is required/);
+  });
+
   it('errors out on detached HEAD (empty current branch)', async () => {
     const git = makeGitStub({ getCurrentBranch: vi.fn().mockResolvedValue('') });
     const deps = makeDeps({ git: git as unknown as GitCLI });

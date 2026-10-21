@@ -3,6 +3,9 @@ import { analyzeCiFailure, type AnalyzeCiUi, type AnalyzeCiDeps } from './analyz
 import type { GitCLI } from '../github/git.js';
 import type { GitHubAPI } from '../github/api.js';
 import type { WorkflowRun, WorkflowJob } from '../github/types.js';
+import { getGitHubToken } from '../github/auth.js';
+
+vi.mock('../github/auth.js', () => ({ getGitHubToken: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Tests for analyzeCiFailure.ts.
@@ -134,6 +137,14 @@ beforeEach(() => {
 });
 
 describe('analyzeCiFailure — bailout paths', () => {
+  it('returns error (not a raw throw) when GitHub sign-in fails (#227)', async () => {
+    vi.mocked(getGitHubToken).mockRejectedValueOnce(new Error('GitHub sign-in is required. Please try again.'));
+    const ui = makeFakeUi();
+    const out = await analyzeCiFailure(makeDeps({ ui, api: undefined }));
+    expect(out.mode).toBe('error');
+    expect(ui.calls.showError[0]).toMatch(/GitHub authentication failed: GitHub sign-in is required/);
+  });
+
   it('bails with mode=detached-head when current branch is empty', async () => {
     const ui = makeFakeUi();
     const git = makeGit({ branch: '' });
