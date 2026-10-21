@@ -121,6 +121,20 @@ describe('resolveImportPath', () => {
     expect(resolveImportPath('src/a/foo.ts', 'lodash')).toBeNull();
   });
 
+  it('drops a JS/TS module extension, so ESM `./b.js` names the file b.ts (#113)', () => {
+    for (const spec of ['./bar.js', './bar.ts', './bar.jsx', './bar.tsx', './bar.mjs', './bar.cjs', './bar.mts']) {
+      expect(resolveImportPath('src/a/foo.ts', spec)).toBe('src/a/bar');
+    }
+    expect(resolveImportPath('src/a/foo.ts', '../x/index.js')).toBe('src/x/index');
+  });
+
+  it('keeps any other extension: a JSON or CSS import names that file', () => {
+    expect(resolveImportPath('src/a/foo.ts', './data.json')).toBe('src/a/data.json');
+    expect(resolveImportPath('src/a/foo.ts', './style.css')).toBe('src/a/style.css');
+    // Only the last segment: a directory named like a module keeps its name.
+    expect(resolveImportPath('src/a/foo.ts', './lib.js/bar')).toBe('src/a/lib.js/bar');
+  });
+
   it('handles an importer with no directory component', () => {
     expect(resolveImportPath('foo.ts', './bar')).toBe('bar');
   });
