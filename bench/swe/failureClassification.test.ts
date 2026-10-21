@@ -22,6 +22,11 @@ describe('classifyFailure', () => {
     expect(classifyFailure(new Error('connect ECONNREFUSED 127.0.0.1:11434')).kind).toBe('infra');
   });
 
+  it("classifies vLLM's dead-engine error as infra", () => {
+    const msg = 'openai: EngineCore encountered an issue. See stack trace (above) for the root cause.';
+    expect(classifyFailure(new Error(msg)).kind).toBe('infra');
+  });
+
   it('classifies an unrecognized error as capability', () => {
     expect(classifyFailure(new Error('cannot apply edit: anchor not found')).kind).toBe('capability');
   });
