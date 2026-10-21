@@ -177,11 +177,15 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
             const msg = err instanceof Error ? err.message : String(err);
             throw new Error(`Agent case "${evalCase.id}" infra-failed: ${msg}`);
           }
-          if (!trialResult.apiUnavailable || attempt >= TIMEOUT_RETRIES) break;
+          // A trial that ran across a host suspend is re-run the same way: the
+          // machine is awake now, and the stall said nothing about the model (#259).
+          const suspended = trialResult.hostSuspendedMs !== undefined;
+          if ((!trialResult.apiUnavailable && !suspended) || attempt >= TIMEOUT_RETRIES) break;
           attempt++;
           timeoutRetries++;
           console.log(
-            `[timeout-retry] ${evalCase.id} trial ${trial + 1}: no model output, retrying (${attempt}/${TIMEOUT_RETRIES})`,
+            `[timeout-retry] ${evalCase.id} trial ${trial + 1}: ` +
+              `${suspended ? 'the host was suspended' : 'no model output'}, retrying (${attempt}/${TIMEOUT_RETRIES})`,
           );
         }
 
@@ -191,7 +195,9 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
 
         // Update the circuit-breaker counter before checking pass/fail so
         // that api-unavailable cases don't pollute the failure output.
-        if (trialResult.apiUnavailable) {
+        // A suspend explains a dead-looking trial, so it doesn't count towards
+        // "the endpoint is down".
+        if (trialResult.apiUnavailable && trialResult.hostSuspendedMs === undefined) {
           consecutiveApiUnavailable++;
         } else {
           consecutiveApiUnavailable = 0;
@@ -202,7 +208,7 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
       // Multi-trial semantics: FAIL only when every scored trial failed —
       // a mixed result is FLAKY, reported but not a vitest failure, since
       // "solvable but unreliable" needs investigation, not a red build.
-      const scoredTrials = trialResults.filter((r) => !r.apiUnavailable);
+      const scoredTrials = trialResults.filter((r) => !r.apiUnavailable && r.hostSuspendedMs === undefined);
       const passes = scoredTrials.filter((r) => r.passed).length;
       if (TRIALS > 1 && scoredTrials.length > 0) {
         reliabilityRows.push({ caseId: evalCase.id, trials: scoredTrials.length, passes });
@@ -236,6 +242,12 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
       const caseFailed = TRIALS > 1 ? scoredTrials.length > 0 && passes === 0 : !result.passed;
 
       if (caseFailed || (scoredTrials.length === 0 && trialResults.length > 0)) {
+        if (scoredTrials.length === 0 && result.hostSuspendedMs !== undefined) {
+          throw new Error(
+            `Agent case "${evalCase.id}" host-suspended: every trial ran across a host suspend ` +
+              `(${Math.round(result.hostSuspendedMs / 1000)}s on the last). Not a behavioral result; rerun awake.`,
+          );
+        }
         if (result.apiUnavailable) {
           // Surface as a distinct infra signal, not a model regression.
           throw new Error(
@@ -282,11 +294,13 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
     // the SLOWEST arm, which is exactly the one a comparison would flatter.
     const expectedTrials = scheduledCases * TRIALS;
     const unavailable = allResults.filter((r) => r.apiUnavailable).length;
-    if (timeoutRetries > 0 || allResults.length !== expectedTrials || unavailable > 0) {
+    const suspendedOut = allResults.filter((r) => r.hostSuspendedMs !== undefined && !r.apiUnavailable).length;
+    if (timeoutRetries > 0 || allResults.length !== expectedTrials || unavailable > 0 || suspendedOut > 0) {
       console.log(
         `\n[denominator] recorded ${allResults.length} of ${expectedTrials} requested trials` +
           (timeoutRetries > 0 ? ` | ${timeoutRetries} timeout retr${timeoutRetries === 1 ? 'y' : 'ies'}` : '') +
           (unavailable > 0 ? ` | ${unavailable} excluded as api-unavailable` : '') +
+          (suspendedOut > 0 ? ` | ${suspendedOut} excluded as host-suspended` : '') +
           (allResults.length !== expectedTrials
             ? ' | INCOMPLETE — do not compare this run against a complete one'
             : ''),

@@ -12,6 +12,7 @@ import { scoreAgentCase } from './agentScorers.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 import { getConfig } from '../../src/config/settings.js';
 import { needsColdStart, hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
+import { startSuspendWatch } from '../../bench/swe/hostSuspend.js';
 
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
@@ -589,6 +590,7 @@ export async function runAgentCase(
 ): Promise<AgentCaseResult> {
   const timeoutMs = timeoutMsOrOpts ?? DEFAULT_CASE_TIMEOUT_MS;
   const start = Date.now();
+  const suspendWatch = startSuspendWatch(); // #259
   const sandbox = await installSandbox(evalCase.workspace, evalCase.id);
 
   if (evalCase.setupCommands?.length) {
@@ -832,18 +834,21 @@ export async function runAgentCase(
     }
     // Everything else counts as a case failure — record it so the
     // report shows which case died and why.
-    const errorResult: AgentCaseResult = {
-      id: evalCase.id,
-      description: evalCase.description,
-      passed: false,
-      failures: [`runAgentLoop threw: ${runError.message}`],
-      softFailures: [],
-      trajectory,
-      finalText: textBuffer.join(''),
-      workspaceAfter: snapshot,
-      durationMs,
-      iterationsUsed,
-    };
+    const errorResult: AgentCaseResult = withSuspend(
+      {
+        id: evalCase.id,
+        description: evalCase.description,
+        passed: false,
+        failures: [`runAgentLoop threw: ${runError.message}`],
+        softFailures: [],
+        trajectory,
+        finalText: textBuffer.join(''),
+        workspaceAfter: snapshot,
+        durationMs,
+        iterationsUsed,
+      },
+      suspendWatch,
+    );
     dumpTrajectory(evalCase.id, model, backend.name, errorResult, evalCase.configOverrides, surface);
     return errorResult;
   }
@@ -862,7 +867,15 @@ export async function runAgentCase(
     durationMs,
     iterationsUsed,
   });
-  const finalResult = apiUnavailable ? { ...scored, apiUnavailable: true } : scored;
+  const finalResult = withSuspend(apiUnavailable ? { ...scored, apiUnavailable: true } : scored, suspendWatch);
   dumpTrajectory(evalCase.id, model, backend.name, finalResult, evalCase.configOverrides, surface);
   return finalResult;
+}
+
+/** Mark a trial that ran across a host suspend (#259); agent.eval re-runs it. */
+function withSuspend(result: AgentCaseResult, watch: { suspendedMs(): number }): AgentCaseResult {
+  const ms = watch.suspendedMs();
+  if (!ms) return result;
+  console.warn(`[suspend] ${result.id}: the host was suspended for ${Math.round(ms / 1000)}s during this trial`);
+  return { ...result, hostSuspendedMs: ms };
 }

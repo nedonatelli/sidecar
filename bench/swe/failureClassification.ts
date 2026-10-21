@@ -54,6 +54,9 @@ const INFRA_SIGNATURES = [
   // harness's own uv invocations (setupTaskEnv), not anything the model runs.
   ' pip install --python ',
   ' venv --python ',
+  // The machine slept mid-task (hostSuspend.ts): its requests stalled and the
+  // run looked like a model failure (#259).
+  'host suspended for ',
 ];
 
 export function classifyFailure(err: unknown): FailureClassification {

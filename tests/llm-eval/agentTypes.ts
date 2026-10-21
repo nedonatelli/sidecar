@@ -287,4 +287,10 @@ export interface AgentCaseResult {
    * and shown with ⚠️ in the report.
    */
   apiUnavailable?: boolean;
+  /**
+   * Time the host spent suspended during this trial (#259). A suspended trial
+   * is re-run like a timed-out one, without counting towards the circuit
+   * breaker, and excluded from the score if it never runs awake.
+   */
+  hostSuspendedMs?: number;
 }
