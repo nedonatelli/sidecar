@@ -201,8 +201,9 @@ export async function executeTool(
     toolUse.input = remap.input;
   }
   const typeCoercion = coerceParamTypes(toolUse.input, tool.definition.input_schema);
-  if (typeCoercion.notes.length > 0) {
-    logger?.info(`Tool ${toolUse.name}: ${typeCoercion.notes.join('; ')}`);
+  const logOnly = typeCoercion.logOnly ?? [];
+  if (typeCoercion.notes.length > 0 || logOnly.length > 0) {
+    logger?.info(`Tool ${toolUse.name}: ${[...typeCoercion.notes, ...logOnly].join('; ')}`);
     toolUse.input = typeCoercion.input;
     remap.notes.push(...typeCoercion.notes);
   }

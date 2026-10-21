@@ -39,6 +39,30 @@ export interface ParamRemapOutcome {
   input: Record<string, unknown>;
   /** One disclosure line per remap; empty when nothing fired. */
   notes: string[];
+  /**
+   * Conversions worth logging but not telling the model about. A model writing
+   * XML-form calls can't express a typed `true` or `5`, so a note on every such
+   * call would cost tokens and teach it nothing.
+   */
+  logOnly?: string[];
+}
+
+/**
+ * A string carrying a value of the type the schema declares, as XML-form calls
+ * deliver every value (`<parameter=dry_run>true</parameter>` arrives as "true").
+ * Returns `undefined` when the string isn't unambiguously that type, so
+ * validation and the tool still see the original.
+ */
+function scalarFromString(value: string, declared: string): boolean | number | undefined {
+  const t = value.trim();
+  if (declared === 'boolean') {
+    const lower = t.toLowerCase();
+    return lower === 'true' ? true : lower === 'false' ? false : undefined;
+  }
+  if (t === '') return undefined;
+  const n = Number(t);
+  if (!Number.isFinite(n)) return undefined;
+  return declared === 'integer' && !Number.isInteger(n) ? undefined : n;
 }
 
 /**
@@ -98,9 +122,23 @@ export function coerceParamTypes(input: unknown, schema: ToolInputSchema | undef
   }
   let out: Record<string, unknown> | null = null;
   const notes: string[] = [];
+  const logOnly: string[] = [];
   for (const [key, rawSpec] of Object.entries(schema.properties ?? {})) {
     const declared = (rawSpec as { type?: string }).type;
     const value = obj[key];
+    // #249: XML-form calls deliver every value as a string. Tools read these
+    // loosely: "false" is truthy (`if (input.background)` backgrounded the
+    // command, `if (input.rebase)` rebased) and `=== true` misses "true"
+    // (`dry_run` ran the migration instead of previewing it).
+    if ((declared === 'boolean' || declared === 'number' || declared === 'integer') && typeof value === 'string') {
+      const scalar = scalarFromString(value, declared);
+      if (scalar !== undefined) {
+        out ??= { ...obj };
+        out[key] = scalar;
+        logOnly.push(`parameter '${key}' expects a ${declared}: the string "${value}" was read as ${scalar}`);
+      }
+      continue;
+    }
     if (
       declared === 'string' &&
       MULTILINE_TEXT_PARAMS.has(key) &&
@@ -132,7 +170,7 @@ export function coerceParamTypes(input: unknown, schema: ToolInputSchema | undef
       `parameter '${key}' expects an array — the string value was interpreted as ${coerced.length === 1 ? 'a one-element array' : 'a JSON array'}`,
     );
   }
-  return { input: out ?? obj, notes };
+  return { input: out ?? obj, notes, ...(logOnly.length ? { logOnly } : {}) };
 }
 
 export function remapParamSynonyms(input: unknown, schema: ToolInputSchema | undefined): ParamRemapOutcome {
