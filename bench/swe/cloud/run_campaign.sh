@@ -65,17 +65,20 @@ SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_MODEL="$MODEL" \
   npm run bench:swe:predict 2>&1 | tee "$WORK/predict.log"
 
 echo "== [4/6] official swebench scoring (Docker) — per arm =="
-# MODAL=true scores serverless (no Docker-in-Docker needed on Vast-style
-# container hosts; needs `pip install modal` + `modal token set`). Transient
+# Needs a Docker host. There is no serverless option any more: swebench's Modal
+# evaluator calls Modal's retired legacy Sandbox filesystem API, so every
+# instance errors at sandbox creation (observed 2026-10-20). On a host without
+# Docker, copy $PRED back and score it with bench/swe/local/run_local.sh's step 4.
+# SWE-bench/ namespace, not princeton-nlp/: swebench 5.x needs the per-instance
+# image fields only the former carries (else KeyError: 'image'). Transient
 # env-spec fetch flakes (ValueError: Could not find environment.yml — the
 # harness pulls it from GitHub at score time) abort a whole arm; retry once.
 for arm in ${ARMS//,/ }; do
   for attempt in 1 2; do
     python -m swebench.harness.run_evaluation \
-      --dataset_name "princeton-nlp/$DATASET" \
+      --dataset_name "SWE-bench/$DATASET" --split test \
       --predictions_path "$PRED/preds.$arm.jsonl" \
       --run_id "sidecar-$arm-a$attempt" \
-      ${MODAL:+--modal true} \
       --max_workers "${SWE_WORKERS:-4}" 2>&1 | tee "$WORK/score.$arm.log"
     grep -q "Could not find environment.yml" "$WORK/score.$arm.log" || break
     echo "!! transient env-spec fetch flake on $arm (attempt $attempt) — retrying"
