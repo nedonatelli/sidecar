@@ -162,7 +162,24 @@ function hardeningPrefixFor(shellPath: string): string {
 // Lives in system/killProcessTree.ts so processLifecycle can use it without an
 // import cycle; re-exported here for existing importers.
 export { killProcessTree } from '../system/killProcessTree.js';
-import { killProcessTree } from '../system/killProcessTree.js';
+import { killProcessTree, signalProcessGroup } from '../system/killProcessTree.js';
+
+/**
+ * Sessions with a live shell or background command, killed when the Node
+ * process exits. A `finally` that disposes the session never runs when vitest
+ * abandons a timed-out eval case, and on 2026-10-19 that left two shells and
+ * their `npx vitest` watchers alive 35 hours later (#245).
+ */
+const liveSessions = new Set<ShellSession>();
+let exitHookInstalled = false;
+function trackLive(session: ShellSession): void {
+  liveSessions.add(session);
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once('exit', () => {
+    for (const s of liveSessions) s.killNowForExit();
+  });
+}
 
 export class ShellSession {
   private proc: ChildProcess | null = null;
@@ -256,8 +273,13 @@ export class ShellSession {
       cwd: this.cwd,
       env: this.env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // POSIX: lead a process group of its own, so a kill reaches everything
+      // the shell starts (#260). Not on Windows, where it opens a console
+      // window and taskkill /T already takes the tree.
+      detached: !this.isWindows,
     });
     this.proc = proc;
+    trackLive(this);
 
     // Only forget the shell if it is still the CURRENT one. A timed-out shell
     // is replaced at once; its late 'exit' used to null this.proc anyway,
@@ -662,10 +684,15 @@ export class ShellSession {
       cwd: this.cwd,
       env: this.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: !this.isWindows, // its own process group; see ensureProcess
     });
+    trackLive(this);
 
-    // Wrap in ManagedChildProcess for lifecycle tracking
-    const proc = new ManagedChildProcess(rawProc, `bg-cmd:${id}`, getProcessRegistry());
+    // Wrap in ManagedChildProcess for lifecycle tracking. It leads its own
+    // process group on POSIX, so the registry's kill takes the group too.
+    const proc = new ManagedChildProcess(rawProc, `bg-cmd:${id}`, getProcessRegistry(), {
+      ownsProcessGroup: !this.isWindows,
+    });
 
     const entry: BackgroundCommand = { output: '', done: false, exitCode: null, proc };
     this.backgroundCommands.set(id, entry);
@@ -723,11 +750,58 @@ export class ShellSession {
    * the path that left it alive.
    */
   private killShell(proc: ChildProcess): void {
+    this.terminateTree(proc);
+  }
+
+  /**
+   * Kill a process this session spawned and everything it started.
+   *
+   * - Windows: `taskkill /T /F` takes the tree at once.
+   * - POSIX: SIGTERM to the process group the child leads (it was spawned
+   *   detached), then SIGKILL to the group 3 s later. The group is killed even
+   *   if the shell itself exited at once: the shell is not what leaks, its
+   *   `--parallel` test workers are (#260).
+   * - Otherwise (no group, e.g. already reaped): signal the process alone.
+   */
+  private terminateTree(proc: ChildProcess, graceMs = 3000): void {
     if (killProcessTree(proc.pid, this.isWindows)) return;
+    if (!this.isWindows && signalProcessGroup(proc.pid, 'SIGTERM')) {
+      const pid = proc.pid;
+      const timer = setTimeout(() => signalProcessGroup(pid, 'SIGKILL'), graceMs);
+      timer.unref?.();
+      return;
+    }
     try {
-      proc.kill();
+      proc.kill('SIGTERM');
     } catch {
-      /* process already gone */
+      return; // already gone
+    }
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* already exited */
+      }
+    }, graceMs);
+    timer.unref?.();
+    proc.once('exit', () => clearTimeout(timer));
+  }
+
+  /**
+   * The process is exiting: kill the shell and background commands now,
+   * synchronously, with no grace period (timers won't run). See liveSessions.
+   */
+  killNowForExit(): void {
+    const procs = [this.proc, ...[...this.backgroundCommands.values()].map((e) => e.proc.getProc())];
+    for (const p of procs) {
+      if (!p || p.exitCode !== null) continue;
+      if (killProcessTree(p.pid, this.isWindows)) continue;
+      if (!this.isWindows && signalProcessGroup(p.pid, 'SIGKILL')) continue;
+      try {
+        p.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
     }
   }
 
@@ -736,32 +810,13 @@ export class ShellSession {
    */
   dispose(): void {
     this.disposedFlag = true;
-    const killWithTimeout = (proc: ChildProcess | ManagedChildProcess) => {
-      const rawProc = proc instanceof ManagedChildProcess ? proc.getProc() : proc;
-      // Take the children with it where the platform requires asking.
-      if (killProcessTree(rawProc.pid, this.isWindows)) return;
-      try {
-        rawProc.kill('SIGTERM');
-      } catch {
-        return;
-      }
-      // Force-kill if still alive after 3 seconds
-      const timer = setTimeout(() => {
-        try {
-          rawProc.kill('SIGKILL');
-        } catch {
-          /* already exited */
-        }
-      }, 3000);
-      rawProc.once('exit', () => clearTimeout(timer));
-    };
-
+    liveSessions.delete(this);
     if (this.proc) {
-      killWithTimeout(this.proc);
+      this.terminateTree(this.proc);
       this.proc = null;
     }
     for (const [, entry] of this.backgroundCommands) {
-      killWithTimeout(entry.proc);
+      this.terminateTree(entry.proc.getProc());
     }
     this.backgroundCommands.clear();
     this.commandQueue = [];
