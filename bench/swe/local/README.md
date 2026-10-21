@@ -49,11 +49,27 @@ N=20 — treat small runs as a smoke test, N=50 for a real read).
 
 | Env           | Default                       | Meaning                                                                                                                         |
 | ------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `MODEL`       | `gemma4:e4b`                  | Any Ollama model tag.                                                                                                           |
+| `PROVIDER`    | `ollama`                      | `anthropic` (key from `ANTHROPIC_API_KEY`), or any provider with `BASE_URL` + `API_KEY`. Skips the Ollama step.                 |
+| `MODEL`       | `gemma4:e4b`                  | Any Ollama model tag, or the provider's model id.                                                                               |
 | `N`           | `20`                          | Tasks from the slice (sorted by `instance_id`, first N). Max 50.                                                                |
 | `ARMS`        | `scaffold-off,scaffold-on`    | Add `,scaffold-on-ratchet` for the third arm.                                                                                   |
 | `SLICE`       | `bench/swe/data/canary.jsonl` | The committed 50-task SWE-bench_Lite slice (solving is offline; scoring pulls the eval images and the SWE-bench_Lite metadata). |
 | `SWE_WORKERS` | `4`                           | Concurrent Docker evaluations at score time.                                                                                    |
+
+`MAX_ITERS` defaults to the shipped `sidecar.agent.maxIterations` (50). A single
+arm (e.g. `ARMS=scaffold-on`) is scored but has no lift report.
+
+**Keep the machine on AC power with the lid open.** The script re-runs itself
+under `caffeinate -dimsu`, but nothing stops a lid close, and the per-task timers
+are wall-clock: a sleeping Mac turns in-flight work into timeouts and empty
+patches that read as model failures.
+
+To score predictions from anywhere else (a cloud box, a baseline agent), use the
+scorer directly:
+
+```sh
+bench/swe/local/score_local.sh <work_dir> <run_prefix> path/to/preds.LABEL.jsonl
+```
 
 ## Cost and disk
 
