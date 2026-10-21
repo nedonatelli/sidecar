@@ -1,0 +1,70 @@
+{
+  "model": "nemotron-3-super",
+  "backend": "openai",
+  "providerSetting": "auto",
+  "ollamaVersion": null,
+  "modelDigest": null,
+  "modelSizeBytes": null,
+  "modelModifiedAt": null,
+  "agentTemperature": 0.2,
+  "agentSeed": null,
+  "dataset": "canary.jsonl",
+  "taskCount": 1,
+  "requestedN": 1,
+  "shardIndex": 0,
+  "shardCount": 1,
+  "scaffoldVersion": "5.1.2",
+  "scaffold": {
+    "scaffold-off": {
+      "version": "5.1.2",
+      "features": {
+        "completionGate": false,
+        "autoFix": false,
+        "adaptiveScaffolding": false,
+        "impactGate": false,
+        "numericalContractGate": false,
+        "analyticBoundsGate": false,
+        "keepBestRatchet": false,
+        "injectionGuard": true,
+        "diagnosticsReactiveFix": false
+      }
+    },
+    "scaffold-on": {
+      "version": "5.1.2",
+      "features": {
+        "completionGate": true,
+        "autoFix": true,
+        "adaptiveScaffolding": true,
+        "impactGate": true,
+        "numericalContractGate": true,
+        "analyticBoundsGate": false,
+        "keepBestRatchet": true,
+        "injectionGuard": true,
+        "diagnosticsReactiveFix": false
+      }
+    }
+  },
+  "repos": [
+    "psf/requests"
+  ],
+  "arms": [
+    "scaffold-off",
+    "scaffold-on"
+  ],
+  "maxIterations": 50,
+  "maxIterationsSource": "tier:weak",
+  "retrievalTopK": 6,
+  "redCheckRatcheted": false,
+  "stableToolOutput": true,
+  "shellGuard": true,
+  "testTargets": "legacy",
+  "shellCapture": false,
+  "harnessOverrides": null,
+  "retrievalCliffGate": true,
+  "cycleDetectionDisabled": false,
+  "circuitBreakerDisabled": false,
+  "perTaskTimeoutMs": 1200000,
+  "envCacheBase": ".sidecar/cache/swe-repos",
+  "nodeVersion": "v26.12.0",
+  "createdAt": "2026-10-21T18:01:34.578Z"
+}
