@@ -20,7 +20,7 @@
 #   npm run bench:swe:local                                   # gemma4:e4b, 20 tasks
 #   MODEL=qwen2.5-coder:7b N=50 npm run bench:swe:local       # full slice
 #   PROVIDER=anthropic MODEL=claude-haiku-4-5-20251001 N=50 npm run bench:swe:local
-#   ARMS=scaffold-on MAX_ITERS=150 ... npm run bench:swe:local  # one arm, higher ceiling
+#   ARMS=scaffold-on MAX_ITERS=100 ... npm run bench:swe:local  # one arm, explicit ceiling
 #
 # Keep the machine on AC power with the lid OPEN. The script holds off idle,
 # disk and system sleep itself, but nothing stops a lid close, and every
@@ -41,8 +41,9 @@ MODEL="${MODEL:-gemma4:e4b}"
 N="${N:-20}"
 SLICE="${SLICE:-bench/swe/data/canary.jsonl}"
 ARMS="${ARMS:-scaffold-off,scaffold-on}"
-# The shipped sidecar.agent.maxIterations.
-MAX_ITERS="${MAX_ITERS:-50}"
+# Unset = the ceiling the product gives this model (150 strong tier, 50 otherwise),
+# resolved by the driver. Set it only for a deliberate budget experiment.
+MAX_ITERS="${MAX_ITERS:-}"
 # Per-task ceiling, ms. Was hardcoded at 300_000 (5 min), which silently
 # truncated most scaffolded arms: measured gate-only arms legitimately run
 # 673–1202s on django tasks, so a 5-minute cap made this script's results
@@ -97,9 +98,10 @@ for repo in $repos; do
   fi
 done
 
-echo "== [3/5] predictions (provider=$PROVIDER, model=$MODEL, N=$N, arms=$ARMS, max_iters=$MAX_ITERS) =="
+if [ -n "$MAX_ITERS" ]; then export SIDECAR_SWE_MAX_ITERS="$MAX_ITERS"; fi
+echo "== [3/5] predictions (provider=$PROVIDER, model=$MODEL, N=$N, arms=$ARMS, max_iters=${MAX_ITERS:-tier default}) =="
 SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_MODEL="$MODEL" \
-  SIDECAR_SWE_OUT="$PRED" SIDECAR_SWE_MAX_ITERS="$MAX_ITERS" SIDECAR_SWE_ARMS="$ARMS" \
+  SIDECAR_SWE_OUT="$PRED" SIDECAR_SWE_ARMS="$ARMS" \
   SIDECAR_SWE_REPO_CACHE="$CACHE" \
   SIDECAR_SWE_TASK_TIMEOUT="$TASK_TIMEOUT" SIDECAR_SWE_TIMEOUT=360000000 \
   npm run bench:swe:predict 2>&1 | tee "$WORK/predict.log"

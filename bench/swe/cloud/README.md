@@ -52,13 +52,13 @@ Big clouds (AWS/GCP/Azure GPU VMs) work but are more setup + cost for the same j
 
 ## Knobs (env vars)
 
-| var           | default            | meaning                                          |
-| ------------- | ------------------ | ------------------------------------------------ |
-| `MODEL`       | `qwen2.5-coder:7b` | Ollama model (the small coding base)             |
-| `N`           | `50`               | task count (the deterministic stride slice)      |
-| `DATASET`     | `SWE-bench_Lite`   | or `SWE-bench_Verified`                          |
-| `MAX_ITERS`   | `30`               | agent iteration cap per task                     |
-| `SWE_WORKERS` | `4`                | swebench Docker parallelism (raise on big boxes) |
+| var           | default            | meaning                                                                                     |
+| ------------- | ------------------ | ------------------------------------------------------------------------------------------- |
+| `MODEL`       | `qwen2.5-coder:7b` | Ollama model (the small coding base)                                                        |
+| `N`           | `50`               | task count (the deterministic stride slice)                                                 |
+| `DATASET`     | `SWE-bench_Lite`   | or `SWE-bench_Verified`                                                                     |
+| `MAX_ITERS`   | unset              | agent iteration cap per task; unset = the product's tier default (150 strong, 50 otherwise) |
+| `SWE_WORKERS` | `4`                | swebench Docker parallelism (raise on big boxes)                                            |
 
 ## Notes / gotchas
 

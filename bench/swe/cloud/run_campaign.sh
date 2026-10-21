@@ -16,7 +16,8 @@ set -euo pipefail
 MODEL="${MODEL:-qwen2.5-coder:7b}"
 N="${N:-50}"
 DATASET="${DATASET:-SWE-bench_Lite}"
-MAX_ITERS="${MAX_ITERS:-30}"
+# Unset = the product's ceiling for this model (150 strong tier, 50 otherwise).
+MAX_ITERS="${MAX_ITERS:-}"
 WORK="${WORK:-$PWD/swe_campaign_$(date +%Y%m%d_%H%M%S)}"
 SLICE="$WORK/slice.jsonl"
 PRED="$WORK/predictions"
@@ -57,9 +58,10 @@ node bench/swe/cloud/fetch_dataset.mjs --dataset "$DATASET" --n "$N" --out "$SLI
 # for the three-arm campaign (keep-best do-no-harm + over-engineering section).
 ARMS="${ARMS:-scaffold-off,scaffold-on}"
 
+if [ -n "$MAX_ITERS" ]; then export SIDECAR_SWE_MAX_ITERS="$MAX_ITERS"; fi
 echo "== [3/6] generate predictions (arms: $ARMS) =="
 SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_MODEL="$MODEL" \
-  SIDECAR_SWE_OUT="$PRED" SIDECAR_SWE_MAX_ITERS="$MAX_ITERS" \
+  SIDECAR_SWE_OUT="$PRED" \
   SIDECAR_SWE_ARMS="$ARMS" \
   SIDECAR_SWE_TASK_TIMEOUT=300000 SIDECAR_SWE_TIMEOUT=360000000 \
   npm run bench:swe:predict 2>&1 | tee "$WORK/predict.log"
