@@ -56,7 +56,8 @@ N=20 — treat small runs as a smoke test, N=50 for a real read).
 | `SLICE`       | `bench/swe/data/canary.jsonl` | The committed 50-task SWE-bench_Lite slice (solving is offline; scoring pulls the eval images and the SWE-bench_Lite metadata). |
 | `SWE_WORKERS` | `4`                           | Concurrent Docker evaluations at score time.                                                                                    |
 
-`MAX_ITERS` defaults to the shipped `sidecar.agent.maxIterations` (50). A single
+`MAX_ITERS` unset means the ceiling the product gives the model: 150 for the
+strong tier, 50 otherwise. Set it only for a deliberate budget experiment. A single
 arm (e.g. `ARMS=scaffold-on`) is scored but has no lift report.
 
 **Keep the machine on AC power with the lid open.** The script re-runs itself

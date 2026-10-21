@@ -30,6 +30,7 @@ import type { ChatMessage } from '../../src/ollama/types.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 import { getConfig } from '../../src/config/settings.js';
+import { resolveIterationCeiling, type IterationCeiling } from '../../bench/swe/iterationCeiling.js';
 import { getToolDefinitionsForTier, findTool } from '../../src/agent/tools.js';
 import { STABLE_TOOL_ENV, stableOutputTools } from '../../bench/swe/stableToolOutput.js';
 import { ShellRootGuard, shellGuardTools } from '../../bench/swe/shellGuard.js';
@@ -80,15 +81,24 @@ const REPOS = (process.env.SIDECAR_SWE_REPOS || '')
 // it). Default 1×0 = the whole slice, single process (unchanged behavior).
 const SHARD_INDEX = parseInt(process.env.SIDECAR_SWE_SHARD_INDEX ?? '0', 10);
 const SHARD_COUNT = parseInt(process.env.SIDECAR_SWE_SHARD_COUNT ?? '1', 10);
-// The SHIPPED ceiling, not a harness-local one. `sidecar.agentMaxIterations`
-// defaults to 50 (raised from 25 in 2de65ea, 2026-08-01, and clamped to 50 in
-// settings.ts); this driver kept its original 30 and every SWE matrix through
-// 2026-09-12 ran under a budget nobody ships. Measured consequence: the
-// control arm hit the cap on 24% of tasks and the repro-first arm on 54%, so
-// "turn budget" showed up as the binding constraint on an intervention while
-// the product had 20 more iterations to give. Override only for a deliberate
-// budget experiment, and say so in the run's manifest.
-const MAX_ITERS = parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '50', 10);
+// The SHIPPED ceiling, not a harness-local one. This driver once kept its own 30
+// while the product shipped 50, and every SWE matrix through 2026-09-12 ran
+// under a budget nobody ships: the control arm hit the cap on 24% of tasks and
+// the repro-first arm on 54%. It then pinned 50 after #237 made the product's
+// default depend on the tier (150 strong), so strong models were again measured
+// below what users get. resolveIterationCeiling gives the product's ceiling for
+// this model, the same for every arm (see iterationCeiling.ts for why both arms
+// need it explicitly). SIDECAR_SWE_MAX_ITERS overrides it for a deliberate
+// budget experiment, and the manifest records which it was.
+let iterationCeilingCache: IterationCeiling | undefined;
+function iterationCeiling(): IterationCeiling {
+  iterationCeilingCache ??= resolveIterationCeiling(
+    MODEL,
+    process.env.SIDECAR_SWE_MAX_ITERS,
+    getConfig().scaffoldingOverrides,
+  );
+  return iterationCeilingCache;
+}
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
 // Experiment switch: see the armConfig construction for what it enables.
 const REDCHECK_RATCHETED = process.env.SIDECAR_SWE_REDCHECK_RATCHETED === '1';
@@ -686,7 +696,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     const extraTools = SHELL_GUARD ? shellGuardTools(stableTools, findArmTool, new ShellRootGuard(dir)) : stableTools;
     const options: AgentOptions = {
       approvalMode: 'autonomous',
-      maxIterations: MAX_ITERS,
+      maxIterations: iterationCeiling().maxIterations,
       toolRuntime,
       // Critical: fs tools resolve paths via resolveRootUri(context), which
       // honors context.cwd first. Without cwdOverride they'd resolve against the
@@ -982,7 +992,8 @@ describe('SWE-bench Lite — prediction generation', () => {
         ),
         repos: REPOS,
         arms: ARMS,
-        maxIterations: MAX_ITERS,
+        maxIterations: iterationCeiling().maxIterations,
+        maxIterationsSource: iterationCeiling().source,
         retrievalTopK: RETRIEVAL_TOPK,
         redCheckRatcheted: REDCHECK_RATCHETED,
         stableToolOutput: STABLE_OUTPUT,
@@ -1006,7 +1017,10 @@ describe('SWE-bench Lite — prediction generation', () => {
         createdAt: new Date().toISOString(),
       };
       fs.writeFileSync(path.join(OUT, 'run.manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-      console.info(`[swe] ${MODEL}: ${tasks.length} tasks × ${ARMS.length} arms`);
+      console.info(
+        `[swe] ${MODEL}: ${tasks.length} tasks × ${ARMS.length} arms, ` +
+          `max ${iterationCeiling().maxIterations} iterations (${iterationCeiling().source})`,
+      );
 
       const predictions: SwePrediction[] = [];
       const metaPath = path.join(OUT, 'predictions.meta.jsonl');
