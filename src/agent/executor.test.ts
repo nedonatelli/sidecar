@@ -506,6 +506,29 @@ describe('executeTool', () => {
     expect(result.content).toContain('File written');
   });
 
+  it('hands the tool a real boolean for an XML-form "false", without a note to the model (#249)', async () => {
+    const executor = vi.fn().mockResolvedValue('started');
+    mockedFindTool.mockReturnValue({
+      definition: {
+        name: 'run_command',
+        description: '',
+        input_schema: {
+          type: 'object' as const,
+          properties: { command: { type: 'string' }, background: { type: 'boolean' } },
+          required: ['command'],
+        },
+      },
+      executor,
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { run_command: 'allow' } });
+
+    const result = await executeTool(makeToolUse('run_command', { command: 'npm test', background: 'false' }));
+
+    expect(executor.mock.calls[0][0]).toEqual({ command: 'npm test', background: false });
+    expect(result.content).not.toContain('expects a boolean');
+  });
+
   it('aliases a foreign tool name onto the SideCar equivalent and discloses it', async () => {
     // llama3.2 emitted create_file — a Claude Code / OpenHands catalog name —
     // mid-run; the intent maps 1:1 onto write_file.
