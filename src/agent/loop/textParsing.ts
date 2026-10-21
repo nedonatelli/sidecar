@@ -1,7 +1,9 @@
 import type { ChatMessage, ToolDefinition, ToolUseContentBlock } from '../../ollama/types.js';
 import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 import { findBalancedEnd } from '../delimiters.js';
+import { tryJsonRepair } from '../jsonRepair.js';
 import { isLibraryName } from '../fileRefs.js';
+import { xmlParameterValue } from '../../ollama/streamUtils.js';
 
 /**
  * A parsed name is dispatchable when it's in the catalog OR the executor's
@@ -240,6 +242,16 @@ function squash(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+/** True when `s` parses as JSON. */
+function isJson(s: string): boolean {
+  try {
+    JSON.parse(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isEchoed(raw: string, opts?: TextParseOpts): boolean {
   if (!opts?.echoSource) return false;
   const needle = squash(raw);
@@ -309,7 +321,8 @@ function parseTextToolCallsInternal(
       const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
       let pm;
       while ((pm = paramPattern.exec(body)) !== null) {
-        input[pm[1]] = pm[2].trim();
+        // ML-64 (#164): not trim() -- whitespace in code values is content.
+        input[pm[1]] = xmlParameterValue(pm[2]);
       }
       firstType = 'fn';
       spans?.push([match.index, match.index + match[0].length]);
@@ -318,28 +331,76 @@ function parseTextToolCallsInternal(
     // Pattern 2: <tool_call>JSON</tool_call>
     else if (match[3] !== undefined) {
       if (firstType !== null && firstType !== 'tc') continue;
+      let body = match[3];
+      let end = match.index + match[0].length;
+      // ML-61 (#164): content that contains `</tool_call>` itself (a model
+      // writing a parser, or docs) ended the lazy match early, and repair then
+      // closed the prefix and wrote it. When the body does not parse and its
+      // object, scanned string-aware, closes past that terminator right before
+      // another one, take the whole object instead -- only when it is valid
+      // JSON or repairable without closing anything, so two separate calls,
+      // the first malformed, are never fused into one.
+      const bodyStart = match.index + match[0].indexOf(body, '<tool_call>'.length);
+      if (body.startsWith('{') && !isJson(body)) {
+        const close = findBalancedEnd(text, bodyStart, { dialect: 'json' });
+        const after = close > bodyStart + body.length ? /^\s*<\/tool_call>/.exec(text.slice(close + 1)) : null;
+        const whole = after ? text.slice(bodyStart, close + 1) : '';
+        if (after && (isJson(whole) || tryJsonRepair(whole, { closeTruncated: false }) !== null)) {
+          body = whole;
+          end = close + 1 + after[0].length;
+          combined.lastIndex = end;
+        }
+      }
       try {
-        const parsed = JSON.parse(match[3]);
+        const parsed = JSON.parse(body);
         // A model batching calls puts an ARRAY of them in one tag; reading
         // .name off the array dropped them all.
         let produced = false;
-        for (const entry of Array.isArray(parsed) ? parsed : [parsed]) {
+        for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
+          // ML-63 (#164): an array entry can itself be a JSON-encoded call
+          // string; it was skipped. One that does not decode stays skipped.
+          let entry = item;
+          if (typeof item === 'string' && Array.isArray(parsed)) {
+            try {
+              entry = JSON.parse(item);
+            } catch {
+              continue;
+            }
+          }
           const name = entry?.name || entry?.tool || entry?.function?.name;
           const args = entry?.arguments || entry?.args || entry?.function?.arguments || entry?.parameters || {};
           if (name && isDispatchableName(name, toolNames)) {
-            const input = typeof args === 'string' ? JSON.parse(args) : args;
+            let input;
+            try {
+              input = typeof args === 'string' ? JSON.parse(args) : args;
+            } catch (err) {
+              if (!Array.isArray(parsed)) throw err;
+              // ML-63 (#164): one entry's string arguments not parsing (raw
+              // newlines, typically) threw past the calls already pushed, and
+              // the catch below re-emitted the FIRST call as a malformed marker
+              // that repair turned into a second copy of it. Mark only this entry.
+              results.push({
+                type: 'tool_use',
+                id: `text_tc_${idCounter++}`,
+                name,
+                input: {},
+                _malformedInputRaw: args,
+              });
+              produced = true;
+              continue;
+            }
             results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
             produced = true;
           }
         }
         if (produced) {
           firstType = 'tc';
-          spans?.push([match.index, match.index + match[0].length]);
+          spans?.push([match.index, end]);
         }
       } catch {
         // Malformed JSON: don't silently drop — emit a marker so the
         // constrained-repair layer can recover it (A5).
-        const name = salvageToolName(match[3], toolNames);
+        const name = salvageToolName(body, toolNames);
         if (name) {
           firstType = 'tc';
           results.push({
@@ -347,7 +408,7 @@ function parseTextToolCallsInternal(
             id: `text_tc_${idCounter++}`,
             name,
             input: {},
-            _malformedInputRaw: match[3],
+            _malformedInputRaw: body,
           });
         }
       }
@@ -672,7 +733,17 @@ const LANG_TO_EXTS: Record<string, string[]> = {
 };
 
 /** Workspace-file references (same shape as actionReprompt's FILE_PATH_RE, global). */
-const FILE_REF_RE = /\b[\w./-]*\w+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cpp|c|rb|sh|yaml|yml|json|toml)\b/g;
+// ML-67 (#164): `\` is a separator too. Without it a Windows path such as
+// `src\pkg\mod.py` matched only its basename, and the fence write created a
+// new `mod.py` at the workspace root. userFileRefs hands matches back with `/`
+// separators, so `src\a.py` and `src/a.py` count as one target.
+const FILE_REF_RE = /\b[\w./\\-]*\w+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cpp|c|rb|sh|yaml|yml|json|toml)\b/g;
+
+/** The distinct workspace-file references in `userText`, `/`-separated, minus library names. */
+function userFileRefs(userText: string): string[] {
+  const refs = (userText.match(FILE_REF_RE) ?? []).map((ref) => ref.replace(/\\/g, '/'));
+  return [...new Set(refs)].filter((ref) => !isLibraryName(ref));
+}
 
 const CONFLICT_MARKER = /^[ \t]*(?:<{4,}|={4,}|>{4,})/m;
 
@@ -723,7 +794,7 @@ export function newSideOf(body: string): string {
  * failed to save it -- see loop/fenceWrite.ts.
  */
 export function printedCodeTarget(text: string, userText: string): { path: string; code: string } | null {
-  const refs = [...new Set(userText.match(FILE_REF_RE) ?? [])].filter((ref) => !isLibraryName(ref));
+  const refs = userFileRefs(userText);
   if (refs.length !== 1) return null;
   let best = '';
   const fence = /```([\w+#]*)\s*\n([\s\S]*?)```/g;
@@ -762,7 +833,7 @@ export function synthesizeFenceWrite(
   toolNames: Set<string>,
 ): { name: 'write_file'; input: { path: string; content: string } } | null {
   if (!toolNames.has('write_file')) return null;
-  const refs = [...new Set(userText.match(FILE_REF_RE) ?? [])].filter((ref) => !isLibraryName(ref));
+  const refs = userFileRefs(userText);
   if (refs.length !== 1) return null; // zero or ambiguous targets — do not guess
   const path = refs[0];
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();

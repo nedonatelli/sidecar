@@ -418,16 +418,18 @@ export async function streamOneTurn(
  * needed (currently only the resolved form is used downstream).
  */
 export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks: AgentCallbacks): TurnResult {
-  let fullText = turn.fullText;
-
-  if (fullText) {
-    fullText = stripRepeatedContent(fullText, state.messages);
-  }
+  // ML-60 (#164): text-form calls and printed fences are read from the RAW
+  // turn text. stripRepeatedContent ran first and deleted any ≥200-char
+  // paragraph repeating earlier assistant text -- including one inside a
+  // call's content -- and collapsed blank-line runs inside fences, so the
+  // written file lost lines. Stripping now applies only to the prose kept.
+  const rawText = turn.fullText;
+  let fullText = rawText ? stripRepeatedContent(rawText, state.messages) : rawText;
 
   const pendingToolUses = [...turn.pendingToolUses];
   let stopReason = turn.stopReason;
 
-  if (pendingToolUses.length === 0 && fullText) {
+  if (pendingToolUses.length === 0 && rawText) {
     // Span-aware parse: dispatched text-form calls are EXCISED from the
     // text — the raw JSON/XML must not survive into the assistant message
     // (it rendered as stray call syntax live and dominated restored
@@ -436,7 +438,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     // set — otherwise a text-form call to a tool that plan mode has removed is
     // still parsed and recorded as a call. See resolveIterationTools.
     const iterationTools = resolveIterationTools(state);
-    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(fullText, iterationTools, {
+    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(rawText, iterationTools, {
       callExpressions: state.config.codeAsTextRecoveryEnabled === true,
       echoSource: toolOutputText(state.messages),
     });
@@ -447,9 +449,9 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     }
     if (parsed.length > 0) {
       stopReason = 'tool_use';
-      fullText = cleanedText;
+      fullText = stripRepeatedContent(cleanedText, state.messages);
     } else if (state.config.codeAsTextRecoveryEnabled === true) {
-      const printed = printedCodeTarget(fullText, state.userRequestText ?? lastUserMessageText(state.messages));
+      const printed = printedCodeTarget(rawText, state.userRequestText ?? lastUserMessageText(state.messages));
       const base = {
         fullText,
         pendingToolUses,
@@ -489,7 +491,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       }
       const synth =
         isMutationRequest(userText) && !looksLikeDeclinedAction(fullText) && !alreadyDone
-          ? synthesizeFenceWrite(fullText, userText, new Set(iterationTools.map((t) => t.name)))
+          ? synthesizeFenceWrite(rawText, userText, new Set(iterationTools.map((t) => t.name)))
           : null;
       // Dispatched (or not) by the loop: see fenceWrite.ts.
       return synth ? { ...base, fenceWrite: synth.input } : base;
