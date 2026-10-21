@@ -23,7 +23,13 @@ import * as path from 'path';
 import { parseTasks, sampleTasks } from './loader.js';
 import { parseResolvedReport } from './predictions.js';
 import { computeAblation, computeRatchetComparison } from './ablation.js';
-import { formatAblationReport, formatRatchetSection, type SweEnvelope } from './report.js';
+import {
+  formatAblationReport,
+  formatRatchetSection,
+  resolveEnvelopeRun,
+  type SweEnvelope,
+  type SweRunManifest,
+} from './report.js';
 import type { SwePrediction } from './types.js';
 import { SCAFFOLD_VERSION } from '../../src/agent/scaffoldVersion.js';
 
@@ -52,18 +58,15 @@ describe('SWE-bench Lite — ablation', () => {
     const resolvedOff = parseResolvedReport(fs.readFileSync(OFF as string, 'utf-8'));
 
     const report = computeAblation(tasks, predictions, resolvedOn, resolvedOff);
+    const manifestPath = path.join(PREDS as string, 'run.manifest.json');
+    const manifest = fs.existsSync(manifestPath)
+      ? (JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as SweRunManifest)
+      : null;
     const env: SweEnvelope = {
-      model: process.env.SIDECAR_SWE_MODEL || 'gemma4:e4b',
-      quantization: process.env.SIDECAR_SWE_QUANT || 'unknown (≈Q4_K_M)',
-      backend: 'ollama',
-      contextTokens: 32_768,
+      ...resolveEnvelopeRun(manifest, process.env, SCAFFOLD_VERSION),
       dataset: `SWE-bench_Lite slice (${tasks.length})${repos.length ? ` · repos: ${repos.join(',')}` : ''}`,
       taskCount: tasks.length,
-      maxIterations: parseInt(process.env.SIDECAR_SWE_MAX_ITERS ?? '20', 10),
       swebenchHarnessVersion: process.env.SIDECAR_SWE_HARNESS_VERSION || 'unspecified',
-      // From the run.manifest.json (via env) when scoring a run made by a
-      // different code version; else the current constant.
-      scaffoldVersion: process.env.SIDECAR_SWE_SCAFFOLD_VERSION || SCAFFOLD_VERSION,
     };
     let md = formatAblationReport(report, env);
     // Third arm (optional): keep-best ratchet do-no-harm + over-engineering

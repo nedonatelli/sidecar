@@ -11,9 +11,9 @@ import type { AblationReport } from './types.js';
 
 export interface SweEnvelope {
   model: string;
-  quantization: string;
+  /** Only meaningful for local weights; omitted for hosted backends. */
+  quantization?: string;
   backend: string;
-  contextTokens: number;
   /** "SWE-bench_Lite slice (N)" + any repo filter. */
   dataset: string;
   taskCount: number;
@@ -22,6 +22,35 @@ export interface SweEnvelope {
   /** Scaffold version that produced the predictions — results are only
    *  comparable across matching versions (see src/agent/scaffoldVersion.ts). */
   scaffoldVersion?: string;
+}
+
+/** The fields of swe.eval.ts's run.manifest.json the envelope reads. */
+export interface SweRunManifest {
+  model: string;
+  backend: string;
+  maxIterations: number;
+  scaffoldVersion: string;
+}
+
+/**
+ * The run's own manifest is the source of truth for what produced the
+ * predictions. The env fallbacks exist for prediction dirs that predate the
+ * manifest; with them alone, a 50-iteration Anthropic run was reported as a
+ * 20-iteration Ollama one.
+ */
+export function resolveEnvelopeRun(
+  manifest: SweRunManifest | null,
+  env: NodeJS.ProcessEnv,
+  currentScaffoldVersion: string,
+): Pick<SweEnvelope, 'model' | 'backend' | 'maxIterations' | 'scaffoldVersion' | 'quantization'> {
+  const backend = manifest?.backend ?? 'ollama';
+  return {
+    model: manifest?.model ?? (env.SIDECAR_SWE_MODEL || 'gemma4:e4b'),
+    backend,
+    maxIterations: manifest?.maxIterations ?? parseInt(env.SIDECAR_SWE_MAX_ITERS ?? '50', 10),
+    scaffoldVersion: manifest?.scaffoldVersion ?? (env.SIDECAR_SWE_SCAFFOLD_VERSION || currentScaffoldVersion),
+    quantization: backend === 'ollama' ? env.SIDECAR_SWE_QUANT || 'unknown' : undefined,
+  };
 }
 
 const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
@@ -61,7 +90,7 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
   lines.push('## Reproducibility envelope');
   lines.push('');
   lines.push(
-    `- model: \`${env.model}\` (${env.backend}), quantization: **${env.quantization}**, context: ${env.contextTokens}`,
+    `- model: \`${env.model}\` (${env.backend})${env.quantization ? `, quantization: **${env.quantization}**` : ''}`,
   );
   lines.push(`- dataset: ${env.dataset} · max agent iterations: ${env.maxIterations}`);
   lines.push(`- scored by official swebench harness ${env.swebenchHarnessVersion}`);
