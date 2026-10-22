@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-21",
+  "kind": "sanitized-overnight-handoff",
+  "model": "nemotron-3-super",
+  "backend": "local OpenAI-compatible DGX deployment",
+  "credentialsIncluded": false,
+  "agentSmokeReliability": {
+    "cases": 8,
+    "trials": 24,
+    "passedTrials": 22,
+    "durationMs": 4576520,
+    "engineCoreOccurrences": 0,
+    "http502Occurrences": 0,
+    "recoveredTransientRetries": 3,
+    "flakyCases": [
+      {
+        "id": "error-recovery-to-correct-file",
+        "passes": 1,
+        "trials": 3
+      }
+    ]
+  },
+  "swe": {
+    "dataset": "SWE-bench Lite canary",
+    "arms": [
+      "scaffold-off",
+      "scaffold-on"
+    ],
+    "maxIterations": 50,
+    "perTaskTimeoutMs": 1140000,
+    "uniqueTasksQueued": 13,
+    "armAttempts": 26,
+    "modelEngagedAttempts": 4,
+    "nonEmptyPatchCandidates": 4,
+    "invalidRepoCacheAttempts": 22,
+    "dockerScoring": "not-run",
+    "resultStatus": "partial-unscored"
+  }
+}
