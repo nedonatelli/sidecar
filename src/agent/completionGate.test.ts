@@ -19,6 +19,7 @@ import {
   lastUserText,
   firstUserText,
   withoutPackageInstalls,
+  ranInertTestScript,
 } from './completionGate.js';
 
 vi.mock('vscode', () => ({
@@ -2290,6 +2291,88 @@ describe('completionGate — classifyTestResult', () => {
   it('treats a non-zero exit as failure and zero exit as pass', () => {
     expect(classifyTestResult('something\n(exit code: 2)')).toBe('fail');
     expect(classifyTestResult('done\n(exit code: 0)')).toBe('pass');
+  });
+});
+
+// #280: a test script weakened to run nothing exits 0, and exit 0 alone read as
+// a pass. The npm outputs below were captured from npm 11.12.0 on 2026-10-22
+// (`npm test` in a throwaway project per script), plus the "(exit code: N)"
+// line run_command and run_tests append.
+describe('completionGate — a test script that runs no test earns no credit (#280)', () => {
+  const npmRun = (script: string, extra = '') => `\n> p@1.0.0 test\n> ${script}\n\n${extra}(exit code: 0)`;
+  const realJest = 'PASS src/a.test.ts\nTests:       3 passed, 3 total\n';
+  const failingJest = 'FAIL src/a.test.ts\nTests:       1 failed, 2 passed, 3 total\n';
+
+  // One table for script-level and shell-level masking: what matters is what
+  // the run proves, however the failure was hidden.
+  it.each([
+    // Script-level: the test script itself runs nothing.
+    ['"test": "exit 0"', npmRun('exit 0'), 'empty'],
+    ['"test": "true"', npmRun('true'), 'empty'],
+    ['"test": ":"', npmRun(':'), 'empty'],
+    ['"test": "echo ok" (prints ok, which reads as unittest OK)', npmRun('echo ok', 'ok\r\n'), 'empty'],
+    ['"test": "echo 3 passed" (prints a count)', npmRun('echo 3 passed', '3 passed\r\n'), 'empty'],
+    ['`npm test -- --coverage` on "exit 0"', npmRun('exit 0 --coverage'), 'empty'],
+    ['pnpm, whose header carries the path', '\n> p@1.0.0 test C:\\proj\n> exit 0\n\n(exit code: 0)', 'empty'],
+    ['yarn 1 "$ exit 0"', 'yarn run v1.22.22\n$ exit 0\nDone in 0.05s.\n(exit code: 0)', 'empty'],
+    // Script-level mask that still runs the tests: the run's own result stands.
+    ['"test": "jest || true" with a failure', npmRun('jest || true', failingJest), 'fail'],
+    ['"test": "jest || true" all green', npmRun('jest || true', realJest), 'pass'],
+    // Shell-level masking: the output still says what happened.
+    ['`npm test || true` with a failure', npmRun('jest', failingJest), 'fail'],
+    // Real suites are unaffected.
+    ['"test": "jest"', npmRun('jest', realJest), 'pass'],
+    [
+      'an echo pretest hook, then a real test script',
+      `\n> p@1.0.0 pretest\n> echo starting\n\nstarting\r\n${npmRun('jest', realJest)}`,
+      'pass',
+    ],
+    ['yarn 1 running jest', `yarn run v1.22.22\n$ jest\n${realJest}Done in 1.2s.\n(exit code: 0)`, 'pass'],
+    // npm's placeholder fails on its own and stays a failure.
+    [
+      "npm init's placeholder",
+      '\n> p@1.0.0 test\n> echo "Error: no test specified" && exit 1\n\nError: no test specified\n(exit code: 1)',
+      'fail',
+    ],
+  ])('%s', (_label, output, expected) => {
+    expect(classifyTestResult(output)).toBe(expected);
+  });
+
+  it('ranInertTestScript reads the test script, not a pretest hook', () => {
+    expect(ranInertTestScript('\n> p@1.0.0 pretest\n> echo hi\n\nhi\n\n> p@1.0.0 test\n> vitest run\n')).toBe(false);
+    expect(ranInertTestScript('\n> p@1.0.0 pretest\n> tsc\n\n> p@1.0.0 test\n> exit 0\n')).toBe(true);
+    expect(ranInertTestScript('no package manager output at all')).toBe(false);
+    expect(ranInertTestScript('yarn run v1.22.22\n$ echo pre\n$ jest\n')).toBe(false);
+  });
+
+  it('run_tests on an inert script: no pass credit, and red-check stays armed', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunTests(), failing());
+    expect(state.failedCheckOutput).toBeTruthy();
+    recordToolCall(state, makeRunTests(), { type: 'tool_result', tool_use_id: 'id', content: npmRun('exit 0') });
+    expect(state.projectTestsPassed).toBe(false);
+    expect(state.failedCheckOutput).toBeTruthy();
+  });
+
+  it('run_command "npm test" on an inert script: no pass credit', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunCommand('npm test'), {
+      type: 'tool_result',
+      tool_use_id: 'id',
+      content: npmRun('true'),
+    });
+    expect(state.projectTestsRan).toBe(true);
+    expect(state.projectTestsPassed).toBe(false);
+  });
+
+  it('a run_tests file target on an inert script is not marked passing', () => {
+    const state = createGateState();
+    recordToolCall(state, makeRunTests('src/a.test.ts'), {
+      type: 'tool_result',
+      tool_use_id: 'id',
+      content: npmRun('exit 0 src/a.test.ts'),
+    });
+    expect([...state.passingTestFiles]).toEqual([]);
   });
 });
 
