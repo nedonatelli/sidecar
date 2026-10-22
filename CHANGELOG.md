@@ -4,16 +4,101 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.131.0] - 2026-10-22
+
+Capable cloud models get room to work: up to 150 agent iterations and higher per-tool
+budgets. Tool calls that local models write as text or XML now reach disk intact and with
+the right types. `find_references` finds callers in ESM TypeScript projects, and GPT-6
+requests are accepted. Spend tracking bills Anthropic cache traffic correctly, Copilot
+stays on Copilot's own models, and stopping a shell on macOS or Linux stops what it started.
+
 ### Changed
 
 - **Capable models get higher per-tool budgets** (scaffold 5.1.1, [#236](https://github.com/nedonatelli/sidecar/issues/236)).
-  The per-run budgets in `toolBudget.ts` were sized for small local models and refused
-  claude-haiku-4-5 in 40/50 SWE canary runs, mostly on `run_command`, which is its test
-  runs. The strong tier now allows `run_command` 60, `read_file` 50, `grep` and
+  The per-run budgets in `toolBudget.ts` were sized for small local models and regularly
+  refused capable models such as claude-haiku-4-5, mostly on `run_command`, which is
+  where their test runs go. The strong tier now allows `run_command` 60, `read_file` 50, `grep` and
   `search_files` 40, and `list_directory` 20. Weak and medium tiers are unchanged. When
   nobody can answer a question (no clarification UI), a refusal no longer tells the model
   to ask the user. Refusals are recorded as structured `tool_budget` decisions, and
   `sidecar.scaffolding.overrides` accepts per-tool `toolBudgets`.
+- **Capable models get up to 150 agent iterations** (scaffold 5.1.2,
+  [#237](https://github.com/nedonatelli/sidecar/issues/237)). When `sidecar.agentMaxIterations`
+  isn't set, strong-tier models (such as the Claude, GPT and Gemini families) now default
+  to 150 iterations; medium and weak tiers keep 50. A value you set yourself, including 50, always wins.
+  The setting's maximum rises from 100 to 150.
+- **A read-only loop before the first edit gets one nudge instead of a stop**
+  ([#222](https://github.com/nedonatelli/sidecar/issues/222)). Cycle detection used to end a
+  run that kept repeating the same lookup before it had edited anything, leaving nothing
+  done. The first such loop now gets one message telling the model to act on what the
+  lookup showed. Every other loop, and any loop after an edit, still stops as before.
+
+### Fixed
+
+- **Tool calls that local models write as text reach disk intact**
+  ([#164](https://github.com/nedonatelli/sidecar/issues/164)). Text-form and streamed
+  `<tool_call>` parsing kept the first line's indentation and trailing blank lines in file
+  content, no longer cut content containing `</tool_call>`, no longer emitted a batched
+  call twice or dropped one with bad arguments, and no longer deleted repeated paragraphs
+  inside a call's content. A Windows path such as `src\pkg\mod.py` in the request now
+  writes to that file, not a new one at the workspace root.
+- **XML-form tool calls get the types the tool declares**
+  ([#249](https://github.com/nedonatelli/sidecar/issues/249)). Values written as
+  `<parameter=k>v</parameter>` arrive as strings, so `background="false"` backgrounded a
+  command, `rebase="false"` pulled with rebase, and `dry_run="true"` ran a migration
+  instead of previewing it (still behind the approval prompt). `"true"`/`"false"` and
+  numeric strings now become booleans and numbers where the schema says so.
+- **`find_references` and impact analysis find callers in ESM TypeScript projects**
+  ([#113](https://github.com/nedonatelli/sidecar/issues/113)). An import of `./b.js` (the
+  file `b.ts`) never linked to its file, and importers weren't found for any import style.
+  Symbol line numbers were also one line high, so symbol embeddings are rebuilt once on
+  the next start. **Rebuild Project Knowledge Index** now actually rebuilds the index
+  instead of leaving it empty.
+- **GPT-6 requests are accepted** ([#229](https://github.com/nedonatelli/sidecar/issues/229)).
+  `gpt-6-*` models get `max_completion_tokens` and no `temperature`. `gpt-6-sol` and
+  `gpt-6-luna` are sent `reasoning_effort: "none"` with tools, which their Chat Completions
+  API requires. `gpt-6.1-sol` and `gpt-6-astra`, which don't support tools there, fail
+  before sending with a message naming the models that do. GPT-6 limits and prices are added.
+- **Spend tracking bills Anthropic cache traffic correctly**
+  ([#261](https://github.com/nedonatelli/sidecar/issues/261)). Uncached input in a request
+  that also hit the cache wasn't billed, and Claude Sonnet 5.5 cache reads were priced at
+  $0.20/M instead of $0.10/M.
+- **Copilot falls back to one of Copilot's own models, never another vendor's**
+  ([#230](https://github.com/nedonatelli/sidecar/issues/230)). When the configured model
+  wasn't offered, SideCar used the first chat model from any installed extension. It now
+  picks a Copilot model, logs which one, and the model picker lists only Copilot's models.
+- **AI merge-conflict resolution keeps indentation and line endings**
+  ([#165](https://github.com/nedonatelli/sidecar/issues/165)). A resolved block no longer
+  loses its first line's indentation, a fenced answer is unwrapped instead of written with
+  its fence, and CRLF files stay CRLF.
+- **Python edits that mix tabs and spaces are checked the way CPython checks them**
+  ([#157](https://github.com/nedonatelli/sidecar/issues/157)). A mixed file used to switch
+  the edit-time indentation check off, so an edit that Python refuses with `TabError` was
+  written. The check now follows CPython's rule, and says when its error list was cut short.
+- **A declined GitHub sign-in ends PR and CI commands cleanly**
+  ([#227](https://github.com/nedonatelli/sidecar/issues/227)). Review, respond, lifecycle,
+  CI-failure analysis and draft PR show "GitHub authentication failed: …" instead of a raw
+  error. Draft PR now signs in before pushing, so a declined sign-in no longer leaves a
+  pushed branch with no PR.
+- **Smaller review fixes** ([#227](https://github.com/nedonatelli/sidecar/issues/227)):
+  CI diagnostics no longer attach a workflow named "ci" to `deploy.yml` when a parent
+  directory contains "ci"; a `~/skills` registry loads its skills; and importing a
+  hand-edited handoff bundle with a malformed message is rejected at import.
+- **Stopping a shell stops what it started, on macOS and Linux**
+  ([#260](https://github.com/nedonatelli/sidecar/issues/260),
+  [#245](https://github.com/nedonatelli/sidecar/issues/245)). Disposing the agent's shell or
+  timing out a command used to leave its child processes running, such as test runners'
+  worker processes. Kills now reach the whole process group, and any shell processes still
+  alive when the extension host exits are killed then.
+
+### Documentation
+
+- **Troubleshooting covers vLLM's "EngineCore encountered an issue"**, the out-of-memory
+  engine death that long agent sessions trigger, and the server settings that prevent it.
+
+### Stats
+- 10145 total tests (566 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.130.1] - 2026-10-20
 
