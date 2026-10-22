@@ -1065,3 +1065,129 @@ describe('echoed calls are not dispatched', () => {
     expect(parseTextToolCalls(text, tools, { callExpressions: true, echoSource: readme })).toHaveLength(1);
   });
 });
+
+// #244: shapes from a replay of 25,100 recorded eval turns.
+describe('several JSON calls in one fence (#244)', () => {
+  const tools = defineTools('write_file', 'run_tests', 'read_file');
+
+  it('dispatches both calls of a two-object fence, in order', () => {
+    const text =
+      '```json\n' +
+      '{"name": "write_file", "arguments": {"path": "src/one.ts", "content": "export const ONE = 1;\\n"}}\n' +
+      '{"name": "write_file", "arguments": {"path": "src/two.ts", "content": "export const TWO = 2;\\n"}}\n' +
+      '```';
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => c.input.path)).toEqual(['src/one.ts', 'src/two.ts']);
+    expect(calls[0].input.content).toBe('export const ONE = 1;\n');
+    expect(calls.some((c) => c._malformedInputRaw !== undefined)).toBe(false);
+  });
+
+  it('dispatches all three calls of a three-object fence, in order', () => {
+    const text =
+      '```json\n' +
+      '{"name": "write_file", "arguments": {"path": "a.ts", "content": "a"}}\n' +
+      '{"name": "write_file", "arguments": {"path": "b.ts", "content": "b"}}\n' +
+      '{"name": "run_tests", "arguments": {}}\n' +
+      '```';
+    expect(parseTextToolCalls(text, tools).map((c) => c.name)).toEqual(['write_file', 'write_file', 'run_tests']);
+  });
+
+  it('a fence holding one valid object still yields one call', () => {
+    const text = '```json\n{"name": "read_file", "arguments": {"path": "a.ts"}}\n```';
+    expect(parseTextToolCalls(text, tools)).toHaveLength(1);
+  });
+
+  it('marks only the object that does not parse', () => {
+    const text =
+      '```json\n' +
+      '{"name": "read_file", "arguments": {"path": "a.ts"}}\n' +
+      '{"name": "write_file", "arguments": {"path": "b.ts", "content": "x",}}\n' +
+      '```';
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => c.name)).toEqual(['read_file', 'write_file']);
+    expect(calls[0]._malformedInputRaw).toBeUndefined();
+    expect(calls[1]._malformedInputRaw).toContain('"b.ts"');
+  });
+
+  it('skips the stray closing brace qwen2.5-coder puts after each object', () => {
+    const text =
+      '```json\n' +
+      '{"name": "write_file", "arguments": {"path": "src/one.ts", "content": "export const ONE = 1;"}}}\n' +
+      '{"name": "write_file", "arguments": {"path": "src/two.ts", "content": "export const TWO = 2;"}}}\n' +
+      '```';
+    const calls = parseTextToolCalls(text, tools);
+    expect(calls.map((c) => c.input.path)).toEqual(['src/one.ts', 'src/two.ts']);
+  });
+
+  it('dispatches back-to-back bare objects outside a fence too', () => {
+    const text =
+      '{"name": "read_file", "arguments": {"path": "a.ts"}}\n{"name": "read_file", "arguments": {"path": "b.ts"}}';
+    expect(parseTextToolCalls(text, tools).map((c) => c.input.path)).toEqual(['a.ts', 'b.ts']);
+  });
+});
+
+describe('call expressions quoted in prose are not dispatched (#244)', () => {
+  const tools = defineTools('read_file', 'edit_file', 'get_diagnostics', 'list_directory', 'run_command');
+  const opts = { callExpressions: true };
+
+  it('gemma4:31b citing a read after finishing', () => {
+    const text =
+      'The rename is complete.\n\n' +
+      '- `read_file(path="src/mathUtils.ts")` confirms the function is defined as `export function sum(...)`.';
+    expect(parseTextToolCalls(text, tools, opts)).toEqual([]);
+  });
+
+  it('ministral-3 thinking aloud about what it could do', () => {
+    const text =
+      'To be thorough I could verify the edit. For example, I could:\n\n' +
+      '1. **Check diagnostics** (`get_diagnostics(path="src/greeter.ts")`) to ensure no syntax errors.';
+    expect(parseTextToolCalls(text, tools, opts)).toEqual([]);
+  });
+
+  it('past calls, offers, results after a colon or arrow, questions, and evidence lists', () => {
+    for (const text of [
+      'I did call `read_file(path="src/math.ts")` in the previous turn.',
+      'I verified this by calling `read_file(path="src/a.ts")`, which confirmed it.',
+      'If you would like, I can call `list_directory(path="src/")` to confirm.',
+      '- `get_diagnostics(path="src/a.ts")`: No diagnostics reported.',
+      '- **Citation**: `read_file(path="src/a.ts")` → Shows `validate`.',
+      '`get_diagnostics(path="src/a.ts")` returned:\n> No diagnostics reported.',
+      'Should I try `list_directory(path="src")`?',
+      '- No `.github/workflows/` or `Dockerfile` in `list_directory(path=".")`.',
+      '**Verification:**\n- `read_file(path="src/a.ts")` matches the requested change.',
+    ]) {
+      expect(parseTextToolCalls(text, tools, opts), text).toEqual([]);
+    }
+  });
+
+  it('still dispatches qwen2.5-coder edit_file in a typescript fence', () => {
+    const text = '```typescript\nedit_file(path="src/sum.ts", search="a - b", replace="a + b")\n```';
+    expect(parseTextToolCalls(text, tools, opts).map((c) => c.name)).toEqual(['edit_file']);
+  });
+
+  it('still dispatches a list step followed by its purpose', () => {
+    const text =
+      'Here is the fix:\n\n' +
+      '1. `edit_file(path="src/processor.js", search="item.toUppercase()", replace="item.toUpperCase()")` — fix the typo';
+    const calls = parseTextToolCalls(text, tools, opts);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].input).toEqual({
+      path: 'src/processor.js',
+      search: 'item.toUppercase()',
+      replace: 'item.toUpperCase()',
+    });
+  });
+
+  it('still dispatches a plan under a neutral header', () => {
+    const text =
+      'Next steps:\n1. `run_command(command="grep -n \\"abs\\" src/math.ts")` — find the exact line\n' +
+      '2. `read_file(path="src/math.ts")` — read it';
+    expect(parseTextToolCalls(text, tools, opts).map((c) => c.name)).toEqual(['run_command', 'read_file']);
+  });
+
+  it('a quoted call in a fence is still a call', () => {
+    // Fences are left alone: inside one, "confirms" is part of a code comment, not prose.
+    const text = '```\nread_file(path="src/a.ts")  # confirms the path\n```';
+    expect(parseTextToolCalls(text, tools, opts)).toHaveLength(1);
+  });
+});
