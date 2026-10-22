@@ -75,7 +75,7 @@ export async function replyPrComment(input: Record<string, unknown>, context?: T
     const reply = await api.replyToPRComment(owner, repo, prNumber, commentId, body);
     return `Reply posted to PR #${prNumber} thread (comment ${commentId}): ${reply.url}`;
   } catch (err) {
-    return `Failed to post reply: ${formatToolError(err)}`;
+    throw new Error(`Failed to post reply: ${formatToolError(err)}`);
   }
 }
 
@@ -127,7 +127,7 @@ export async function submitPrReview(input: Record<string, unknown>, context?: T
     const review = await api.submitPRReview(owner, repo, prNumber, body, event);
     return `PR review submitted (id ${review.id}, state ${review.state}): ${review.htmlUrl}`;
   } catch (err) {
-    return `Failed to submit PR review: ${formatToolError(err)}`;
+    throw new Error(`Failed to submit PR review: ${formatToolError(err)}`);
   }
 }
 
@@ -176,7 +176,7 @@ export async function markPrReadyTool(_input: Record<string, unknown>, context?:
     case 'no-remote':
       return messages[0] ?? 'No GitHub remote configured.';
     case 'error':
-      return `Failed to mark PR ready: ${outcome.errorMessage}`;
+      throw new Error(`Failed to mark PR ready: ${outcome.errorMessage}`);
   }
 }
 
@@ -233,7 +233,7 @@ export async function checkPrCiTool(_input: Record<string, unknown>, context?: T
     case 'no-remote':
       return messages[0] ?? 'No GitHub remote configured.';
     case 'error':
-      return `Failed to fetch CI checks: ${outcome.errorMessage}`;
+      throw new Error(`Failed to fetch CI checks: ${outcome.errorMessage}`);
   }
 }
 
@@ -318,7 +318,7 @@ export async function createPrReview(input: Record<string, unknown>, context?: T
       comments.length > 0 ? ` with ${comments.length} inline comment${comments.length === 1 ? '' : 's'}` : '';
     return `PR review submitted${commentSuffix} (id ${review.id}, state ${review.state}): ${review.htmlUrl}`;
   } catch (err) {
-    return `Failed to create PR review: ${formatToolError(err)}`;
+    throw new Error(`Failed to create PR review: ${formatToolError(err)}`);
   }
 }
 
