@@ -48,6 +48,11 @@ const INFRA_SIGNATURES = [
   'fatal: ',
   'reference is not a tree',
   'did not match any file(s) known to git',
+  // The task's repository isn't in SIDECAR_SWE_REPO_CACHE: the run stopped
+  // before the agent did anything. The nemotron overnight queue (2026-10-21)
+  // had 22 of these labelled [capability] (#292). The driver now refuses before
+  // the first task; this covers a miss that still happens mid-run.
+  'repo cache miss',
   // The task's environment build, also before the agent runs. A cached venv
   // half-deleted by the macOS temp purge failed `uv pip install -e .` on every
   // Django task -- 0 turns, labeled [capability] (#208). These match the
