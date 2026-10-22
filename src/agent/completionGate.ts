@@ -270,6 +270,29 @@ export function diagnosticsProvedAnalysis(resultText: string): boolean {
   return true;
 }
 
+/**
+ * A script that runs no test: `exit 0`, `exit`, `true` or `:` (with any
+ * arguments `npm test -- …` appends), or a lone `echo` with nothing chained
+ * after it. npm's placeholder, `echo "Error: no test specified" && exit 1`,
+ * doesn't match; it fails anyway.
+ */
+const INERT_SCRIPT_RE = /^(?:(?:exit(?: +0)?|true|:)(?: +\S+)*|echo(?: +[^&|;]*)?) *;? *$/;
+
+/**
+ * True when the output shows the package manager running a `test` script that
+ * runs no test (#280). npm and pnpm print a `> name@version test` header and
+ * then `> <script>`. That header separates the test script from a `pretest`
+ * hook, which may well be an `echo`. Yarn 1 and bun print only `$ <script>`
+ * for each script they run, so for them every echoed script has to be inert.
+ * Yarn 2+ prints no script line and isn't covered.
+ */
+export function ranInertTestScript(output: string): boolean {
+  const npm = output.match(/^> \S+ test(?: .*)?\r?\n> (.*?)\r?$/m);
+  if (npm) return INERT_SCRIPT_RE.test(npm[1].trim());
+  const scripts = [...output.matchAll(/^\$ (.*?)\r?$/gm)].map((m) => m[1].trim());
+  return scripts.length > 0 && scripts.every((s) => INERT_SCRIPT_RE.test(s));
+}
+
 export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty' | 'unknown' {
   // Strip ANSI first. `run_tests` runs on a TTY, so output is colored AND can
   // contain cursor/erase codes (\x1b[K). An escape ending in a word char right
@@ -283,6 +306,9 @@ export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty
   if (/no tests ran|ran 0 tests|collected 0 item|\b0 tests? (ran|passed|collected)/i.test(content) || exit === 5) {
     return 'empty';
   }
+  // A test script that runs no test ("test": "exit 0", "true", "echo ok")
+  // verified nothing either, however it exits or whatever it prints (#280).
+  if (ranInertTestScript(content)) return 'empty';
   // Failure: a NON-ZERO failed/error count ("5 passed, 0 failed" is a PASS — the
   // old `\b\d+ failed\b` matched "0 failed" and misread a pass as fail), a runner
   // failure word (pytest FAILED, go FAIL), an assertion/traceback, or non-zero exit.
