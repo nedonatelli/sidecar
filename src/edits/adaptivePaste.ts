@@ -15,8 +15,24 @@ import {
 import { SideCarClient } from '../ollama/client.js';
 import { getConfig } from '../config/settings.js';
 import { detectTransforms, type PasteTransform } from './pasteTransforms.js';
+import { cleanResolution } from '../conflict/conflictResolver.js';
 
 const ADAPTIVE_PASTE_COMMAND = 'sidecar.adaptivePaste.transform';
+
+/**
+ * The model's transform, shaped to replace the paste (#165 ML-62). It was
+ * written `trim()`med: the first line lost its indentation, a line-wise paste
+ * lost its trailing newline and glued itself to the next line, and a fenced
+ * answer went in fence and all. Same cleaning as AI conflict resolution: unwrap
+ * a fence around the whole answer, drop leading blank lines only, drop trailing
+ * whitespace. Then restore the paste's trailing line break, and write the
+ * document's own line endings.
+ */
+export function fitTransformed(raw: string, pasted: string, eol: '\n' | '\r\n'): string {
+  let text = cleanResolution(raw).replace(/\r?\n/g, eol);
+  if (/\r?\n$/.test(pasted)) text += eol;
+  return text;
+}
 
 /**
  * Tracks the most recent "likely paste" in each document: a single
@@ -198,7 +214,9 @@ export function registerAdaptivePasteCommand(
               return;
             }
             const edit = new WorkspaceEdit();
-            edit.replace(editor.document.uri, target, transformed.trim());
+            // EndOfLine.CRLF is 2.
+            const eol = editor.document.eol === 2 ? '\r\n' : '\n';
+            edit.replace(editor.document.uri, target, fitTransformed(transformed, paste.text, eol));
             await workspace.applyEdit(edit);
             tracker.clearLastPaste();
           } catch (err) {

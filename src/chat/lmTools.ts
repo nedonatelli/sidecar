@@ -22,6 +22,7 @@ import type { ToolExecutorContext } from '../agent/tools/shared.js';
 import { executeTool } from '../agent/executor.js';
 import { getConfig } from '../config/settings.js';
 import { participantApprovalOptions } from './sidecarParticipant.js';
+import { DIFF_STREAM_PREFIX } from '../agent/tools/diffStream.js';
 
 /**
  * The core tool names to expose. Must match `languageModelTools[*].name`
@@ -71,7 +72,12 @@ export function registerLmTools(context: vscode.ExtensionContext): void {
         const ctx: ToolExecutorContext = {
           signal: ac.signal,
           cwd: getWorkspaceRoot(),
-          onOutput: (chunk) => outputChunks.push(chunk),
+          // A diff chunk is for the chat view to render; the result already
+          // says what changed. Forwarding it handed the calling model the raw
+          // stream marker (#165 ML-55).
+          onOutput: (chunk) => {
+            if (!chunk.startsWith(DIFF_STREAM_PREFIX)) outputChunks.push(chunk);
+          },
           modeToolPermissions: approval.modeToolPermissions,
         };
 

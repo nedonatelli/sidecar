@@ -461,4 +461,77 @@ describe('executeMultiFilePlan — onEditPlanProgress events ', () => {
       .map((p) => p.status);
     expect(bStatuses).toEqual(['aborted']);
   });
+
+  // #165 ML-57: a task Stop cancelled inside its own layer returned only the
+  // writes it ran, possibly none, and was reported "done".
+  const statusesOf = (cb: ReturnType<typeof stubCallbacks>, path: string) =>
+    (cb.onEditPlanProgress as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as { path: string; status: string })
+      .filter((p) => p.path === path)
+      .map((p) => p.status);
+  const run = (pending: ToolUseContentBlock[], plan: EditPlan, signal: AbortSignal, cap = 8, cb = stubCallbacks()) =>
+    executeMultiFilePlan(
+      plan,
+      pending,
+      stubLoopState({ logger: { info: vi.fn(), warn: vi.fn() } as unknown as LoopState['logger'] }),
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      signal,
+      cap,
+    ).then(() => cb);
+
+  it('a file still queued behind the parallelism cap when Stop lands is aborted, not done', async () => {
+    const ctrl = new AbortController();
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, p) => {
+      ctrl.abort(); // Stop lands while a.ts runs; b.ts is waiting for the one slot
+      return result(p.id, 'ok');
+    });
+    const plan: EditPlan = {
+      edits: [
+        { path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] },
+        { path: 'b.ts', op: 'edit', rationale: '', dependsOn: [] },
+      ],
+    };
+    const cb = await run([tu('a.ts'), tu('b.ts')], plan, ctrl.signal, 1);
+    expect(vi.mocked(executeOneToolUse)).toHaveBeenCalledTimes(1);
+    expect(statusesOf(cb, 'a.ts').at(-1)).toBe('done');
+    expect(statusesOf(cb, 'b.ts')).not.toContain('done');
+  });
+
+  it('a file Stop cancelled before its layer started is aborted (already handled by the end-of-walk sweep)', async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, p) => result(p.id, 'ok'));
+    const cb = await run(
+      [tu('a.ts')],
+      { edits: [{ path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] }] },
+      ctrl.signal,
+    );
+    expect(statusesOf(cb, 'a.ts')).not.toContain('done');
+    expect(statusesOf(cb, 'a.ts').at(-1)).toBe('aborted');
+  });
+
+  it('a file Stop cancelled between two of its writes is aborted, not done', async () => {
+    const ctrl = new AbortController();
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, p) => {
+      ctrl.abort(); // Stop lands while the first write runs
+      return result(p.id, 'ok');
+    });
+    const pending = [tu('a.ts', 'w1'), tu('a.ts', 'w2')];
+    const cb = await run(pending, { edits: [{ path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] }] }, ctrl.signal);
+    expect(vi.mocked(executeOneToolUse)).toHaveBeenCalledTimes(1);
+    expect(statusesOf(cb, 'a.ts')).not.toContain('done');
+  });
+
+  it('a file whose writes all ran is still done', async () => {
+    vi.mocked(executeOneToolUse).mockImplementation(async (_ctx, p) => result(p.id, 'ok'));
+    const pending = [tu('a.ts', 'w1'), tu('a.ts', 'w2')];
+    const cb = await run(
+      pending,
+      { edits: [{ path: 'a.ts', op: 'edit', rationale: '', dependsOn: [] }] },
+      new AbortController().signal,
+    );
+    expect(statusesOf(cb, 'a.ts').at(-1)).toBe('done');
+  });
 });

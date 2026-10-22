@@ -27,7 +27,7 @@ import { recordBounce, clearBounces, escalationSuffix } from './executor/bounceE
 import { isGenericClarification, CANNED_CLARIFICATION } from './executor/genericClarification.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
-import { previewEditFile } from './tools/fs.js';
+import { previewEditFile, readCurrentText } from './tools/fs.js';
 import { delegatedMcpToolName } from './tools/mcpDelegate.js';
 
 // Re-export ApprovalMode so all existing importers keep working unchanged.
@@ -610,18 +610,16 @@ export async function executeTool(
 
         // Stub / placeholder scan — detect TODO / FIXME / unimplemented
         // markers the agent may have emitted and publish them under the
-        // sidecar-stubs source. Uses the new file content directly from
-        // the tool input so it works in both write and review modes.
+        // sidecar-stubs source. write_file's content is the whole file. For
+        // edit_file the scan used to run on the `replace` snippet: its line
+        // numbers were the snippet's, and since a report replaces the file's
+        // whole set, stubs found earlier in the file disappeared (#165 ML-38).
+        // It now scans the file as the edit left it.
         const writtenContent =
           typeof toolUse.input.content === 'string'
             ? (toolUse.input.content as string)
-            : typeof toolUse.input.replace === 'string'
-              ? (toolUse.input.replace as string)
-              : '';
-        if (writtenContent) {
-          const stubs = detectStubs(relPath, writtenContent);
-          reportStubs(absPath, writtenContent, stubs);
-        }
+            : await readCurrentText(executorContext, relPath);
+        if (writtenContent) reportStubs(absPath, writtenContent, detectStubs(relPath, writtenContent));
       }
     }
 

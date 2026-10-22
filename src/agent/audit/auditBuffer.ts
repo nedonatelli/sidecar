@@ -132,6 +132,20 @@ export class AuditFlushError extends Error {
   }
 }
 
+/**
+ * The buffer's key for a path. Keyed by spelling, `./src/a.ts` and `src/a.ts`
+ * were two entries for one file: a read through one spelling missed a write
+ * through the other, and both landed on flush (#165 ML-54). Separators are
+ * unified, repeated slashes collapse, and `./` segments go. `..` is left alone,
+ * so auditPathRefusal still sees any traversal at flush.
+ */
+export function auditBufferKey(filePath: string): string {
+  let key = filePath.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
+  while (key.includes('/./')) key = key.replace('/./', '/');
+  while (key.startsWith('./')) key = key.slice(2);
+  return key;
+}
+
 export class AuditBuffer {
   private readonly entries = new Map<string, BufferedChange>();
   private commits: BufferedCommit[] = [];
@@ -180,7 +194,8 @@ export class AuditBuffer {
     // saves replaced the snapshot on disk. A plain restore matches disk.
     const hadNewer = this.entries.size > 0 || this.commits.length > 0;
     for (const entry of entries) {
-      if (!this.entries.has(entry.path)) this.entries.set(entry.path, entry);
+      const key = auditBufferKey(entry.path);
+      if (!this.entries.has(key)) this.entries.set(key, { ...entry, path: key });
     }
     this.commits = [...commits, ...this.commits];
     if (hadNewer) void this.persist();
@@ -233,7 +248,8 @@ export class AuditBuffer {
    * the file to its exact prior state (not just the content the agent
    * initially read).
    */
-  async write(filePath: string, content: string, readDisk: ReadDiskFn): Promise<void> {
+  async write(rawPath: string, content: string, readDisk: ReadDiskFn): Promise<void> {
+    const filePath = auditBufferKey(rawPath);
     const existing = this.entries.get(filePath);
     // Commit the new content to the buffer synchronously BEFORE any await so
     // that a concurrent read() always sees the latest intended state even
@@ -266,7 +282,8 @@ export class AuditBuffer {
    * within the buffer is removed from the buffer entirely (neutral) so
    * a flush doesn't try to delete a path that never existed on disk.
    */
-  async deleteFile(filePath: string, readDisk: ReadDiskFn): Promise<void> {
+  async deleteFile(rawPath: string, readDisk: ReadDiskFn): Promise<void> {
+    const filePath = auditBufferKey(rawPath);
     const existing = this.entries.get(filePath);
     if (existing?.op === 'create') {
       // Net no-op: we were going to create this, now we're deleting it.
@@ -297,7 +314,7 @@ export class AuditBuffer {
    * should see "file not found" check the `deleted` flag.
    */
   read(filePath: string): { content: string | undefined; deleted: boolean; buffered: boolean } {
-    const entry = this.entries.get(filePath);
+    const entry = this.entries.get(auditBufferKey(filePath));
     if (!entry) return { content: undefined, deleted: false, buffered: false };
     if (entry.op === 'delete') return { content: undefined, deleted: true, buffered: true };
     return { content: entry.content, deleted: false, buffered: true };
@@ -305,7 +322,7 @@ export class AuditBuffer {
 
   /** True when this path has any pending write (create/modify/delete). */
   has(filePath: string): boolean {
-    return this.entries.has(filePath);
+    return this.entries.has(auditBufferKey(filePath));
   }
 
   /**
@@ -316,7 +333,7 @@ export class AuditBuffer {
    * No-ops when the path is not in the buffer or the entry is a delete.
    */
   overwriteContent(filePath: string, content: string): void {
-    const entry = this.entries.get(filePath);
+    const entry = this.entries.get(auditBufferKey(filePath));
     if (!entry || entry.op === 'delete') return;
     entry.content = content;
     entry.timestamp = Date.now();
@@ -378,7 +395,7 @@ export class AuditBuffer {
     executeCommit?: ExecuteCommitFn,
   ): Promise<{ applied: string[]; committed: string[] }> {
     const targetEntries = paths
-      ? (paths.map((p) => this.entries.get(p)).filter(Boolean) as BufferedChange[])
+      ? (paths.map((p) => this.entries.get(auditBufferKey(p))).filter(Boolean) as BufferedChange[])
       : Array.from(this.entries.values());
 
     const applied: string[] = [];
@@ -495,7 +512,7 @@ export class AuditBuffer {
       this.entries.clear();
       this.commits = [];
     } else {
-      for (const p of paths) this.entries.delete(p);
+      for (const p of paths) this.entries.delete(auditBufferKey(p));
     }
     // Fire-and-forget — this stays non-async so callers don't need
     // to thread await through reject-flow code that already works.

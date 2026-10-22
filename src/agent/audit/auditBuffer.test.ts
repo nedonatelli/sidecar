@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AuditBuffer, AuditFlushError, type ReadDiskFn, type WriteDiskFn, type DeleteDiskFn } from './auditBuffer.js';
+import {
+  AuditBuffer,
+  AuditFlushError,
+  auditBufferKey,
+  type ReadDiskFn,
+  type WriteDiskFn,
+  type DeleteDiskFn,
+} from './auditBuffer.js';
 
 describe('AuditBuffer', () => {
   let buf: AuditBuffer;
@@ -531,5 +538,59 @@ describe("flush applies the write tools' path rules", () => {
     await expect(buf.flush(writeDisk, deleteDisk)).rejects.toBeInstanceOf(AuditFlushError);
     expect(writeDisk).not.toHaveBeenCalled();
     expect(deleteDisk).not.toHaveBeenCalled();
+  });
+});
+
+// #165 ML-54: the buffer was keyed by spelling, so `./src/a.ts` and `src/a.ts`
+// were two entries for one file.
+describe('AuditBuffer — one file, one entry, however the path is spelled', () => {
+  const noDisk: ReadDiskFn = async () => 'orig';
+
+  it('a write through ./src/a.ts is read through src/a.ts', async () => {
+    const buf = new AuditBuffer();
+    await buf.write('./src/a.ts', 'new', noDisk);
+    expect(buf.read('src/a.ts')).toEqual({ content: 'new', deleted: false, buffered: true });
+    expect(buf.has('src/a.ts')).toBe(true);
+  });
+
+  it('two spellings of one path leave one entry, holding the latest write and the first baseline', async () => {
+    const buf = new AuditBuffer();
+    await buf.write('src/a.ts', 'first', noDisk);
+    await buf.write('./src//a.ts', 'second', async () => 'should not be read again');
+    expect(buf.list()).toHaveLength(1);
+    expect(buf.list()[0]).toMatchObject({ path: 'src/a.ts', content: 'second', originalContent: 'orig' });
+  });
+
+  it('Windows separators and ./ segments are the same file', async () => {
+    const buf = new AuditBuffer();
+    await buf.write('src\\pkg\\mod.py', 'x', noDisk);
+    expect(buf.read('src/./pkg/mod.py').buffered).toBe(true);
+  });
+
+  it('a delete through another spelling deletes the same entry', async () => {
+    const buf = new AuditBuffer();
+    await buf.write('src/new.ts', 'x', async () => undefined); // a create
+    await buf.deleteFile('./src/new.ts', async () => undefined);
+    expect(buf.list()).toHaveLength(0);
+  });
+
+  it('flushing or rejecting a path by another spelling finds it', async () => {
+    const buf = new AuditBuffer();
+    await buf.write('./src/a.ts', 'x', noDisk);
+    await buf.write('./src/b.ts', 'y', noDisk);
+    buf.clear(['src/b.ts']);
+    const writeDisk = vi.fn<WriteDiskFn>(async () => {});
+    const { applied } = await buf.flush(
+      writeDisk,
+      vi.fn<DeleteDiskFn>(async () => {}),
+      ['src/a.ts'],
+    );
+    expect(applied).toEqual(['src/a.ts']);
+    expect(buf.list()).toHaveLength(0);
+  });
+
+  it('`..` is kept, so the flush-time path check still sees a traversal', () => {
+    expect(auditBufferKey('./src/../../etc/passwd')).toBe('src/../../etc/passwd');
+    expect(auditBufferKey('../x.ts')).toBe('../x.ts');
   });
 });

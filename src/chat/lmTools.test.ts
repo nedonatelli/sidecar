@@ -51,3 +51,29 @@ describe("vscode.lm tools go through SideCar's approval", () => {
     expect(result.content[0].value).toMatch(/denied|declined/i);
   });
 });
+
+describe('vscode.lm tool results (#165 ML-55)', () => {
+  it("edit_file's streamed diff chunk is not returned to the calling model", async () => {
+    const entry = TOOL_REGISTRY.find((t) => t.definition.name === 'edit_file')!;
+    vi.spyOn(entry, 'executor').mockImplementation(async (_input, ctx) => {
+      ctx?.onOutput?.('\x00diff\x00--- a/src/a.ts\n+++ b/src/a.ts\n-x\n+y');
+      ctx?.onOutput?.('progress note');
+      return 'File edited: src/a.ts';
+    });
+    // Approve whatever the confirmation offers first.
+    vi.spyOn(vscode.window, 'showWarningMessage').mockImplementation(
+      (async (_m: unknown, _o: unknown, ...actions: string[]) => actions[0]) as never,
+    );
+    registerLmTools({ subscriptions: [] } as never);
+
+    const result = await handlers
+      .get('sidecar_edit_file')
+      .invoke({ input: { path: 'src/a.ts', search: 'x', replace: 'y' } }, token);
+
+    const text: string = result.content[0].value;
+    expect(text).toContain('File edited: src/a.ts');
+    expect(text).toContain('progress note');
+    expect(text).not.toContain('\x00');
+    expect(text).not.toContain('+++ b/src/a.ts');
+  });
+});
