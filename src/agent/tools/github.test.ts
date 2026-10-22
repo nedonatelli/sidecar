@@ -138,11 +138,12 @@ describe('replyPrComment', () => {
     expect(result).toMatch(/requires pr_number/);
   });
 
-  it('returns error message when API call fails', async () => {
+  // A failure throws, so the executor records is_error (#227, from #118).
+  it('throws when the API call fails', async () => {
     mockApiMethods.replyToPRComment.mockRejectedValueOnce(new Error('403 Forbidden'));
-    const result = await replyPrComment({ pr_number: 42, comment_id: 10, body: 'hi' });
-    expect(result).toMatch(/Failed to post reply/);
-    expect(result).toMatch(/403/);
+    await expect(replyPrComment({ pr_number: 42, comment_id: 10, body: 'hi' })).rejects.toThrow(
+      /Failed to post reply.*403/,
+    );
   });
 
   it('returns no-remote error when getRemoteUrl returns null', async () => {
@@ -195,11 +196,11 @@ describe('submitPrReview', () => {
     expect(result).toMatch(/requires pr_number/);
   });
 
-  it('returns error message when API call fails', async () => {
+  it('throws when the API call fails', async () => {
     mockApiMethods.submitPRReview.mockRejectedValueOnce(new Error('rate limited'));
-    const result = await submitPrReview({ pr_number: 42, body: 'hi' });
-    expect(result).toMatch(/Failed to submit PR review/);
-    expect(result).toMatch(/rate limited/);
+    await expect(submitPrReview({ pr_number: 42, body: 'hi' })).rejects.toThrow(
+      /Failed to submit PR review.*rate limited/,
+    );
   });
 });
 
@@ -265,11 +266,9 @@ describe('checkPrCiTool', () => {
     expect(result).toMatch(/No open PR/);
   });
 
-  it('returns error message on API failure', async () => {
+  it('throws on API failure', async () => {
     mockApiMethods.getPRCheckRuns.mockRejectedValueOnce(new Error('502 Bad Gateway'));
-    const result = await checkPrCiTool({});
-    expect(result).toMatch(/Failed to fetch CI checks/);
-    expect(result).toMatch(/502/);
+    await expect(checkPrCiTool({})).rejects.toThrow(/Failed to fetch CI checks.*502/);
   });
 });
 

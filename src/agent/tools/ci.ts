@@ -186,7 +186,7 @@ export async function analyzeCiFailureTool(
 
     return out.join('\n');
   } catch (err) {
-    return `Failed to analyze CI: ${formatToolError(err)}`;
+    throw new Error(`Failed to analyze CI: ${formatToolError(err)}`);
   }
 }
 

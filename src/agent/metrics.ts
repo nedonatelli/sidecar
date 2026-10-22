@@ -58,6 +58,7 @@ const STORAGE_KEY = 'sidecar.metrics';
 export class MetricsCollector {
   private currentRun: Partial<AgentRunMetrics> | null = null;
   private toolStartTime = 0;
+  private readonly toolStartTimes = new Map<string, number>();
   private sidecarDir: SidecarDir | null = null;
 
   constructor(private workspaceState: Memento) {}
@@ -83,21 +84,30 @@ export class MetricsCollector {
     if (this.currentRun) this.currentRun.iterations = (this.currentRun.iterations || 0) + 1;
   }
 
-  recordToolStart(): void {
+  /**
+   * Note when a tool call starts. Keyed by the call's id: with one shared start
+   * time, parallel calls each overwrote it, so every duration was measured from
+   * whichever call started last (#227, from #116). Without an id, the last
+   * start is used, as before.
+   */
+  recordToolStart(id?: string): void {
     this.toolStartTime = Date.now();
+    if (id !== undefined) this.toolStartTimes.set(id, this.toolStartTime);
   }
 
-  /** Get elapsed time since the last recordToolStart() call. */
-  getToolDuration(): number {
-    return Date.now() - this.toolStartTime;
+  /** Elapsed time since this call's recordToolStart (the last one, without an id). */
+  getToolDuration(id?: string): number {
+    const start = id !== undefined ? (this.toolStartTimes.get(id) ?? this.toolStartTime) : this.toolStartTime;
+    return Date.now() - start;
   }
 
-  recordToolEnd(name: string, isError: boolean): void {
+  recordToolEnd(name: string, isError: boolean, id?: string): void {
     this.currentRun?.toolCalls?.push({
       name,
-      durationMs: Date.now() - this.toolStartTime,
+      durationMs: this.getToolDuration(id),
       isError,
     });
+    if (id !== undefined) this.toolStartTimes.delete(id);
   }
 
   recordTokens(chars: number): void {
@@ -149,8 +159,12 @@ export class MetricsCollector {
     const run = this.currentRun as AgentRunMetrics;
 
     // Keep the last 100 runs in workspaceState for fast in-session access.
-    const history = this.getHistory();
-    history.push(run);
+    // A new array, never a push onto getHistory()'s: VS Code's Memento returns
+    // the stored object itself, and activation hydrated the capability learner
+    // with that same array. Pushing onto it fed this run to the learner, and
+    // recordRunForLearning below then fed it again, so a session's first run
+    // counted twice (#227, from #116).
+    const history = [...this.getHistory(), run];
     if (history.length > 100) history.splice(0, history.length - 100);
     this.workspaceState.update(STORAGE_KEY, history);
 

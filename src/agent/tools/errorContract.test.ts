@@ -45,6 +45,14 @@ const RETURNED_REFUSAL = /return\s*\(?\s*[`'"][^`'"]*\b(was NOT applied|is NOT p
 const RETURNED_CATCH = /return\s*`[^`]*\bfailed:\s*\$\{(?:formatToolError|err)/;
 
 /**
+ * "Failed to <do X>: …" — the same class worded the other way round, which
+ * RETURNED_CATCH (`… failed: ${…}`) missed: six GitHub and CI tool failures
+ * (reply_pr_comment, submit_pr_review, create_pr_review, mark_pr_ready,
+ * check_pr_ci, analyze_ci_failure) read as successes (#227, from #118).
+ */
+const RETURNED_FAILED_TO = /return\s*\(?\s*[`'"]Failed to\b/;
+
+/**
  * KNOWN DEBT — files that still report failures as successes.
  *
  * The contract is enforced for everything NOT on this list, so no NEW violation
@@ -99,7 +107,12 @@ describe('tool error contract: failures throw, they are never returned', () => {
       const lines = fs.readFileSync(file, 'utf-8').split('\n');
       lines.forEach((line, i) => {
         if (line.trim().startsWith('//') || line.trim().startsWith('*')) return;
-        if (RETURNED_ERROR.test(line) || RETURNED_REFUSAL.test(line) || RETURNED_CATCH.test(line)) {
+        if (
+          RETURNED_ERROR.test(line) ||
+          RETURNED_REFUSAL.test(line) ||
+          RETURNED_CATCH.test(line) ||
+          RETURNED_FAILED_TO.test(line)
+        ) {
           offenders.push(`${path.basename(file)}:${i + 1}  ${line.trim().slice(0, 100)}`);
         }
       });
@@ -124,7 +137,7 @@ describe('tool error contract: failures throw, they are never returned', () => {
         (l) =>
           !l.trim().startsWith('//') &&
           !l.trim().startsWith('*') &&
-          (RETURNED_ERROR.test(l) || RETURNED_REFUSAL.test(l) || RETURNED_CATCH.test(l)),
+          (RETURNED_ERROR.test(l) || RETURNED_REFUSAL.test(l) || RETURNED_CATCH.test(l) || RETURNED_FAILED_TO.test(l)),
       );
       if (hasViolation) stillDirty.push(name);
     }
@@ -145,5 +158,10 @@ describe('tool error contract: failures throw, they are never returned', () => {
     expect(RETURNED_REFUSAL.test('    return `File written: ${filePath}`;')).toBe(false);
     expect(RETURNED_CATCH.test('    return `git commit failed: ${formatToolError(err)}`;')).toBe(true);
     expect(RETURNED_CATCH.test('    throw new Error(`git commit failed: ${formatToolError(err)}`);')).toBe(false);
+    expect(RETURNED_FAILED_TO.test('    return `Failed to post reply: ${formatToolError(err)}`;')).toBe(true);
+    expect(RETURNED_FAILED_TO.test('    throw new Error(`Failed to post reply: ${formatToolError(err)}`);')).toBe(
+      false,
+    );
+    expect(RETURNED_FAILED_TO.test("    return 'Fetched 3 checks';")).toBe(false);
   });
 });

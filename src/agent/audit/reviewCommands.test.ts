@@ -954,6 +954,33 @@ describe('reviewAuditBuffer — per-hunk granularity', () => {
     expect(writeFileSpy).toHaveBeenCalledTimes(1);
     expect(buf.has('new.ts')).toBe(false);
   });
+
+  // #227 (from #115): the partial selection was written into the buffer before
+  // a flush that can be cancelled, so cancelling lost the unpicked hunks.
+  it("modify entry: partial selection, then a cancelled flush keeps the agent's full change", async () => {
+    const lines = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`);
+    const original = lines.join('\n');
+    const agent = ['LINE 1', ...lines.slice(1, 11), 'LINE 12'].join('\n'); // two far-apart hunks
+    const buf = await makeBufferWith([{ op: 'write', path: 'a.ts', content: agent }], { 'a.ts': original });
+    readFileSpy.mockResolvedValue(Buffer.from('edited on disk meanwhile') as never); // → conflict
+    let picks = 0;
+    const ui = makeUi({
+      showQuickPick: vi.fn(async (items: readonly { action?: string }[]) =>
+        picks++ === 0 ? items.find((i) => i.action === 'open') : undefined,
+      ) as unknown as AuditReviewUi['showQuickPick'],
+      showMultiQuickPick: vi.fn(async (items: unknown[]) => [
+        items[0],
+      ]) as unknown as AuditReviewUi['showMultiQuickPick'],
+      showConflictDialog: vi.fn(async () => undefined), // cancel
+    });
+
+    await reviewAuditBuffer({ ...baseDeps(buf, ui), reviewGranularity: 'per-hunk' });
+
+    expect(ui.showConflictDialog).toHaveBeenCalled();
+    expect(writeFileSpy).not.toHaveBeenCalled();
+    expect(buf.read('a.ts').content).toBe(agent);
+    expect(ui.showInfo).not.toHaveBeenCalledWith(expect.stringContaining('applied 1 of 2 hunks'));
+  });
 });
 
 // #115: no command passed a commit runner, so every commit the agent queued in

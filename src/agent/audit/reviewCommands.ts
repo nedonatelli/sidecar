@@ -297,10 +297,19 @@ async function reviewPerHunkForFile(
     return 'accepted';
   }
 
-  // Partial selection — apply only selected hunks and flush
+  // Partial selection — apply only selected hunks and flush. The buffer has
+  // to hold the partial content for the flush to write it, but a flush can
+  // be cancelled (conflict dialog) or fail. It used to leave the partial
+  // content behind regardless, so the unpicked hunks were gone for good while
+  // the flush said "buffer preserved" (#227). Put the agent's full change back
+  // unless the flush landed.
   const partialContent = applySelectedHunks(original, hunks, selectedSet);
   buf.overwriteContent(entry.path, partialContent);
-  await acceptFileAuditBuffer(deps, entry.path);
+  const flushed = await flushBufferPaths(deps, [entry.path]);
+  if (!flushed) {
+    buf.overwriteContent(entry.path, current);
+    return 'skipped';
+  }
   deps.ui.showInfo(`SideCar audit: applied ${selectedSet.size} of ${hunks.length} hunks in ${entry.path}.`);
   return 'accepted';
 }

@@ -42,14 +42,26 @@ const MAX_SHELL_CHANGED_PATHS = 100;
 const WIDESPREAD_CHANGE_RATIO = 0.5;
 const MIN_TRACKED_PATHS_FOR_WIDESPREAD_CHECK = 20;
 
+// `cwd` names the task clone. An inherited GIT_DIR / GIT_INDEX_FILE (git sets
+// both for hooks, so the pre-commit run of the tests has them) would override
+// it and point these commands at the repository being committed.
+const GIT_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => !['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'].includes(k)),
+);
+
 function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString();
+  return execFileSync('git', args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 64 * 1024 * 1024,
+    env: GIT_ENV,
+  }).toString();
 }
 
 /** True when `git` exits 0 -- for the commands whose answer IS the exit code. */
 function gitSucceeds(args: string[], cwd: string): boolean {
   try {
-    execFileSync('git', args, { cwd, stdio: 'ignore' });
+    execFileSync('git', args, { cwd, stdio: 'ignore', env: GIT_ENV });
     return true;
   } catch {
     return false;
@@ -97,6 +109,7 @@ function discoverShellChangedPaths(
     execFileSync('git', ['merge-base', '--is-ancestor', baseCommit, head], {
       cwd: dir,
       stdio: 'ignore',
+      env: GIT_ENV,
     });
   } catch (error) {
     if ((error as NodeJS.ErrnoException & { status?: number }).status === 1) {
