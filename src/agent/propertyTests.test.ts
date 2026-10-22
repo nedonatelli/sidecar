@@ -37,6 +37,10 @@ describe('parseParams', () => {
   it('drops *args / **kwargs', () => {
     expect(parseParams('def f(x, *args, **kw):', 'f')).toEqual(['x']);
   });
+  // #121: a plain comma split cut annotations apart.
+  it('does not split inside annotation brackets or default parens', () => {
+    expect(parseParams('def f(a: Dict[str, int], b: Tuple[int, int] = (1, 2), c=3):', 'f')).toEqual(['a', 'b', 'c']);
+  });
   it('returns [] when the function is not found', () => {
     expect(parseParams('def other(x):', 'missing')).toEqual([]);
   });
@@ -57,6 +61,14 @@ describe('synthesizeHypothesisTest', () => {
     expect(test).toContain('def test_prob_properties(x):');
     expect(test).toContain('result = prob(x)');
     expect(test).toContain('np.all(result >= 0) and np.all(result <= 1)');
+  });
+
+  // #121: the bound named the kernel's local `p`, which the test never binds.
+  it('asserts a bound on `result`, not on a kernel-local name', () => {
+    const src = 'def prob(x):\n    # bounds: 0 <= p <= 1\n    p = softmax(x)\n    return p';
+    const test = synthesizeHypothesisTest('prob', src)!;
+    expect(test).toContain('np.all(result >= 0) and np.all(result <= 1)');
+    expect(test).not.toMatch(/np\.all\(p\b/);
   });
 
   it('generates a symmetry check calling with swapped args', () => {

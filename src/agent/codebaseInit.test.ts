@@ -172,6 +172,23 @@ describe('codebaseInit', () => {
       expect(result).toContain('Analyzing Project: my-python-app');
     });
 
+    // #121: package.json was truncated before JSON.parse, so a large one
+    // failed to parse and the name fell back to the folder.
+    it('detects the name from a package.json longer than the prompt cap', async () => {
+      const deps = Object.fromEntries(Array.from({ length: 600 }, (_, i) => [`dep-${i}`, '^1.0.0']));
+      const pkg = JSON.stringify({ name: 'big-node-app', dependencies: deps }, null, 2);
+      expect(pkg.length).toBeGreaterThan(8000);
+      mockWorkspace.fs.readFile = vi
+        .fn()
+        .mockImplementation((uri: any) =>
+          uri.fsPath.endsWith('package.json') ? Promise.resolve(Buffer.from(pkg)) : Promise.reject(new Error('nf')),
+        );
+
+      const result = await buildInitContext(null);
+      expect(result).toContain('Analyzing Project: big-node-app');
+      expect(result).toContain('... (truncated)'); // the prompt copy is still capped
+    });
+
     it('handles workspace index with no files gracefully', async () => {
       const index = makeWorkspaceIndex([]);
 

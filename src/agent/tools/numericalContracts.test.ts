@@ -52,6 +52,13 @@ describe('check_numerical_contracts tool', () => {
     expect(out).not.toMatch(/✓ checked/);
   });
 
+  // #121: the scope filter compared the raw argument to graph keys exactly.
+  it('normalizes a `./` or backslash file argument to the graph key', async () => {
+    setSymbolGraph(graph());
+    expect(await checkNumericalContracts({ file: './geo.py' })).toContain('2 numerical kernels in geo.py');
+    expect(await checkNumericalContracts({ file: '.\\geo.py' })).toContain('2 numerical kernels in geo.py');
+  });
+
   it('reports cleanly when a file has no numerical kernels', async () => {
     const g = new SymbolGraph();
     g.addFile('plain.py', [fn('f', 0, 1)], [], 'h1');

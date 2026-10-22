@@ -43,6 +43,25 @@ describe('checkShapeConsistency — Rung A (intra-kernel)', () => {
     expect(issues[0].detail).toContain('param `a`');
   });
 
+  // #121: shapes were cached by bare name, so B.forward reused A.forward's.
+  it('checks each same-named method against its own body', () => {
+    const src = [
+      'class A:', // 0
+      '    def forward(self, a: NDArray[Shape["N, 3"]]) -> None:', // 1
+      '        assert a.shape == (5, 3)', // 2
+      'class B:', // 3
+      '    def forward(self, a: NDArray[Shape["N, 3"]]) -> None:', // 4
+      '        assert a.shape == (5, 4)', // 5
+    ].join('\n');
+    const method = (s: number, e: number): SymbolEntry => ({ ...fn('forward', 'k.py', s, e), type: 'method' });
+    const g = new SymbolGraph();
+    g.addFile('k.py', [method(1, 2), method(4, 5)], [], 'h1');
+    g.setFileContent('k.py', src);
+    const issues = checkShapeConsistency(g, () => src);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ kernel: 'forward', line: 5, conflict: { kind: 'dim' } });
+  });
+
   it('does not flag when annotation and assertion agree (symbolic compatible)', () => {
     const src = ['def f(a: NDArray[Shape["N, 3"]]) -> None:', '    assert a.shape == (5, 3)', '    return None'].join(
       '\n',
@@ -148,6 +167,19 @@ describe('checkShapeConsistency — Rung C (cross-call dataflow)', () => {
   it('skips nested-call arguments (unknown shape)', () => {
     const { graph, read } = buildGraph('def caller(x: np.ndarray) -> None:\n    use(make(x))', [6, 7]);
     expect(dataflow(graph, read)).toEqual([]);
+  });
+
+  // #121: the assignment regex ended in `(.*)$`, which a trailing `\r` defeats.
+  it('follows call assignments in a CRLF file', () => {
+    const FILE = [MAKE, '', USE, '', 'def caller(x: np.ndarray) -> None:\n    u = make(x)\n    use(u)']
+      .join('\n')
+      .replace(/\n/g, '\r\n');
+    const g = new SymbolGraph();
+    g.addFile('m.py', [fn('make', 'm.py', 0, 1), fn('use', 'm.py', 3, 4), fn('caller', 'm.py', 6, 8)], [], 'h1');
+    g.setFileContent('m.py', FILE);
+    const issues = checkShapeConsistency(g, () => FILE).filter((i) => i.kind === 'dataflow');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].detail).toContain('argument `u` to `use(...)`');
   });
 
   it('skips method callees (leading self shifts positions)', () => {

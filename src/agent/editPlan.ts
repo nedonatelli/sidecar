@@ -86,6 +86,12 @@ export class EditPlanValidationError extends Error {
 export function normalizeEditPlan(plan: EditPlan): EditPlan {
   const merged = new Map<string, PlannedEdit>();
   for (const entry of plan.edits) {
+    // Reject a bad op before pairing: a duplicate path with op "rename" used
+    // to surface as "incompatible duplicate: edit and rename", sending the
+    // planner to fix the duplication instead of the op.
+    if (!isEditOp(entry.op)) {
+      throw new EditPlanValidationError(`Invalid op "${entry.op}" on ${entry.path}`, 'invalid-op', { edit: entry });
+    }
     const existing = merged.get(entry.path);
     if (!existing) {
       merged.set(entry.path, { ...entry, dependsOn: entry.dependsOn.slice() });
@@ -113,6 +119,10 @@ export function normalizeEditPlan(plan: EditPlan): EditPlan {
     }
   }
   return { edits: Array.from(merged.values()) };
+}
+
+function isEditOp(op: unknown): op is EditOp {
+  return op === 'create' || op === 'edit' || op === 'delete';
 }
 
 function mergeEdits(a: PlannedEdit, b: PlannedEdit, op: EditOp): PlannedEdit {
@@ -149,7 +159,7 @@ export function validateEditPlan(plan: EditPlan): void {
 
   const byPath = new Map<string, PlannedEdit>();
   for (const edit of plan.edits) {
-    if (edit.op !== 'create' && edit.op !== 'edit' && edit.op !== 'delete') {
+    if (!isEditOp(edit.op)) {
       throw new EditPlanValidationError(`Invalid op "${edit.op}" on ${edit.path}`, 'invalid-op', { edit });
     }
     if (typeof edit.path !== 'string' || edit.path.trim().length === 0) {

@@ -55,8 +55,12 @@ function parseDims(s: string, sep: RegExp): Dim[] {
  * unshaped/bare type (e.g. `np.ndarray`) — i.e. "no contract here".
  */
 export function parseTypeShape(expr: string): ShapeSpec | null {
-  // jaxtyping: DType[array, "n 3"] — space-separated dims.
-  const jax = expr.match(/\b(Float|Int|UInt|Bool|Complex|Shaped|Num|Inexact)\w*\s*\[\s*[\w.]+\s*,\s*["']([^"']*)["']/);
+  // jaxtyping: DType[array, "n 3"] — space-separated dims. The bit width is part
+  // of the dtype (`Float32` → float32); dropping it made Float32 vs Float64
+  // compare equal and Float32 vs np.float32 look like a conflict.
+  const jax = expr.match(
+    /\b((?:Float|Int|UInt|Bool|Complex|Shaped|Num|Inexact)\d*)\w*\s*\[\s*[\w.]+\s*,\s*["']([^"']*)["']/,
+  );
   if (jax) return { dtype: normalizeDtype(jax[1]), dims: parseDims(jax[2], /\s+/) };
 
   // nptyping: Shape["3, N"] — comma-separated dims; optional trailing DType.

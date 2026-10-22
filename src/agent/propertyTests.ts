@@ -66,11 +66,36 @@ export function parsePropertyDeclarations(source: string): PropertyDecl[] {
 /** Parameter names from a `def name(a, b, *args, kw=1):` line — positional,
  *  non-self, non-variadic, non-keyword-only defaults stripped. */
 export function parseParams(source: string, func: string): string[] {
-  const re = new RegExp(String.raw`def\s+${func}\s*\(([^)]*)\)`);
-  const m = source.match(re);
+  const m = new RegExp(String.raw`def\s+${func}\s*\(`).exec(source);
   if (!m) return [];
-  return m[1]
-    .split(',')
+  // Split on top-level commas only, up to the matching `)`: a plain split broke
+  // `a: Dict[str, int]` into a phantom `int]` param, and `[^)]*` stopped at the
+  // first `)` inside a default like `w=(1, 2)`.
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let cur = '';
+  for (let i = m.index + m[0].length; i < source.length; i++) {
+    const c = source[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      cur += c;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') {
+      if (depth === 0) break;
+      depth--;
+    } else if (c === ',' && depth === 0) {
+      parts.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += c;
+  }
+  parts.push(cur);
+  return parts
     .map((p) => p.trim().split(/[:=]/)[0].trim())
     .filter((p) => p && p !== 'self' && p !== 'cls' && !p.startsWith('*'));
 }
@@ -84,8 +109,14 @@ const ARRAY_STRATEGY =
 function assertionsFor(prop: PropertyDecl, func: string, params: string[]): string[] {
   const call = (args: string[]): string => `${func}(${args.join(', ')})`;
   switch (prop.kind) {
-    case 'bound':
-      return [`    # bound: ${prop.raw}`, `    ${boundAssertion(prop.bound!)}`];
+    case 'bound': {
+      // The test binds the return value as `result`. A numeric bound written
+      // against the kernel's own local (`0 <= p <= 1`) asserted on `p`, a
+      // NameError in the test; point it at `result` unless it names a param.
+      const b = prop.bound!;
+      const retarget = b.kind !== 'custom' && b.resultVar !== 'result' && !params.includes(b.resultVar);
+      return [`    # bound: ${prop.raw}`, `    ${boundAssertion(retarget ? { ...b, resultVar: 'result' } : b)}`];
+    }
     case 'nonneg':
       return [`    # property: non-negative`, `    assert np.all(result >= 0), "result must be non-negative"`];
     case 'conservation':

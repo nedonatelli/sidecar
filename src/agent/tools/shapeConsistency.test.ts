@@ -34,6 +34,24 @@ describe('check_shape_consistency tool', () => {
     expect(await checkShapeConsistencyTool({ file: 'geo.py' })).toContain('No shape-contract conflicts');
   });
 
+  // #121: the scope filter compared paths exactly, so a backslash or `./`
+  // spelling matched no file and the tool reported "no conflicts".
+  it('normalizes the file argument instead of reporting a false clean', async () => {
+    const g = new SymbolGraph();
+    const sub = (name: string): SymbolEntry => ({ ...fn(name, 0, 2), filePath: 'src/geo.py' });
+    g.addFile('src/geo.py', [sub('f')], [], 'h1');
+    g.setFileContent(
+      'src/geo.py',
+      ['def f(a: NDArray[Shape["N, 3"]]) -> None:', '    assert a.shape == (N, 4)', '    return None'].join('\n'),
+    );
+    setSymbolGraph(g);
+    expect(await checkShapeConsistencyTool({ file: 'src\\geo.py' })).toContain('1 shape-contract conflict');
+    expect(await checkShapeConsistencyTool({ file: './src/geo.py' })).toContain('1 shape-contract conflict');
+    const missing = await checkShapeConsistencyTool({ file: 'src/nope.py' });
+    expect(missing).not.toContain('No shape-contract conflicts');
+    expect(missing).toContain('not in the code graph');
+  });
+
   it('reports graph-unavailable when no graph is wired', async () => {
     setSymbolGraph(null);
     expect(await checkShapeConsistencyTool({})).toContain('Symbol graph not available');

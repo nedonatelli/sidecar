@@ -94,6 +94,43 @@ describe('findNumericalKernels', () => {
     expect(bare.map((k) => k.name)).toEqual(['orient']);
   });
 
+  // #121: kernels were keyed by bare name, so a second `forward` merged into
+  // the first and its own (bare) body was never checked.
+  it('keeps same-named methods in one file apart', () => {
+    const src = [
+      'class A:', // 0
+      '    def forward(self, x: np.ndarray) -> np.ndarray:', // 1
+      '        assert x.shape == (3,)', // 2
+      '        return x', // 3
+      'class B:', // 4
+      '    def forward(self, x: np.ndarray) -> np.ndarray:', // 5
+      '        return x', // 6
+    ].join('\n');
+    const method = (start: number, end: number, cls: string): SymbolEntry => ({
+      ...fn('forward', start, end),
+      qualifiedName: `${cls}.forward`,
+      type: 'method',
+    });
+    const g = new SymbolGraph();
+    g.addFile(
+      'kern.py',
+      [method(1, 3, 'A'), method(5, 6, 'B')],
+      [],
+      'h1',
+      [],
+      [],
+      [
+        { ...use('forward', 'ndarray', 'param'), line: 2 },
+        { ...use('forward', 'ndarray', 'param'), line: 6 },
+      ],
+    );
+    const kernels = findNumericalKernels(g, () => src);
+    expect(kernels.map((k) => [k.startLine, k.hasContract])).toEqual([
+      [2, true],
+      [6, false],
+    ]);
+  });
+
   it('treats kernels as uncontracted when source is unavailable (conservative)', () => {
     const kernels = findNumericalKernels(buildGraph(), () => undefined);
     expect(kernels.every((k) => !k.hasContract)).toBe(true);

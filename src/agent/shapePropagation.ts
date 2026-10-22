@@ -181,7 +181,9 @@ export function extractKernelShapes(source: string): KernelShapes {
  */
 function extractCallAssignments(source: string): Map<string, string | null> {
   const rhsByVar = new Map<string, string[]>();
-  for (const line of source.split('\n')) {
+  // Split on CRLF too: a trailing `\r` defeats the `(.*)$` below (`.` does not
+  // match `\r`), so a CRLF file yielded no assignments and Rung C saw nothing.
+  for (const line of source.split(/\r?\n/)) {
     // LHS = RHS, optional annotation; exclude ==, <=, >=, !=.
     const m = line.match(/^\s*(\w+)\s*(?::\s*[^=\n]+?)?=(?!=)\s*(.*)$/);
     if (!m) continue;
@@ -266,9 +268,11 @@ export function checkShapeConsistency(
     if (!sourceCache.has(f)) sourceCache.set(f, readSource(f));
     return sourceCache.get(f);
   };
-  const shapesCache = new Map<string, KernelShapes>(); // file::name → shapes
+  // Keyed by start line as well as name: two same-named methods in one file
+  // (`A.forward`, `B.forward`) otherwise shared whichever was sliced first.
+  const shapesCache = new Map<string, KernelShapes>(); // file::name::startLine → shapes
   const shapesOf = (file: string, sym: SymbolEntry): KernelShapes | null => {
-    const key = `${file}::${sym.name}`;
+    const key = `${file}::${sym.name}::${sym.startLine}`;
     const cached = shapesCache.get(key);
     if (cached) return cached;
     const content = read(file);

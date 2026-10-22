@@ -26,6 +26,15 @@ describe('parseTypeShape', () => {
   it('handles variadic dims', () => {
     expect(parseTypeShape('Float[Array, "... 3"]')).toEqual({ dtype: 'float', dims: ['...', 3] });
   });
+
+  // #121: the bit width was swallowed by `\w*`, so Float32 parsed as `float`.
+  it('keeps the jaxtyping bit width in the dtype', () => {
+    expect(parseTypeShape('Float32[Array, "n 3"]')).toEqual({ dtype: 'float32', dims: ['n', 3] });
+    expect(parseTypeShape('Int8[np.ndarray, "h w"]')).toEqual({ dtype: 'int8', dims: ['h', 'w'] });
+    const f32 = parseTypeShape('Float32[Array, "n"]')!;
+    expect(shapeConflict(f32, parseTypeShape('Float64[Array, "n"]')!)).toMatchObject({ kind: 'dtype' });
+    expect(shapeConflict(f32, { dims: null, dtype: 'np.float32' })).toBeNull();
+  });
 });
 
 describe('parseShapeTuple', () => {

@@ -1,7 +1,12 @@
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
 import { getRoot } from './shared.js';
-import { requireSymbolGraph, makeGraphSourceReader, SYMBOL_GRAPH_UNAVAILABLE } from './graphToolSupport.js';
+import {
+  requireSymbolGraph,
+  makeGraphSourceReader,
+  toGraphPath,
+  SYMBOL_GRAPH_UNAVAILABLE,
+} from './graphToolSupport.js';
 import { checkShapeConsistency } from '../shapePropagation.js';
 
 /**
@@ -37,9 +42,15 @@ export async function checkShapeConsistencyTool(input: Record<string, unknown>):
   if (!graph || graph.fileCount() === 0) {
     return SYMBOL_GRAPH_UNAVAILABLE;
   }
-  const file = typeof input.file === 'string' && input.file.trim() ? input.file.trim() : undefined;
+  const root = getRoot();
+  const file = typeof input.file === 'string' && input.file.trim() ? toGraphPath(input.file.trim(), root) : undefined;
+  // An unindexed file has no functions to check; saying "no conflicts" for it
+  // reads as a clean bill for code that was never looked at.
+  if (file && graph.getFileHash(file) === undefined) {
+    return `"${file}" is not in the code graph, so nothing was checked. Pass a workspace-relative path to an indexed file.`;
+  }
 
-  const readSource = makeGraphSourceReader(graph, getRoot());
+  const readSource = makeGraphSourceReader(graph, root);
 
   const issues = checkShapeConsistency(graph, readSource, file ? { fileFilter: (f) => f === file } : undefined);
   const scope = file ?? 'workspace';

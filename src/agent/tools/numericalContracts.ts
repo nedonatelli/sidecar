@@ -1,7 +1,12 @@
 import type { ToolDefinition } from '../../ollama/types.js';
 import type { RegisteredTool } from './shared.js';
 import { getRoot } from './shared.js';
-import { requireSymbolGraph, makeGraphSourceReader, SYMBOL_GRAPH_UNAVAILABLE } from './graphToolSupport.js';
+import {
+  requireSymbolGraph,
+  makeGraphSourceReader,
+  toGraphPath,
+  SYMBOL_GRAPH_UNAVAILABLE,
+} from './graphToolSupport.js';
 import { findNumericalKernels, type NumericalKernel } from '../numericalContracts.js';
 
 /**
@@ -42,10 +47,11 @@ export async function checkNumericalContracts(input: Record<string, unknown>): P
   if (!graph || graph.fileCount() === 0) {
     return SYMBOL_GRAPH_UNAVAILABLE;
   }
-  const file = typeof input.file === 'string' && input.file.trim() ? input.file.trim() : undefined;
+  const root = getRoot();
+  const file = typeof input.file === 'string' && input.file.trim() ? toGraphPath(input.file.trim(), root) : undefined;
   const onlyUncontracted = input.onlyUncontracted === true;
 
-  const readSource = makeGraphSourceReader(graph, getRoot());
+  const readSource = makeGraphSourceReader(graph, root);
 
   const kernels = findNumericalKernels(graph, readSource, file ? { fileFilter: (f) => f === file } : undefined);
   if (kernels.length === 0) {
