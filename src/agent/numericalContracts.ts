@@ -14,7 +14,7 @@
  * its contract?" — which is the precondition for everything downstream.
  */
 
-import type { SymbolGraph } from '../config/symbolGraph.js';
+import type { SymbolGraph, SymbolEntry } from '../config/symbolGraph.js';
 
 /** Type-name heads that mark a function as numerical. Matched against the
  *  graph's type-use edges (which capture the identifier heads of annotations —
@@ -85,24 +85,30 @@ export function findNumericalKernels(
   readSource: SourceReader,
   opts?: { fileFilter?: (file: string) => boolean },
 ): NumericalKernel[] {
-  // Collect (file → funcName → roles) for every numerical type-use.
-  const byFunc = new Map<string, { file: string; name: string; roles: Set<string> }>();
+  // Collect (file → symbol → roles) for every numerical type-use. `userName` is
+  // the bare scope name, so two `forward` methods in one file share it; the
+  // edge's line picks out which definition it belongs to. Keying by name alone
+  // merged them and only ever checked the first one's body.
+  const byFunc = new Map<string, { file: string; sym: SymbolEntry; roles: Set<string> }>();
   for (const typeName of NUMERICAL_TYPE_NAMES) {
     for (const edge of graph.getTypeUsers(typeName)) {
       if (edge.userName === '<module>') continue;
       if (opts?.fileFilter && !opts.fileFilter(edge.userFile)) continue;
-      const key = `${edge.userFile}::${edge.userName}`;
+      const named = graph.getSymbolsInFile(edge.userFile).filter((s) => s.name === edge.userName);
+      const line0 = edge.line - 1;
+      const sym = named.find((s) => line0 >= s.startLine && line0 <= s.endLine) ?? named[0];
+      if (!sym) continue;
+      const key = `${edge.userFile}::${sym.name}::${sym.startLine}`;
       const existing = byFunc.get(key);
       if (existing) existing.roles.add(edge.role);
-      else byFunc.set(key, { file: edge.userFile, name: edge.userName, roles: new Set([edge.role]) });
+      else byFunc.set(key, { file: edge.userFile, sym, roles: new Set([edge.role]) });
     }
   }
 
   const kernels: NumericalKernel[] = [];
   const sourceCache = new Map<string, string | undefined>();
-  for (const { file, name, roles } of byFunc.values()) {
-    const sym = graph.getSymbolsInFile(file).find((s) => s.name === name);
-    if (!sym) continue;
+  for (const { file, sym, roles } of byFunc.values()) {
+    const name = sym.name;
 
     if (!sourceCache.has(file)) sourceCache.set(file, readSource(file));
     const content = sourceCache.get(file);

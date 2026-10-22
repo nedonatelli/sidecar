@@ -31,3 +31,15 @@ export function makeGraphSourceReader(graph: SymbolGraph, root: string): (f: str
     }
   };
 }
+
+/**
+ * Normalize a model-supplied `file` argument to the graph's key form:
+ * root-relative, forward-slashed, no leading `./`. The graph is keyed that way
+ * (symbolIndexer), and a scoped scan compares paths exactly, so `src\geo.py`,
+ * `./src/geo.py` or an absolute path matched nothing and the scan came back
+ * "clean".
+ */
+export function toGraphPath(file: string, root: string): string {
+  const rel = root && path.isAbsolute(file) ? path.relative(root, file) : file;
+  return rel.replace(/\\/g, '/').replace(/^(?:\.\/)+/, '');
+}
