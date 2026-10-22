@@ -142,6 +142,18 @@ export class SymbolIndexer implements Disposable {
   }
 
   /**
+   * The graph key for an absolute path: relative to the first workspace
+   * folder, as `initialize` keys every file (another folder's files become
+   * `../b/src/x.ts`). The watcher keys changes relative to whichever folder
+   * saw them, and handing that key over made `updateFile` resolve it against
+   * the first folder: it re-read that folder's file of the same name, or
+   * dropped it from the graph when there was none (#113).
+   */
+  keyFor(fsPath: string): string {
+    return this.rootPath ? this.relKey(fsPath) : '';
+  }
+
+  /**
    * Build the symbol graph for the workspace.
    * Tries to restore from cache first, then incrementally updates stale files.
    */
