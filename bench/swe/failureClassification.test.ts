@@ -93,3 +93,18 @@ describe('repo-preparation failures are infrastructure', () => {
     expect(classifyFailure(new Error('edit_file: search string not found')).kind).toBe('capability');
   });
 });
+
+// #292: a repository missing from SIDECAR_SWE_REPO_CACHE stops the task before
+// the agent runs. Both the old per-task message and the run-level one are infra.
+describe('repo cache miss is infrastructure (#292)', () => {
+  it('the per-task message', () => {
+    const e = new Error('repo cache miss for psf/requests at /cache/psf_requests');
+    expect(classifyFailure(e).kind).toBe('infra');
+  });
+  it('the run-level message', () => {
+    const e = new Error(
+      'repo cache miss: 2 repo(s) needed by this run are not in SIDECAR_SWE_REPO_CACHE (/c): a/b, c/d.',
+    );
+    expect(classifyFailure(e).kind).toBe('infra');
+  });
+});

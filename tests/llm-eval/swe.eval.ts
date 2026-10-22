@@ -57,6 +57,7 @@ import { unloadModelRequest } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
 import { emptyTotals, addUsage, cacheHitRate, runCostUsd } from '../../bench/swe/runCost.js';
+import { missingCachedRepos, repoCacheDir, repoCacheMissMessage } from '../../bench/swe/repoCache.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
 const N = parseInt(process.env.SIDECAR_SWE_N ?? '5', 10);
@@ -236,7 +237,7 @@ function prepareRepo(task: SweTask): string {
     // needs no network). Falls back to a blobless clone otherwise.
     const cacheBase = process.env.SIDECAR_SWE_REPO_CACHE;
     if (cacheBase) {
-      const cached = path.join(cacheBase, task.repo.replace(/[/\\]/g, '_'));
+      const cached = repoCacheDir(cacheBase, task.repo);
       if (!fs.existsSync(path.join(cached, '.git'))) throw new Error(`repo cache miss for ${task.repo} at ${cached}`);
       dir = cached;
     } else {
@@ -949,6 +950,16 @@ describe('SWE-bench Lite — prediction generation', () => {
       const sampled = sampleTasks(all, N, REPOS);
       // Take this shard's slice (round-robin over the deterministic sample).
       const tasks = SHARD_COUNT > 1 ? sampled.filter((_, i) => i % SHARD_COUNT === SHARD_INDEX) : sampled;
+      // Every repository this run needs must be in the cache before the first
+      // task starts, not discovered missing task by task (#292).
+      const repoCache = process.env.SIDECAR_SWE_REPO_CACHE;
+      if (repoCache) {
+        const missing = missingCachedRepos(
+          repoCache,
+          tasks.map((t) => t.repo),
+        );
+        if (missing.length > 0) throw new Error(repoCacheMissMessage(repoCache, missing));
+      }
       fs.mkdirSync(OUT, { recursive: true });
 
       // Provenance manifest (workstreams #1): every run records exactly what
