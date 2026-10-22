@@ -57,6 +57,7 @@ import { unloadModelRequest } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
 import { emptyTotals, addUsage, cacheHitRate, runCostUsd } from '../../bench/swe/runCost.js';
+import { sweTerminationBucket } from '../../bench/swe/termination.js';
 import { missingCachedRepos, repoCacheDir, repoCacheMissMessage } from '../../bench/swe/repoCache.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
@@ -496,7 +497,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // F1 failure-taxonomy bucket the loop terminated with (null = natural
   // completion). Diagnostic: lets us see WHY a run ended (stuck / timeout /
   // incomplete / bad-reasoning) instead of inferring it from patch shape alone.
-  let terminationBucket: import('../../src/agent/failureTaxonomy.js').FailureBucket | null = null;
+  let terminationBucket: import('../../bench/swe/types.js').SweTerminationBucket | null = null;
   // Did the keep-best ratchet revert scaffold-tail changes this run? Detected
   // from the loop's ♻️ marker — the third-arm ablation's revert-rate signal.
   let ratchetReverted = false;
@@ -667,14 +668,14 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       },
       onOutcome: (bucket, meta) => {
         flushText();
-        terminationBucket = bucket;
+        terminationBucket = sweTerminationBucket(bucket, meta?.aborted); // #271
         if (meta) {
           scaffoldInterventions = meta.scaffoldInterventions;
           verificationGates = meta.verificationGates ?? 0;
           loopControls = meta.loopControls ?? 0;
         }
         traj(
-          `TERMINATION: ${bucket ?? 'natural'} turns=${turns} scaffoldInterventions=${scaffoldInterventions} ` +
+          `TERMINATION: ${terminationBucket ?? 'natural'} turns=${turns} scaffoldInterventions=${scaffoldInterventions} ` +
             `(gates=${verificationGates} loopControls=${loopControls})`,
         );
       },

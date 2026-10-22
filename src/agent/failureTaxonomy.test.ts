@@ -55,3 +55,17 @@ describe('classifyFailureBucket', () => {
     );
   });
 });
+
+// #271: a loop-control stop was the catch-all bad-reasoning.
+describe('classifyFailureBucket — loop-stopped (#271)', () => {
+  it('a stuck run with nothing more specific is loop-stopped', () => {
+    expect(classifyFailureBucket(signals({ loopStopped: true, toolCalls: 4, toolErrors: 0 }))).toBe('loop-stopped');
+  });
+  it('a more specific bucket still wins over loop-stopped', () => {
+    expect(classifyFailureBucket(signals({ loopStopped: true, unrepairedMalformedCalls: 1 }))).toBe('malformed-call');
+    expect(classifyFailureBucket(signals({ loopStopped: true, toolCalls: 4, toolErrors: 3 }))).toBe('wrong-tool');
+  });
+  it('loop-stopped is a failure, not a success, for model learning', () => {
+    expect(classifyFailureBucket(signals({ loopStopped: true }))).not.toBeNull();
+  });
+});

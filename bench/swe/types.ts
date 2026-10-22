@@ -58,7 +58,7 @@ export interface SwePrediction {
    * behavior (e.g. do-no-harm bail-early analysis). Undefined for older
    * predictions.meta.jsonl files written before this field existed.
    */
-  terminationBucket?: import('../../src/agent/failureTaxonomy.js').FailureBucket | null;
+  terminationBucket?: SweTerminationBucket | null;
   /**
    * Number of tool calls the agent issued. Zero + empty patch = the run never
    * engaged the repo (model-request timeout / stall) — an infrastructure
@@ -223,6 +223,14 @@ export interface ArmReport {
   meanCostUsd: number | null;
   /** Total cost of the arm's priced runs divided by resolved tasks; null with no price or no resolve. */
   costPerResolvedUsd: number | null;
+  /**
+   * Scored runs that ended on the per-task timeout, and their median turns
+   * (#293). When many runs time out well short of the iteration budget, the
+   * time limit, not the product's iteration ceiling, decided the result.
+   * Optional on reports built before the field existed.
+   */
+  timedOut?: number;
+  medianTurnsTimedOut?: number | null;
 }
 
 /**
@@ -271,3 +279,11 @@ export interface AblationReport {
   /** Uncertainty + significance on the paired lift. */
   significance: AblationSignificance;
 }
+
+/**
+ * How a SWE run ended: the loop's failure bucket, or `harness-timeout` when the
+ * per-task timer stopped it. The loop sees that stop as an abort, and the
+ * taxonomy scores an abort as success (a user Stop), so a timed-out run used to
+ * be written as `natural` (#271).
+ */
+export type SweTerminationBucket = import('../../src/agent/failureTaxonomy.js').FailureBucket | 'harness-timeout';

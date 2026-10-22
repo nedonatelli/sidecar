@@ -20,6 +20,15 @@ export type FailureBucket =
   | 'timeout'
   /** Verification kept rejecting the work and the gate gave up. */
   | 'incomplete'
+  /**
+   * The loop stopped the run itself: cycle detection, the burst cap, degenerate
+   * output, or the syntax-gate bail (`termination: 'stuck'`). It used to fall
+   * through to `bad-reasoning`, which hid that a loop control ended the run,
+   * including runs that had already solved the task and were re-checking
+   * (nemotron-3-super astropy-12907, resolved, stopped on four identical reads)
+   * (#271).
+   */
+  | 'loop-stopped'
   /** Produced output but never acted, or stalled without progress. */
   | 'bad-reasoning';
 
@@ -38,6 +47,8 @@ export interface RunFailureSignals {
   toolErrors: number;
   /** Completion gate exhausted its injection budget (couldn't get verification). */
   gateExhausted: boolean;
+  /** A loop control stopped the run (`termination: 'stuck'`). Optional for callers built before #271. */
+  loopStopped?: boolean;
 }
 
 const HIGH_TOOL_ERROR_RATE = 0.5;
@@ -64,6 +75,11 @@ export function classifyFailureBucket(s: RunFailureSignals): FailureBucket | nul
 
   // Tools were exercised but mostly errored — wrong tool / wrong args.
   if (s.toolCalls > 0 && s.toolErrors / s.toolCalls >= HIGH_TOOL_ERROR_RATE) return 'wrong-tool';
+
+  // A loop control ended it. Checked last before the catch-all, so it only
+  // replaces `bad-reasoning`; a stuck run that also matched a more specific
+  // bucket above keeps that one.
+  if (s.loopStopped) return 'loop-stopped';
 
   // Terminated without completing and without any of the above — the model
   // stalled or reasoned itself into a dead end.
