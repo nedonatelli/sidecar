@@ -862,3 +862,29 @@ describe('SymbolEmbeddingIndex', () => {
     });
   });
 });
+
+// #113: with a store that can't return a stored vector (Lance's getVector is
+// always null), a symbol whose body was unchanged but whose lines moved hit
+// `if (!vector) return` and kept its old line range.
+describe('SymbolEmbeddingIndex — line ranges refresh on a store without getVector (#113)', () => {
+  it('a moved symbol gets its new range', async () => {
+    const { FlatVectorStore } = await import('./vectorStore.js');
+    class NoVectorStore<M> extends FlatVectorStore<M> {
+      override getVector(): Float32Array | null {
+        return null;
+      }
+    }
+    const store = new NoVectorStore(null, {
+      dimension: 384,
+      version: 1,
+      binFile: 'x.bin',
+      metaFile: 'x.json',
+    });
+    const idx = new SymbolEmbeddingIndex(null, store as never);
+    idx.setPipelineForTests(fakePipeline() as never);
+    await idx.indexSymbol(makeInput({ startLine: 10, endLine: 25 }));
+    await idx.indexSymbol(makeInput({ startLine: 40, endLine: 55 })); // same body, moved down
+    const meta = idx.getSymbolMeta(makeSymbolId('src/auth/middleware.ts', 'requireAuth'));
+    expect(meta).toMatchObject({ startLine: 40, endLine: 55 });
+  });
+});

@@ -367,7 +367,7 @@ export class WorkspaceIndex implements Disposable {
               this.files.set(rel, { relativePath: rel, sizeBytes: stat.size, relevanceScore: this.baseScore(rel) });
               this.pinnedFileCache = null;
               this.scheduleRebuild();
-              this.symbolIndexer?.queueUpdate(rel);
+              this.queueSymbolUpdate(uri);
               this.embeddingIndex?.queuePath(rel, watchRoot);
             }
           },
@@ -379,7 +379,7 @@ export class WorkspaceIndex implements Disposable {
         if (rel === '.sidecarignore') void this.reloadIgnore(root.uri);
         if (this.shouldExclude(rel)) return;
         this.fileContentCache.delete(rel);
-        this.symbolIndexer?.queueUpdate(rel);
+        this.queueSymbolUpdate(uri);
         this.embeddingIndex?.queuePath(rel, watchRoot);
       });
       watcher.onDidDelete((uri) => {
@@ -389,11 +389,23 @@ export class WorkspaceIndex implements Disposable {
         this.files.delete(rel);
         this.pinnedFileCache = null;
         this.scheduleRebuild();
-        this.symbolIndexer?.queueDelete(rel);
+        const key = this.symbolIndexer?.keyFor(uri.fsPath);
+        if (key) this.symbolIndexer?.queueDelete(key);
         this.embeddingIndex?.removeFile(rel);
       });
       return watcher;
     });
+  }
+
+  /**
+   * Queue a watched file for the symbol graph under the graph's own key. `rel`
+   * is relative to the folder whose watcher fired, but the graph keys every
+   * file relative to the first folder, so in a multi-root workspace the two
+   * differ (#113).
+   */
+  private queueSymbolUpdate(uri: Uri): void {
+    const key = this.symbolIndexer?.keyFor(uri.fsPath);
+    if (key) this.symbolIndexer?.queueUpdate(key);
   }
 
   isReady(): boolean {

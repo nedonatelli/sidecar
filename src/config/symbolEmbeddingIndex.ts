@@ -414,12 +414,12 @@ export class SymbolEmbeddingIndex implements Disposable {
     // If the body hash matched (only the range/kind shifted), we
     // can reuse the existing vector instead of re-embedding. Saves
     // ~20 ms per symbol in the "save with no body change" case.
-    let vector: Float32Array | null;
-    if (existing && existing.hash === hash) {
-      vector = this.store.getVector(symbolId);
-    } else {
-      vector = await this.embed(embedInput);
-    }
+    // A store that can't hand the vector back (Lance's getVector is always
+    // null) falls through to a re-embed. It used to return here instead, so
+    // with the Lance backend a symbol whose body was unchanged but whose lines
+    // moved never got its new range: retrieval cited the old lines (#113).
+    let vector: Float32Array | null = existing && existing.hash === hash ? this.store.getVector(symbolId) : null;
+    if (!vector) vector = await this.embed(embedInput);
     if (!vector) return; // model not ready — caller can retry later
 
     await this.store.upsert({
