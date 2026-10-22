@@ -113,6 +113,29 @@ describe('SidecarMdIndex', () => {
     expect(index.size()).toBe(2);
   });
 
+  // #227 (from #116): two sections with one heading shared a vector id, so the
+  // second overwrote the first.
+  it('keeps both sections when two share a heading', async () => {
+    const twoTesting =
+      '## Testing\n\nUnit tests use vitest.\n\n## Build\n\nnpm run build\n\n## Testing\n\nIntegration tests need VS Code.';
+    await index.update(twoTesting);
+    expect(index.size()).toBe(3);
+    const hits = await index.search('anything', 10, -1);
+    const bodies = hits.map((h) => h.content).join('\n');
+    expect(bodies).toContain('Unit tests use vitest.');
+    expect(bodies).toContain('Integration tests need VS Code.');
+  });
+
+  it('removing the second of two same-heading sections prunes only that one', async () => {
+    const both = '## Testing\n\nfirst body\n\n## Testing\n\nsecond body';
+    await index.update(both);
+    expect(index.size()).toBe(2);
+    await index.update('## Testing\n\nfirst body');
+    expect(index.size()).toBe(1);
+    const hits = await index.search('x', 10, -1);
+    expect(hits.map((h) => h.content).join('\n')).toContain('first body');
+  });
+
   it('returns empty array when embedding model fails', async () => {
     index.setPipelineForTests(null);
     await index.update(BASIC_CONTENT);

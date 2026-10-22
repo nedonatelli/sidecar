@@ -30,13 +30,22 @@ const SCHEMA_VERSION = 1;
 const MAX_SECTION_CHARS = 6000;
 
 interface SectionMeta {
+  /** The section's vector id. Absent on entries saved before #227, whose id is sectionId(heading). */
+  id?: string;
   heading: string;
   bodyHash: string;
   body: string;
 }
 
-function sectionId(heading: string): string {
-  return `sidecarmd:${heading.toLowerCase().replace(/\s+/g, '-')}`;
+/**
+ * A section's vector id. Two sections with the same heading (two "## Testing"
+ * sections, say) used to share one id, so the second overwrote the first and
+ * only one was ever retrieved (#227, from #116). The second and later
+ * occurrence of a heading get a `#n` suffix.
+ */
+function sectionId(heading: string, occurrence = 1): string {
+  const base = `sidecarmd:${heading.toLowerCase().replace(/\s+/g, '-')}`;
+  return occurrence > 1 ? `${base}#${occurrence}` : base;
 }
 
 /** djb2-style hash — fast, non-cryptographic, good enough for change detection. */
@@ -70,9 +79,13 @@ export class SidecarMdIndex {
 
     const parsed = parseSidecarMd(content);
     const currentIds = new Set<string>();
+    const seen = new Map<string, number>();
 
     for (const section of parsed.sections) {
-      const id = sectionId(section.heading);
+      const key = section.heading.toLowerCase().replace(/\s+/g, '-');
+      const occurrence = (seen.get(key) ?? 0) + 1;
+      seen.set(key, occurrence);
+      const id = sectionId(section.heading, occurrence);
       currentIds.add(id);
       const hash = quickHash(section.body);
 
@@ -85,12 +98,12 @@ export class SidecarMdIndex {
       await this.store.upsert({
         id,
         vector: vec,
-        metadata: { heading: section.heading, bodyHash: hash, body: truncated },
+        metadata: { id, heading: section.heading, bodyHash: hash, body: truncated },
       });
     }
 
     // Prune sections that were removed from the document
-    await this.store.removeWhere((meta) => !currentIds.has(sectionId(meta.heading)));
+    await this.store.removeWhere((meta) => !currentIds.has(meta.id ?? sectionId(meta.heading)));
     await this.store.persist();
   }
 

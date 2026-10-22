@@ -13,6 +13,33 @@ function estimateTokens(chars: number): number {
 }
 
 /**
+ * A section SideCar appends to the system prompt after the project
+ * instructions (see webview/handlers/systemPrompt.ts). An instruction block
+ * ends where the next one of these begins, not at its first blank line:
+ * SIDECAR.md is Markdown with blank lines and `##` headings of its own, so
+ * cutting at a blank line counted only its first paragraph (#227, from #116).
+ */
+const NEXT_PROMPT_SECTION =
+  /\n\n(?:Project instructions \(from |Design system \(from |User instructions:|Visual verification mode:|## (?:Pinned Memory|Team Memory|Workspace Context|Workspace Structure|Session)\b)/;
+
+/**
+ * Every `Project instructions (from <source>):` block, named by its source:
+ * SIDECAR.md, AGENTS.md, CLAUDE.md, or a sub-folder's SIDECAR.md. Only
+ * SIDECAR.md was reported, so AGENTS.md and CLAUDE.md never showed up.
+ */
+function instructionBlocks(systemPrompt: string): { source: string; start: number; chars: number }[] {
+  const blocks: { source: string; start: number; chars: number }[] = [];
+  for (const m of systemPrompt.matchAll(/Project instructions \(from ([^)\n]+)\):\n/g)) {
+    const start = m.index ?? 0;
+    const bodyStart = start + m[0].length;
+    const end = systemPrompt.slice(bodyStart).search(NEXT_PROMPT_SECTION);
+    const stop = end < 0 ? systemPrompt.length : bodyStart + end;
+    blocks.push({ source: m[1], start, chars: stop - start });
+  }
+  return blocks;
+}
+
+/**
  * Generate a context window visualization report.
  */
 export function generateContextReport(
@@ -24,20 +51,19 @@ export function generateContextReport(
   const sections: ContextSection[] = [];
 
   // Parse system prompt sections
-  const sidecarMdMatch = systemPrompt.match(/Project instructions \(from SIDECAR\.md\):\n([\s\S]*?)(?=\n\n|$)/);
+  const instructions = instructionBlocks(systemPrompt);
   const workspaceMatch = systemPrompt.match(/## Workspace Structure[\s\S]*/);
-  // Base prompt (everything before SIDECAR.md or workspace context)
+  // Base prompt (everything before the project instructions or workspace context)
   let baseEnd = systemPrompt.length;
-  if (sidecarMdMatch && sidecarMdMatch.index !== undefined) baseEnd = Math.min(baseEnd, sidecarMdMatch.index);
+  if (instructions.length > 0) baseEnd = Math.min(baseEnd, instructions[0].start);
   if (workspaceMatch && workspaceMatch.index !== undefined) baseEnd = Math.min(baseEnd, workspaceMatch.index);
   const basePrompt = systemPrompt.slice(0, baseEnd).trim();
   if (basePrompt) {
     sections.push({ name: 'Base system prompt', chars: basePrompt.length, tokens: estimateTokens(basePrompt.length) });
   }
 
-  if (sidecarMdMatch) {
-    const content = sidecarMdMatch[0];
-    sections.push({ name: 'SIDECAR.md', chars: content.length, tokens: estimateTokens(content.length) });
+  for (const block of instructions) {
+    sections.push({ name: block.source, chars: block.chars, tokens: estimateTokens(block.chars) });
   }
 
   if (workspaceMatch) {
