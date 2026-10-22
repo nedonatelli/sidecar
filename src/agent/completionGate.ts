@@ -495,7 +495,13 @@ export function recordToolCall(
 
   // Raw shell — parse the command string for verification invocations.
   if (tu.name === 'run_command') {
-    const cmd = String(tu.input.command ?? '');
+    const rawCmd = String(tu.input.command ?? '');
+    // Everything below matches tool names anywhere in the command, so an
+    // install that names one (`npm install jest`, `pip install mypy`) read as a
+    // test or checker run, and its output was scored as that run's result
+    // (#278). Package installs verify nothing; drop them before matching. The
+    // rest of a chain still counts: `npm install && npm test` is a test run.
+    const cmd = withoutPackageInstalls(rawCmd);
 
     // Direct invocations of JS/TS linters (eslint, tsc), Python linters
     // (pylint, flake8, mypy, ruff, black), and Go linters (go vet,
@@ -558,11 +564,11 @@ export function recordToolCall(
       logger,
       {
         kind: 'verification_run',
-        command: cmd.slice(0, 300),
+        command: rawCmd.slice(0, 300),
         recognized: testMatch !== null,
         runner: testMatch?.[1],
       },
-      `Shell command ${testMatch ? `recognized as a test run (${testMatch[1]})` : 'not recognized as verification'}: ${cmd.slice(0, 120)}`,
+      `Shell command ${testMatch ? `recognized as a test run (${testMatch[1]})` : 'not recognized as verification'}: ${rawCmd.slice(0, 120)}`,
     );
     if (testMatch) {
       const outcome = classifyTestResult(resultText);
@@ -619,6 +625,36 @@ export function recordToolCall(
       state.projectTestsPassed = classifyTestResult(resultText) === 'pass'; // latest run decides
     }
   }
+}
+
+/**
+ * A package-manager install or add: it changes the environment and runs no
+ * test or check, whatever packages it names. Matched per command segment,
+ * after any `VAR=value` prefixes and `sudo`.
+ */
+const PACKAGE_INSTALL_RE = new RegExp(
+  '^(?:\\w+=\\S*\\s+)*(?:sudo\\s+)?(?:' +
+    [
+      '(?:npm|pnpm|yarn|bun)\\s+(?:install|i|add|ci)\\b',
+      '(?:python[0-9.]*\\s+-m\\s+)?pip[0-9.]*\\s+install\\b',
+      'uv\\s+(?:pip\\s+install|add)\\b',
+      'poetry\\s+add\\b',
+      'pipx\\s+install\\b',
+      '(?:conda|mamba)\\s+install\\b',
+    ].join('|') +
+    ')',
+);
+
+/**
+ * `command` without its package-install segments (#278). Segments are split on
+ * `&&`, `||`, `;` and `|`, and the survivors rejoined with `; `, which the
+ * matchers treat as the same boundary.
+ */
+export function withoutPackageInstalls(command: string): string {
+  return command
+    .split(/\s*(?:&&|\|\||;|\|)\s*/)
+    .filter((seg) => !PACKAGE_INSTALL_RE.test(seg.trim()))
+    .join('; ');
 }
 
 /** Bounded excerpt of a failing check's output for the red-check reprompt —
