@@ -18,6 +18,7 @@ import {
   findColocatedTest,
   lastUserText,
   firstUserText,
+  withoutPackageInstalls,
 } from './completionGate.js';
 
 vi.mock('vscode', () => ({
@@ -541,6 +542,104 @@ describe('completionGate — recordToolCall failing-result hardening', () => {
     recordToolCall(state, makeRunCommand('npm test'), ok());
     recordToolCall(state, makeRunCommand('npx vitest run src/foo.test.ts'), failing());
     expect(state.projectTestsPassed).toBe(true);
+  });
+
+  // #278: the matchers find tool names anywhere in a command, so installs that
+  // name a runner or checker were scored as that run. Seen in a nemotron-3-super
+  // smoke run that set up Jest in an empty workspace.
+  describe('package installs are not verification runs (#278)', () => {
+    const installs = [
+      'npm install jest --save-dev',
+      'npm install ts-jest @types/jest --save-dev',
+      'npm i -D vitest',
+      'npm add mocha',
+      'pnpm add -D vitest',
+      'yarn add mocha',
+      'bun add jest',
+      'pip install pytest',
+      'pip3 install pytest pytest-cov',
+      'python -m pip install pytest',
+      'python3 -m pip install -U pytest',
+      'uv pip install pytest',
+      'uv add --dev pytest',
+      'poetry add --group dev pytest',
+      'conda install pytest',
+      'sudo pip install tox',
+      'CI=1 npm install jest',
+      'cd /tmp/proj && npm install jest',
+    ];
+    it.each(installs)('%s: no test run is recorded, and the decision says not recognized', (command) => {
+      const state = createGateState();
+      const decisions: AgentDecision[] = [];
+      recordToolCall(state, makeRunCommand(command), ok(), undefined, {
+        logDecision: (d) => void decisions.push(d),
+      });
+      expect(state.testsRanSinceLastEdit).toBe(false);
+      expect(state.projectTestsRan).toBe(false);
+      expect(state.projectTestsPassed).toBe(false);
+      expect(state.testsRunForFiles.size).toBe(0);
+      expect(state.failedCheckOutput).toBeUndefined();
+      const verdict = decisions.find((d) => d.kind === 'verification_run') as any;
+      expect(verdict?.recognized).toBe(false);
+      expect(verdict?.command).toBe(command);
+    });
+
+    it('a failed install does not arm red-check, even with python runners on', () => {
+      const state = createGateState();
+      state.pythonRedCheck = true;
+      recordToolCall(state, makeRunCommand('pip install pytest'), {
+        type: 'tool_result',
+        tool_use_id: 'id',
+        content: 'ERROR: Could not find a version that satisfies the requirement pytest\n(exit code: 1)',
+      });
+      expect(state.failedCheckOutput).toBeUndefined();
+      expect(state.testsRanSinceLastEdit).toBe(false);
+    });
+
+    it.each(['npm install eslint', 'npm i -D typescript eslint', 'pip install mypy ruff black flake8'])(
+      '%s: not a checker run either',
+      (command) => {
+        const state = createGateState();
+        recordToolCall(state, makeRunCommand(command), ok());
+        expect(state.lintObserved).toBe(false);
+        expect(state.checkerUnavailable).toBeFalsy();
+      },
+    );
+
+    it.each([
+      ['npm install jest && npx jest', 'jest'],
+      ['npm install && npm test', 'npm test'],
+      ['pip install pytest; pytest tests/test_x.py', 'pytest'],
+      ['npm ci && npx vitest run', 'vitest'],
+    ])('%s: the run in the chain still counts', (command) => {
+      const state = createGateState();
+      recordToolCall(state, makeRunCommand(command), ok());
+      expect(state.testsRanSinceLastEdit).toBe(true);
+    });
+
+    it('a checker after an install in the same chain still counts', () => {
+      const state = createGateState();
+      recordToolCall(state, makeRunCommand('npm install -D typescript && npx tsc --noEmit'), ok());
+      expect(state.lintObserved).toBe(true);
+    });
+
+    it.each(['npx jest', 'jest --watchAll=false', 'npx vitest run', 'pytest -q', 'python -m pytest', 'go test ./...'])(
+      '%s: runner invocations are unchanged',
+      (command) => {
+        const state = createGateState();
+        recordToolCall(state, makeRunCommand(command), ok());
+        expect(state.testsRanSinceLastEdit).toBe(true);
+      },
+    );
+
+    it('withoutPackageInstalls keeps everything that is not an install', () => {
+      expect(withoutPackageInstalls('npm install jest && npx jest src/a.test.ts')).toBe('npx jest src/a.test.ts');
+      expect(withoutPackageInstalls('pytest tests/a.py | tee out.txt')).toBe('pytest tests/a.py; tee out.txt');
+      expect(withoutPackageInstalls('pip install pytest')).toBe('');
+      // `npm run test` and `npm test` are not installs; `npm-install-x` is no command.
+      expect(withoutPackageInstalls('npm run test')).toBe('npm run test');
+      expect(withoutPackageInstalls('echo npm install jest')).toBe('echo npm install jest');
+    });
   });
 
   // Python runners and reproduction scripts. Measured on a 150-run SWE-bench
