@@ -209,14 +209,33 @@ describe('finalize — F1 outcome classification', () => {
     expect(onOutcome).toHaveBeenCalledWith('malformed-call', expect.anything());
   });
 
-  it('reports bad-reasoning for a stuck (cycle/burst) bail with healthy tool calls', () => {
+  // #271: this used to report bad-reasoning, which hid that a loop control ended
+  // the run, including runs that had already solved the task.
+  it('reports loop-stopped for a stuck (cycle/burst) bail with healthy tool calls', () => {
     const onOutcome = vi.fn();
     const state = stubLoopState({
       termination: 'stuck',
       messages: [{ role: 'assistant', content: [use('read_file', { path: 'a.ts' })] }],
     });
     finalize(state, stubCallbacks({ onOutcome }));
-    expect(onOutcome).toHaveBeenCalledWith('bad-reasoning', expect.anything());
+    expect(onOutcome).toHaveBeenCalledWith('loop-stopped', expect.anything());
+  });
+
+  it('every loop termination value has an explicit bucket', () => {
+    // natural → success; aborted → success (a user Stop); max-iterations and
+    // out-of-resources → timeout; stuck → loop-stopped. Healthy tool calls, so no
+    // more specific bucket applies.
+    const msgs = [{ role: 'assistant' as const, content: [use('read_file', { path: 'a.ts' })] }];
+    const bucketFor = (termination: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck') => {
+      const onOutcome = vi.fn();
+      finalize(stubLoopState({ termination, messages: msgs }), stubCallbacks({ onOutcome }));
+      return onOutcome.mock.calls[0][0];
+    };
+    expect(bucketFor('natural')).toBeNull();
+    expect(bucketFor('aborted')).toBeNull();
+    expect(bucketFor('max-iterations')).toBe('timeout');
+    expect(bucketFor('out-of-resources')).toBe('timeout');
+    expect(bucketFor('stuck')).toBe('loop-stopped');
   });
 
   it('counts the scaffolding interventions — the signal that keeps promotion honest', () => {

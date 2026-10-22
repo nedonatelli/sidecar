@@ -105,6 +105,7 @@ export function buildRunFailureSignals(state: LoopState): RunFailureSignals {
     toolCalls,
     toolErrors,
     gateExhausted,
+    loopStopped: state.termination === 'stuck',
   };
 }
 

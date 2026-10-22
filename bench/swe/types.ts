@@ -58,7 +58,7 @@ export interface SwePrediction {
    * behavior (e.g. do-no-harm bail-early analysis). Undefined for older
    * predictions.meta.jsonl files written before this field existed.
    */
-  terminationBucket?: import('../../src/agent/failureTaxonomy.js').FailureBucket | null;
+  terminationBucket?: SweTerminationBucket | null;
   /**
    * Number of tool calls the agent issued. Zero + empty patch = the run never
    * engaged the repo (model-request timeout / stall) — an infrastructure
@@ -271,3 +271,11 @@ export interface AblationReport {
   /** Uncertainty + significance on the paired lift. */
   significance: AblationSignificance;
 }
+
+/**
+ * How a SWE run ended: the loop's failure bucket, or `harness-timeout` when the
+ * per-task timer stopped it. The loop sees that stop as an abort, and the
+ * taxonomy scores an abort as success (a user Stop), so a timed-out run used to
+ * be written as `natural` (#271).
+ */
+export type SweTerminationBucket = import('../../src/agent/failureTaxonomy.js').FailureBucket | 'harness-timeout';
