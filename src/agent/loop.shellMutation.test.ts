@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { runAgentLoop } from './loop.js';
+import { gitEnvForCwd } from './loop/treeSignature.js';
 import { getConfig } from '../config/settings.js';
 import type { StreamEvent } from '../ollama/types.js';
 import type { SideCarClient } from '../ollama/client.js';
@@ -26,7 +27,7 @@ const callbacks: AgentCallbacks = { onText: () => {}, onToolCall: () => {}, onTo
 let repo: string;
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-shellmut-'));
-  const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, stdio: 'pipe' });
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, stdio: 'pipe', env: gitEnvForCwd() });
   git('init', '-q');
   git('config', 'user.email', 't@example.com');
   git('config', 'user.name', 't');

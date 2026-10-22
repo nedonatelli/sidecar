@@ -54,12 +54,24 @@ export async function workingTreeSignature(root: string | undefined): Promise<st
   return parts.join('\n');
 }
 
+/**
+ * The environment for a git command whose repository is named by `cwd`. Git
+ * exports GIT_DIR and GIT_INDEX_FILE to hooks; inherited (the test suite runs
+ * in the pre-commit hook), they would point the command at the repository
+ * being committed instead of `cwd`'s.
+ */
+export function gitEnvForCwd(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'].includes(k)),
+  );
+}
+
 function gitStatus(root: string): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
       'git',
       ['status', '--porcelain=v1', '-z', '--untracked-files=no'],
-      { cwd: root, timeout: GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+      { cwd: root, timeout: GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: 16 * 1024 * 1024, env: gitEnvForCwd() },
       (err, stdout) => resolve(err ? null : stdout),
     );
   });

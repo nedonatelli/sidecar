@@ -3,7 +3,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { workingTreeSignature } from './treeSignature.js';
+import { gitEnvForCwd, workingTreeSignature } from './treeSignature.js';
 
 // #247: the signature the loop takes around a shell command, against a real
 // git repository, so `git status` behaves as it does for a run.
@@ -13,7 +13,7 @@ describe('workingTreeSignature (#247)', () => {
     fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
     fs.writeFileSync(path.join(repo, rel), text);
   };
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe', env: gitEnvForCwd() });
 
   beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-tree-'));
@@ -80,5 +80,24 @@ describe('workingTreeSignature (#247)', () => {
       fs.rmSync(plain, { recursive: true, force: true });
     }
     expect(await workingTreeSignature(undefined)).toBeNull();
+  });
+
+  it('reads the repository at the root even when a hook exported GIT_DIR / GIT_INDEX_FILE', async () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-other-'));
+    const saved = { dir: process.env.GIT_DIR, index: process.env.GIT_INDEX_FILE };
+    try {
+      process.env.GIT_DIR = path.join(other, 'not-a-repo');
+      process.env.GIT_INDEX_FILE = path.join(other, 'index');
+      const before = await workingTreeSignature(repo);
+      expect(before).not.toBeNull();
+      write('src/a.py', 'x = 2\n');
+      expect(await workingTreeSignature(repo)).not.toBe(before);
+    } finally {
+      if (saved.dir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = saved.dir;
+      if (saved.index === undefined) delete process.env.GIT_INDEX_FILE;
+      else process.env.GIT_INDEX_FILE = saved.index;
+      fs.rmSync(other, { recursive: true, force: true });
+    }
   });
 });
