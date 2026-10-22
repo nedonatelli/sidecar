@@ -64,8 +64,15 @@ suite('dogfood — real agent loop in a real extension host', function () {
   suiteTeardown(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     // Retried: on Windows the extension's indexer can still hold a file in the
-    // directory for a moment after the agent wrote it (ENOTEMPTY).
-    fs.rmSync(scratchPath(), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    // directory for a moment after the agent wrote it (ENOTEMPTY). A handle can
+    // outlast the retries too (EPERM on the directory itself, release eval
+    // 2026-10-22), so a failed cleanup only warns: the directory is gitignored,
+    // outside the snapshot, and every test overwrites its files.
+    try {
+      fs.rmSync(scratchPath(), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (err) {
+      console.warn(`could not remove ${SCRATCH}: ${(err as Error).message}`);
+    }
   });
 
   test('get_diagnostics reports a real type error and leaves the editor as it found it', async function () {
