@@ -60,6 +60,41 @@ Big clouds (AWS/GCP/Azure GPU VMs) work but are more setup + cost for the same j
 | `MAX_ITERS`   | unset              | agent iteration cap per task; unset = the product's tier default (150 strong, 50 otherwise) |
 | `SWE_WORKERS` | `4`                | swebench Docker parallelism (raise on big boxes)                                            |
 
+## Handing a run back
+
+Run this on the run machine before anything leaves it. Raw traces carry the
+backend endpoint, any API key in the environment, and the machine's home path
+and username, so the run directory itself never gets copied:
+
+```bash
+node bench/swe/export_trajectories.mjs --in swe_campaign_<ts> --out handoff_<ts>
+```
+
+It rewrites every `*.jsonl` / `*.log` / `*.json` under `--in`, replacing:
+
+- the endpoint (from `OLLAMA_HOST` / `OLLAMA_BASE_URL` / `SIDECAR_EVAL_BASE_URL`) and any private URL host;
+- IP addresses;
+- API keys and bearer tokens;
+- the home path, username and git author.
+
+`export-manifest.json` records how many of each were replaced, never the values.
+**It fails closed:** if a stricter scan still finds anything secret-shaped, it
+writes nothing and lists `file:line detector`. Add `--redact <value>` for a
+value it missed, such as a public DNS name for the endpoint. Pass `--no-user`
+when the username is an ordinary word that the repository's own text contains;
+the home-path rule still covers paths. A four-part version such as `2.31.0.1`
+can't be told from an IP address, so it is rewritten too.
+
+Check the export by hand before committing it: grep it for the endpoint, the
+username and the key. Then hand over `handoff_<ts>/` with the predictions and
+resolved files. The results README for the run lists what's included:
+
+```markdown
+- `preds.*.jsonl`, `resolved.*.json` — predictions and harness results
+- `trajectories/` — per-turn traces and logs, exported with
+  `bench/swe/export_trajectories.mjs` (see its `export-manifest.json`)
+```
+
 ## Notes / gotchas
 
 - **Truncated Ollama install → 0% GPU (the expensive one):** on slow-CDN boxes
