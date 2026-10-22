@@ -4,9 +4,10 @@ This directory is the sanitized handoff from the overnight DGX queue. It contain
 
 - the three-trial SideCar agent-smoke reliability summary;
 - all 26 attempted SWE-bench arm records in `attempts.jsonl`; and
-- the four non-empty, official-format prediction candidates in the two `preds.nonempty.*.jsonl` files.
+- the four non-empty, official-format prediction candidates in the two `preds.nonempty.*.jsonl` files; and
+- the debugging trajectories of the four model-engaged attempts in `trajectories/`.
 
-It intentionally omits raw trajectories, the local endpoint, and credentials.
+It omits the local endpoint and credentials. The trajectories were scanned for both before publication. The run machine's username and git author name were replaced with `<user>` and `<author>`.
 
 ## Status
 
@@ -85,6 +86,7 @@ The other attempts are not model failures. Their cloned repository cache was abs
 - `preds.nonempty.scaffold-off.jsonl` — the two candidate patches for external scoring/review.
 - `preds.nonempty.scaffold-on.jsonl` — the two candidate patches for external scoring/review.
 - `resolved.scaffold-off.json`, `resolved.scaffold-on.json` — swebench reports for those four predictions (2026-10-22).
+- `trajectories/` — full per-turn JSONL traces and concise trajectory logs for the four model-engaged attempts; see its README.
 
 ## Next run
 
