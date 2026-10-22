@@ -241,3 +241,48 @@ describe('MetricsCollector', () => {
     expect(m.latencyP95Ms).toBeGreaterThanOrEqual(0);
   });
 });
+
+// #227 (from #116).
+describe('MetricsCollector — per-call tool timing and the learner (#227)', () => {
+  it('parallel tool calls each get their own duration', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const collector = new MetricsCollector(createMockMemento() as never);
+      collector.startRun('m');
+      collector.recordToolStart('a');
+      vi.setSystemTime(100);
+      collector.recordToolStart('b'); // used to overwrite a's start time
+      vi.setSystemTime(150);
+      collector.recordToolEnd('read_file', false, 'a');
+      vi.setSystemTime(400);
+      collector.recordToolEnd('grep', false, 'b');
+      collector.endRun();
+      const [run] = collector.getHistory();
+      expect(run.toolCalls.map((t) => t.durationMs)).toEqual([150, 300]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a session's first run is counted once by the capability learner", async () => {
+    const { hydrateModelPerformance, getObservedPerformance, resetModelPerformanceForTests } =
+      await import('./modelPerformance.js');
+    resetModelPerformanceForTests();
+    const memento = createMockMemento();
+    const earlier = { model: 'm', timestamp: 1, toolCalls: [{ name: 'x', durationMs: 1, isError: false }], errors: [] };
+    await memento.update('sidecar.metrics', [earlier]);
+    const collector = new MetricsCollector(memento as never);
+    // Activation hydrates the learner from the stored history; the mock, like
+    // VS Code's Memento, hands back the stored array itself.
+    hydrateModelPerformance(collector.getHistory());
+
+    collector.startRun('m');
+    collector.recordToolStart('t1');
+    collector.recordToolEnd('read_file', false, 't1');
+    collector.endRun();
+
+    expect(getObservedPerformance('m')?.runs).toBe(2); // the earlier run + this one
+    resetModelPerformanceForTests();
+  });
+});

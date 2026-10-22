@@ -210,14 +210,15 @@ describe('createAgentCallbacks — onToolResult', () => {
       (c) => (c[0] as { command: string }).command === 'toolResult',
     );
     expect((call![0] as { content: string }).content).toHaveLength(TOOL_RESULT_PREVIEW_MAX + 3); // +3 for '...'
-    expect(state.metricsCollector.recordToolEnd).toHaveBeenCalledWith('read_file', false);
+    // The call id goes too, so parallel calls get their own durations (#227).
+    expect(state.metricsCollector.recordToolEnd).toHaveBeenCalledWith('read_file', false, 'tu1');
   });
 
   it('forwards is_error=true through to recordToolEnd', () => {
     const state = makeState();
     const { callbacks: cb } = createAgentCallbacks(state, makeConfig(), []);
     cb.onToolResult('run_command', 'permission denied', true, 'tu1');
-    expect(state.metricsCollector.recordToolEnd).toHaveBeenCalledWith('run_command', true);
+    expect(state.metricsCollector.recordToolEnd).toHaveBeenCalledWith('run_command', true, 'tu1');
   });
 });
 

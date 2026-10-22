@@ -211,7 +211,7 @@ let learningEnabled = true;
 
 /** Seed the observed-performance signal from persisted run history. Call once at activation. */
 export function hydrateModelPerformance(runs: readonly AgentRunMetrics[]): void {
-  observedRuns = runs;
+  observedRuns = [...runs]; // a copy: the caller may still mutate its array (#227)
 }
 
 /** Master switch (`sidecar.modelLearning.enabled`). When off, tiers stay at their baseline. */

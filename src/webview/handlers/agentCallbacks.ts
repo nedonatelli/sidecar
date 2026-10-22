@@ -94,7 +94,7 @@ export function createAgentCallbacks(
         })
         .join(', ');
       state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: `${name}(${summary})` });
-      state.metricsCollector.recordToolStart();
+      state.metricsCollector.recordToolStart(id);
       state.auditLog?.recordToolCall(name, input, id, currentIteration);
       if (verbose) {
         verboseLog('Tool Selected', `Invoking ${name} with: ${summary}`);
@@ -115,8 +115,8 @@ export function createAgentCallbacks(
       const preview =
         !isHtml && result.length > TOOL_RESULT_PREVIEW_MAX ? result.slice(0, TOOL_RESULT_PREVIEW_MAX) + '...' : result;
       state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: preview, isHtml });
-      const durationMs = state.metricsCollector.getToolDuration();
-      state.metricsCollector.recordToolEnd(name, isError);
+      const durationMs = state.metricsCollector.getToolDuration(id);
+      state.metricsCollector.recordToolEnd(name, isError, id);
       // An audit write that fails must at least be reported, not vanish as an unhandled rejection.
       state.auditLog
         ?.recordToolResult(name, id, result, isError, durationMs)
