@@ -76,6 +76,15 @@ every arm alike; `SIDECAR_SWE_MAX_ITERS` overrides) with thinking on. Before any
 harness defaults against `package.json` — two of the corrections below were
 configs nobody shipped.
 
+**Size the per-task timeout to the model.** `SIDECAR_SWE_TASK_TIMEOUT` (default
+600000 ms, 10 min) also caps each task. For the iteration ceiling to be the limit
+that decides a run, the timeout has to allow `seconds per turn × iterations`: a
+model at 40–70 s a turn needs about 60 min for 50 iterations. The nemotron-3-super
+overnight queue (2026-10-21) ran with 19 min, and 2 of its 4 model-engaged runs
+were cut off at 15–16 turns. A timed-out run is labelled `harness-timeout`, and the
+ablation report counts these per arm and warns when time was the binding limit
+(#293).
+
 **3. Score each arm with the official harness** (Docker; on a Docker-capable
 machine):
 

@@ -7,7 +7,7 @@
 // ablation delta is the headline, the raw rate is support.
 // ---------------------------------------------------------------------------
 
-import type { AblationReport } from './types.js';
+import type { AblationReport, ArmReport } from './types.js';
 
 export interface SweEnvelope {
   model: string;
@@ -57,6 +57,37 @@ const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
 const sec = (ms: number): string => `${(ms / 1000).toFixed(0)}s`;
 /** A dollar figure, or an em dash when the run carried no price (local models, older meta files). */
 const usd = (x: number | null): string => (x === null ? '—' : `$${x.toFixed(x < 1 ? 3 : 2)}`);
+
+/** Share of an arm's runs that may time out before the warning fires. */
+const TIMEOUT_WARN_SHARE = 0.2;
+
+/**
+ * Report lines for runs that ended on the per-task timeout (#293). Counted for
+ * every arm that had any. Warns when more than a fifth of an arm's runs timed
+ * out at a median under half the iteration budget, so the time limit, not the
+ * product's iteration ceiling, decided those results. That is what happened to
+ * nemotron-3-super at 40–70 s a turn: 2 of 4 runs cut off at 15–16 of 50
+ * iterations.
+ */
+export function timeoutNotes(arms: readonly ArmReport[], maxIterations: number): string[] {
+  const lines: string[] = [];
+  for (const a of arms) {
+    const n = a.timedOut ?? 0;
+    if (n === 0) continue;
+    const med = a.medianTurnsTimedOut ?? null;
+    const medText = med === null ? '' : ` at a median of ${med} turns`;
+    const share = a.total ? n / a.total : 0;
+    const timeBound = share > TIMEOUT_WARN_SHARE && med !== null && med < maxIterations / 2;
+    lines.push(
+      timeBound
+        ? `> ⚠️ **${a.arm}: ${n} of ${a.total} runs ended on the per-task timeout${medText}, under half the ` +
+            `${maxIterations}-iteration budget.** The time limit, not the iteration ceiling, decided these runs; ` +
+            `size SIDECAR_SWE_TASK_TIMEOUT to the model's seconds per turn × ${maxIterations}.`
+        : `> ℹ️ ${a.arm}: ${n} of ${a.total} runs ended on the per-task timeout${medText}.`,
+    );
+  }
+  return lines;
+}
 
 export function formatAblationReport(report: AblationReport, env: SweEnvelope): string {
   const lift = report.liftPct;
@@ -124,6 +155,11 @@ export function formatAblationReport(report: AblationReport, env: SweEnvelope): 
         `a task counts only if BOTH arms actually engaged the repo. Excluded: ` +
         `${report.infraExcludedIds.join(', ') || 'none'}.`,
     );
+    lines.push('');
+  }
+  const timeouts = timeoutNotes([report.on, report.off], env.maxIterations);
+  if (timeouts.length) {
+    lines.push(...timeouts);
     lines.push('');
   }
   lines.push(

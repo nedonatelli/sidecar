@@ -40,6 +40,21 @@ function isInfraFailure(p: SwePrediction): boolean {
   });
 }
 
+/**
+ * A run the per-task timer ended: labelled `harness-timeout` (#271), or, in
+ * predictions written before that label, a `per-task timeout` failure reason.
+ */
+export function endedOnTimeout(p: Pick<SwePrediction, 'terminationBucket' | 'failureReason'>): boolean {
+  return p.terminationBucket === 'harness-timeout' || (p.failureReason ?? '').includes('per-task timeout');
+}
+
+function median(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
 function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[], resolved: Set<string>): ArmReport {
   const taskIds = new Set(tasks.map((t) => t.instance_id));
   const scored = predictions.filter((p) => p.arm === arm && taskIds.has(p.instance_id));
@@ -69,6 +84,8 @@ function armReport(arm: ArmName, tasks: SweTask[], predictions: SwePrediction[],
     infraFailures: predictions.filter((p) => p.arm === arm && isInfraFailure(p)).length,
     meanCostUsd: priced.length ? totalCost / priced.length : null,
     costPerResolvedUsd: priced.length && resolvedIds.length ? totalCost / resolvedIds.length : null,
+    timedOut: scored.filter(endedOnTimeout).length,
+    medianTurnsTimedOut: median(scored.filter(endedOnTimeout).map((p) => p.turns ?? 0)),
   };
 }
 

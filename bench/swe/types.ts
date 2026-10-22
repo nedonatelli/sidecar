@@ -223,6 +223,14 @@ export interface ArmReport {
   meanCostUsd: number | null;
   /** Total cost of the arm's priced runs divided by resolved tasks; null with no price or no resolve. */
   costPerResolvedUsd: number | null;
+  /**
+   * Scored runs that ended on the per-task timeout, and their median turns
+   * (#293). When many runs time out well short of the iteration budget, the
+   * time limit, not the product's iteration ceiling, decided the result.
+   * Optional on reports built before the field existed.
+   */
+  timedOut?: number;
+  medianTurnsTimedOut?: number | null;
 }
 
 /**
