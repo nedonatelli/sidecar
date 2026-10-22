@@ -137,9 +137,13 @@ export async function executeMultiFilePlan(
       if (outcome.status === 'fulfilled') {
         for (const r of outcome.value) resultById.set(r.tool_use_id, r);
         const failed = outcome.value.find((r) => r.is_error);
+        // A task stopped by Stop returns only the writes it ran, possibly none.
+        // That was reported "done" because nothing in it had failed (#165 ML-57);
+        // done means every write for the file ran.
+        const ranAll = outcome.value.length >= (usesByPath.get(path)?.length ?? 0);
         callbacks.onEditPlanProgress?.({
           path,
-          status: failed ? 'failed' : 'done',
+          status: failed ? 'failed' : ranAll ? 'done' : 'aborted',
           errorMessage: failed ? String(failed.content).slice(0, 200) : undefined,
         });
       } else {
