@@ -51,6 +51,23 @@ async function readDiskViaWorkspace(
   return (await readDiskWithEncoding(context, relPath))?.text;
 }
 
+/**
+ * The file's text as the agent's writes left it: Audit Mode's buffered copy
+ * when there is one, otherwise the disk. Undefined when it can't be read, or
+ * the buffer marks it deleted.
+ */
+export async function readCurrentText(
+  context: ToolExecutorContext | undefined,
+  relPath: string,
+): Promise<string | undefined> {
+  if (isAuditModeActive(context)) {
+    const buf = getDefaultAuditBuffer().read(relPath);
+    if (buf.deleted) return undefined;
+    if (buf.content !== undefined) return buf.content;
+  }
+  return readDiskViaWorkspace(context, relPath);
+}
+
 /** The file's text and the encoding it was read in (see fileEncoding.ts), or undefined when it cannot be read. */
 async function readDiskWithEncoding(
   context: ToolExecutorContext | undefined,
