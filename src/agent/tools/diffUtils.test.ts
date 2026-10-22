@@ -29,4 +29,24 @@ describe('computeLineDiff', () => {
   it('returns empty string when old text is empty and new text is also empty', () => {
     expect(computeLineDiff('', '', 'x.ts')).toBe('');
   });
+
+  // #165 ML-36: an end index of 0 was read as "to the end", so these listed the
+  // whole file as deleted (or added).
+  it('an insert above line 1 shows only the inserted line', () => {
+    const diff = computeLineDiff('a\nb\nc', 'x\na\nb\nc', 'f.ts');
+    const body = diff.split('\n').slice(3);
+    expect(body).toEqual(['+x', ' a', ' b', ' c']);
+    expect(diff).toContain('@@ -1,3 +1,4 @@');
+  });
+
+  it('deleting line 1 shows only the deleted line', () => {
+    const diff = computeLineDiff('a\nb\nc', 'b\nc', 'f.ts');
+    expect(diff.split('\n').slice(3)).toEqual(['-a', ' b', ' c']);
+    expect(diff).toContain('@@ -1,3 +1,2 @@');
+  });
+
+  it('replacing line 1 still shows one removal and one addition', () => {
+    const diff = computeLineDiff('a\nb\nc', 'A\nb\nc', 'f.ts');
+    expect(diff.split('\n').slice(3)).toEqual(['-a', '+A', ' b', ' c']);
+  });
 });

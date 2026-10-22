@@ -18,8 +18,11 @@ export function computeLineDiff(oldText: string, newText: string, relPath: strin
   )
     suf++;
 
-  const oldDel = oldLines.slice(pre, oldLines.length - suf || undefined);
-  const newAdd = newLines.slice(pre, newLines.length - suf || undefined);
+  // The end index is exact. It used to be `… - suf || undefined`, which turned
+  // an end of 0 into "to the end": inserting above line 1, or deleting it,
+  // listed the whole old (or new) file as changed (#165 ML-36).
+  const oldDel = oldLines.slice(pre, oldLines.length - suf);
+  const newAdd = newLines.slice(pre, newLines.length - suf);
   if (oldDel.length === 0 && newAdd.length === 0) return '';
 
   const ctxStart = Math.max(0, pre - DIFF_CONTEXT_LINES);
