@@ -1,5 +1,6 @@
 import type { ChatMessage, ToolDefinition, TokenUsage } from '../ollama/types.js';
 import { collapseRepeatedCommandResults } from './loop/commandDedup.js';
+import { shellRoot, workingTreeSignature } from './loop/treeSignature.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
 import type { InlineEditFn } from './executor.js';
@@ -1019,6 +1020,13 @@ export async function runAgentLoop(
       // precisely (delete if created this run, restore original otherwise).
       if (ratchetIo) await captureRatchetOriginals(state, pendingToolUses, ratchetIo);
 
+      // A shell command can edit files too (#247). Snapshot the working tree
+      // around any batch that runs one; a change counts as a mutation below.
+      const treeRoot = shellRoot(state.cwdOverride);
+      const treeBefore = pendingToolUses.some((t) => t.name === 'run_command')
+        ? await workingTreeSignature(treeRoot)
+        : null;
+
       const toolResults = await dispatchPendingToolUses(
         state,
         pendingToolUses,
@@ -1043,6 +1051,15 @@ export async function runAgentLoop(
         const name = pendingToolUses[i]?.name;
         if (name !== 'edit_file' && name !== 'write_file' && name !== 'delete_file') continue;
         if (!toolResults[i]?.is_error) state.fileMutations++;
+      }
+      if (treeBefore !== null) {
+        const treeAfter = await workingTreeSignature(treeRoot);
+        if (treeAfter !== null && treeAfter !== treeBefore) {
+          // One more for the batch, even if a file tool in it already counted:
+          // the count means "something changed", and an extra step is harmless.
+          state.fileMutations++;
+          state.logger?.info('Working tree changed across a shell command; counted as a file mutation (#247)');
+        }
       }
 
       // A deleted file is a clean slate — clear its rewrite-thrash tracking so a
