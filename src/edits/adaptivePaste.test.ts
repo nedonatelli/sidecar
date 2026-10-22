@@ -7,6 +7,35 @@ import {
   currentPasteRange,
 } from './adaptivePaste.js';
 import { workspace, window, commands, Position, Range } from 'vscode';
+import { fitTransformed } from './adaptivePaste.js';
+
+// #165 ML-62: the transform was written `trim()`med. A line-wise paste into an
+// indented block lost the first line's indent and its trailing newline, and a
+// fenced answer was written fence and all.
+describe("fitTransformed — the transform keeps the paste's shape (#165 ML-62)", () => {
+  it("keeps the first line's indentation", () => {
+    expect(fitTransformed('    const a = 1;\n    const b = 2;', '    x\n    y', '\n')).toBe(
+      '    const a = 1;\n    const b = 2;',
+    );
+  });
+
+  it('keeps the trailing newline a line-wise paste had, so the next line is not glued on', () => {
+    expect(fitTransformed('  const a = 1;\n', '  {"a": 1}\n', '\n')).toBe('  const a = 1;\n');
+    expect(fitTransformed('  const a = 1;', '  {"a": 1}\n', '\n')).toBe('  const a = 1;\n');
+  });
+
+  it('adds no newline when the paste had none', () => {
+    expect(fitTransformed('const a = 1;\n\n', '{"a": 1}', '\n')).toBe('const a = 1;');
+  });
+
+  it('unwraps a fence around the whole answer', () => {
+    expect(fitTransformed('```ts\n  const a = 1;\n```', '  {"a":1}\n', '\n')).toBe('  const a = 1;\n');
+  });
+
+  it("writes the document's line endings", () => {
+    expect(fitTransformed('  a();\n  b();', 'x\r\ny\r\n', '\r\n')).toBe('  a();\r\n  b();\r\n');
+  });
+});
 import { getConfig } from '../config/settings.js';
 
 vi.mock('../config/settings.js', () => ({
