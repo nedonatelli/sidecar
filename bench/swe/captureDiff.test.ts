@@ -10,8 +10,16 @@ import { captureDiff, snapshotShellWorkspace } from './captureDiff.js';
 // nothing.
 let dir: string;
 let base: string;
+// Inside a git hook (the pre-commit run of this suite) git exports GIT_DIR and
+// GIT_INDEX_FILE. Inherited, they point every `git` below at the repository
+// being committed instead of this temp one: `git add -A` here staged the temp
+// files into the real index, and a parallel test listing `git ls-files src`
+// found nothing. `cwd` must decide the repository, so they are dropped.
+const gitEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => !['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'].includes(k)),
+);
 const git = (...args: string[]) =>
-  execFileSync('git', args, { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  execFileSync('git', args, { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: gitEnv }).toString();
 const write = (rel: string, text: string) => {
   fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
   fs.writeFileSync(path.join(dir, rel), text);
