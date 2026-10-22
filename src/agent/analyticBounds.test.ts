@@ -36,6 +36,12 @@ describe('classifyBound', () => {
     expect(classifyBound('result <= 1e3')).toMatchObject({ kind: 'upper', upper: 1000 });
   });
 
+  // #121: the digit in an identifier read as a literal (`p2` → 2).
+  it('does not read the digits of an identifier as a numeric bound', () => {
+    expect(classifyBound('p2 >= result')).toMatchObject({ kind: 'custom' });
+    expect(classifyBound('p1 <= result')).toMatchObject({ kind: 'custom' });
+  });
+
   it('conservation (sum invariant)', () => {
     expect(classifyBound('sum(result) == sum(x)').kind).toBe('conservation');
     expect(classifyBound('anything', true).kind).toBe('conservation');
@@ -130,6 +136,10 @@ describe('boundEnforced', () => {
   });
   it('false when the only assert does not touch the result', () => {
     expect(boundEnforced('assert x.shape == (3,)\nresult = f(x)\nreturn result', range)).toBe(false);
+  });
+  // #121: `\b` before the operator needed a word char right before `>=`.
+  it('true for a plain spaced comparison assert on the result', () => {
+    expect(boundEnforced('result = f(x)\nassert result >= 0 and result <= 1\nreturn result', range)).toBe(true);
   });
 });
 

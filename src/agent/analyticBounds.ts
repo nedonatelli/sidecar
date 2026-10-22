@@ -35,7 +35,9 @@ export interface BoundDeclaration {
   where: 'comment' | 'docstring' | 'decorator';
 }
 
-const NUM = String.raw`[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?`;
+// A standalone numeric literal: not the tail of an identifier, so `p2 >= result`
+// does not read as an upper bound of 2.
+const NUM = String.raw`(?<![\w.])[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?(?![\w.])`;
 
 /** Lines that DECLARE a bound: `# bounds: …`, `# invariant: …`, docstring
  *  `Bounds:` / `Invariant:`, or a `@bounds("…")` / `@ensures("…")` decorator. */
@@ -118,8 +120,11 @@ export function boundAssertion(bound: BoundDeclaration): string {
 
 /** Guards that plausibly ENFORCE a bound in a kernel body: an assertion on the
  *  result, a clip/clamp, numpy testing helpers, or a raise-on-violation. */
+// No `\b` before the operators: a word boundary cannot sit between a space and
+// `>`, so `assert result >= 0` never matched and only `x>=0` (no spaces) did.
+const ASSERT_GUARD = /\bassert\b[^\n]*(?:\bnp\.all\b|\bnp\.testing\b|[<>]=?|==)/;
+
 const ENFORCE_PATTERNS: readonly RegExp[] = [
-  /\bassert\b[^\n]*\b(?:np\.all|np\.testing|>=|<=|[<>]|==)/,
   /\b(?:np\.)?clip\s*\(|\.clip\s*\(/,
   /\bnp\.testing\.assert_/,
   /\braise\b[^\n]*(?:Error|Exception)\b/,
@@ -129,11 +134,16 @@ const ENFORCE_PATTERNS: readonly RegExp[] = [
 /** Heuristic: does `kernelBody` already enforce `bound`? Conservative — a clear
  *  guard mentioning the result or a clamp/raise counts; absence flags the gap. */
 export function boundEnforced(kernelBody: string, bound: BoundDeclaration): boolean {
-  const mentionsResult = new RegExp(String.raw`\b${bound.resultVar}\b`).test(kernelBody);
+  const resultRe = new RegExp(String.raw`\b${bound.resultVar}\b`);
+  // An assert must touch the result on its own line, else it's asserting
+  // something unrelated (`assert x.shape == (3,)`). Checked per line now that
+  // the comparison operators actually match.
+  if (kernelBody.split('\n').some((l) => ASSERT_GUARD.test(l) && resultRe.test(l))) return true;
+  const mentionsResult = resultRe.test(kernelBody);
   for (const re of ENFORCE_PATTERNS) {
     if (re.test(kernelBody)) {
-      // A clip/clamp/raise is accepted on its own; an assert must plausibly
-      // touch the result (else it's asserting something unrelated).
+      // A clip/clamp/raise is accepted on its own; an np.testing assert must
+      // plausibly touch the result.
       if (/assert/.test(re.source) && !mentionsResult) continue;
       return true;
     }
