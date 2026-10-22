@@ -45,6 +45,13 @@ counts, and the rescued/regressed task lists. The report's honesty gate flags
 when the sample is too small to separate the lift from chance (it usually is at
 N=20 — treat small runs as a smoke test, N=50 for a real read).
 
+When the run is on a machine other than the one the results go to (a laptop,
+a shared box), export the traces with
+`node bench/swe/export_trajectories.mjs --in <run dir> --out <handoff dir>`
+before copying anything off it. It replaces the endpoint, keys and home path,
+and refuses to write when something still looks sensitive. See
+[Handing a run back](../cloud/README.md#handing-a-run-back).
+
 ## Knobs
 
 | Env           | Default                       | Meaning                                                                                                                         |
