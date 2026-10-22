@@ -17,6 +17,7 @@ import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { isAuditModeActive } from './auditHelper.js';
 import { getAuditDecorationProvider } from '../../testing/auditDecorations.js';
 import { computeLineDiff } from './diffUtils.js';
+import { DIFF_STREAM_PREFIX } from './diffStream.js';
 import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
 import { findSkippedLinesMatch, skippedLinesError } from './skippedLines.js';
 import {
@@ -67,7 +68,7 @@ async function readDiskWithEncoding(
 // Streaming diff helpers
 // ---------------------------------------------------------------------------
 
-const DIFF_PREFIX = '\x00diff\x00';
+const DIFF_PREFIX = DIFF_STREAM_PREFIX;
 
 // ---------------------------------------------------------------------------
 // edit_file search-not-found recovery helper

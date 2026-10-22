@@ -4,6 +4,7 @@ import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../../agent/loop.js';
 import { toolProducesHtml } from '../../agent/tools.js';
 import { getConfig } from '../../config/settings.js';
+import { DIFF_STREAM_PREFIX } from '../../agent/tools/diffStream.js';
 import type { PlanStore } from '../../agent/plans/planStore.js';
 import { extractGoal } from '../../agent/plans/planStore.js';
 
@@ -132,11 +133,10 @@ export function createAgentCallbacks(
       void state.auditLog?.recordTextTurn(text, iteration);
     },
     onToolOutput: (name, chunk, id) => {
-      const DIFF_PREFIX = '\x00diff\x00';
-      if (chunk.startsWith(DIFF_PREFIX)) {
+      if (chunk.startsWith(DIFF_STREAM_PREFIX)) {
         state.postMessage({
           command: 'toolOutput',
-          content: chunk.slice(DIFF_PREFIX.length),
+          content: chunk.slice(DIFF_STREAM_PREFIX.length),
           toolName: name,
           toolCallId: id,
           isDiff: true,
