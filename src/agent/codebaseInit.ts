@@ -71,7 +71,8 @@ function detectProjectName(rootPath: string, configs: Map<string, string>): stri
   return path.basename(rootPath);
 }
 
-/** Read root-level config files that help the LLM understand the project. */
+/** Read root-level config files that help the LLM understand the project.
+ *  Contents are whole; truncation for the prompt happens in buildInitContext. */
 async function readConfigFiles(rootUri: Uri): Promise<Map<string, string>> {
   const configFiles = [
     'package.json',
@@ -108,11 +109,7 @@ async function readConfigFiles(rootUri: Uri): Promise<Map<string, string>> {
       const fileUri = Uri.joinPath(rootUri, fileName);
       if (!mayInclude(fileUri.fsPath)) continue;
       const bytes = await workspace.fs.readFile(fileUri);
-      let content = Buffer.from(bytes).toString('utf-8');
-      if (content.length > MAX_CONFIG_READ) {
-        content = content.slice(0, MAX_CONFIG_READ) + '\n... (truncated)';
-      }
-      results.set(fileName, content);
+      results.set(fileName, Buffer.from(bytes).toString('utf-8'));
     } catch {
       // File doesn't exist — skip
     }
@@ -264,7 +261,10 @@ export async function buildInitContext(workspaceIndex: WorkspaceIndex | null): P
   const configs = await readConfigFiles(rootUri);
   if (configs.size > 0) {
     sections.push('## Configuration Files\n');
-    for (const [name, content] of configs) {
+    for (const [name, full] of configs) {
+      // Truncate only the prompt copy: detectProjectName parses the whole file,
+      // and a package.json cut at MAX_CONFIG_READ is not valid JSON.
+      const content = full.length > MAX_CONFIG_READ ? full.slice(0, MAX_CONFIG_READ) + '\n... (truncated)' : full;
       sections.push(`### ${name}\n\`\`\`\n${content}\n\`\`\`\n`);
     }
   }

@@ -326,6 +326,23 @@ describe('normalizeEditPlan — same-path merges', () => {
     expect(() => normalizeEditPlan(plan)).toThrow(EditPlanValidationError);
   });
 
+  // #121: the duplicate was reported instead of the bad op behind it.
+  it('reports invalid-op, not incompatible-duplicate, for a duplicate path with a bad op', () => {
+    const json = JSON.stringify({
+      edits: [
+        { path: 'a.ts', op: 'edit', rationale: 'x' },
+        { path: 'a.ts', op: 'rename', rationale: 'y' },
+      ],
+    });
+    try {
+      parseEditPlanJson(json);
+      expect.fail('should throw');
+    } catch (err) {
+      expect((err as EditPlanValidationError).reason).toBe('invalid-op');
+      expect((err as Error).message).toContain('Invalid op "rename"');
+    }
+  });
+
   it('leaves unique paths untouched', () => {
     const plan: EditPlan = {
       edits: [edit('a.ts'), edit('b.ts', 'create'), edit('c.ts', 'delete')],
