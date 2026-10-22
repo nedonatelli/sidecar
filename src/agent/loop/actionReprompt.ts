@@ -72,8 +72,15 @@ function fileReferences(text: string): string[] {
 // planning stalls like "I will start by reading the core files" or "I'll first
 // map out the system", where a word ("start by", "first") sits between the
 // opener and the verb — the old glued-together pattern missed those entirely.
-const DEFERRED_ACTION_RE =
-  /\b(?:I will|I'll|I am going to|I'm going to|I plan to|I intend to|I need to|Let me|Let's|Next,?\s+I(?:'ll| will)?|First,?\s+I(?:'ll| will)?)\b[^.!?\n]{0,40}?\b(?:read|examine|investigate|analy[sz]e|inspect|review|map|explore|look|check|start|begin|proceed|continue|search|fetch|open|trace|study|dig|gather|edit|implement|write|create|refactor|build|run|add|update|fix|modify|delete|move|attempt|try)\b|\b(?:Would you like me to|Shall I|Do you want me to|Should I go ahead|Want me to)\b/i;
+//
+// "Let me know …" is a closing courtesy, not an intent: "Let me know if you'd
+// like me to run the tests" matched `Let me … run` and re-prompted finished
+// summaries (#284).
+const INTENT_STALL_RE =
+  /\b(?:I will|I'll|I am going to|I'm going to|I plan to|I intend to|I need to|Let me(?! know)|Let's|Next,?\s+I(?:'ll| will)?|First,?\s+I(?:'ll| will)?)\b[^.!?\n]{0,40}?\b(?:read|examine|investigate|analy[sz]e|inspect|review|map|explore|look|check|start|begin|proceed|continue|search|fetch|open|trace|study|dig|gather|edit|implement|write|create|refactor|build|run|add|update|fix|modify|delete|move|attempt|try)\b/i;
+/** Asking permission to do something instead of doing it. */
+const PERMISSION_OFFER_RE = /\b(?:Would you like me to|Shall I|Do you want me to|Should I go ahead|Want me to)\b/i;
+const DEFERRED_ACTION_RE = new RegExp(`${INTENT_STALL_RE.source}|${PERMISSION_OFFER_RE.source}`, 'i');
 
 /**
  * Return the text of the last REAL user message — the user's actual intent.
@@ -216,8 +223,8 @@ const FAILING_CHECK_RE =
 export function isFailingCheckOutput(text: string): boolean {
   return FAILING_CHECK_RE.test(text);
 }
-/** Successful mutation results. */
-const MUTATION_OK_RE = /File (?:edited|written): /;
+/** Successful mutation results. A deletion is a change too (#284). */
+const MUTATION_OK_RE = /File (?:edited|written|deleted): /;
 
 /**
  * Intent-aware escapes for the act-now machinery, keyed on what has ACTUALLY
@@ -286,6 +293,38 @@ export function verifiedMutationSinceUserMessage(messages: ChatMessage[]): boole
     }
   }
   return false;
+}
+
+/**
+ * True when a change landed since the user's real message: a successful
+ * edit, write or delete result. Whether it was verified is not asked here;
+ * that is the completion gate's job (#284).
+ */
+export function changeLandedSinceUserMessage(messages: ChatMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const results = blocks.filter((b): b is ToolResultContentBlock => b.type === 'tool_result');
+    if (results.length === 0) {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join(' ');
+      if (text.startsWith('[')) continue;
+      return false;
+    }
+    if (results.some((r) => !r.is_error && MUTATION_OK_RE.test(r.content))) return true;
+  }
+  return false;
+}
+
+/** True when the text announces the model's next step instead of taking it ("I will now edit…"). */
+export function looksLikeIntentStall(text: string): boolean {
+  return INTENT_STALL_RE.test(text);
 }
 
 /**
@@ -394,22 +433,25 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
     return false;
   }
 
-  // Intent-aware escapes — keyed on run state, not request phrasing. Only for
-  // turns triggered by the REQUEST's shape: text that itself announces
-  // deferred intent ("I will now edit…") is still a stall regardless of what
-  // already happened, so it keeps the reprompt.
-  if (!looksLikeDeferredAction(fullText)) {
+  // Intent-aware escapes — keyed on run state, not request phrasing. Text that
+  // announces its next step ("I will now edit…") is still a stall whatever
+  // already happened, so it keeps the reprompt. A permission offer ("Would you
+  // like me to…") does not skip the escapes: after real work it is how a
+  // finished summary ends, and before any it is still caught below (#284).
+  if (!looksLikeIntentStall(fullText)) {
     // A read-only request whose reads already happened: the text-only turn is
     // the answer, not a failure to act.
     if (!isMutationRequest(userText) && answeredFromReadsSinceUserMessage(state.messages)) {
       state.logger?.info('Action-request reprompt suppressed: read request already answered from real reads');
       return false;
     }
-    // A mutation that landed and verified clean: the text-only turn is a
-    // completion summary. (A failing check blocks this escape — see
-    // verifiedMutationSinceUserMessage.)
-    if (verifiedMutationSinceUserMessage(state.messages)) {
-      state.logger?.info('Action-request reprompt suppressed: mutation landed and verified clean');
+    // A change landed since the request: the model acted, and the text-only
+    // turn is its summary. This used to require a clean check after the change
+    // as well, so a model that edited and then summarized was told it "did not
+    // call any tools" — in 3 of 4 firings in the v0.131.0 release eval (#284).
+    // Verification is the completion gate's job, and it still enforces it.
+    if (changeLandedSinceUserMessage(state.messages)) {
+      state.logger?.info('Action-request reprompt suppressed: a change already landed this turn');
       return false;
     }
   }

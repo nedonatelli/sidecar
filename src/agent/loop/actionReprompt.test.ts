@@ -667,9 +667,15 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
     expect(maybeInjectActionReprompt(state, 'max is fixed and tsc reports no errors.', stubCallbacks())).toBe(false);
   });
 
-  it('DOES reprompt when the verification after the edit is RED — no rationalized exits', () => {
-    // v0.122 gemma4 rationalized failing tsc output and quit with a broken
-    // import. A red check must keep the pressure on.
+  // #284: these two used to expect the action reprompt ("you described what to
+  // do but did not call any tools") after an edit that landed. That message is
+  // false there, and fired on 3 of 4 finished summaries in the v0.131.0
+  // release eval. The pressure they wanted stays on through the completion
+  // gate, which runs on the same turn (onEmptyResponse runs every hook): the
+  // red-check gate refuses while the last check failed (v0.122 gemma4's
+  // rationalized tsc exit), and the base gate demands a check for an
+  // unverified edit.
+  it('a RED check after the edit is left to the red-check gate, not this reprompt', () => {
     const state = stubLoopState({
       tools: [{ name: 'edit_file' }] as never,
       messages: [
@@ -681,16 +687,83 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
       ] as never,
       config: { codeAsTextRecoveryEnabled: true } as never,
     });
-    expect(maybeInjectActionReprompt(state, 'Done — the remaining errors are stale.', stubCallbacks())).toBe(true);
+    expect(maybeInjectActionReprompt(state, 'Done — the remaining errors are stale.', stubCallbacks())).toBe(false);
   });
 
-  it('DOES reprompt an unverified mutation — edit landed but nothing checked it', () => {
+  it('an unverified edit is left to the completion gate, not this reprompt', () => {
     const state = stubLoopState({
       tools: [{ name: 'edit_file' }] as never,
       messages: [{ role: 'user', content: 'fix the max function in src/minmax.ts' }, asst, res(EDIT_OK)] as never,
       config: { codeAsTextRecoveryEnabled: true } as never,
     });
-    expect(maybeInjectActionReprompt(state, 'The max function has been fixed.', stubCallbacks())).toBe(true);
+    expect(maybeInjectActionReprompt(state, 'The max function has been fixed.', stubCallbacks())).toBe(false);
+  });
+
+  describe('a finished run summarizing its work is not re-prompted (#284)', () => {
+    const RENAME_REQ = { role: 'user' as const, content: 'rename addNumbers to sum in src/math.ts' };
+    const RENAME_OK = '<tool_output tool="edit_file">\nFile edited: src/math.ts\n</tool_output>';
+    const run = (messages: unknown[], text: string) => {
+      const state = stubLoopState({
+        tools: [{ name: 'edit_file' }] as never,
+        messages: messages as never,
+        config: { codeAsTextRecoveryEnabled: true } as never,
+      });
+      return maybeInjectActionReprompt(state, text, stubCallbacks());
+    };
+
+    it('the release-eval rename: edit landed, summary ends with an offer', () => {
+      expect(
+        run(
+          [RENAME_REQ, asst, res(RENAME_OK)],
+          'The function has been renamed from `addNumbers` to `sum` in `src/math.ts`. Would you like me to verify this with a test?',
+        ),
+      ).toBe(false);
+    });
+
+    it('"Let me know if…" is a courtesy, not an intent', () => {
+      expect(
+        run(
+          [RENAME_REQ, asst, res(RENAME_OK)],
+          'Renamed in src/math.ts. Let me know if you would like me to run the tests.',
+        ),
+      ).toBe(false);
+    });
+
+    it('a deletion counts as a change that landed', () => {
+      expect(
+        run(
+          [
+            { role: 'user', content: 'delete src/old.ts' },
+            asst,
+            res('<tool_output tool="delete_file">\nFile deleted: src/old.ts\n</tool_output>'),
+          ],
+          'Deleted src/old.ts as requested.',
+        ),
+      ).toBe(false);
+    });
+
+    it('STILL fires on a first turn that only announces the work', () => {
+      expect(run([RENAME_REQ], 'I will read src/math.ts and rename the function.')).toBe(true);
+    });
+
+    it('STILL fires when the only edit failed, so nothing landed', () => {
+      const failed = {
+        role: 'user' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 't0', content: 'search string not found', is_error: true },
+        ],
+      };
+      expect(run([RENAME_REQ, asst, failed], 'The function has been renamed.')).toBe(true);
+    });
+
+    it('STILL fires on a permission offer when the change was asked for and nothing landed', () => {
+      const READ = '<tool_output tool="read_file">\nexport function addNumbers() {}\n</tool_output>';
+      expect(run([RENAME_REQ, asst, res(READ)], 'I found addNumbers in src/math.ts. Shall I rename it?')).toBe(true);
+    });
+
+    it('STILL fires on an intent stall after a partial change', () => {
+      expect(run([RENAME_REQ, asst, res(RENAME_OK)], 'Next, I will update the callers in src/app.ts.')).toBe(true);
+    });
   });
 
   it('deferred-intent text keeps the reprompt even when prior work exists', () => {
