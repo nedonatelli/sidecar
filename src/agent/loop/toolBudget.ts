@@ -78,7 +78,11 @@ const ALTERNATIVES: Record<string, Array<[tool: string, use: string]>> = {
     ['read_file', 'read_file to look at a file'],
     ['grep', 'grep to search the code'],
   ],
-  edit_file: [['write_file', 'write_file with the complete new content of the file']],
+  // No alternative for edit_file. "write_file with the complete new content"
+  // was one, and in the #268 A/B (gemma4:e4b, edit_file budget 6) it made the
+  // model rewrite whole 15-17 KB files four and five times; both tasks it did
+  // that on broke dozens of previously-passing tests. A spent edit budget means
+  // stop editing (EDIT_SPENT below).
   grep: [
     ['read_file', 'read_file on a path you have already found'],
     ['search_files', 'search_files to find files by name'],
@@ -87,6 +91,13 @@ const ALTERNATIVES: Record<string, Array<[tool: string, use: string]>> = {
   list_directory: [['search_files', 'search_files with a glob pattern']],
   search_files: [['list_directory', 'list_directory on the folder you need']],
 };
+
+/** The repeat refusal for edit_file: the edits are done; check them and finish, never rewrite around the limit. */
+const EDIT_SPENT = (budget: number, refusal: number): string =>
+  `Tool "edit_file" was refused again (refusal ${refusal}): its budget of ${budget} edits is spent, and every ` +
+  `further edit is refused the same way. The edits you already made are applied and kept. Do not rewrite a ` +
+  `file with write_file to get around this: a whole-file rewrite is how working code gets broken. Check what ` +
+  `you have (read_file, or run the tests), then give your final answer.`;
 
 /**
  * The refusal for a tool already refused this run. Over 7,734 SWE canary runs,
@@ -109,6 +120,7 @@ function repeatRefusalMessage(
   );
   const instead = usable.length > 0 ? ` Instead, use ${usable.map(([, use]) => use).join('; or ')}.` : '';
   const ask = canAskUser ? ' If you truly need more calls to it, explain why to the user via ask_user.' : '';
+  if (toolName === 'edit_file') return EDIT_SPENT(budget, refusal) + ask;
   return (
     `Tool "${toolName}" was refused again (refusal ${refusal}): its budget of ${budget} calls is spent, and ` +
     `every further call to it is refused the same way, so calling it again only uses up turns.${instead}${ask} ` +

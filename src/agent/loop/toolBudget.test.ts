@@ -104,6 +104,21 @@ describe('a repeated call to a spent tool (#268)', () => {
     expect(second).toContain('give your final answer');
   });
 
+  // #268 A/B, tight phase (gemma4:e4b, edit_file budget 6): "use write_file with
+  // the complete new content" made the model rewrite whole 15-17 KB files four
+  // and five times, and both tasks broke dozens of previously-passing tests.
+  it('after edit_file, never suggests write_file: the edits are kept, check them and finish', () => {
+    const state = { ...makeState(), tools: tools('edit_file', 'write_file', 'read_file') } as unknown as LoopState;
+    spend(state, 'edit_file', 30);
+    checkToolBudget(state, 'edit_file');
+    const second = checkToolBudget(state, 'edit_file')!;
+    expect(second).toContain('refused again (refusal 2)');
+    expect(second).toContain('already made are applied and kept');
+    expect(second).toContain('Do not rewrite a file with write_file');
+    expect(second).not.toMatch(/Instead, use write_file/);
+    expect(second).toContain('give your final answer');
+  });
+
   it('counts each tool separately', () => {
     const state = makeState() as LoopState;
     spend(state, 'run_command', 15);
