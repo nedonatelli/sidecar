@@ -1,5 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { unloadModelRequest } from './modelCache.js';
+import { unloadModelRequest, coldStartPerTask } from './modelCache.js';
+
+describe('coldStartPerTask', () => {
+  it('unloads before each task on Ollama unless SIDECAR_SWE_WARM_MODEL=1', () => {
+    expect(coldStartPerTask('ollama', undefined)).toBe(true);
+    expect(coldStartPerTask('ollama', '0')).toBe(true);
+    expect(coldStartPerTask('ollama', '1')).toBe(false);
+  });
+
+  it('never sends the Ollama-native unload to another backend (vLLM, OpenAI-compatible, hosted)', () => {
+    for (const backend of ['openai-compat', 'openai', 'kickstand', 'anthropic', 'openrouter']) {
+      expect(coldStartPerTask(backend, undefined)).toBe(false);
+    }
+  });
+});
 
 describe('unloadModelRequest', () => {
   it('targets /api/generate on the given host', () => {
