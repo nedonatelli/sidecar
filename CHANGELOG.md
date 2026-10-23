@@ -4,6 +4,91 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.132.0] - 2026-10-22
+
+Finished runs end sooner: a model that has already made its change is no longer told it
+"called no tools", and edits made through the shell count as edits. Verification credit is
+harder to get without verifying: installing a test runner, or a test script that runs no test,
+no longer counts as a passing check. Plus fixes across the edit tools, Audit review, `/context`,
+the numerical-code checks and the multi-root code index.
+
+### Changed
+
+- **A model that has finished is no longer told it "called no tools"**
+  ([#284](https://github.com/nedonatelli/sidecar/issues/284)). The "⚙️ No tool calls detected"
+  reprompt is meant for a model that never started working. It also fired on finished runs'
+  summaries, telling a model that had already edited that it "did not call any tools", which
+  bought extra read turns or edits to a finished task. A change that landed since your message
+  (a file edited, written or deleted) now suppresses it. Whether that change was verified stays
+  the completion gate's job, and the gate still enforces it on the same turn. A closing offer such
+  as "Would you like me to…" no longer counts as a stall, and "Let me know if…" is no longer read
+  as an intent to act. Runs that have finished end sooner.
+- **An edit made through the shell counts as an edit**
+  ([#247](https://github.com/nedonatelli/sidecar/issues/247)). A run that changed a tracked file
+  with `sed -i`, `cat > file` or `git apply` was treated as "before the first edit" for the whole
+  run. SideCar now compares `git status` around each batch that runs a shell command. New
+  untracked files, such as scratch scripts, don't count, and outside a git repository nothing
+  changes.
+- **Run metrics name a run that SideCar's own loop controls stopped**
+  ([#271](https://github.com/nedonatelli/sidecar/issues/271)). A run ended by cycle detection, the
+  burst cap, degenerate output or the syntax-gate bail was counted as `bad-reasoning`, which
+  blamed the model for a stop the loop made. It is now `loop-stopped`. It still counts as a
+  failure, so success rates don't change.
+
+### Fixed
+
+- **Installing a test runner or linter no longer counts as running it**
+  ([#278](https://github.com/nedonatelli/sidecar/issues/278)). `npm install jest`,
+  `pip install pytest` or `npm install eslint` was recorded as a test or checker run, and its
+  output was scored as the result. Package installs (npm, pnpm, yarn, bun, pip, uv, poetry,
+  pipx, conda) are now ignored, and a chain such as `npm install && npm test` still counts as a
+  test run.
+- **A test script that runs no test earns no test credit**
+  ([#280](https://github.com/nedonatelli/sidecar/issues/280)). A `test` script weakened to
+  `exit 0`, `true` or `echo ok` exited 0 and counted as a passing suite. Through npm, pnpm, yarn 1
+  or bun, such a run now counts as verifying nothing, and a failing check stays failing.
+- **Edit tools** ([#165](https://github.com/nedonatelli/sidecar/issues/165)):
+  - an edit above or at line 1 no longer shows the whole file as changed in its diff;
+  - `sidecar_edit_file` over the VS Code language-model tool API no longer returns an internal
+    diff marker to the calling model;
+  - a multi-file plan reports a file that Stop cancelled as aborted, not done;
+  - stub warnings after `edit_file` cover the whole file, at the right lines, and no longer wipe
+    earlier ones;
+  - Audit Mode treats `./src/a.ts` and `src/a.ts` as one file;
+  - adaptive paste keeps the pasted block's indentation, trailing newline and line endings, and
+    unwraps a code fence instead of writing it.
+- **Review and context** ([#227](https://github.com/nedonatelli/sidecar/issues/227)):
+  - cancelling a per-hunk Audit review no longer throws away the hunks you didn't pick;
+  - two SIDECAR.md sections with the same heading no longer overwrite each other in retrieval;
+  - `/context` reports the whole SIDECAR.md, and AGENTS.md and CLAUDE.md, instead of the first
+    paragraph of SIDECAR.md only;
+  - parallel tool calls get their own durations in metrics, and a session's first run is no
+    longer counted twice by model learning;
+  - GitHub and CI tool failures (`reply_pr_comment`, `submit_pr_review`, `create_pr_review`,
+    `mark_pr_ready`, `check_pr_ci`, `analyze_ci_failure`) are reported as errors instead of as
+    successes.
+- **Numerical-code checks** ([#227](https://github.com/nedonatelli/sidecar/issues/227)):
+  - shape contracts keep two same-named methods apart, read CRLF files, and keep jaxtyping bit
+    widths (`Float32`);
+  - `check_shape_consistency` and `check_numerical_contracts` normalize the file argument, so
+    `./src/geo.py` or `src\geo.py` is found, and `check_shape_consistency` says when a file isn't
+    indexed instead of reporting it clean;
+  - a spaced `assert result >= 0` counts as enforcing a bound;
+  - `p2` is no longer read as the number 2;
+  - generated property tests parse parameters with annotations such as `Dict[str, int]`, and
+    assert bounds on `result`.
+- **Project setup and edit plans** ([#227](https://github.com/nedonatelli/sidecar/issues/227)): a
+  long `package.json` no longer loses the project's name, and an edit plan with a duplicate path
+  and an invalid operation reports the invalid operation.
+- **Code index** ([#113](https://github.com/nedonatelli/sidecar/issues/113)): in a multi-root
+  workspace, a change in a second folder updates that file's symbols, instead of re-reading or
+  dropping the first folder's file of the same name. With the LanceDB store, a symbol whose lines
+  moved gets its new range.
+
+### Stats
+- 10289 total tests (574 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.131.0] - 2026-10-22
 
 Capable cloud models get room to work: up to 150 agent iterations and higher per-tool
