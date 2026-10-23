@@ -58,6 +58,55 @@ function salvageToolName(raw: string, toolNames: Set<string>): string | null {
   return m && isDispatchableName(m[1], toolNames) ? m[1] : null;
 }
 
+/**
+ * Split a block holding two or more top-level JSON objects separated only by
+ * whitespace or commas (`{…}\n{…}`). Null when the block is anything else, so a
+ * single object, or objects with prose between them, keeps its current handling.
+ * A stray `}` after a complete object is skipped: qwen2.5-coder closes each call
+ * with one brace too many (`{…}}}\n{…}}}`), and it is unambiguous there.
+ * Exported for tests.
+ */
+export function splitConsecutiveObjects(body: string): string[] | null {
+  const out: string[] = [];
+  let i = 0;
+  while (i < body.length) {
+    while (i < body.length && (/[\s,]/.test(body[i]) || (body[i] === '}' && out.length > 0))) i++;
+    if (i >= body.length) break;
+    if (body[i] !== '{') return null;
+    const end = findBalancedEnd(body, i, { dialect: 'json' });
+    if (end === -1) {
+      // A truncated last object still counts as one; its marker goes to repair.
+      out.push(body.slice(i));
+      break;
+    }
+    out.push(body.slice(i, end + 1));
+    i = end + 1;
+  }
+  return out.length >= 2 ? out : null;
+}
+
+/** One object from a multi-object block as a tool call, or a malformed marker when it doesn't parse. */
+function textCallFromObject(raw: string, toolNames: Set<string>, id: number): ToolUseContentBlock {
+  try {
+    const parsed = JSON.parse(raw);
+    const name = parsed.name || parsed.tool || parsed.function?.name || parsed.function;
+    const args =
+      parsed.arguments || parsed.args || parsed.parameters || parsed.input || parsed.function?.arguments || {};
+    if (typeof name === 'string' && isDispatchableName(name, toolNames)) {
+      return { type: 'tool_use', id: `text_tc_${id}`, name, input: typeof args === 'string' ? JSON.parse(args) : args };
+    }
+  } catch {
+    // fall through to the marker
+  }
+  return {
+    type: 'tool_use',
+    id: `text_tc_${id}`,
+    name: salvageToolName(raw, toolNames)!,
+    input: {},
+    _malformedInputRaw: raw,
+  };
+}
+
 /** Split a comma-separated argument list at top level, respecting quotes and brackets. Exported for tests. */
 export function splitTopLevelArgs(s: string): string[] {
   const parts: string[] = [];
@@ -427,6 +476,18 @@ function parseTextToolCallsInternal(
           results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name, input });
         }
       } catch {
+        // #244: qwen2.5-coder writes several calls as back-to-back objects in
+        // one fence. The block isn't one JSON value, so it became one malformed
+        // call and repair kept only the first object. Dispatch each object that
+        // names a tool, in order; one that doesn't parse gets its own marker.
+        const objects = splitConsecutiveObjects(match[4]);
+        const named = objects?.filter((o) => salvageToolName(o, toolNames) !== null) ?? [];
+        if (objects && named.length >= 2) {
+          firstType = 'json';
+          spans?.push([match.index, match.index + match[0].length]);
+          for (const o of named) results.push(textCallFromObject(o, toolNames, idCounter++));
+          continue;
+        }
         const name = salvageToolName(match[4], toolNames);
         if (name) {
           firstType = 'json';
@@ -601,6 +662,56 @@ const SOURCE_FENCE_LANGS = new Set([
  *  intent; dozens of matches is a document, not a call list. */
 const MAX_CALL_EXPRESSIONS = 5;
 
+// Quoted-call detection (#244). A call expression in PROSE is often the model
+// citing a call it already made, or one it might make, not making one. Replayed
+// over 25,100 recorded eval turns, most prose-context dispatches were evidence
+// lists after the work was done (gemma4:31b: "`read_file(path=…)` confirms the
+// function is now `sum`"), offers ("I can call `list_directory(…)`"), and
+// examples ("For example, I could: 1. … (`get_diagnostics(…)`)"). Each one
+// dispatched anyway, and on a finished run it kept the loop going. Calls inside a
+// fence are left alone: a call alone in a code block is how models that write
+// calls as code (qwen2.5-coder) actually call.
+
+/** A result verb as the first word after the call, or after a colon/arrow: "`read_file(…)` confirms …", "`x(…)`: Returned …". */
+const RESULT_AFTER_RE =
+  /^[`*]*\s*(?:[:→]\s*|\s)(?:\*\*)?(?:the\s+\w+\s+)?(?:output\s+)?(?:confirm(?:s|ed|ing)?|show(?:s|ed|ing)?|return(?:s|ed|ing)?|report(?:s|ed)|reveal(?:s|ed)|found|exited|passed|failed|prov(?:es|ed|ing)|indicat(?:es|ed))\b/i;
+/**
+ * An outcome rather than a purpose. After a colon: "`get_diagnostics(…)`: No
+ * diagnostics reported." After an arrow, anything: "`read_file(…)` → Exposes
+ * `start()`". A plan step names its purpose with a dash ("— find the line").
+ */
+const OUTCOME_AFTER_COLON_RE =
+  /^[`*]*\s*(?:→|:\s*(?:\*\*)?(?:no\s+(?:diagnostics|results|errors|output|matches)|passed|failed|ok\b|clean\b|\d+\s+(?:passed|failed|errors?)))/i;
+/** Past-call, offer, example or citation phrasing before the call on the same line. */
+const QUOTED_BEFORE_RE =
+  /\b(?:I\s+(?:did|have|had|previously|already|just)?\s*(?:call(?:ed)?|ran|used|verified|checked)\b|(?:by|after|when)\s+calling\b|I\s+(?:can|could|would|might)\b|(?:you|we)\s+(?:can|could)\b|e\.g\.|for example\b|citations?\b\W*:)|\b(?:Ran|Checked|Called|in|from)\s*[`*]*$/i;
+/** A list header that introduces evidence or examples, not steps to take now. */
+const QUOTED_LIST_HEADER_RE =
+  /\b(?:for example|e\.g\.|I could|I can|evidence|verification|verified|tool (?:outputs|results)|following (?:checks|tools|tool outputs|results)|attempted to verify|as (?:shown|verified)|I have run)\b/i;
+const LIST_ITEM_RE = /^\s*(?:[-*•]|\d+\.)\s/;
+
+/** True when the call at [start, end) is quoted in prose rather than made. Exported for tests. */
+export function isQuotedCall(text: string, start: number, end: number): boolean {
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  const nl = text.indexOf('\n', end);
+  const lineEnd = nl === -1 ? text.length : nl;
+  const before = text.slice(lineStart, start);
+  const after = text.slice(end, lineEnd);
+  if (RESULT_AFTER_RE.test(after) || OUTCOME_AFTER_COLON_RE.test(after)) return true;
+  if (QUOTED_BEFORE_RE.test(before)) return true;
+  if (after.trimEnd().endsWith('?')) return true;
+  if (!LIST_ITEM_RE.test(text.slice(lineStart, lineEnd))) return false;
+  // The header is the nearest line above that is not a list item, a blank line,
+  // or an indented continuation of one.
+  const lines = text.slice(0, lineStart).split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (l.trim() === '' || LIST_ITEM_RE.test(l) || /^\s{2,}\S/.test(l)) continue;
+    return QUOTED_LIST_HEADER_RE.test(l);
+  }
+  return false;
+}
+
 /** End index of the `)` closing the paren opened at `openParen`, honoring
  *  quoted strings (double/single, backslash escapes). -1 when unterminated. */
 function findCallParenEnd(text: string, openParen: number): number {
@@ -668,6 +779,9 @@ export function parseCallExpressions(
     excluded.push([fm.index, fm.index + fm[0].length]);
   }
   const inExcluded = (i: number) => excluded.some(([s, e]) => i >= s && i < e);
+  const fenced: Array<[number, number]> = [];
+  for (const f of text.matchAll(/```[\s\S]*?(?:```|$)/g)) fenced.push([f.index, f.index + f[0].length]);
+  const inFence = (i: number) => fenced.some(([s, e]) => i >= s && i < e);
 
   const out: Array<{ name: string; input: Record<string, unknown>; span: [number, number] }> = [];
   const seen = new Set<string>();
@@ -697,6 +811,7 @@ export function parseCallExpressions(
       (v) => typeof v === 'string' && /^<[^<>]*>$/.test(v.trim()),
     );
     if (hasPlaceholderArg) continue;
+    if (!inFence(nameStart) && isQuotedCall(text, nameStart, closeParen + 1)) continue;
     const key = `${parsed.name}:${JSON.stringify(parsed.input)}`;
     if (seen.has(key)) continue;
     seen.add(key);
