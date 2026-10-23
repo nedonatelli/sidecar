@@ -1,0 +1,21 @@
+
+> sidecar-ai@0.132.0 bench:swe:predict
+> vitest run --config vitest.eval.config.ts tests/llm-eval/swe.eval.ts
+
+
+ RUN  v4.1.10 C:/Users/<user>/Documents/Code/sidecar-v0.132.0
+
+[swe] runtime: ollama version? model digest?
+[swe] nemotron-3-super: 1 tasks × 2 arms, max 50 iterations (env)
+[swe] warmed django/django working tree in n/a (warm-up failed)
+[swe]   django__django-12470 scaffold-off: 2850b patch (2317s, 50 turns, 0 gate-fires, 0 loop-controls)
+[swe] warmed django/django working tree in n/a (warm-up failed)
+[swe]   django__django-12470 scaffold-on: EMPTY [capability] (3614s, 35 turns, 0 gate-fires, 1 loop-controls)
+[swe] wrote predictions to <home>\Documents\Code\sidecar-v0.132.0\.sidecar\logs\dgx-nemotron-3-super\swe-v0.132.0-first-token-regression-20261023-101428/preds.{scaffold-off,scaffold-on}.jsonl (+ predictions.meta.jsonl)
+ ✓ tests/llm-eval/swe.eval.ts > SWE-bench Lite — prediction generation > generates predictions for nemotron-3-super 5931373ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  10:14:29
+   Duration  5933.90s (transform 1.82s, setup 0ms, import 2.31s, tests 5931.37s, environment 0ms)
+
