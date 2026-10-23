@@ -49,13 +49,93 @@ describe('the refusal message only offers ask_user when someone can answer (#236
     expect(msg).not.toContain('ask_user');
     expect(msg).toContain('Work with what you have already gathered');
     // The default is the no-UI wording: a caller that says nothing is not promised a human.
-    expect(checkToolBudget(state as LoopState, 'run_command', { canAskUser: false })).toBe(msg);
+    // A fresh state: a second refusal of the same tool gets the repeat wording (#268).
+    const fresh = makeState();
+    spend(fresh, 'run_command', 15);
+    expect(checkToolBudget(fresh as LoopState, 'run_command', { canAskUser: false })).toBe(msg);
   });
 
   it('with a clarification UI it keeps the ask_user route', () => {
     const state = makeState();
     spend(state, 'run_command', 15);
     expect(checkToolBudget(state as LoopState, 'run_command', { canAskUser: true })).toContain('ask_user');
+  });
+});
+
+// #268: 78% of 351 SWE canary runs that hit a budget called the refused tool
+// again, about five times each, and got the same words back each time (e4b,
+// pytest-5692: run_command refused at 15/15, then asked for 5 more times until
+// the iteration ceiling).
+describe('a repeated call to a spent tool (#268)', () => {
+  const tools = (...names: string[]) => names.map((name) => ({ name, description: '', input_schema: {} }));
+
+  it('the second refusal differs from the first, names alternatives, and says when to stop', () => {
+    const state = {
+      ...makeState(),
+      tools: tools('run_command', 'run_tests', 'read_file', 'grep'),
+    } as unknown as LoopState;
+    spend(state, 'run_command', 15);
+    const first = checkToolBudget(state, 'run_command')!;
+    const second = checkToolBudget(state, 'run_command')!;
+    expect(second).not.toBe(first);
+    expect(second).toContain('refused again (refusal 2)');
+    expect(second).toContain('run_tests for a test command');
+    expect(second).toContain('give your final answer');
+    expect(checkToolBudget(state, 'run_command')).toContain('refusal 3');
+  });
+
+  it('names only alternatives the run has and can still call', () => {
+    const state = { ...makeState(), tools: tools('run_command', 'read_file', 'grep') } as unknown as LoopState;
+    spend(state, 'run_command', 15);
+    spend(state, 'grep', 15); // grep is spent too
+    checkToolBudget(state, 'run_command');
+    const second = checkToolBudget(state, 'run_command')!;
+    expect(second).not.toContain('run_tests'); // not in this run
+    expect(second).not.toContain('grep to search'); // spent
+    expect(second).toContain('read_file to look at a file');
+  });
+
+  it('with nothing to suggest it still says to stop and answer', () => {
+    const state = { ...makeState(), tools: tools('web_search') } as unknown as LoopState;
+    spend(state, 'web_search', 5);
+    checkToolBudget(state, 'web_search');
+    const second = checkToolBudget(state, 'web_search')!;
+    expect(second).not.toContain('Instead');
+    expect(second).toContain('give your final answer');
+  });
+
+  // #268 A/B, tight phase (gemma4:e4b, edit_file budget 6): "use write_file with
+  // the complete new content" made the model rewrite whole 15-17 KB files four
+  // and five times, and both tasks broke dozens of previously-passing tests.
+  it('after edit_file, never suggests write_file: the edits are kept, check them and finish', () => {
+    const state = { ...makeState(), tools: tools('edit_file', 'write_file', 'read_file') } as unknown as LoopState;
+    spend(state, 'edit_file', 30);
+    checkToolBudget(state, 'edit_file');
+    const second = checkToolBudget(state, 'edit_file')!;
+    expect(second).toContain('refused again (refusal 2)');
+    expect(second).toContain('already made are applied and kept');
+    expect(second).toContain('Do not rewrite a file with write_file');
+    expect(second).not.toMatch(/Instead, use write_file/);
+    expect(second).toContain('give your final answer');
+  });
+
+  it('counts each tool separately', () => {
+    const state = makeState() as LoopState;
+    spend(state, 'run_command', 15);
+    spend(state, 'grep', 15);
+    checkToolBudget(state, 'run_command');
+    expect(checkToolBudget(state, 'grep')).not.toContain('refused again');
+  });
+
+  it('keeps the ask_user route on a repeat when someone can answer', () => {
+    const state = makeState() as LoopState;
+    spend(state, 'run_command', 15);
+    checkToolBudget(state, 'run_command', { canAskUser: true });
+    expect(checkToolBudget(state, 'run_command', { canAskUser: true })).toContain('ask_user');
+    const noUi = makeState() as LoopState;
+    spend(noUi, 'run_command', 15);
+    checkToolBudget(noUi, 'run_command');
+    expect(checkToolBudget(noUi, 'run_command')).not.toContain('ask_user');
   });
 });
 

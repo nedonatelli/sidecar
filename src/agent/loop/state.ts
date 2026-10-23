@@ -376,6 +376,11 @@ export interface LoopState {
   // the only reader; executeToolUses.ts is the only writer.
   toolCallCounts: Map<string, number>;
 
+  // Budget refusals per tool this run (#268): the second refusal of a tool
+  // gets a different message from the first. toolBudget.ts only; created on
+  // first use.
+  toolBudgetRefusals?: Map<string, number>;
+
   // Completion-gate state (tracks edited files and verification calls).
   // gate.ts + executeToolUses.ts both touch it.
   gateState: ReturnType<typeof createGateState>;
