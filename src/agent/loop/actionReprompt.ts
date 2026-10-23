@@ -437,7 +437,10 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   // cite the lines that already satisfy it. Not "the code was NOT saved": it is,
   // and "no change needed" can be the right answer (no-op-recognition).
   if (state.printedCodeAlreadyInFile) {
-    const changed = state.fileMutations > 0 || changeLandedSinceUserMessage(state.messages);
+    // A shell command the tree check couldn't cover may have made the change;
+    // then "nothing changed" isn't known, and the check stays silent.
+    const changed =
+      state.fileMutations > 0 || state.shellRanUnchecked === true || changeLandedSinceUserMessage(state.messages);
     if (!changed && !state.alreadyDoneChecked && isMutationRequest(userText)) {
       state.alreadyDoneChecked = true;
       state.actionRepromptCount++;

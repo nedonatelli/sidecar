@@ -335,6 +335,13 @@ export interface LoopState {
   alreadyDoneChecked: boolean;
 
   /**
+   * A shell command ran where the working tree could not be compared around it
+   * (no git repository), so it may have changed files without being counted in
+   * fileMutations (#247 counts only what it can see). Set by loop.ts.
+   */
+  shellRanUnchecked?: boolean;
+
+  /**
    * Files successfully read via read_file during this loop run.
    * Persists across iterations so that a file read in iteration N is
    * still "known" in iteration N+1 when the model tries to edit it.

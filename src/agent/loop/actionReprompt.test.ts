@@ -490,6 +490,17 @@ describe('maybeInjectActionReprompt', () => {
       expect(state.alreadyDoneChecked).toBe(false);
     });
 
+    // Agent eval 2026-10-23, gemma4:31b: a `sed -i` rename in a non-git fixture
+    // was invisible to the tree check, and the check told the model "no file has
+    // been changed" after it had renamed every caller.
+    it('stays silent after a shell command the tree check could not cover', () => {
+      const state = makeState('Rename formatDate to toDateString in every file under src/.');
+      state.printedCodeAlreadyInFile = true;
+      state.shellRanUnchecked = true;
+      expect(maybeInjectActionReprompt(state, reprint, stubCallbacks())).toBe(false);
+      expect(state.alreadyDoneChecked).toBe(false);
+    });
+
     it('still suppresses after an edit result in this request', () => {
       const state = makeState(request);
       state.messages.push(
