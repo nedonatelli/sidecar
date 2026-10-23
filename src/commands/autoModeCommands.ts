@@ -9,6 +9,7 @@ import type { MCPManager } from '../agent/mcpManager.js';
 import type { AgentLogger } from '../agent/logger.js';
 import type { SidecarDir } from '../config/sidecarDir.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
+import { chatStreamCallbacks } from '../webview/chatStream.js';
 
 export interface AutoModeCommandDeps {
   createClient: () => SideCarClient;
@@ -68,12 +69,8 @@ export function registerAutoModeCommands(context: ExtensionContext, deps: AutoMo
           abortSignal: signal,
         },
         {
-          onText: (text) => getChatProvider()?.notify({ command: 'assistantMessage', content: text }),
-          onToolCall: (name, _input, id) =>
-            getChatProvider()?.notify({ command: 'toolCall', toolName: name, toolCallId: id, content: name }),
-          onToolResult: (name, result, _isError, id) =>
-            getChatProvider()?.notify({ command: 'toolResult', toolName: name, toolCallId: id, content: result }),
-          onDone: () => getChatProvider()?.notify({ command: 'done' }),
+          // Loading on before each task's first chunk, done after it (chatStream.ts).
+          ...chatStreamCallbacks((m) => getChatProvider()?.notify(m), { postDoneOnDone: true }),
         },
         {
           onTaskStart: (item, n, total) => {

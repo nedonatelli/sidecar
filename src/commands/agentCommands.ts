@@ -6,6 +6,7 @@ import type { SideCarClient } from '../ollama/client.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { MCPManager } from '../agent/mcpManager.js';
 import type { AgentCallbacks } from '../agent/loop.js';
+import { chatStreamCallbacks } from '../webview/chatStream.js';
 
 export interface AgentCommandDeps {
   createClient: () => SideCarClient;
@@ -73,15 +74,10 @@ export function registerAgentCommands(context: ExtensionContext, extensionId: st
       // Stream the facet's live output into the chat panel (#2). Read-only
       // facets (e.g. architecture-reviewer) produce no diff, so without this
       // their output would be swallowed by the default silent callbacks.
+      // chatStreamCallbacks enters the loading state first, so the chunks join
+      // one message instead of one bubble each.
       const callbacks: AgentCallbacks | undefined = provider
-        ? {
-            onText: (text) => provider.notify({ command: 'assistantMessage', content: text }),
-            onToolCall: (name, _input, id) =>
-              provider.notify({ command: 'toolCall', toolName: name, toolCallId: id, content: name }),
-            onToolResult: (name, result, _isError, id) =>
-              provider.notify({ command: 'toolResult', toolName: name, toolCallId: id, content: result }),
-            onDone: () => undefined,
-          }
+        ? chatStreamCallbacks((m) => provider.notify(m))
         : undefined;
       // Run inside a cancellable progress notification so a long-running
       // facet can be aborted (the loop honors the signal). The chat spinner

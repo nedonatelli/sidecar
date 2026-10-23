@@ -90,6 +90,7 @@ import {
   handleResearchCommand,
 } from './sessionHandlers.js';
 import { handleNotebookStart, handleNotebookExit } from './notebookHandlers.js';
+import { chatStreamCallbacks } from '../chatStream.js';
 
 export interface HandlerDeps {
   state: ChatState;
@@ -125,14 +126,9 @@ async function runFacetReview(state: ChatState, facetIds: string[], displayName:
   const { createClient } = await import('../../ollama/factory.js');
   const cfg = getConfig();
   const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const callbacks: AgentCallbacks = {
-    onText: (text) => state.postMessage({ command: 'assistantMessage', content: text }),
-    onToolCall: (name, _input, id) =>
-      state.postMessage({ command: 'toolCall', toolName: name, toolCallId: id, content: name }),
-    onToolResult: (name, result, _isError, id) =>
-      state.postMessage({ command: 'toolResult', toolName: name, toolCallId: id, content: result }),
-    onDone: () => undefined,
-  };
+  // Enters the loading state before the first chunk; without it every chunk
+  // was finalized as its own message (one bubble per token). See chatStream.ts.
+  const callbacks: AgentCallbacks = chatStreamCallbacks((m) => state.postMessage(m));
   const controller = new AbortController();
   let outcome: Awaited<ReturnType<typeof runFacetDispatchCommand>> | undefined;
   try {
