@@ -31,6 +31,7 @@ import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 import { getConfig } from '../../src/config/settings.js';
 import { resolveIterationCeiling, type IterationCeiling } from '../../bench/swe/iterationCeiling.js';
+import { parseToolBudgets, withToolBudgets } from '../../bench/swe/toolBudgets.js';
 import { getToolDefinitionsForTier, findTool } from '../../src/agent/tools.js';
 import { STABLE_TOOL_ENV, stableOutputTools } from '../../bench/swe/stableToolOutput.js';
 import { ShellRootGuard, shellGuardTools } from '../../bench/swe/shellGuard.js';
@@ -101,6 +102,10 @@ function iterationCeiling(): IterationCeiling {
   );
   return iterationCeilingCache;
 }
+// Per-tool budgets for a deliberate budget experiment, every arm alike, recorded
+// in the manifest (bench/swe/toolBudgets.ts). Parsed at load so a typo fails
+// the run before the first task.
+const TOOL_BUDGETS = parseToolBudgets(process.env.SIDECAR_SWE_TOOL_BUDGETS);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
 // Experiment switch: see the armConfig construction for what it enables.
 const REDCHECK_RATCHETED = process.env.SIDECAR_SWE_REDCHECK_RATCHETED === '1';
@@ -692,6 +697,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       sandboxEnabled: false,
       ...armConfigOverrides(arm),
       ...(REDCHECK_RATCHETED ? { redCheckPythonRunnersEnabled: true, redCheckRatchetedEnabled: true } : {}),
+      ...(TOOL_BUDGETS
+        ? { scaffoldingOverrides: withToolBudgets(getConfig().scaffoldingOverrides, TOOL_BUDGETS)! }
+        : {}),
     };
     const findArmTool = (name: string) => findTool(name, undefined, armConfig);
     const stableTools = STABLE_OUTPUT ? stableOutputTools(findArmTool) : [];
@@ -1006,6 +1014,8 @@ describe('SWE-bench Lite — prediction generation', () => {
         arms: ARMS,
         maxIterations: iterationCeiling().maxIterations,
         maxIterationsSource: iterationCeiling().source,
+        // Non-null only for a deliberate budget experiment (SIDECAR_SWE_TOOL_BUDGETS).
+        toolBudgetOverrides: TOOL_BUDGETS ?? null,
         retrievalTopK: RETRIEVAL_TOPK,
         redCheckRatcheted: REDCHECK_RATCHETED,
         stableToolOutput: STABLE_OUTPUT,

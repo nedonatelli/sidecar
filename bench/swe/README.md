@@ -76,6 +76,13 @@ every arm alike; `SIDECAR_SWE_MAX_ITERS` overrides) with thinking on. Before any
 harness defaults against `package.json` — two of the corrections below were
 configs nobody shipped.
 
+**Budget experiments.** `SIDECAR_SWE_TOOL_BUDGETS=run_command=6,grep=6` sets those
+tools' per-session budgets for every arm alike, through the product's
+`scaffolding.overrides.toolBudgets`. Use it when an experiment is about behaviour
+after a refusal. At the shipped budgets only about 3% of gemma4:e4b canary runs
+hit one, too few to compare. The manifest records it as `toolBudgetOverrides`,
+so a run under it is never read as a shipped-settings result.
+
 **Size the per-task timeout to the model.** `SIDECAR_SWE_TASK_TIMEOUT` (default
 600000 ms, 10 min) also caps each task. For the iteration ceiling to be the limit
 that decides a run, the timeout has to allow `seconds per turn × iterations`: a
