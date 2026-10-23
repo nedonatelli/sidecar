@@ -52,7 +52,7 @@ import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
-import { warmWorkingTree } from '../../bench/swe/warmTree.js';
+import { warmWorkingTree, warmLogLine } from '../../bench/swe/warmTree.js';
 import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
 import { unloadModelRequest, coldStartPerTask } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
@@ -308,8 +308,8 @@ function prepareRepo(task: SweTask): string {
     throw new Error(`checkout mismatch for ${task.instance_id}: ${head} != ${task.base_commit}`);
   // Before the agent's clock starts: otherwise its first grep can hit the 15 s
   // tool timeout on a freshly written tree, at random per arm. See warmTree.ts.
-  const warmMs = warmWorkingTree(dir);
-  console.log(`[swe] warmed ${task.repo} working tree in ${warmMs === null ? 'n/a (warm-up failed)' : `${warmMs}ms`}`);
+  const warm = warmWorkingTree(dir);
+  (warm.outcome === 'failed' ? console.warn : console.log)(warmLogLine(task.repo, warm));
   return dir;
 }
 
