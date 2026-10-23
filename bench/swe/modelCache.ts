@@ -37,3 +37,15 @@ export function unloadModelRequest(host: string, model: string): { url: string; 
     body: JSON.stringify({ model, keep_alive: 0 }),
   };
 }
+
+/**
+ * Whether each task starts with the per-task unload. The request is
+ * Ollama-native: on any other backend (vLLM, an OpenAI-compatible or hosted
+ * endpoint) `/api/generate` does not exist, and sending it anyway logged a
+ * 404, or waited out the 30 s timeout, before every task while every task
+ * started warm regardless. `backend` is the resolved provider (detectProvider),
+ * the value the manifest records, so a sniffed or explicit Ollama both count.
+ */
+export function coldStartPerTask(backend: string, warmModelEnv: string | undefined): boolean {
+  return backend === 'ollama' && warmModelEnv !== '1';
+}

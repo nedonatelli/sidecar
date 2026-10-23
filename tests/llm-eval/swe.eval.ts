@@ -53,7 +53,7 @@ import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type Task
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree } from '../../bench/swe/warmTree.js';
 import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
-import { unloadModelRequest } from '../../bench/swe/modelCache.js';
+import { unloadModelRequest, coldStartPerTask } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
 import { emptyTotals, addUsage, cacheHitRate, runCostUsd } from '../../bench/swe/runCost.js';
@@ -71,6 +71,17 @@ const MODEL = process.env.SIDECAR_SWE_MODEL || 'gemma4:e4b';
 // meant to be sniffed; otherwise this is Ollama. SIDECAR_SWE_PROVIDER overrides.
 const SWE_PROVIDER = (process.env.SIDECAR_SWE_PROVIDER ||
   (process.env.SIDECAR_SWE_API_KEY ? 'auto' : 'ollama')) as ProviderSetting;
+// The per-task cold start (bench/swe/modelCache.ts) is an Ollama-native
+// request, so only an Ollama backend gets it. On vLLM or another
+// OpenAI-compatible server it 404'd or timed out before every task.
+const SWE_HOST = normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434';
+const COLD_START = coldStartPerTask(detectProvider(SWE_HOST, SWE_PROVIDER), process.env.SIDECAR_SWE_WARM_MODEL);
+if (!COLD_START && process.env.SIDECAR_SWE_WARM_MODEL !== '1') {
+  console.warn(
+    `[swe] backend ${detectProvider(SWE_HOST, SWE_PROVIDER)} has no per-task model unload: tasks start with ` +
+      `whatever prefix cache the server keeps, so same-seed runs may not reproduce`,
+  );
+}
 const OUT = process.env.SIDECAR_SWE_OUT || path.join(os.tmpdir(), 'sidecar-swe');
 const REPOS = (process.env.SIDECAR_SWE_REPOS || '')
   .split(',')
@@ -762,10 +773,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // the same seed diverged in the model's own call with every prior tool
     // result byte-identical, because each task's first turn depended on what
     // the previous task had left cached. See bench/swe/modelCache.ts for the
-    // measurement. ~5s per task; SIDECAR_SWE_WARM_MODEL=1 skips it.
-    if (process.env.SIDECAR_SWE_WARM_MODEL !== '1') {
-      const host = normalizeOllamaHost(process.env.OLLAMA_HOST || '') || 'http://localhost:11434';
-      const unload = unloadModelRequest(host, MODEL);
+    // measurement. ~5s per task; SIDECAR_SWE_WARM_MODEL=1 skips it, and so does
+    // any non-Ollama backend, which has no such endpoint (COLD_START above).
+    if (COLD_START) {
+      const unload = unloadModelRequest(SWE_HOST, MODEL);
       try {
         const res = await fetch(unload.url, {
           method: 'POST',
@@ -986,6 +997,8 @@ describe('SWE-bench Lite — prediction generation', () => {
         backend: detectProvider(ollamaHost, SWE_PROVIDER),
         providerSetting: SWE_PROVIDER,
         ollamaHost,
+        // Whether every task started from a cold prompt cache (Ollama only).
+        coldStartPerTask: COLD_START,
         ...runtime,
         agentTemperature: getConfig().agentTemperature,
         agentSeed: seedEnv !== undefined && seedEnv !== '' ? Number(seedEnv) : (getConfig().agentSeed ?? null),
