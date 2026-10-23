@@ -328,6 +328,20 @@ export interface LoopState {
   printedCodeAlreadyInFile: boolean;
 
   /**
+   * The "already done?" check has been sent this run (#297): a change request
+   * answered by reprinting the file's current code, with nothing changed. It is
+   * sent once; after that the model's answer stands.
+   */
+  alreadyDoneChecked: boolean;
+
+  /**
+   * A shell command ran where the working tree could not be compared around it
+   * (no git repository), so it may have changed files without being counted in
+   * fileMutations (#247 counts only what it can see). Set by loop.ts.
+   */
+  shellRanUnchecked?: boolean;
+
+  /**
    * Files successfully read via read_file during this loop run.
    * Persists across iterations so that a file read in iteration N is
    * still "known" in iteration N+1 when the model tries to edit it.
@@ -471,6 +485,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     actionRepromptCount: 0,
     fenceWriteCoercions: 0,
     printedCodeAlreadyInFile: false,
+    alreadyDoneChecked: false,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),
     unappliedEditNudged: false,

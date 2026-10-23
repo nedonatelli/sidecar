@@ -1023,9 +1023,12 @@ export async function runAgentLoop(
       // A shell command can edit files too (#247). Snapshot the working tree
       // around any batch that runs one; a change counts as a mutation below.
       const treeRoot = shellRoot(state.cwdOverride);
-      const treeBefore = pendingToolUses.some((t) => t.name === 'run_command')
-        ? await workingTreeSignature(treeRoot)
-        : null;
+      const runsShell = pendingToolUses.some((t) => t.name === 'run_command');
+      const treeBefore = runsShell ? await workingTreeSignature(treeRoot) : null;
+      // Outside a git repository the tree can't be compared, so a shell command
+      // may have changed files unseen (#297: `sed -i` renames in the eval's
+      // non-git fixtures). Nothing may then claim "no file has been changed".
+      if (runsShell && treeBefore === null) state.shellRanUnchecked = true;
 
       const toolResults = await dispatchPendingToolUses(
         state,

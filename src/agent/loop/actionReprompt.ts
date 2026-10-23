@@ -428,7 +428,44 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   // had just checked the file and seen its edit there was talked into a
   // redundant whole-file rewrite (2026-10-15 release eval, gemma4:31b, every
   // trial of large-file-anchored-insertion). See fenceWrite.ts.
+  //
+  // That holds only when the model made a change. With nothing changed since a
+  // change request, a reprint of the file's CURRENT code is a claim that no
+  // change is needed, and nothing checked it (#297: ministral-3 reprinted
+  // greeter.ts's `//` comment as "already well-documented" when asked to add
+  // JSDoc, and the run ended). Ask once, naming the request: make the change, or
+  // cite the lines that already satisfy it. Not "the code was NOT saved": it is,
+  // and "no change needed" can be the right answer (no-op-recognition).
   if (state.printedCodeAlreadyInFile) {
+    // A shell command the tree check couldn't cover may have made the change;
+    // then "nothing changed" isn't known, and the check stays silent.
+    const changed =
+      state.fileMutations > 0 || state.shellRanUnchecked === true || changeLandedSinceUserMessage(state.messages);
+    if (!changed && !state.alreadyDoneChecked && isMutationRequest(userText)) {
+      state.alreadyDoneChecked = true;
+      state.actionRepromptCount++;
+      state.logger?.info(
+        `Action-request reprompt fired (#${state.actionRepromptCount}/${maxActionReprompts}, already-done check): ` +
+          'printed code is already in the file and nothing changed since a change request',
+      );
+      callbacks.onText('\n\n⚙️ Nothing was changed — checking whether the request is already met...\n');
+      const request = userText.length > 300 ? `${userText.slice(0, 300)}…` : userText;
+      const target = extractTargetPath(userText);
+      state.messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              `[Nothing changed] The code you printed is what ${target ?? 'the file'} already contains, and no ` +
+              `file has been changed since the request. The request was: "${request}". If the file does not do ` +
+              'that yet, make the change now with a tool call (edit_file). If it already does, quote the existing ' +
+              'lines that satisfy each part of the request, and finish without editing.',
+          },
+        ],
+      });
+      return true;
+    }
     state.logger?.info('Action-request reprompt suppressed: the printed code is already in the file');
     return false;
   }
