@@ -69,6 +69,7 @@ function makeState(logger?: AgentLogger): LoopState {
     actionRepromptCount: 0,
     fenceWriteCoercions: 0,
     printedCodeAlreadyInFile: false,
+    alreadyDoneChecked: false,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),
     unappliedEditNudged: false,

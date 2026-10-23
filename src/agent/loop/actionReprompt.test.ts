@@ -438,12 +438,77 @@ describe('maybeInjectActionReprompt', () => {
   it('does not fire when the printed code is already in the file (a summary of a saved edit)', () => {
     const state = makeState('In src/validators.py, add a negative-value check to FieldValidator7.');
     state.printedCodeAlreadyInFile = true;
+    state.fileMutations = 1; // the edit_file landed earlier in the run
     const cb = stubCallbacks();
     const summary =
       'I have updated FieldValidator7:\n```python\n        if value < 0:\n            return False\n```\n';
     expect(maybeInjectActionReprompt(state, summary, cb)).toBe(false);
     expect(state.messages).toHaveLength(1);
     expect(state.actionRepromptCount).toBe(0);
+  });
+
+  // #297: combined eval 2026-10-22, ministral-3, dogfood-add-jsdoc. Asked to add
+  // JSDoc, the model reprinted the existing `//` comment as "already
+  // well-documented"; nothing had changed, and the run ended unchecked.
+  describe('a change request answered by reprinting the unchanged file (#297)', () => {
+    const request = 'Add a JSDoc comment to the welcome function in src/greeter.ts.';
+    const reprint =
+      'No further changes are needed. The function is already well-documented:\n' +
+      '```typescript\n// Says hello to the given name.\nexport function welcome(name: string): string {\n```\n';
+
+    it('asks once whether the request is met, naming it, instead of suppressing', () => {
+      const state = makeState(request);
+      state.printedCodeAlreadyInFile = true;
+      expect(maybeInjectActionReprompt(state, reprint, stubCallbacks())).toBe(true);
+      const text = (state.messages[state.messages.length - 1].content as { text: string }[])[0].text;
+      expect(text.startsWith('[Nothing changed]')).toBe(true);
+      expect(text).toContain(request);
+      expect(text).toContain('src/greeter.ts');
+      expect(text).toContain('finish without editing');
+      // Not the code-as-text wording: the printed code IS saved.
+      expect(text).not.toContain('NOT saved');
+      expect(state.alreadyDoneChecked).toBe(true);
+      expect(state.actionRepromptCount).toBe(1);
+    });
+
+    it('lets the second answer stand', () => {
+      const state = makeState(request);
+      state.printedCodeAlreadyInFile = true;
+      expect(maybeInjectActionReprompt(state, reprint, stubCallbacks())).toBe(true);
+      state.printedCodeAlreadyInFile = true;
+      expect(
+        maybeInjectActionReprompt(state, 'The existing lines are:\n```ts\n// Says hello\n```', stubCallbacks()),
+      ).toBe(false);
+      expect(state.actionRepromptCount).toBe(1);
+    });
+
+    it('still suppresses after a shell edit changed the tree (sed -i rename, #247)', () => {
+      const state = makeState('Rename formatDate to toDateString in every file under src/.');
+      state.printedCodeAlreadyInFile = true;
+      state.fileMutations = 1;
+      expect(maybeInjectActionReprompt(state, reprint, stubCallbacks())).toBe(false);
+      expect(state.alreadyDoneChecked).toBe(false);
+    });
+
+    it('still suppresses after an edit result in this request', () => {
+      const state = makeState(request);
+      state.messages.push(
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'edit_file', input: {} }] },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: 'File edited: src/greeter.ts' }],
+        },
+      );
+      state.printedCodeAlreadyInFile = true;
+      expect(maybeInjectActionReprompt(state, reprint, stubCallbacks())).toBe(false);
+    });
+
+    it('does not ask on a request that is not a change request', () => {
+      const state = makeState('Show me the welcome function in src/greeter.ts.');
+      state.printedCodeAlreadyInFile = true;
+      expect(maybeInjectActionReprompt(state, reprint, stubCallbacks())).toBe(false);
+      expect(state.alreadyDoneChecked).toBe(false);
+    });
   });
 
   it('calls out the fabricated <tool_output> when the model roleplays a tool result', () => {
