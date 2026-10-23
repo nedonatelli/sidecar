@@ -1,0 +1,104 @@
+{
+  "generatedBy": "bench/swe/export_trajectories.mjs",
+  "source": "swe-v0.132.0-first-token-regression-20261023-101428",
+  "files": [
+    {
+      "path": "django__django-12470.scaffold-off.seednone.trial0.jsonl",
+      "bytes": 481303,
+      "replacements": {
+        "explicit <home>": 79,
+        "url host": 2
+      }
+    },
+    {
+      "path": "django__django-12470.scaffold-off.seednone.trial0.log",
+      "bytes": 333283,
+      "replacements": {
+        "explicit <home>": 2,
+        "url host": 2
+      }
+    },
+    {
+      "path": "django__django-12470.scaffold-on.seednone.trial0.jsonl",
+      "bytes": 1035254,
+      "replacements": {
+        "explicit <home>": 1,
+        "url host": 2
+      }
+    },
+    {
+      "path": "django__django-12470.scaffold-on.seednone.trial0.log",
+      "bytes": 641054,
+      "replacements": {
+        "url host": 2
+      }
+    },
+    {
+      "path": "predictions.meta.jsonl",
+      "bytes": 4257,
+      "replacements": {}
+    },
+    {
+      "path": "preds.scaffold-off.jsonl",
+      "bytes": 3053,
+      "replacements": {}
+    },
+    {
+      "path": "preds.scaffold-on.jsonl",
+      "bytes": 109,
+      "replacements": {}
+    },
+    {
+      "path": "process.stderr.log",
+      "bytes": 150,
+      "replacements": {}
+    },
+    {
+      "path": "process.stdout.log",
+      "bytes": 1153,
+      "replacements": {
+        "explicit <home>": 1,
+        "explicit <user>": 1
+      }
+    },
+    {
+      "path": "run.manifest.json",
+      "bytes": 1809,
+      "replacements": {
+        "explicit <host>": 1,
+        "explicit <home>": 1
+      }
+    },
+    {
+      "path": "trajectory.django__django-12470.scaffold-off.log",
+      "bytes": 43567,
+      "replacements": {
+        "explicit <home>": 2
+      }
+    },
+    {
+      "path": "trajectory.django__django-12470.scaffold-on.log",
+      "bytes": 23471,
+      "replacements": {}
+    }
+  ],
+  "totals": {
+    "explicit <home>": 86,
+    "url host": 8,
+    "explicit <user>": 1,
+    "explicit <host>": 1
+  },
+  "explicitValues": [
+    "<api-key>",
+    "<redacted>",
+    "<api-key>",
+    "<host>",
+    "<email>",
+    "<home>",
+    "<author>",
+    "<host>",
+    "<redacted>",
+    "<user>"
+  ],
+  "findings": 0
+}
