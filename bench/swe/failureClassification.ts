@@ -16,7 +16,19 @@
 
 import type { SwePrediction } from './types.js';
 
-export type FailureKind = 'infra' | 'capability' | 'none';
+/**
+ * - `infra`: the harness or backend broke; excluded from the capability
+ *   denominator (isInfraFailure).
+ * - `harness-timeout` (#308): the per-task wall clock ended the run. Labelled
+ *   apart, so a log doesn't call it a capability failure, but it STAYS in the
+ *   denominator: a model too slow to finish in the budget is a real cost to a
+ *   user. report.ts counts these per arm separately (timeoutNotes).
+ * - `capability`: anything else that failed.
+ */
+export type FailureKind = 'infra' | 'harness-timeout' | 'capability' | 'none';
+
+/** The failureReason swe.eval.ts records when the per-task timer ends a run. */
+const PER_TASK_TIMEOUT_RE = /^per-task timeout after \d+ms/i;
 
 export interface FailureClassification {
   reason: string;
@@ -72,8 +84,11 @@ export function classifyFailure(err: unknown): FailureClassification {
   if (err === null || err === undefined) return { reason: '', kind: 'none' };
   const reason = err instanceof Error ? err.message : String(err);
   const haystack = reason.toLowerCase();
-  const kind: FailureKind = INFRA_SIGNATURES.some((s) => haystack.includes(s)) ? 'infra' : 'capability';
-  return { reason, kind };
+  if (INFRA_SIGNATURES.some((s) => haystack.includes(s))) return { reason, kind: 'infra' };
+  // The v0.132.0 nemotron run (#307) printed `EMPTY [capability]` for a run the
+  // per-task timer ended, while its metadata said harness-timeout.
+  if (PER_TASK_TIMEOUT_RE.test(reason.trim())) return { reason, kind: 'harness-timeout' };
+  return { reason, kind: 'capability' };
 }
 
 /**
