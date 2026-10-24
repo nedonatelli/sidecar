@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { BedrockBackend, bedrockRuntimeOrigin, bedrockControlOrigin } from './bedrockBackend.js';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { BedrockBackend, bedrockRuntimeOrigin, bedrockControlOrigin, bedrockErrorMessage } from './bedrockBackend.js';
 import type { ChatMessage } from './types.js';
 
 const CREDS = { accessKeyId: 'AKID', secretAccessKey: 'secret' };
@@ -69,7 +69,14 @@ function streamResponse(frames: Buffer[]): Response {
   return new Response(body, { status: 200 });
 }
 
-afterEach(() => vi.unstubAllGlobals());
+// The bearer token wins over SigV4 when AWS_BEARER_TOKEN_BEDROCK is set, so a
+// developer's real token in the environment turned the SigV4 tests into bearer
+// requests. Every test starts without it; a test that wants it stubs it.
+beforeEach(() => vi.stubEnv('AWS_BEARER_TOKEN_BEDROCK', ''));
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 const messages: ChatMessage[] = [{ role: 'user', content: 'hi' }];
 
@@ -230,5 +237,116 @@ describe('listAnthropicModels — inference-profile pagination', () => {
     });
     const backend = new BedrockBackend('eu-central-1', { credentials: CREDS });
     expect(await backend.listAnthropicModels()).toEqual(['eu.anthropic.claude-opus-4-8-v1:0']);
+  });
+});
+
+// Shapes from the us-east-1 control plane, 2026-10-23: a retired model's
+// inference profile is still listed as ACTIVE, while its base model is gone from
+// ListFoundationModels. Invoking it returned 404 "end of its life".
+describe('listAnthropicModels — retired models (live us-east-1 shapes)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const arn = (id: string) => `arn:aws:bedrock:us-east-1::foundation-model/${id}`;
+  const profile = (id: string, base: string) => ({
+    inferenceProfileId: id,
+    status: 'ACTIVE',
+    models: [{ modelArn: arn(base) }],
+  });
+  const fmodel = (id: string, lifecycle: Record<string, unknown>) => ({
+    modelId: id,
+    providerName: 'Anthropic',
+    inferenceTypesSupported: ['INFERENCE_PROFILE'],
+    outputModalities: ['TEXT'],
+    modelLifecycle: lifecycle,
+  });
+
+  function stub(profiles: unknown[], foundation: unknown[] | null) {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/inference-profiles')) {
+        return new Response(JSON.stringify({ inferenceProfileSummaries: profiles }), { status: 200 });
+      }
+      return foundation === null
+        ? new Response('{"message":"AccessDenied"}', { status: 403 })
+        : new Response(JSON.stringify({ modelSummaries: foundation }), { status: 200 });
+    });
+  }
+
+  const PROFILES = [
+    profile('us.anthropic.claude-3-haiku-20240307-v1:0', 'anthropic.claude-3-haiku-20240307-v1:0'),
+    profile('us.anthropic.claude-haiku-4-5-20251001-v1:0', 'anthropic.claude-haiku-4-5-20251001-v1:0'),
+    profile('us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'anthropic.claude-sonnet-4-5-20250929-v1:0'),
+  ];
+
+  it('drops a profile whose base model is no longer listed, and keeps LEGACY models until their end of life', async () => {
+    stub(PROFILES, [
+      fmodel('anthropic.claude-haiku-4-5-20251001-v1:0', { status: 'ACTIVE', endOfLifeTime: null }),
+      fmodel('anthropic.claude-sonnet-4-5-20250929-v1:0', { status: 'LEGACY', endOfLifeTime: '2027-04-08T08:00:00Z' }),
+    ]);
+    const models = await new BedrockBackend('us-east-1', { credentials: CREDS }).listAnthropicModels(
+      undefined,
+      new Date('2026-10-23T12:00:00Z'),
+    );
+    expect(models).toEqual([
+      'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+    ]);
+  });
+
+  it('drops a model once its end-of-life time has passed', async () => {
+    stub(PROFILES.slice(2), [
+      fmodel('anthropic.claude-sonnet-4-5-20250929-v1:0', { status: 'LEGACY', endOfLifeTime: '2027-04-08T08:00:00Z' }),
+    ]);
+    const after = await new BedrockBackend('us-east-1', { credentials: CREDS }).listAnthropicModels(
+      undefined,
+      new Date('2027-05-01T00:00:00Z'),
+    );
+    expect(after).toEqual([]);
+  });
+
+  it('filters nothing when the foundation-model list cannot be read (a key scoped to invoke only)', async () => {
+    stub(PROFILES, null);
+    const models = await new BedrockBackend('us-east-1', { credentials: CREDS }).listAnthropicModels();
+    expect(models).toHaveLength(3);
+  });
+});
+
+describe('bedrockErrorMessage', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('says a retired model is retired, keeping the AWS message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          '{"message":"This model version has reached the end of its life. Please refer to the AWS documentation for more details."}',
+          {
+            status: 404,
+            statusText: 'Not Found',
+          },
+        ),
+    );
+    const err = await new BedrockBackend('us-east-1', { credentials: CREDS })
+      .complete('us.anthropic.claude-3-haiku-20240307-v1:0', 'sys', messages, 16)
+      .catch((e: Error) => e.message);
+    expect(err).toContain('404 Not Found — {"message":"This model version has reached the end of its life');
+    expect(err).toContain('"us.anthropic.claude-3-haiku-20240307-v1:0" is retired on Bedrock');
+  });
+
+  it('says an account-level block is an AWS account setting, naming the region', () => {
+    const msg = bedrockErrorMessage(
+      400,
+      'Bad Request',
+      '{"message":"Error 002: Access to Bedrock models is not allowed for this account"}',
+      'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      'us-east-1',
+    );
+    expect(msg).toContain('Error 002');
+    expect(msg).toContain('does not let this account invoke Bedrock models in us-east-1');
+    expect(msg).toContain('not a SideCar or key problem');
+  });
+
+  it('leaves other errors as they were', () => {
+    expect(bedrockErrorMessage(429, 'Too Many Requests', 'slow down', 'm', 'us-east-1')).toBe(
+      'Bedrock request failed: 429 Too Many Requests — slow down',
+    );
   });
 });

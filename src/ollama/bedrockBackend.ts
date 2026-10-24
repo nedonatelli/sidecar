@@ -65,6 +65,36 @@ function checkedRegion(region: string): string {
   return region;
 }
 
+/**
+ * The error for a failed Bedrock model request: AWS's own message, kept whole,
+ * plus what to do for the failures that read as SideCar problems but are not.
+ * Both seen on us-east-1, 2026-10-23, with valid credentials:
+ * - 404 "This model version has reached the end of its life": a retired model,
+ *   still offered by its inference profile.
+ * - 400 "Error 002: Access to Bedrock models is not allowed for this account":
+ *   the account may not invoke models. The credentials were accepted (the
+ *   control plane listed models with them), so re-entering a key will not help.
+ */
+export function bedrockErrorMessage(
+  status: number,
+  statusText: string,
+  body: string,
+  model: string,
+  region: string,
+): string {
+  const base = `Bedrock request failed: ${status} ${statusText}${body ? ` — ${body}` : ''}`;
+  if (/end of its life/i.test(body)) {
+    return `${base}\nThe model "${model}" is retired on Bedrock. Choose another model; SideCar no longer lists retired models when it can read the account's model list.`;
+  }
+  if (/access to bedrock models is not allowed for this account/i.test(body)) {
+    return (
+      `${base}\nAWS accepted the credentials but does not let this account invoke Bedrock models in ${region}. ` +
+      "This is an AWS account setting, not a SideCar or key problem: check the account's Bedrock model access in the AWS console for that region."
+    );
+  }
+  return base;
+}
+
 export class BedrockBackend implements ApiBackend {
   private rateLimits: RateLimitStore;
 
@@ -180,9 +210,7 @@ export class BedrockBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(
-        `Bedrock request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
-      );
+      throw new Error(bedrockErrorMessage(response.status, response.statusText, errorText, model, this.region));
     }
     if (!response.body) throw new Error('Bedrock returned an empty response body');
 
@@ -222,9 +250,7 @@ export class BedrockBackend implements ApiBackend {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(
-        `Bedrock request failed: ${response.status} ${response.statusText}${errorText ? ` — ${errorText}` : ''}`,
-      );
+      throw new Error(bedrockErrorMessage(response.status, response.statusText, errorText, model, this.region));
     }
 
     const data = (await response.json()) as AnthropicResponse;
@@ -252,8 +278,10 @@ export class BedrockBackend implements ApiBackend {
    * scoped only to InvokeModel will hit this) — the caller falls back to a
    * static list. GovCloud works unchanged (the host is region-derived).
    */
-  async listAnthropicModels(signal?: AbortSignal): Promise<string[]> {
+  async listAnthropicModels(signal?: AbortSignal, now: Date = new Date()): Promise<string[]> {
     const ids = new Set<string>();
+    // Profile id -> the base model ids it routes to (from each summary's `models` ARNs).
+    const profileModels = new Map<string, string[]>();
 
     // ListInferenceProfiles is PAGINATED. Accounts carry dozens of
     // system-defined profiles across all providers, so reading only the
@@ -265,12 +293,16 @@ export class BedrockBackend implements ApiBackend {
       const query: Record<string, string> = { maxResults: '1000' };
       if (nextToken) query.nextToken = nextToken;
       const profiles = (await this.controlGet('/inference-profiles', signal, query).catch(() => null)) as {
-        inferenceProfileSummaries?: { inferenceProfileId?: string }[];
+        inferenceProfileSummaries?: { inferenceProfileId?: string; models?: { modelArn?: string }[] }[];
         nextToken?: string;
       } | null;
       for (const p of profiles?.inferenceProfileSummaries ?? []) {
         if (typeof p.inferenceProfileId === 'string' && /anthropic/i.test(p.inferenceProfileId)) {
           ids.add(p.inferenceProfileId);
+          const bases = (p.models ?? [])
+            .map((m) => (typeof m.modelArn === 'string' ? m.modelArn.split('/').pop() : undefined))
+            .filter((b): b is string => !!b);
+          if (bases.length > 0) profileModels.set(p.inferenceProfileId, bases);
         }
       }
       nextToken = profiles?.nextToken;
@@ -283,16 +315,36 @@ export class BedrockBackend implements ApiBackend {
         providerName?: string;
         inferenceTypesSupported?: string[];
         outputModalities?: string[];
+        modelLifecycle?: { endOfLifeTime?: string | null };
       }[];
     } | null;
+    // Anthropic foundation models that can still be invoked: listed, and not
+    // past their end of life. LEGACY models stay: they keep working until then.
+    const live = new Set<string>();
+    // The foundation list loaded and named Anthropic models at all. Not `live`:
+    // every listed model can be past its end of life, and that is evidence too.
+    let foundationListed = false;
     for (const m of fm?.modelSummaries ?? []) {
-      if (
-        m.providerName === 'Anthropic' &&
-        typeof m.modelId === 'string' &&
-        (m.inferenceTypesSupported ?? []).includes('ON_DEMAND') &&
-        (m.outputModalities ?? []).includes('TEXT')
-      ) {
+      if (m.providerName !== 'Anthropic' || typeof m.modelId !== 'string') continue;
+      foundationListed = true;
+      const eol = m.modelLifecycle?.endOfLifeTime ? Date.parse(m.modelLifecycle.endOfLifeTime) : NaN;
+      if (!Number.isNaN(eol) && eol <= now.getTime()) continue;
+      live.add(m.modelId);
+      if ((m.inferenceTypesSupported ?? []).includes('ON_DEMAND') && (m.outputModalities ?? []).includes('TEXT')) {
         ids.add(m.modelId);
+      }
+    }
+
+    // A retired model's inference profile is still listed, status ACTIVE: on
+    // us-east-1 (2026-10-23) `us.anthropic.claude-3-haiku-20240307-v1:0` and
+    // `…claude-3-sonnet-…` were offered, and invoking one returned 404 "This model
+    // version has reached the end of its life". Their base models are gone from
+    // ListFoundationModels, which is the signal. Drop a profile only on that
+    // evidence: it names its models, the foundation list loaded, and none of
+    // them is live. Without either list, nothing is filtered.
+    if (foundationListed) {
+      for (const [profile, bases] of profileModels) {
+        if (!bases.some((b) => live.has(b))) ids.delete(profile);
       }
     }
 
