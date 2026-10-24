@@ -721,6 +721,30 @@ describe('OllamaBackend', () => {
       }).rejects.toThrow('Ollama request failed: 400');
     });
 
+    // #314: the probe no longer loses to the text heuristic, but Ollama's own
+    // explicit refusal still disables tools, even over an earlier probed `tools`.
+    it('disables tools on Ollama 400 "does not support tools", even after a probe said tools', async () => {
+      const model = 'refused-tools-model';
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['tools'] }) });
+      expect(await probeModelToolSupport('http://localhost:11434', model)).toBe(true);
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: new Headers(),
+        text: async () => '{"error":"registry.ollama.ai/library/x does not support tools"}',
+      });
+      const tools: ToolDefinition[] = [
+        { name: 'read_file', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
+      ];
+      await expect(async () => {
+        for await (const _event of backend.streamChat(model, '', [{ role: 'user', content: 'hi' }], undefined, tools)) {
+          // consume
+        }
+      }).rejects.toThrow('Ollama request failed: 400');
+      expect(modelSupportsTools(model)).toBe(false);
+    });
+
     // #111: deterministic 500s were retried three times, delaying the error.
     it('does not retry a 500 that will recur', async () => {
       process.env.SIDECAR_OLLAMA_NUM_CTX = '65536';
@@ -1048,6 +1072,32 @@ describe('runtime tool failure tracking', () => {
     recordToolFailure(model);
     recordToolSuccess(model);
     expect(modelSupportsTools(model)).toBe(true);
+  });
+
+  // #314: three text-only turns that LOOK like tool calls (loop.ts) disabled
+  // tools even for a model Ollama reports as tool-capable, and a native-tool
+  // model then could never make the call that resets the count.
+  it('never disables tools for a model whose probe reported tools', async () => {
+    const model = 'probed-tools-model';
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['completion', 'tools'] }) });
+    expect(await probeModelToolSupport('http://localhost:11434', model)).toBe(true);
+    for (let i = 0; i < 10; i++) recordToolFailure(model);
+    expect(modelSupportsTools(model)).toBe(true);
+  });
+
+  it('still disables tools when the probe reported none', async () => {
+    const model = 'probed-no-tools-model';
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['completion'] }) });
+    expect(await probeModelToolSupport('http://localhost:11434', model)).toBe(false);
+    expect(modelSupportsTools(model)).toBe(false);
+  });
+
+  it('a failed probe leaves the capability unknown, so the runtime count still applies', async () => {
+    const model = 'probe-failed-model';
+    mockFetch.mockRejectedValueOnce(new Error('timeout'));
+    expect(await probeModelToolSupport('http://localhost:11434', model)).toBe(true);
+    for (let i = 0; i < 3; i++) recordToolFailure(model);
+    expect(modelSupportsTools(model)).toBe(false);
   });
 });
 

@@ -179,11 +179,19 @@ const toolSupportFailures = new Map<string, number>();
  * Returns true if the model is known to support tools OR hasn't been probed yet (optimistic).
  */
 function supportsTools(model: string): boolean {
-  // Check the probed capability cache first
+  // Check the probed capability cache first. Both answers are explicit signals
+  // (Ollama's /api/show capabilities, or its 400 "does not support tools"),
+  // and both win over the runtime heuristic below.
   const cached = toolCapabilityCache.get(model);
   if (cached === false) return false;
+  // #314: the failure count is an inference from text that LOOKED like a tool
+  // call (loop.ts). It used to override a probed `tools` capability, and a
+  // native-tool model that showed a JSON example three times lost its tools
+  // with no way back: it was no longer sent any to call. It now applies only to
+  // models whose capability is unknown.
+  if (cached === true) return true;
 
-  // Check runtime failure count
+  // Capability unknown (not probed, or the probe failed): use the runtime count.
   const failures = toolSupportFailures.get(model) || 0;
   return failures < TOOL_FAILURE_THRESHOLD;
 }
@@ -281,7 +289,8 @@ export async function probeAllModelToolSupport(baseUrl: string, modelNames: stri
 export function recordToolFailure(model: string): void {
   const count = (toolSupportFailures.get(model) || 0) + 1;
   toolSupportFailures.set(model, count);
-  if (count >= TOOL_FAILURE_THRESHOLD) {
+  // Only true when the capability is unknown: a probed `tools` model keeps them (#314).
+  if (count === TOOL_FAILURE_THRESHOLD && toolCapabilityCache.get(model) !== true) {
     logger.warn(`[SideCar] Model "${model}" has not used tools after ${count} attempts — disabling tool sending`);
   }
 }
