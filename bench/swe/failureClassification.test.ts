@@ -108,3 +108,22 @@ describe('repo cache miss is infrastructure (#292)', () => {
     expect(classifyFailure(e).kind).toBe('infra');
   });
 });
+
+// #308: the v0.132.0 nemotron run printed `EMPTY [capability]` for a run the
+// per-task timer ended (django-12470 scaffold-on, 60.2 min, 31 tool calls). It
+// is labelled harness-timeout, and stays in the capability denominator.
+describe('a per-task timeout is a harness-timeout, not a capability failure (#308)', () => {
+  const reason = 'per-task timeout after 3600000ms';
+  it('is labelled harness-timeout', () => {
+    expect(classifyFailure(new Error(reason))).toEqual({ reason, kind: 'harness-timeout' });
+  });
+  it('stays in the capability denominator when the agent did work', () => {
+    expect(isInfraFailure({ failureReason: reason, toolCalls: 31, model_patch: '' })).toBe(false);
+  });
+  it('a run that never got a response is still infra (no tool calls)', () => {
+    expect(isInfraFailure({ failureReason: reason, toolCalls: 0, model_patch: '' })).toBe(true);
+  });
+  it('only the recorded timeout reason, not any text mentioning a timeout', () => {
+    expect(classifyFailure(new Error('model returned: per-task timeout after 5ms?')).kind).toBe('capability');
+  });
+});
