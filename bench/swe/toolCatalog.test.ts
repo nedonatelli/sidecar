@@ -16,6 +16,36 @@ describe('sweToolCatalog', () => {
     expect(swe.some((t) => t.name === 'run_tests')).toBe(false);
   });
 
+  // #318: django-13964 committed and then pushed to github.com/django/django.
+  it('offers no git writes or GitHub writes, and keeps the read-only git tools', () => {
+    for (const name of [
+      'git_push',
+      'git_pull',
+      'git_stash',
+      'git_commit',
+      'git_branch',
+      'reply_pr_comment',
+      'submit_pr_review',
+      'create_pr_review',
+      'mark_pr_ready',
+    ]) {
+      expect(
+        product.some((t) => t.name === name),
+        `${name} in the product`,
+      ).toBe(true);
+      expect(
+        swe.some((t) => t.name === name),
+        `${name} in the SWE catalog`,
+      ).toBe(false);
+    }
+    for (const name of ['git_status', 'git_diff', 'git_log']) {
+      expect(
+        swe.some((t) => t.name === name),
+        `${name} kept`,
+      ).toBe(true);
+    }
+  });
+
   it('removes only what it names, and says why for each', () => {
     expect(product.length - swe.length).toBe(
       [...SWE_EXCLUDED_TOOLS.keys()].filter((n) => product.some((t) => t.name === n)).length,
