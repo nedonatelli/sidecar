@@ -59,6 +59,7 @@ import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe
 import { summarizeDecisions } from '../../src/agent/decisions.js';
 import { emptyTotals, addUsage, cacheHitRate, runCostUsd } from '../../bench/swe/runCost.js';
 import { sweTerminationBucket } from '../../bench/swe/termination.js';
+import { PrepFailureStreak } from '../../bench/swe/prepStreak.js';
 import { missingCachedRepos, repoCacheDir, repoCacheMissMessage } from '../../bench/swe/repoCache.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
@@ -1060,8 +1061,12 @@ describe('SWE-bench Lite — prediction generation', () => {
       const predictions: SwePrediction[] = [];
       const metaPath = path.join(OUT, 'predictions.meta.jsonl');
       fs.writeFileSync(metaPath, ''); // truncate; we append per prediction so a crash mid-run keeps progress
+      // A run that can no longer prepare repositories stops instead of recording
+      // a column of instant [infra] rows (bench/swe/prepStreak.ts).
+      const prepStreak = new PrepFailureStreak();
+      let prepStop: string | null = null;
       try {
-        for (const task of tasks) {
+        tasks: for (const task of tasks) {
           for (const arm of ARMS) {
             const p = await solve(task, arm);
             predictions.push(p);
@@ -1082,6 +1087,11 @@ describe('SWE-bench Lite — prediction generation', () => {
                 `${kind ? ` [${kind}]` : ''} ` +
                 `(${Math.round(p.durationMs / 1000)}s, ${p.turns} turns, ${p.verificationGates ?? 0} gate-fires, ${p.loopControls ?? 0} loop-controls)`,
             );
+            prepStop = prepStreak.record(p);
+            if (prepStop) {
+              console.error(prepStop);
+              break tasks;
+            }
           }
         }
       } finally {
@@ -1100,6 +1110,8 @@ describe('SWE-bench Lite — prediction generation', () => {
             suspended.map((p) => `${p.instance_id} (${p.arm}, ${Math.round(p.suspendedMs! / 1000)}s)`).join(', '),
         );
       }
+      // After the predictions so far are written: the run fails with the cause.
+      if (prepStop) throw new Error(prepStop);
       expect(predictions).toHaveLength(tasks.length * ARMS.length);
     },
     N * ARMS.length * PER_TASK_MS + 60_000,
