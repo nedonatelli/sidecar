@@ -1,3 +1,6 @@
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
 // grep's argv and environment, in one place. Kept free of `vscode` so the SWE
 // harness's tree warm-up (bench/swe/warmTree.ts) can run the SAME invocation the
 // agent's grep tool does -- a warm-up that reads different files than the
@@ -12,19 +15,59 @@
  *   clones, which broke 3 of 50 determinism pairs in a baseline.
  */
 export function grepArgs(pattern: string, where: string): string[] {
+  return [...grepFlags(), '-e', pattern, '--', where];
+}
+
+function grepFlags(fixed = false): string[] {
   return [
     '-rn',
-    '-E',
+    // -F: the pattern as literal text (execGrep's `fixed`); otherwise extended regex.
+    fixed ? '-F' : '-E',
     '-I',
     '--exclude-dir=.git',
     '--include=*',
     // After --include: when the two disagree, grep lets the LAST match win.
     ...SECRET_FILE_GLOBS.map((g) => `--exclude=${caseInsensitiveGlob(g)}`),
-    '-e',
-    pattern,
-    '--',
-    where,
   ];
+}
+
+/**
+ * The same search with the pattern read from stdin (`-f -`) instead of argv.
+ *
+ * On Windows a pattern in argv is not safe (#316). Node escapes an embedded `"`
+ * as `\"` on the command line, and MSYS normally undoes that, but not under
+ * `MSYS=noglob` (GREP_ENV, needed so `.*` isn't globbed). Every pattern holding
+ * a quote then reached grep ending in a backslash and failed with "Trailing
+ * backslash": `"seaborn-colorblind"` in 10 SWE canary logs, and the model gave
+ * up on finding the code. A pattern on stdin is never parsed as a command
+ * line, so neither quoting nor globbing applies, on any platform.
+ */
+export function grepStdinArgs(where: string, fixed = false): string[] {
+  return [...grepFlags(fixed), '-f', '-', '--', where];
+}
+
+/** grep's stderr for a pattern that isn't a valid extended regex (GNU and BSD wording). */
+export const REGEX_SYNTAX_ERROR_RE =
+  /unmatched|unbalanced|trailing backslash|invalid (?:regular expression|preceding|range|character class|content of)|brackets \(\[ \]\) not balanced|parentheses not balanced/i;
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Run the agent's grep: the pattern on stdin (grepStdinArgs). Resolves like
+ * `execFile` (`{ stdout, stderr }`) and rejects with its error (`code`, `stdout`,
+ * `stderr`, `killed`), so callers handle exit 1 (no match) as before. An empty
+ * pattern keeps argv: `-f` with empty input matches nothing, `-e ''` matches all.
+ */
+export function execGrep(
+  pattern: string,
+  where: string,
+  opts: { cwd: string; timeout: number; maxBuffer: number; fixed?: boolean },
+): Promise<{ stdout: string; stderr: string }> {
+  const { fixed, ...execOpts } = opts;
+  if (pattern === '') return execFileAsync('grep', grepArgs(pattern, where), { ...execOpts, env: GREP_ENV });
+  const run = execFileAsync('grep', grepStdinArgs(where, fixed), { ...execOpts, env: GREP_ENV });
+  run.child?.stdin?.end(pattern);
+  return run;
 }
 
 /**

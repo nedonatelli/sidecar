@@ -1,8 +1,6 @@
 import { workspace } from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import type { ToolDefinition } from '../../ollama/types.js';
 import {
   getRoot,
@@ -14,9 +12,7 @@ import {
 } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { compressGrepOutput } from './compression.js';
-import { grepArgs, GREP_ENV } from './grepArgs.js';
-
-const execFileAsync = promisify(execFile);
+import { execGrep, REGEX_SYNTAX_ERROR_RE } from './grepArgs.js';
 
 // Search tools: search_files (glob), grep (content), find_references (symbol
 // graph). `find_references` reads the symbol graph off the default
@@ -297,12 +293,7 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
   /** The relaxed search: matches, a proven absence (null), or 'timeout' -- which proves nothing. */
   const runGrep = async (pat: string, where: string): Promise<string | null | 'timeout'> => {
     try {
-      const { stdout } = await execFileAsync('grep', grepArgs(pat, where), {
-        cwd,
-        env: GREP_ENV,
-        timeout: GREP_TIMEOUT_MS,
-        maxBuffer: 512 * 1024,
-      });
+      const { stdout } = await execGrep(pat, where, { cwd, timeout: GREP_TIMEOUT_MS, maxBuffer: 512 * 1024 });
       const capped = stdout.split('\n').slice(0, 200).join('\n');
       return capped.trim() ? capped : null;
     } catch (err) {
@@ -373,14 +364,9 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
   };
 
   try {
-    // -E enables extended regex: +, ?, |, () without backslashes.
-    // Use execFile with args array to prevent shell injection.
-    const { stdout } = await execFileAsync('grep', grepArgs(pattern, searchPath), {
-      cwd,
-      env: GREP_ENV,
-      timeout: GREP_TIMEOUT_MS,
-      maxBuffer: 512 * 1024,
-    });
+    // -E enables extended regex: +, ?, |, () without backslashes. execFile with
+    // an args array, never a shell; the pattern goes on stdin (#316, grepArgs.ts).
+    const { stdout } = await execGrep(pattern, searchPath, { cwd, timeout: GREP_TIMEOUT_MS, maxBuffer: 512 * 1024 });
     // Cap raw lines first, then fold into the grouped/deduped form so
     // the model sees one file header per path and long match lines get
     // clipped around the keyword.
@@ -411,12 +397,33 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     // leading `*` where GNU grep runs them and finds nothing. Either way nothing
     // matched, and the model needs the search_files redirect, not a regex hint.
     if (looksLikePathQuery(pattern)) return await explainZeroHit();
-    // Non-zero/non-1 exit typically means a regex syntax error. The grep
-    // tool supports POSIX ERE (-E) — \s, \d, \w are not ERE syntax.
-    // For Perl-style escapes use: run_command("grep -En 'pattern' .") or rg.
     const detail = error.stderr || error.stdout || '';
-    const hint =
-      'For Perl-style escapes (\\s, \\d, \\w) use run_command("grep -Pn \'pattern\' .") or run_command("rg \'pattern\'") instead.';
+    // Not a valid extended regex: `def refine(`, `plt.style.library["`. A model
+    // that types that means the text, and the error alone sent it to
+    // `rg`, which was not installed ("command not found", SWE canary #315).
+    // Search it literally instead, and say so.
+    if (REGEX_SYNTAX_ERROR_RE.test(detail)) {
+      const note =
+        `[\`${pattern}\` is not a valid extended regular expression (${detail.trim().split('\n')[0]}), ` +
+        'so it was searched as literal text.]';
+      try {
+        const literal = await execGrep(pattern, searchPath, {
+          cwd,
+          timeout: GREP_TIMEOUT_MS,
+          maxBuffer: 512 * 1024,
+          fixed: true,
+        });
+        const found = literal.stdout.split('\n').slice(0, 200).join('\n');
+        if (found.trim()) return `${note}\n${compressGrepOutput(found)}`;
+      } catch (literalErr) {
+        const partialLiteral = ((literalErr as GrepError).stdout ?? '').split('\n').slice(0, 200).join('\n');
+        if (partialLiteral.trim()) return `${note}\n${compressGrepOutput(partialLiteral)}`;
+      }
+      return `${note}\n${await explainZeroHit()}`;
+    }
+    // Any other failure. The grep tool is POSIX ERE (-E): \s, \d, \w are not ERE
+    // syntax; Perl-style escapes need grep -P through run_command.
+    const hint = 'For Perl-style escapes (\\s, \\d, \\w) use run_command("grep -Pn \'pattern\' .") instead.';
     return detail ? `Grep error: ${detail.trim()}\n${hint}` : `Grep failed. ${hint}`;
   }
 }
