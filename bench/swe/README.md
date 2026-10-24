@@ -88,9 +88,17 @@ so a run under it is never read as a shipped-settings result.
 that decides a run, the timeout has to allow `seconds per turn × iterations`: a
 model at 40–70 s a turn needs about 60 min for 50 iterations. The nemotron-3-super
 overnight queue (2026-10-21) ran with 19 min, and 2 of its 4 model-engaged runs
-were cut off at 15–16 turns. A timed-out run is labelled `harness-timeout`, and the
-ablation report counts these per arm and warns when time was the binding limit
-(#293).
+were cut off at 15–16 turns. A timed-out run is labelled `harness-timeout`, on the
+console too (#308), and the ablation report counts these per arm and warns when
+time was the binding limit (#293).
+
+**A harness timeout stays in the capability denominator** (decided on #308). It
+scores as unresolved, like any other failure: a model too slow to finish within
+the budget is a real cost to a user, so excluding it would flatter slow models.
+Only `infra` failures leave the denominator (`isInfraFailure`). A timeout with no
+tool calls is infra by the zero-tool-calls rule, since the model never answered.
+Read timeout-heavy results with the per-arm timeout count beside them, and size
+`SIDECAR_SWE_TASK_TIMEOUT` before comparing models of different speeds.
 
 **3. Score each arm with the official harness** (Docker; on a Docker-capable
 machine):
