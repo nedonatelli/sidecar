@@ -121,6 +121,8 @@ const TOOL_BUDGETS = parseToolBudgets(process.env.SIDECAR_SWE_TOOL_BUDGETS);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
 // Experiment switch: see the armConfig construction for what it enables.
 const REDCHECK_RATCHETED = process.env.SIDECAR_SWE_REDCHECK_RATCHETED === '1';
+// Experiment switch (#328): sidecar.editFile.noopAsksForNewCode on top of the arm.
+const NOOP_NEW_CODE = process.env.SIDECAR_SWE_NOOP_NEW_CODE === '1';
 // Reproducible tool output (bench/swe/stableToolOutput.ts): pinned git dates and
 // hash seed for every tool subprocess, and run-to-run volatile numbers (test
 // durations, sympy's random seed) fixed in process output before the model
@@ -709,6 +711,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       sandboxEnabled: false,
       ...armConfigOverrides(arm),
       ...(REDCHECK_RATCHETED ? { redCheckPythonRunnersEnabled: true, redCheckRatchetedEnabled: true } : {}),
+      ...(NOOP_NEW_CODE ? { editNoopNewCodeEnabled: true } : {}),
       ...(TOOL_BUDGETS
         ? { scaffoldingOverrides: withToolBudgets(getConfig().scaffoldingOverrides, TOOL_BUDGETS)! }
         : {}),
@@ -1032,6 +1035,7 @@ describe('SWE-bench Lite — prediction generation', () => {
         toolBudgetOverrides: TOOL_BUDGETS ?? null,
         retrievalTopK: RETRIEVAL_TOPK,
         redCheckRatcheted: REDCHECK_RATCHETED,
+        noopNewCode: NOOP_NEW_CODE,
         stableToolOutput: STABLE_OUTPUT,
         shellGuard: SHELL_GUARD,
         testTargets: TEST_TARGETS,

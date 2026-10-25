@@ -1154,6 +1154,32 @@ function emptySearchError(filePath: string): string {
   );
 }
 
+/** `text` occurs in `file` once both have LF line endings and no trailing whitespace on any line. */
+export function containsIgnoringLineEnds(file: string, text: string): boolean {
+  const norm = (s: string): string =>
+    s
+      .split(/\r\n|\r|\n/)
+      .map((l) => l.replace(/[ \t]+$/, ''))
+      .join('\n');
+  const want = norm(text).replace(/^\n+|\n+$/g, '');
+  return want.length > 0 && norm(file).includes(want);
+}
+
+/**
+ * The search === replace error when `search` is already in the file and
+ * sidecar.editFile.noopAsksForNewCode is on (#328). The wording is the replay's
+ * winning arm verbatim: the same request phrased as a question ("What does this
+ * code need to be?") measured no better than the old hint.
+ */
+export function noopNewCodeMessage(filePath: string, search: string): string {
+  return (
+    `edit_file was not applied to ${filePath}: 'search' and 'replace' are identical, so it would change nothing.\n\n` +
+    `Your 'search' text is correct and is kept:\n\`\`\`\n${search}\n\`\`\`\n\n` +
+    'Reply with ONLY the new version of that text — what it must say after your fix — in a single code block. ' +
+    'Do not call a tool; SideCar will apply your code block as the replacement.'
+  );
+}
+
 export async function editFile(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const filePath = input.path as string;
   const pathError = validateFilePath(filePath);
@@ -1314,6 +1340,13 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     const currentContent = isAuditModeActive(context)
       ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
       : await readDiskViaWorkspace(context, filePath);
+    // Whether `search` is already in the file, judged the way the edit itself is
+    // applied: line endings and trailing whitespace do not count (#328). With a
+    // plain includes(), every no-op on a CRLF file looked like text NOT in the
+    // file, and the model was told its correct anchor must be "the text
+    // CURRENTLY in the file" while being shown that same text — 76 of the 82
+    // recorded "closest matching region" no-ops in the #328 replay.
+    const searchInFile = !!currentContent && containsIgnoringLineEnds(currentContent, search);
     if (currentContent) {
       // Two opposite mistakes land here, and they need opposite corrections.
       //
@@ -1327,7 +1360,16 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       //
       // Text NOT in the file means the model wrote its intended new version in
       // both fields, and `search` is the one to fix — the original case here.
-      if (currentContent.includes(search)) {
+      if (searchInFile) {
+        // #328: say so, quote the search back, and ask for the new version
+        // alone. Replayed over 150 recorded no-ops (gemma4:e4b) this got a real
+        // change on the next turn 75 times against 47 for the hints below. A
+        // code-block reply is turned into the edit by loop/noopNewCode.ts.
+        if (context?.config?.editNoopNewCodeEnabled === true && context.noopNewCodeRef) {
+          recordEditFailure(context, filePath, search, replace);
+          context.noopNewCodeRef.pending = { path: filePath, search };
+          throw new Error(noopNewCodeMessage(filePath, search));
+        }
         hint =
           'Your search field is CORRECT — that text is in the file exactly as you sent it. ' +
           'The problem is the replace field: it holds that same text, so the edit would change nothing. ' +
@@ -1344,7 +1386,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     }
     // search === replace: the model put the NEW text in both fields. Suggest the
     // region it most likely meant; never guess-and-write (see suggestRegionError).
-    if (currentContent) {
+    if (currentContent && !searchInFile) {
       const intentTarget = findIntentTarget(currentContent, search);
       if (intentTarget && currentContent.includes(intentTarget) && intentTarget !== search) {
         recordEditFailure(context, filePath, search, replace);

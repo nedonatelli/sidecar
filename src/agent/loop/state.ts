@@ -270,6 +270,8 @@ export interface LoopState {
   bounceCounts: Map<string, number>;
   /** Externalized plan (S1): the loop re-injects <plan_state> each turn; update_plan mutates planRef.plan. */
   planRef: { plan: import('../plans/externalPlan.js').ExternalPlan | null };
+  /** A no-op edit waiting for its new code (#328): set by edit_file, consumed by loop/noopNewCode.ts. */
+  noopNewCodeRef: { pending: { path: string; search: string } | null };
 
   // Most recent failing verification output (test failure / traceback /
   // diagnostics error), ANSI-stripped and truncated. Surfaced inline when the
@@ -480,6 +482,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     zeroHitPatterns: new Map<string, number>(),
     bounceCounts: new Map<string, number>(),
     planRef: { plan: options.initialPlan ?? null },
+    noopNewCodeRef: { pending: null },
     escalatedRewriteByFile: new Set<string>(),
     editFailureCountByFile: new Map<string, number>(),
     escalatedEditToWriteByFile: new Set<string>(),

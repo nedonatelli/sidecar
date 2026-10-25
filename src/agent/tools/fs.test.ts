@@ -11,6 +11,8 @@ import {
   droppedTopLevelDefinitions,
   keptLineShare,
   findIntentTarget,
+  containsIgnoringLineEnds,
+  noopNewCodeMessage,
 } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
@@ -238,6 +240,73 @@ describe('editFile audit mode', () => {
     ).catch((e: Error) => e.message);
     expect(err).toContain('identical');
     expect(err).not.toContain('search field is CORRECT');
+  });
+
+  // #328: on a CRLF file an LF search never satisfied includes(), so a correct
+  // anchor was diagnosed as NOT in the file and the model was shown its own
+  // text as "the text CURRENTLY in the file" (76 of 82 such replayed no-ops).
+  it('search===replace on a CRLF file: an LF search that matches is still CORRECT', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write(
+      'src/crlf.py',
+      'def a():\r\n    x = 1\r\n    return x\r\n\r\ndef b():\r\n    pass\r\n',
+      async () => undefined,
+    );
+    const search = '    x = 1\n    return x';
+    const err = await editMsg({ path: 'src/crlf.py', search, replace: search }, context);
+    expect(err).toContain('search field is CORRECT');
+    expect(err).not.toContain('COPY THIS INTO YOUR search FIELD');
+    expect(err).not.toContain('CURRENTLY in the file');
+  });
+
+  it('search===replace with trailing whitespace in the file: still CORRECT', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('src/trail.py', 'x = 1   \ny = 2\n', async () => undefined);
+    const err = await editMsg({ path: 'src/trail.py', search: 'x = 1\ny = 2', replace: 'x = 1\ny = 2' }, context);
+    expect(err).toContain('search field is CORRECT');
+  });
+
+  describe('sidecar.editFile.noopAsksForNewCode (#328)', () => {
+    const on = () => ({
+      config: { agentMode: 'audit', editNoopNewCodeEnabled: true } as never,
+      noopNewCodeRef: { pending: null as { path: string; search: string } | null },
+    });
+
+    it('quotes a correct search back, asks for only the new version, and records it as pending', async () => {
+      const context = on();
+      await buf.write('src/nc.py', 'def f():\r\n    return 1\r\n', async () => undefined);
+      const search = 'def f():\n    return 1';
+      const err = await editMsg({ path: 'src/nc.py', search, replace: search }, context);
+      expect(err).toBe(noopNewCodeMessage('src/nc.py', search));
+      expect(err).toContain("Your 'search' text is correct and is kept");
+      expect(context.noopNewCodeRef.pending).toEqual({ path: 'src/nc.py', search });
+      expect(buf.read('src/nc.py').content).toBe('def f():\r\n    return 1\r\n');
+    });
+
+    it('a search NOT in the file keeps the old correction and records nothing', async () => {
+      const context = on();
+      await buf.write('src/nc2.py', 'alpha = 1\n', async () => undefined);
+      const err = await editMsg({ path: 'src/nc2.py', search: 'bravo = 2', replace: 'bravo = 2' }, context);
+      expect(err).toContain('identical');
+      expect(err).not.toContain('is correct and is kept');
+      expect(context.noopNewCodeRef.pending).toBeNull();
+    });
+
+    it('off by default: the old hint, nothing pending', async () => {
+      const context = { ...on(), config: { agentMode: 'audit' } as never };
+      await buf.write('src/nc3.py', 'x = 1\n', async () => undefined);
+      const err = await editMsg({ path: 'src/nc3.py', search: 'x = 1', replace: 'x = 1' }, context);
+      expect(err).toContain('search field is CORRECT');
+      expect(context.noopNewCodeRef.pending).toBeNull();
+    });
+  });
+
+  it('containsIgnoringLineEnds ignores line endings and trailing whitespace, nothing else', () => {
+    expect(containsIgnoringLineEnds('a\r\nb  \r\nc\r\n', 'a\nb\nc')).toBe(true);
+    expect(containsIgnoringLineEnds('a\r\nb\r\n', '\nb\n')).toBe(true);
+    expect(containsIgnoringLineEnds('    a\n', 'a')).toBe(true); // a substring, as includes() was
+    expect(containsIgnoringLineEnds('a\nb\n', 'a\n  b')).toBe(false); // indentation still counts
+    expect(containsIgnoringLineEnds('a\n', '\n\n')).toBe(false);
   });
 
   it('appends partial-replace warning when replace is a short substring of search', async () => {

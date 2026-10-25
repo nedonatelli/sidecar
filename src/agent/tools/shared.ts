@@ -210,6 +210,12 @@ export interface ToolExecutorContext {
    */
   planRef?: { plan: import('../plans/externalPlan.js').ExternalPlan | null };
   /**
+   * A search === replace edit whose `search` was correct, waiting for the new
+   * code the error asked for (#328). edit_file sets `pending`; the loop turns a
+   * code-block reply into the edit and clears it (loop/noopNewCode.ts).
+   */
+  noopNewCodeRef?: { pending: { path: string; search: string } | null };
+  /**
    * The call was not made by the model: the loop synthesized it from a code
    * fence the model printed (fence-write coercion). write_file then refuses
    * content that would delete definitions the file already has.
