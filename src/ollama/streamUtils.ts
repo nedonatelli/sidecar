@@ -143,21 +143,22 @@ export function* parseTextToolCallsStream(text: string, state: TextToolCallState
 
   while (true) {
     if (state.inBody) {
-      const endTag = state.bodyKind === 'fn' ? '</function>' : '</tool_call>';
-      const endIdx = state.buffer.indexOf(endTag);
-      if (endIdx === -1) {
-        // Keep collecting the body — don't emit anything.
-        return;
-      }
+      const end = state.bodyKind === 'fn' ? functionBodyEnd(state.buffer) : toolCallBodyEnd(state.buffer);
+      // Keep collecting the body — don't emit anything.
+      if (end === null) return;
 
-      const body = state.buffer.substring(0, endIdx);
-      state.buffer = state.buffer.substring(endIdx + endTag.length);
+      const body = state.buffer.substring(0, end.bodyEnd);
+      const consumed = state.buffer.substring(0, end.resume);
+      state.buffer = state.buffer.substring(end.resume);
 
       const toolUse = parseToolCallBody(state.bodyKind!, state.bodyToolName, body, state);
       if (toolUse) {
         yield { type: 'tool_use', toolUse };
+      } else {
+        // #246: an unparseable body naming no known tool is the model's text, not
+        // a call. It used to be dropped, so a turn could end with nothing at all.
+        yield { type: 'text', text: `<tool_call>${consumed}` };
       }
-      // Unparseable with no known tool name: dropped, as the post-stream parser does.
 
       state.inBody = false;
       state.bodyKind = null;
@@ -231,6 +232,57 @@ export function* parseTextToolCallsStream(text: string, state: TextToolCallState
     }
     return;
   }
+}
+
+/** Where an open body ends: the body is `buffer[0, bodyEnd)`, and scanning resumes at `resume`. */
+interface BodyEnd {
+  bodyEnd: number;
+  resume: number;
+}
+
+/** A `<function=…>` body ends at `</function>`; null while it has not arrived. */
+function functionBodyEnd(buffer: string): BodyEnd | null {
+  const i = buffer.indexOf('</function>');
+  return i === -1 ? null : { bodyEnd: i, resume: i + '</function>'.length };
+}
+
+/**
+ * Where a `<tool_call>` body ends, or null to wait for more text (#246).
+ *
+ * A JSON body ends where its object closes, found by a scan that skips JSON
+ * strings: `indexOf('</tool_call>')` stopped inside `"s='</tool_call>'"` and
+ * dropped the call. What follows the object then decides how much to consume:
+ *   - `</tool_call>`, the normal close;
+ *   - a new `<tool_call>`: the close tag is missing, and the next call starts here;
+ *   - another closing tag, such as `</think>`: the wrong close, consumed so no
+ *     markup reaches the reply;
+ *   - plain text: the close tag is missing, and the text is the model's reply.
+ * A body that is not a JSON object keeps the old rule: up to `</tool_call>`, or
+ * up to a new `<tool_call>` when that comes first.
+ */
+function toolCallBodyEnd(buffer: string): BodyEnd | null {
+  const start = buffer.length - buffer.trimStart().length;
+  if (start === buffer.length) return null;
+  if (buffer[start] !== '{') {
+    const close = buffer.indexOf('</tool_call>');
+    const reopen = buffer.indexOf('<tool_call>');
+    if (reopen !== -1 && (close === -1 || reopen < close)) return { bodyEnd: reopen, resume: reopen };
+    return close === -1 ? null : { bodyEnd: close, resume: close + '</tool_call>'.length };
+  }
+  const objEnd = findBalancedEnd(buffer, start, { dialect: 'json' });
+  if (objEnd === -1) return null;
+  const bodyEnd = objEnd + 1;
+  let j = bodyEnd;
+  while (j < buffer.length && /\s/.test(buffer[j])) j++;
+  const rest = buffer.substring(j);
+  if (rest === '') return null;
+  if (rest.startsWith('</tool_call>')) return { bodyEnd, resume: j + '</tool_call>'.length };
+  if (rest.startsWith('<tool_call>')) return { bodyEnd, resume: j };
+  const tag = /^<\/[\w:-]+>/.exec(rest);
+  if (tag) return { bodyEnd, resume: j + tag[0].length };
+  // Could still become one of the tags above once more text arrives.
+  if ('</tool_call>'.startsWith(rest) || '<tool_call>'.startsWith(rest) || /^<\/[\w:-]*$/.test(rest)) return null;
+  return { bodyEnd, resume: bodyEnd };
 }
 
 /**
