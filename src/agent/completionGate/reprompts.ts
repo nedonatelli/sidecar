@@ -3,6 +3,7 @@ import type { ChatMessage } from '../../ollama/types.js';
 import { extractCitedPaths, pathVariants, hasUnverifiedHedge } from '../citationCheck.js';
 import { normalizePath } from './pathUtil.js';
 import { isLibraryName } from '../fileRefs.js';
+import { fileMentions, isQuotedMention } from './mentions.js';
 
 // ---------------------------------------------------------------------------
 // No-read-on-file-request gate
@@ -19,8 +20,16 @@ import { isLibraryName } from '../fileRefs.js';
 // mentioned file must have had a read tool call whose input references it.
 // ---------------------------------------------------------------------------
 
-/** File extensions whose presence in a user message signals a file lookup is needed. */
-const FILE_MENTION_RE = /\b[\w./\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|json|md|toml|yaml|yml|sh|cs|java|cpp|c|h)\b/gi;
+/**
+ * File names the request mentions in its own words: not quoted material (code
+ * blocks, tracebacks, shell lines, absolute-path tails) and not a library name.
+ * See mentions.ts (#317).
+ */
+function requestedFiles(userText: string): string[] {
+  return fileMentions(userText)
+    .filter((m) => !isQuotedMention(userText, m.index) && !isLibraryName(m.file))
+    .map((m) => m.file);
+}
 
 /** Tools that constitute "the model read something for a specific file".
  *  run_command is included because `grep -n`, `jq`, `cat`, `head`, `tail`
@@ -161,11 +170,15 @@ export function buildNoReadReprompt(
   messages: ChatMessage[],
   editedFiles?: ReadonlySet<string>,
   requestText?: string,
+  // Whether a mentioned file is in the workspace. The gate passes a real check
+  // (existsInWorkspace under the run's root); the default keeps the old
+  // behaviour for callers that have no workspace.
+  fileExists: (file: string) => boolean = () => true,
 ): string | null {
   const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
-  const fileMatches = userText.match(FILE_MENTION_RE)?.filter((f) => !isLibraryName(f));
-  if (!fileMatches?.length) return null;
+  const fileMatches = requestedFiles(userText);
+  if (!fileMatches.length) return null;
   for (const file of fileMatches) {
     // The agent authored this file this session — writing implies knowing its
     // contents, so a read is redundant. Skips the "build calculator.py" case
@@ -181,9 +194,12 @@ export function buildNoReadReprompt(
     // one wasted turn per run on 15 of 150 SWE-bench runs, after the prompt's
     // own example path was removed).
     if (isForeignPath(file)) continue;
+    // Not a file in this workspace (#317): nothing to read, and demanding it
+    // reads to the model as an instruction it can't follow.
+    if (!fileExists(file)) continue;
     if (!hasReadToolCallForFile(messages, file)) {
       return (
-        `You mentioned \`${file}\` but did not call read_file, grep, or any other file-reading tool before responding. ` +
+        `The request mentions \`${file}\`, but no read_file, grep, or other file-reading tool has been called on it. ` +
         `Call \`read_file(path="${file}")\` now and answer from its actual contents — do not infer from the filename or training data.`
       );
     }
@@ -434,8 +450,11 @@ export async function buildNoFileWriteReprompt(
   if (!userText) return null;
   if (!WRITE_INTENT_RE.test(userText)) return null;
 
-  const mentioned = userText.match(FILE_MENTION_RE)?.filter((f) => !isLibraryName(f));
-  if (!mentioned?.length) return null;
+  // Quoted material (a traceback, a shell line, a code block) names files the
+  // request never asked to create (#317), and foreign paths can't be workspace
+  // files at all.
+  const mentioned = requestedFiles(userText).filter((f) => !isForeignPath(f));
+  if (!mentioned.length) return null;
 
   // Normalise mentioned paths: strip leading backticks/quotes, drop pure
   // directory tokens (no extension), collapse to basename for matching so
@@ -465,7 +484,7 @@ export async function buildNoFileWriteReprompt(
 
   const fileList = unwritten.map((f) => `\`${f}\``).join(', ');
   return (
-    `Your task mentioned ${fileList} but you finished without writing to ${unwritten.length === 1 ? 'it' : 'any of them'}. ` +
+    `The request mentions ${fileList}, but the run finished without writing to ${unwritten.length === 1 ? 'it' : 'any of them'}. ` +
     `If the task required changes to ${unwritten.length === 1 ? 'that file' : 'those files'}, make them now. ` +
     `If you already completed everything the task asked for, ignore this and finish with a plain text answer (no tool calls).`
   );

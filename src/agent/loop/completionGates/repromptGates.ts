@@ -12,7 +12,14 @@ import {
   buildMcpMutationVerifyReprompt,
   buildNoFileWriteReprompt,
 } from '../../completionGate.js';
+import { existsInWorkspace } from '../../completionGate/mentions.js';
+import { getRoot } from '../../tools/shared.js';
 import type { LoopState } from '../state.js';
+
+/** The run's working root: a shadow or SWE run works under cwdOverride, not the workspace folder. */
+function runRoot(s: LoopState): string {
+  return s.cwdOverride ?? getRoot();
+}
 import type { CompletionGate } from './types.js';
 
 /** The once-per-run latch fields on gateState these gates use. */
@@ -56,7 +63,11 @@ function repromptGate(spec: RepromptSpec): CompletionGate {
 export const noReadGate = repromptGate({
   name: 'no-read',
   firedFlag: 'noReadRepromptFired',
-  build: (s) => buildNoReadReprompt(s.messages, s.gateState.editedFiles, s.gateState.currentUserRequest),
+  // Only for a file that exists in the run's workspace (#317).
+  build: (s) =>
+    buildNoReadReprompt(s.messages, s.gateState.editedFiles, s.gateState.currentUserRequest, (f) =>
+      existsInWorkspace(runRoot(s), f),
+    ),
   onText: '\n\n📂 Reading file before answering...\n',
   logMsg: 'No-read gate fired — file mentioned but no read tool called for it',
 });
@@ -96,7 +107,12 @@ export const mcpMutationGate = repromptGate({
 export const noFileWriteGate = repromptGate({
   name: 'no-file-write',
   firedFlag: 'noFileWriteRepromptFired',
-  build: (s) => buildNoFileWriteReprompt(s.messages, s.gateState.editedFiles, s.gateState.currentUserRequest),
+  // Existence against the run's root, not the VS Code workspace folder: in a
+  // shadow or SWE run those differ (#317).
+  build: (s) =>
+    buildNoFileWriteReprompt(s.messages, s.gateState.editedFiles, s.gateState.currentUserRequest, async (rel) =>
+      existsInWorkspace(runRoot(s), rel),
+    ),
   onText: '\n\n📝 Checking named files were written...\n',
   logMsg: 'No-file-write gate fired — named file(s) not written',
 });
