@@ -90,6 +90,34 @@ describe('isMutationRequest', () => {
     expect(isMutationRequest(text)).toBe(true);
   });
 
+  // #327: the agent-eval case dogfood-no-work-after-done. All three matched on
+  // `rename` or `change`; the already-done check then told the model to "make
+  // the change now", and ministral-3 edited the file in 1 of 3 trials.
+  it.each([
+    'Did that rename actually land? Check src/greeter.ts and tell me — do not change anything else.',
+    'Did that rename actually land? Check src/greeter.ts and tell me.',
+    'Check src/greeter.ts — do not change anything else.',
+    'What does the change in src/utils.ts do?',
+    'Why did you rename the function in src/utils.ts?',
+    "Look at src/utils.ts but don't edit it.",
+    'Check src/utils.ts without changing it.',
+    'Has the fix landed in src/loop.ts',
+  ])('is false for a question, a negated verb, or a verb used as a noun: %s', (text) => {
+    expect(isMutationRequest(text)).toBe(false);
+  });
+
+  it.each([
+    "Fix the bug in src/loop.ts. Don't change the tests.",
+    'Rename greet to welcome in src/greeter.ts.',
+    'Can you fix the off-by-one in src/loop.ts?',
+    'Could you rename the function in src/utils.ts?',
+    'Do the rename in src/greeter.ts.',
+    "When you're done, update src/utils.ts.",
+    'Is the test failing? Fix src/loop.ts so it passes.',
+  ])('stays true where a clause still asks for a change: %s', (text) => {
+    expect(isMutationRequest(text)).toBe(true);
+  });
+
   it('still requires a file path, like isActionRequest', () => {
     expect(isMutationRequest('write something for me')).toBe(false);
   });
