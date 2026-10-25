@@ -38,7 +38,7 @@ import { executeToolUses } from './executeToolUses.js';
 import { executeTool, resolveToolPermission } from '../executor.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
-import { checkToolBudget } from './toolBudget.js';
+import { checkToolBudget, recordToolUse } from './toolBudget.js';
 import type { SideCarClient } from '../../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from '../loop.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
@@ -310,6 +310,31 @@ describe('executeToolUses — budget check short-circuit', () => {
     expect(checkToolBudget).toHaveBeenLastCalledWith(expect.anything(), 'read_file', { canAskUser: false });
     await run({ clarifyFn: async () => 'yes' } as AgentOptions);
     expect(checkToolBudget).toHaveBeenLastCalledWith(expect.anything(), 'read_file', { canAskUser: true });
+  });
+
+  // #268: a failed edit_file call must not spend edit_file's budget, so the
+  // executor tells recordToolUse whether the call failed.
+  it('tells recordToolUse whether the call failed', async () => {
+    const run = () =>
+      executeToolUses(
+        catalogState(),
+        [use('edit_file')],
+        {} as SideCarClient,
+        {} as AgentOptions,
+        stubCallbacks(),
+        new AbortController().signal,
+      );
+    vi.mocked(executeTool).mockResolvedValueOnce({
+      type: 'tool_result',
+      tool_use_id: 'tu-edit_file',
+      content: "Error: 'search' and 'replace' are identical",
+      is_error: true,
+    });
+    await run();
+    expect(recordToolUse).toHaveBeenLastCalledWith(expect.anything(), 'edit_file', { failed: true });
+    vi.mocked(executeTool).mockResolvedValueOnce({ type: 'tool_result', tool_use_id: 'tu-edit_file', content: 'ok' });
+    await run();
+    expect(recordToolUse).toHaveBeenLastCalledWith(expect.anything(), 'edit_file', { failed: false });
   });
 });
 
