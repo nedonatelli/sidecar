@@ -328,7 +328,6 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       zeroHitPatterns: state.zeroHitPatterns,
       bounceCounts: state.bounceCounts,
       planRef: state.planRef,
-      noopNewCodeRef: state.noopNewCodeRef,
       synthesizedFromFence: toolUse.id.startsWith(FENCE_WRITE_ID_PREFIX),
     },
     inlineEditFn: options.inlineEditFn,

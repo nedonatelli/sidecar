@@ -61,7 +61,6 @@ function makeState(logger?: AgentLogger): LoopState {
     zeroHitPatterns: new Map(),
     bounceCounts: new Map(),
     planRef: { plan: null },
-    noopNewCodeRef: { pending: null },
     escalatedRewriteByFile: new Set(),
     editFailureCountByFile: new Map(),
     escalatedEditToWriteByFile: new Set(),

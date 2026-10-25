@@ -540,11 +540,6 @@
             "default": false,
             "description": "When edit_file keeps failing on the same file (a weak model echoing existing content into the insert fields, never producing the delta), steer the model to rewrite the whole file with write_file — the shape it can do. Off by default: a 30-pair campaign measured a real powered null (symmetric discordants with the steer firing 37×), so it ships for manual use only."
           },
-          "sidecar.editFile.noopAsksForNewCode": {
-            "type": "boolean",
-            "default": false,
-            "description": "When edit_file is sent the same text in 'search' and 'replace' and that text is in the file, tell the model its search is correct and ask for only the new version in a code block, which SideCar then applies as the replacement. Off by default: a replay of 150 recorded no-ops doubled real changes on the next turn, but whether they are better changes is not yet measured."
-          },
           "sidecar.editFile.steerToWriteThreshold": {
             "type": "number",
             "default": 3,

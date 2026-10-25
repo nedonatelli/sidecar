@@ -218,8 +218,6 @@ export interface SideCarConfig {
   editResultDiffChars: number;
   /** ms to wait for a language server to analyze a file get_diagnostics was asked about. 0 disables the open-and-close entirely. */
   diagnosticsAnalysisBudgetMs: number;
-  /** When edit_file gets search === replace and `search` IS in the file, quote it back as correct and ask for the new version alone in a code block, which the loop then applies (#328). Default OFF until the in-loop A/B: the replay showed more real changes, not better ones. */
-  editNoopNewCodeEnabled: boolean;
   /** After N failed edit_file calls on one file, inject a steer redirecting the model to rewrite the whole file with write_file — the mirror of the write→edit escalation. Weak models that echo existing content into edit_file's insert fields (never producing the delta) recover here because they CAN author a whole file. Default OFF: unit-tested + mechanically verified but the pass-rate benefit is unproven (A/B was vacuous — steer fired too rarely), so it ships opt-in until measured. */
   editToWriteSteerEnabled: boolean;
   /** Consecutive failed edit_file calls on one file before the edit→write steer fires (min 2). */
@@ -665,7 +663,6 @@ function readConfig(): SideCarConfig {
     editResultDiffChars: cfg.get<number>('editFile.resultDiffChars', 800),
     diagnosticsAnalysisBudgetMs: cfg.get<number>('diagnostics.analysisBudgetMs', 5000),
     editToWriteSteerEnabled: cfg.get<boolean>('editFile.steerToWrite', false),
-    editNoopNewCodeEnabled: cfg.get<boolean>('editFile.noopAsksForNewCode', false),
     editToWriteSteerThreshold: Math.max(cfg.get<number>('editFile.steerToWriteThreshold', 3), 2),
     codeAsTextRecoveryEnabled: cfg.get<boolean>('recovery.codeAsText', true),
     wholeFileRewriteStrategyEnabled: cfg.get<boolean>('editStrategy.wholeFileRewrite', false),

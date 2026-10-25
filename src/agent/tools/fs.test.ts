@@ -12,7 +12,6 @@ import {
   keptLineShare,
   findIntentTarget,
   containsIgnoringLineEnds,
-  noopNewCodeMessage,
 } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
@@ -264,41 +263,6 @@ describe('editFile audit mode', () => {
     await buf.write('src/trail.py', 'x = 1   \ny = 2\n', async () => undefined);
     const err = await editMsg({ path: 'src/trail.py', search: 'x = 1\ny = 2', replace: 'x = 1\ny = 2' }, context);
     expect(err).toContain('search field is CORRECT');
-  });
-
-  describe('sidecar.editFile.noopAsksForNewCode (#328)', () => {
-    const on = () => ({
-      config: { agentMode: 'audit', editNoopNewCodeEnabled: true } as never,
-      noopNewCodeRef: { pending: null as { path: string; search: string } | null },
-    });
-
-    it('quotes a correct search back, asks for only the new version, and records it as pending', async () => {
-      const context = on();
-      await buf.write('src/nc.py', 'def f():\r\n    return 1\r\n', async () => undefined);
-      const search = 'def f():\n    return 1';
-      const err = await editMsg({ path: 'src/nc.py', search, replace: search }, context);
-      expect(err).toBe(noopNewCodeMessage('src/nc.py', search));
-      expect(err).toContain("Your 'search' text is correct and is kept");
-      expect(context.noopNewCodeRef.pending).toEqual({ path: 'src/nc.py', search });
-      expect(buf.read('src/nc.py').content).toBe('def f():\r\n    return 1\r\n');
-    });
-
-    it('a search NOT in the file keeps the old correction and records nothing', async () => {
-      const context = on();
-      await buf.write('src/nc2.py', 'alpha = 1\n', async () => undefined);
-      const err = await editMsg({ path: 'src/nc2.py', search: 'bravo = 2', replace: 'bravo = 2' }, context);
-      expect(err).toContain('identical');
-      expect(err).not.toContain('is correct and is kept');
-      expect(context.noopNewCodeRef.pending).toBeNull();
-    });
-
-    it('off by default: the old hint, nothing pending', async () => {
-      const context = { ...on(), config: { agentMode: 'audit' } as never };
-      await buf.write('src/nc3.py', 'x = 1\n', async () => undefined);
-      const err = await editMsg({ path: 'src/nc3.py', search: 'x = 1', replace: 'x = 1' }, context);
-      expect(err).toContain('search field is CORRECT');
-      expect(context.noopNewCodeRef.pending).toBeNull();
-    });
   });
 
   it('containsIgnoringLineEnds ignores line endings and trailing whitespace, nothing else', () => {

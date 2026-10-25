@@ -50,7 +50,6 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     zeroHitPatterns: new Map(),
     bounceCounts: new Map(),
     planRef: { plan: null },
-    noopNewCodeRef: { pending: null },
     escalatedRewriteByFile: new Set(),
     editFailureCountByFile: new Map(),
     escalatedEditToWriteByFile: new Set(),
