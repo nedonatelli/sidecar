@@ -200,9 +200,42 @@ export function recentResultsShowWorkAlreadyDone(messages: ChatMessage[]): boole
  * Measured: "Read src/helpers.ts and tell me what it does." licensed coercion,
  * and 3 of 5 claude-sonnet-5 trials wrote a file the model had just correctly
  * reported as absent.
+ *
+ * A change verb counts only where it ASKS for a change (#327): not in a
+ * question, not negated, not used as a noun. "Did that rename actually land?
+ * Check src/greeter.ts and tell me — do not change anything else." matched on
+ * both `rename` and `change`, the already-done check told the model to "make
+ * the change now", and ministral-3 edited the file in 1 of 3 trials.
  */
 export function isMutationRequest(text: string): boolean {
-  return MUTATION_VERB_RE.test(text) && fileReferences(text).length > 0;
+  return requestClauses(text).some(asksForChange) && fileReferences(text).length > 0;
+}
+
+/** Sentences: split after . ! ? followed by whitespace, and at newlines — a path's `.ts` does not split. */
+function requestClauses(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+|\n+/).filter((s) => s.trim() !== '');
+}
+
+/** Openers of a question that asks about the code rather than for a change. "Can/Could you fix…?" is a request. */
+// Not `do` ("Do the rename in…") or `when` ("When you're done, rename…"): those open requests.
+const INFO_QUESTION_RE = /^\s*(?:did|does|is|are|was|were|has|have|had|why|what|how|where|which|who|whether)\b/i;
+/** A negation shortly before the verb: "do not change", "don't edit", "without changing", "never rename". */
+const NEGATED_BEFORE_RE = /\b(?:not|don'?t|never|without|no need to|avoid)\s+(?:\w+\s+){0,2}$/i;
+/** A determiner right before the verb makes it a noun: "that rename", "the change", "your fix". */
+const NOUN_BEFORE_RE = /\b(?:the|that|this|these|those|your|my|our|its|a|an|any|each|every|no)\s+$/i;
+/** ...unless a verb makes the noun the request: "do the rename", "make the change", "apply the fix". */
+const LIGHT_VERB_NOUN_RE = /\b(?:do|make|apply|finish|complete|carry out)\s+(?:the|that|this|these|those|a|an)\s+$/i;
+const MUTATION_VERB_ALL_RE = new RegExp(MUTATION_VERB_RE.source, 'gi');
+
+function asksForChange(clause: string): boolean {
+  if (INFO_QUESTION_RE.test(clause) && !/\b(?:please|can you|could you|would you)\b/i.test(clause)) return false;
+  for (const m of clause.matchAll(MUTATION_VERB_ALL_RE)) {
+    const before = clause.slice(0, m.index);
+    if (NEGATED_BEFORE_RE.test(before)) continue;
+    if (NOUN_BEFORE_RE.test(before) && !LIGHT_VERB_NOUN_RE.test(before)) continue;
+    return true;
+  }
+  return false;
 }
 
 /** Successful read-shaped tool results, matched inside the `<tool_output>` wrapper. */
