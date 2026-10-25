@@ -335,7 +335,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     pendingEdits: options.pendingEdits,
     extraTools: options.extraTools,
   });
-  recordToolUse(state, toolUse.name);
+  recordToolUse(state, toolUse.name, { failed: result.is_error === true });
   state.logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
   // Record tool use in agent memory — both successes and failures

@@ -46,6 +46,7 @@ export function checkToolBudget(
   toolName: string,
   opts: { canAskUser?: boolean } = {},
 ): string | null {
+  if (toolName === 'edit_file') return checkEditBudget(state, opts);
   const count = state.toolCallCounts.get(toolName) ?? 0;
   const budget = toolBudgetFor(state, toolName);
   if (count < budget) return null;
@@ -65,12 +66,61 @@ export function checkToolBudget(
 }
 
 /**
+ * How many failed edit_file calls a run may make, as a multiple of its edit
+ * budget. Failed edits do not spend the budget (see checkEditBudget), so this
+ * is what still stops a run that only ever resubmits a broken edit.
+ */
+export const FAILED_EDIT_FACTOR = 2;
+
+/**
+ * edit_file's budget counts edits that APPLIED (#268). Counting every call let
+ * failures spend it: in tight-budget SWE runs (gemma4:e4b, budget 6) that hit
+ * it, about 5 of the 6 counted calls had changed nothing, mostly
+ * search === replace no-ops, and 11 of 30 such runs had applied no edit at all.
+ * Those runs kept calling edit_file because their change had not landed, and
+ * the refusal told them their edits were "applied and kept". Failed calls get
+ * their own, larger cap.
+ */
+function checkEditBudget(state: LoopState, opts: { canAskUser?: boolean }): string | null {
+  const applied = state.toolCallCounts.get('edit_file') ?? 0;
+  const failed = state.failedEditCalls ?? 0;
+  const budget = toolBudgetFor(state, 'edit_file');
+  const failedCap = budget * FAILED_EDIT_FACTOR;
+  if (applied < budget && failed < failedCap) return null;
+
+  recordDecision(
+    state.logger,
+    { kind: 'tool_budget', action: 'refused', tool: 'edit_file', count: applied + failed, budget },
+    `Tool budget refused edit_file (${applied} applied/${budget}, ${failed} failed/${failedCap})`,
+    'warn',
+  );
+  const why =
+    applied >= budget
+      ? `edit_file has applied ${applied} edits this session (budget: ${budget}).`
+      : `${failed} edit_file calls this session failed and changed nothing (limit: ${failedCap}).`;
+  const kept =
+    applied === 0
+      ? 'None of your edits applied, so the file is unchanged.'
+      : `The ${applied} edit${applied === 1 ? '' : 's'} that applied ${applied === 1 ? 'is' : 'are'} kept.`;
+  const next = opts.canAskUser
+    ? `If you need more edits, explain why to the user via ask_user.`
+    : `No more edit_file calls will run in this session, and no one is available to raise the limit.`;
+  return `${why} ${kept} ${next}`;
+}
+
+/**
  * Increment the call counter for `toolName`. Call this after the tool
  * has actually been dispatched (success or error both count — we want to
  * limit total invocations, not just successful ones, to prevent retry
  * floods). NOT called for budget-exceeded or pre-execution aborts.
+ * The exception is a FAILED edit_file call: it counts toward
+ * `failedEditCalls`, not edit_file's budget (checkEditBudget).
  */
-export function recordToolUse(state: LoopState, toolName: string): void {
+export function recordToolUse(state: LoopState, toolName: string, outcome: { failed?: boolean } = {}): void {
+  if (toolName === 'edit_file' && outcome.failed) {
+    state.failedEditCalls = (state.failedEditCalls ?? 0) + 1;
+    return;
+  }
   const count = state.toolCallCounts.get(toolName) ?? 0;
   state.toolCallCounts.set(toolName, count + 1);
 }

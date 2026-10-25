@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkToolBudget, recordToolUse, toolBudgetFor, baseToolBudget } from './toolBudget.js';
+import { checkToolBudget, recordToolUse, toolBudgetFor, baseToolBudget, FAILED_EDIT_FACTOR } from './toolBudget.js';
 import { resolveScaffoldingProfile } from '../scaffoldingProfile.js';
 import type { LoopState } from './state.js';
 import type { AgentDecision } from '../decisions.js';
@@ -191,5 +191,71 @@ describe('checkToolBudget with a scaffolding profile', () => {
     const logger = { logDecision: (d: AgentDecision) => decisions.push(d) };
     checkToolBudget(stateWith({ logger: logger as unknown as LoopState['logger'] }), 'grep');
     expect(decisions).toEqual([]);
+  });
+});
+
+// #268: a failed edit_file call changed nothing, so it must not spend the edit budget.
+describe('edit_file budget counts applied edits (#268)', () => {
+  const budget = baseToolBudget('edit_file');
+  const fail = (state: Pick<LoopState, 'toolCallCounts'>, n: number) => {
+    for (let i = 0; i < n; i++) recordToolUse(state as LoopState, 'edit_file', { failed: true });
+  };
+
+  it('failed edits do not spend the budget, and applied ones do', () => {
+    const state = makeState();
+    fail(state, budget - 1);
+    spend(state, 'edit_file', budget - 1);
+    expect(checkToolBudget(state as LoopState, 'edit_file')).toBeNull();
+    expect(state.toolCallCounts.get('edit_file')).toBe(budget - 1);
+    spend(state, 'edit_file', 1);
+    const msg = checkToolBudget(state as LoopState, 'edit_file')!;
+    expect(msg).toContain(`edit_file has applied ${budget} edits this session (budget: ${budget})`);
+    expect(msg).toContain(`The ${budget} edits that applied are kept.`);
+  });
+
+  it(`failed edits have their own cap of ${FAILED_EDIT_FACTOR}x the budget`, () => {
+    const state = makeState();
+    fail(state, budget * FAILED_EDIT_FACTOR - 1);
+    expect(checkToolBudget(state as LoopState, 'edit_file')).toBeNull();
+    fail(state, 1);
+    const msg = checkToolBudget(state as LoopState, 'edit_file')!;
+    expect(msg).toContain(`${budget * FAILED_EDIT_FACTOR} edit_file calls this session failed and changed nothing`);
+    // The old refusal claimed edits were "applied and kept" when none had landed.
+    expect(msg).toContain('None of your edits applied, so the file is unchanged.');
+  });
+
+  it('names one applied edit in the singular', () => {
+    const state = makeState();
+    spend(state, 'edit_file', 1);
+    fail(state, budget * FAILED_EDIT_FACTOR);
+    expect(checkToolBudget(state as LoopState, 'edit_file')).toContain('The 1 edit that applied is kept.');
+  });
+
+  it('offers ask_user only when someone can answer', () => {
+    const state = makeState();
+    spend(state, 'edit_file', budget);
+    expect(checkToolBudget(state as LoopState, 'edit_file')).not.toContain('ask_user');
+    expect(checkToolBudget(state as LoopState, 'edit_file', { canAskUser: true })).toContain('ask_user');
+  });
+
+  it('a failed call to any other tool still spends its budget', () => {
+    const state = makeState();
+    recordToolUse(state as LoopState, 'write_file', { failed: true });
+    expect(state.toolCallCounts.get('write_file')).toBe(1);
+    expect((state as LoopState).failedEditCalls).toBeUndefined();
+  });
+
+  it('records the refusal as a tool_budget decision with both counts', () => {
+    const decisions: AgentDecision[] = [];
+    const state = {
+      ...makeState(),
+      logger: { logDecision: (d: AgentDecision) => decisions.push(d) } as unknown as LoopState['logger'],
+    };
+    spend(state, 'edit_file', 2);
+    fail(state, budget * FAILED_EDIT_FACTOR);
+    checkToolBudget(state as LoopState, 'edit_file');
+    expect(decisions).toEqual([
+      { kind: 'tool_budget', action: 'refused', tool: 'edit_file', count: 2 + budget * FAILED_EDIT_FACTOR, budget },
+    ]);
   });
 });

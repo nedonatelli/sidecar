@@ -375,6 +375,9 @@ export interface LoopState {
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
   toolCallCounts: Map<string, number>;
+  // edit_file calls that failed and changed nothing. Kept apart from
+  // toolCallCounts so a failure does not spend edit_file's budget (#268).
+  failedEditCalls?: number;
 
   // Completion-gate state (tracks edited files and verification calls).
   // gate.ts + executeToolUses.ts both touch it.
