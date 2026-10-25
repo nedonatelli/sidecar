@@ -11,6 +11,7 @@ import {
   droppedTopLevelDefinitions,
   keptLineShare,
   findIntentTarget,
+  containsIgnoringLineEnds,
 } from './fs.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import * as settings from '../../config/settings.js';
@@ -238,6 +239,38 @@ describe('editFile audit mode', () => {
     ).catch((e: Error) => e.message);
     expect(err).toContain('identical');
     expect(err).not.toContain('search field is CORRECT');
+  });
+
+  // #328: on a CRLF file an LF search never satisfied includes(), so a correct
+  // anchor was diagnosed as NOT in the file and the model was shown its own
+  // text as "the text CURRENTLY in the file" (76 of 82 such replayed no-ops).
+  it('search===replace on a CRLF file: an LF search that matches is still CORRECT', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write(
+      'src/crlf.py',
+      'def a():\r\n    x = 1\r\n    return x\r\n\r\ndef b():\r\n    pass\r\n',
+      async () => undefined,
+    );
+    const search = '    x = 1\n    return x';
+    const err = await editMsg({ path: 'src/crlf.py', search, replace: search }, context);
+    expect(err).toContain('search field is CORRECT');
+    expect(err).not.toContain('COPY THIS INTO YOUR search FIELD');
+    expect(err).not.toContain('CURRENTLY in the file');
+  });
+
+  it('search===replace with trailing whitespace in the file: still CORRECT', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    await buf.write('src/trail.py', 'x = 1   \ny = 2\n', async () => undefined);
+    const err = await editMsg({ path: 'src/trail.py', search: 'x = 1\ny = 2', replace: 'x = 1\ny = 2' }, context);
+    expect(err).toContain('search field is CORRECT');
+  });
+
+  it('containsIgnoringLineEnds ignores line endings and trailing whitespace, nothing else', () => {
+    expect(containsIgnoringLineEnds('a\r\nb  \r\nc\r\n', 'a\nb\nc')).toBe(true);
+    expect(containsIgnoringLineEnds('a\r\nb\r\n', '\nb\n')).toBe(true);
+    expect(containsIgnoringLineEnds('    a\n', 'a')).toBe(true); // a substring, as includes() was
+    expect(containsIgnoringLineEnds('a\nb\n', 'a\n  b')).toBe(false); // indentation still counts
+    expect(containsIgnoringLineEnds('a\n', '\n\n')).toBe(false);
   });
 
   it('appends partial-replace warning when replace is a short substring of search', async () => {
