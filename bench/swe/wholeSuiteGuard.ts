@@ -29,7 +29,16 @@
 import type { PolicyHook } from '../../src/agent/loop/policyHook.js';
 
 /** Runner scripts whose bare invocation executes a whole project suite. */
-const RUNNER_PATTERNS = [/runtests\.py\b/, /\bpytest\b/, /manage\.py\s+test\b/, /\bnose2?\b/, /\btox\b/];
+// `bin/test` is sympy's (#260): bare `python bin/test -C --verbose` runs the whole
+// suite, and the 24 orphaned full-suite runs of 2026-10-24 were exactly that.
+const RUNNER_PATTERNS = [
+  /runtests\.py\b/,
+  /\bpytest\b/,
+  /manage\.py\s+test\b/,
+  /\bnose2?\b/,
+  /\btox\b/,
+  /(?:^|[\s/])bin\/test\b/,
+];
 
 /**
  * True when `command` invokes a project test runner with NO test label, i.e. it
@@ -54,6 +63,7 @@ export function isWholeSuiteInvocation(command: string): boolean {
     if (/\.py$/.test(t) && /runtests\.py$/.test(t)) return false; // the runner script itself
     if (t === 'pytest' || t === 'test' || t === 'nose2' || t === 'tox') return false; // module name after -m
     if (/manage\.py$/.test(t)) return false;
+    if (/(?:^|\/)bin\/test$/.test(t)) return false; // sympy's runner script
     return true;
   });
 
@@ -113,6 +123,13 @@ const BAD_LABEL_REPROMPT =
  * Once-per-run by construction. A guard that can fire repeatedly turns into its
  * own cycle, and the loop already has enough ways to spend turns.
  */
+/** run_tests called with no explicit command and no file: it runs whatever whole suite it detects. */
+export function isUnscopedRunTests(input: unknown): boolean {
+  const i = (input ?? {}) as { command?: unknown; file?: unknown };
+  const set = (v: unknown) => typeof v === 'string' && v.trim() !== '';
+  return !set(i.command) && !set(i.file);
+}
+
 export function wholeSuiteGuard(): PolicyHook {
   // Independent one-shot latches. Each failure mode gets exactly one nudge: a
   // guard that can re-fire becomes its own cycle, and the loop already has
@@ -133,9 +150,13 @@ export function wholeSuiteGuard(): PolicyHook {
       const uses = ctx.pendingToolUses;
       if (!uses || uses.length === 0) return;
       const commands = uses.map(isTestRun).filter((c): c is string => c !== null);
-      if (commands.length === 0) return;
+      // run_tests with neither `command` nor `file` auto-detects and runs the
+      // project's whole suite: `run_tests {}` started sympy's full suite in
+      // sympy-15346 and sympy-21055 (#260).
+      const autoWholeSuite = uses.some((u) => u.name === 'run_tests' && isUnscopedRunTests(u.input));
+      if (commands.length === 0 && !autoWholeSuite) return;
 
-      if (!firedBareSuite && commands.some(isWholeSuiteInvocation)) {
+      if (!firedBareSuite && (autoWholeSuite || commands.some(isWholeSuiteInvocation))) {
         firedBareSuite = true;
         state.messages.push({ role: 'user', content: BARE_SUITE_REPROMPT });
         return { mutated: true, reason: 'whole-suite test invocation' };
