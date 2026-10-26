@@ -285,6 +285,39 @@ describe('editFile audit mode', () => {
     expect(buf.read('pkg/validation.py').content).toContain('import pandas as pd');
   });
 
+  // #336 canary: django-11583 resubmitted a refused edit 8 times, each answered
+  // identically, then rewrote the file with write_file around the guard.
+  it('says so when the same refused edit is sent again', async () => {
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    await buf.write('pkg/auto.py', 'import os\nfrom pathlib import Path\n\np = Path(".")\n', async () => undefined);
+    const call = { path: 'pkg/auto.py', search: 'from pathlib import Path', replace: 'import os.path' };
+    const first = await editMsg(call, context);
+    expect(first).toContain('removes `from pathlib import Path`');
+    expect(first).not.toContain('refused 2 times');
+    const second = await editMsg(call, context);
+    expect(second).toContain('This is the same call refused 2 times in a row');
+    expect(second).toContain('keep `from pathlib import Path`, or first remove every use of `Path`');
+  });
+
+  it('refuses a write_file rewrite that drops a still-used import (the way around the edit guard)', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    const original = 'from pathlib import Path\n\ndef f(x):\n    return Path(x).resolve()\n';
+    await buf.write('pkg/auto2.py', original, async () => undefined);
+    const err = await writeMsg(
+      { path: 'pkg/auto2.py', content: 'import os.path\n\ndef f(x):\n    return Path(x).resolve()\n' },
+      context,
+    );
+    expect(err).toContain('write_file refused this write to pkg/auto2.py');
+    expect(err).toContain('Keep that import in the content');
+    expect(buf.read('pkg/auto2.py').content).toBe(original);
+    // Rewriting with the import kept, or with every use removed, is allowed.
+    const ok = await writeMsg(
+      { path: 'pkg/auto2.py', content: 'import os.path\n\ndef f(x):\n    return os.path.realpath(x)\n' },
+      context,
+    );
+    expect(ok).not.toContain('refused');
+  });
+
   it('containsIgnoringLineEnds ignores line endings and trailing whitespace, nothing else', () => {
     expect(containsIgnoringLineEnds('a\r\nb  \r\nc\r\n', 'a\nb\nc')).toBe(true);
     expect(containsIgnoringLineEnds('a\r\nb\r\n', '\nb\n')).toBe(true);

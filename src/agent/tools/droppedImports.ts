@@ -125,8 +125,19 @@ export function droppedUsedImports(filePath: string, before: string, after: stri
   return out;
 }
 
-/** The refusal edit_file throws for a non-empty {@link droppedUsedImports} result. */
-export function droppedImportError(filePath: string, dropped: DroppedImport[], prefix = ''): string {
+/**
+ * The refusal for a non-empty {@link droppedUsedImports} result. `repeat` is how
+ * many times in a row this exact call has been refused (1 = first). In the #336
+ * canary a refused edit was resubmitted unchanged 8 times, each getting the same
+ * answer, before the model rewrote the whole file around the guard; a repeat now
+ * says so and names the way forward.
+ */
+export function droppedImportError(
+  filePath: string,
+  dropped: DroppedImport[],
+  opts: { tool?: 'edit_file' | 'write_file'; repeat?: number } = {},
+): string {
+  const tool = opts.tool ?? 'edit_file';
   const d = dropped[0];
   const more =
     dropped.length > 1
@@ -135,10 +146,16 @@ export function droppedImportError(filePath: string, dropped: DroppedImport[], p
           .map((x) => `\`${x.name}\``)
           .join(', ')})`
       : '';
+  const field = tool === 'edit_file' ? "'replace'" : 'the content';
+  const repeat =
+    (opts.repeat ?? 1) > 1
+      ? ` This is the same call refused ${opts.repeat} times in a row — sending it again will be refused again. ` +
+        `Change it: keep \`${d.importLine}\`, or first remove every use of \`${d.name}\`.`
+      : '';
   return (
-    `${prefix}Error: edit_file refused this edit to ${filePath} — it removes \`${d.importLine}\`, but ` +
-    `\`${d.name}\` is still used${more} (line ${d.useLine}: \`${d.useText.slice(0, 120)}\`). The file was NOT ` +
-    `modified. Keep that import in 'replace' — put any new import on a line of its own — or remove every use ` +
-    `of \`${d.name}\` as well.`
+    `Error: ${tool} refused this ${tool === 'edit_file' ? 'edit' : 'write'} to ${filePath} — it removes ` +
+    `\`${d.importLine}\`, but \`${d.name}\` is still used${more} (line ${d.useLine}: \`${d.useText.slice(0, 120)}\`). ` +
+    `The file was NOT modified. Keep that import in ${field} — put any new import on a line of its own — or remove ` +
+    `every use of \`${d.name}\` as well.${repeat}`
   );
 }

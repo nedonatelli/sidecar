@@ -1054,6 +1054,9 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // working against the buffered state; user reviews later and either
   // flushes (applies every buffered change atomically) or rejects.
   if (isAuditModeActive(context)) {
+    const buffered = getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath));
+    const auditDropped = buffered !== undefined ? droppedUsedImports(filePath, buffered, content) : [];
+    if (auditDropped.length > 0) throw new Error(droppedImportError(filePath, auditDropped, { tool: 'write_file' }));
     recordWrite();
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
@@ -1117,6 +1120,16 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
       `\n[note: your content contained literal \\n escape sequences where line breaks belong. They were ` +
       `decoded to real newlines and the decoded file parses cleanly. Send content with real line breaks, ` +
       `not \\n escapes.]`;
+  }
+
+  // The same dropped-import check edit_file runs (#334). A whole-file rewrite is
+  // the way around a refused edit: in the #336 canary, django-11583 resubmitted
+  // a refused edit 8 times, then rewrote autoreload.py with write_file and broke
+  // 50 tests instead of 24.
+  if (original !== undefined) {
+    const droppedByWrite = droppedUsedImports(filePath, original, content);
+    if (droppedByWrite.length > 0)
+      throw new Error(droppedImportError(filePath, droppedByWrite, { tool: 'write_file' }));
   }
 
   recordWrite();
@@ -1449,7 +1462,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     });
     if (resolvedAudit.newText === null) return resolvedAudit.message;
     const auditDropped = droppedUsedImports(filePath, currentText, resolvedAudit.newText);
-    if (auditDropped.length > 0) throw new Error(droppedImportError(filePath, auditDropped));
+    if (auditDropped.length > 0) {
+      const repeat = recordEditFailure(context, filePath, search ?? '', replace ?? '');
+      throw new Error(droppedImportError(filePath, auditDropped, { repeat }));
+    }
     const auditPatch = computeLineDiff(currentText, resolvedAudit.newText, filePath);
     await buf.write(filePath, resolvedAudit.newText, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
@@ -1564,7 +1580,8 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   const dropped = droppedUsedImports(filePath, text, newText);
   if (dropped.length > 0) {
     reportOutcome(false, 'unchecked');
-    throw new Error(droppedImportError(filePath, dropped));
+    const repeat = recordEditFailure(context, filePath, search ?? '', replace ?? '');
+    throw new Error(droppedImportError(filePath, dropped, { repeat }));
   }
 
   const badChars = unencodableChars(newText, encoding);
