@@ -20,6 +20,7 @@ import { computeLineDiff } from './diffUtils.js';
 import { DIFF_STREAM_PREFIX } from './diffStream.js';
 import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
 import { findSkippedLinesMatch, skippedLinesError } from './skippedLines.js';
+import { droppedUsedImports, droppedImportError } from './droppedImports.js';
 import {
   findEditMatch,
   findEditMatches,
@@ -1447,6 +1448,8 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       context,
     });
     if (resolvedAudit.newText === null) return resolvedAudit.message;
+    const auditDropped = droppedUsedImports(filePath, currentText, resolvedAudit.newText);
+    if (auditDropped.length > 0) throw new Error(droppedImportError(filePath, auditDropped));
     const auditPatch = computeLineDiff(currentText, resolvedAudit.newText, filePath);
     await buf.write(filePath, resolvedAudit.newText, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
@@ -1555,6 +1558,14 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     return resolved.message;
   }
   const newText = resolved.newText;
+
+  // An import the edit removed while the file still uses its name breaks the
+  // module at import time (#334).
+  const dropped = droppedUsedImports(filePath, text, newText);
+  if (dropped.length > 0) {
+    reportOutcome(false, 'unchecked');
+    throw new Error(droppedImportError(filePath, dropped));
+  }
 
   const badChars = unencodableChars(newText, encoding);
   if (badChars.length > 0) {

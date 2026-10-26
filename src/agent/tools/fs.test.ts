@@ -265,6 +265,26 @@ describe('editFile audit mode', () => {
     expect(err).toContain('search field is CORRECT');
   });
 
+  // #334: scikit-learn-10949 replaced `import numpy as np` while np stayed in use.
+  it('refuses an edit that removes an import the file still uses, and writes nothing', async () => {
+    const context = { config: { agentMode: 'audit' } as never };
+    const original = 'import warnings\nimport numpy as np\n\ndef f(x):\n    return np.asarray(x)\n';
+    await buf.write('pkg/validation.py', original, async () => undefined);
+    const err = await editMsg(
+      { path: 'pkg/validation.py', search: 'import numpy as np', replace: 'import pandas as pd' },
+      context,
+    );
+    expect(err).toContain('removes `import numpy as np`, but `np` is still used');
+    expect(buf.read('pkg/validation.py').content).toBe(original);
+    // Adding the new import alongside the old one is fine.
+    const ok = await editMsg(
+      { path: 'pkg/validation.py', search: 'import numpy as np', replace: 'import numpy as np\nimport pandas as pd' },
+      context,
+    );
+    expect(ok).not.toContain('refused');
+    expect(buf.read('pkg/validation.py').content).toContain('import pandas as pd');
+  });
+
   it('containsIgnoringLineEnds ignores line endings and trailing whitespace, nothing else', () => {
     expect(containsIgnoringLineEnds('a\r\nb  \r\nc\r\n', 'a\nb\nc')).toBe(true);
     expect(containsIgnoringLineEnds('a\r\nb\r\n', '\nb\n')).toBe(true);
