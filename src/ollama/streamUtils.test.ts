@@ -238,10 +238,11 @@ describe('parseTextToolCallsStream', () => {
     });
   });
 
-  it('drops malformed <tool_call> JSON silently', () => {
+  // #246: these were dropped silently, so a turn could end with nothing at all.
+  it('returns a <tool_call> body that is not JSON as text', () => {
     const state = createTextToolCallState([READ_FILE_TOOL]);
     const events = feed(['<tool_call>not json</tool_call>'], state);
-    expect(events).toHaveLength(0);
+    expect(events).toEqual([{ type: 'text', text: '<tool_call>not json</tool_call>' }]);
   });
 
   // ML-58 (#164): raw newlines in a JSON string made the call vanish before repair.
@@ -254,19 +255,77 @@ describe('parseTextToolCallsStream', () => {
     expect(ev0.toolUse).toMatchObject({ name: 'write_file', input: {}, _malformedInputRaw: body });
   });
 
-  it('does not hand repair a body cut off at a </tool_call> inside a string', () => {
+  // #246: the body's end is found by a string-aware scan, so a </tool_call>
+  // inside a string no longer cuts it off: the whole call parses.
+  it('parses a body whose string contains </tool_call>', () => {
     const state = createTextToolCallState([WRITE_FILE_TOOL]);
     const events = feed(
       ['<tool_call>{"name":"write_file","arguments":{"path":"a.py","content":"x</tool_call>y"}}</tool_call>'],
       state,
     );
-    expect(events.some((e) => e.type === 'tool_use')).toBe(false);
+    expect(events).toHaveLength(1);
+    expect((events[0] as { toolUse: { input: unknown } }).toolUse.input).toEqual({
+      path: 'a.py',
+      content: 'x</tool_call>y',
+    });
   });
 
-  it('drops <tool_call> for unknown tool names', () => {
+  it('returns a <tool_call> for an unknown tool name as text', () => {
     const state = createTextToolCallState([READ_FILE_TOOL]);
     const events = feed(['<tool_call>{"name":"nope","arguments":{}}</tool_call>'], state);
-    expect(events).toHaveLength(0);
+    expect(events).toEqual([{ type: 'text', text: '<tool_call>{"name":"nope","arguments":{}}</tool_call>' }]);
+  });
+
+  // #246: the issue's three probe inputs, fed in 7-character deltas as the backends receive them.
+  describe('streamed in small deltas (#246)', () => {
+    const deltas = (s: string, n = 7) =>
+      Array.from({ length: Math.ceil(s.length / n) }, (_, i) => s.slice(i * n, i * n + n));
+    const run = (s: string) => {
+      const state = createTextToolCallState([READ_FILE_TOOL, WRITE_FILE_TOOL]);
+      return feed(deltas(s), state);
+    };
+    const calls = (evs: ReturnType<typeof run>) =>
+      evs.filter((e) => e.type === 'tool_use').map((e) => (e as { toolUse: { name: string; input: unknown } }).toolUse);
+    const text = (evs: ReturnType<typeof run>) =>
+      evs
+        .filter((e) => e.type === 'text')
+        .map((e) => (e as { text: string }).text)
+        .join('');
+
+    it('a missing </tool_call> before the next call: both calls dispatch, the turn is not empty', () => {
+      const evs = run(
+        '<tool_call>{"name":"read_file","arguments":{"path":"a"}}\n' +
+          '<tool_call>{"name":"read_file","arguments":{"path":"b"}}</tool_call>',
+      );
+      expect(calls(evs).map((c) => c.input)).toEqual([{ path: 'a' }, { path: 'b' }]);
+      expect(text(evs)).not.toContain('<tool_call>');
+    });
+
+    it('</tool_call> inside a string: the call dispatches whole and nothing leaks', () => {
+      const evs = run(
+        `<tool_call>{"name":"write_file","arguments":{"path":"p.py","content":"s='</tool_call>'"}}</tool_call>`,
+      );
+      expect(calls(evs)).toEqual([expect.objectContaining({ input: { path: 'p.py', content: "s='</tool_call>'" } })]);
+      expect(text(evs)).toBe('');
+    });
+
+    it('a wrong closing tag: the call is recovered and no markup reaches the reply', () => {
+      const evs = run('<tool_call>{"name":"read_file","arguments":{"path":"a"}}</think>');
+      expect(calls(evs).map((c) => c.input)).toEqual([{ path: 'a' }]);
+      expect(text(evs)).toBe('');
+    });
+
+    it('a missing close tag before plain text: the call dispatches and the text is kept', () => {
+      const evs = run('<tool_call>{"name":"read_file","arguments":{"path":"a"}} Reading it now.');
+      expect(calls(evs).map((c) => c.input)).toEqual([{ path: 'a' }]);
+      expect(text(evs)).toBe(' Reading it now.');
+    });
+
+    it('a body still open at the end of the stream is returned as text, as before', () => {
+      const evs = run('<tool_call>{"name":"read_file","arguments":{"path":"a"');
+      expect(calls(evs)).toEqual([]);
+      expect(text(evs)).toBe('<tool_call>{"name":"read_file","arguments":{"path":"a"');
+    });
   });
 
   it('handles multiple consecutive tool calls in one chunk', () => {
