@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWholeSuiteInvocation, wholeSuiteGuard } from './wholeSuiteGuard.js';
+import { isWholeSuiteInvocation, isUnscopedRunTests, wholeSuiteGuard } from './wholeSuiteGuard.js';
 
 const DJANGO_CMD = './tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1';
 
@@ -33,6 +33,26 @@ describe('isWholeSuiteInvocation', () => {
 
   it('is not fooled by leading/trailing whitespace', () => {
     expect(isWholeSuiteInvocation(`  ${DJANGO_CMD}  `)).toBe(true);
+  });
+
+  // #260: the 24 orphaned sympy full-suite runs of 2026-10-24.
+  it("flags sympy's bare bin/test and accepts it scoped", () => {
+    expect(isWholeSuiteInvocation('python bin/test -C --verbose')).toBe(true);
+    expect(isWholeSuiteInvocation('./bin/test')).toBe(true);
+    expect(isWholeSuiteInvocation('bin/test -C')).toBe(true);
+    expect(isWholeSuiteInvocation('python bin/test sympy/core/tests/test_basic.py')).toBe(false);
+    // A flag's value reads as a label (the existing rule): `-k name` is scoped enough.
+    expect(isWholeSuiteInvocation('python bin/test -k test_issue_15346')).toBe(false);
+  });
+});
+
+describe('isUnscopedRunTests (#260)', () => {
+  it('is true for run_tests with neither command nor file', () => {
+    expect(isUnscopedRunTests({})).toBe(true);
+    expect(isUnscopedRunTests(undefined)).toBe(true);
+    expect(isUnscopedRunTests({ command: '  ' })).toBe(true);
+    expect(isUnscopedRunTests({ file: 'sympy/core/tests/test_basic.py' })).toBe(false);
+    expect(isUnscopedRunTests({ command: 'python bin/test sympy/core' })).toBe(false);
   });
 });
 
@@ -87,6 +107,21 @@ describe('wholeSuiteGuard', () => {
     const hook = wholeSuiteGuard();
     const state = makeState();
     expect(await hook.afterToolResults!(state as never, {} as never)).toBeUndefined();
+  });
+
+  // #260: `run_tests {}` started sympy's whole suite in sympy-15346 and sympy-21055.
+  it('treats run_tests with no command and no file as a whole-suite run', async () => {
+    const use = (input: Record<string, unknown>) => ({ type: 'tool_use' as const, id: 't', name: 'run_tests', input });
+    const unscoped = makeState();
+    const r = await wholeSuiteGuard().afterToolResults!(unscoped as never, { pendingToolUses: [use({})] } as never);
+    expect(r).toMatchObject({ mutated: true, reason: 'whole-suite test invocation' });
+    const scoped = makeState();
+    const s = await wholeSuiteGuard().afterToolResults!(
+      scoped as never,
+      { pendingToolUses: [use({ file: 'sympy/core/tests/test_basic.py' })] } as never,
+    );
+    expect(s).toBeUndefined();
+    expect(scoped.messages).toHaveLength(0);
   });
 
   // Scoping the run is only half of it: an invalid label is just as broken a

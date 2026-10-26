@@ -60,6 +60,7 @@ import { summarizeDecisions } from '../../src/agent/decisions.js';
 import { emptyTotals, addUsage, cacheHitRate, runCostUsd } from '../../bench/swe/runCost.js';
 import { sweTerminationBucket } from '../../bench/swe/termination.js';
 import { PrepFailureStreak } from '../../bench/swe/prepStreak.js';
+import { sweepTaskSurvivors } from '../../bench/swe/survivorSweep.js';
 import { missingCachedRepos, repoCacheDir, repoCacheMissMessage } from '../../bench/swe/repoCache.js';
 
 const DATA = process.env.SIDECAR_SWE_DATA;
@@ -504,6 +505,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   let patch = '';
   let failureReason: string | null = null;
   let dir: string | null = null;
+  let venvDir: string | null = null;
   let workspaceSnapshot: ShellChangeSnapshot | null = null;
   let shellChanged: string[] = [];
   let shellChangeDrift: ShellChangeDrift | undefined;
@@ -569,6 +571,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // execute against installed deps. null = no local env (native-dep repo) →
     // the agent runs without one (blind) until the container fallback lands.
     const taskEnv = task.version ? setupTaskEnv(task.repo, task.version, dir, ENV_CACHE_BASE, ENV_SPECS) : null;
+    venvDir = taskEnv?.venvDir ?? null;
     toolRuntime = new ToolRuntime(dir, taskEnv?.env);
     // Real RAG: attach the repo's symbol-embedding index so the agent's
     // project_knowledge_search tool queries it (same retrieval as the product),
@@ -852,6 +855,15 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // removed. 184 such warnings across the runs recorded so far, and the
     // clones they left behind were still on disk days later.
     toolRuntime?.dispose();
+    // ...and anything that outlived it (#260): a venv launcher and the base
+    // interpreter it started escape the tree kill on Windows.
+    if (dir) {
+      const swept = sweepTaskSurvivors(venvDir ? [dir, venvDir] : [dir]);
+      if (swept.found > 0)
+        console.log(
+          `[swe]   ${task.instance_id}: killed ${swept.killed}/${swept.found} process(es) left after the task`,
+        );
+    }
     // ALWAYS attempt the diff, including after a throw. `captureDiff` used to
     // sit inside the try AFTER the agent loop, so any abort — per-task timeout,
     // fetch failure, stream error — skipped it and forced an empty patch,
