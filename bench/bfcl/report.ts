@@ -15,8 +15,11 @@ export interface RunEnvelope {
   /** e.g. "Q4_K_M" (Ollama default) or "fp16". REQUIRED for comparability. */
   quantization: string;
   backend: string;
-  /** Context window actually used (SideCar caps local at 32K). */
-  contextTokens: number;
+  /**
+   * Context window actually used (SideCar caps local at 32K). Undefined when the
+   * backend cannot set it -- an OpenAI-compatible or cloud server uses its own.
+   */
+  contextTokens?: number;
   /** Where the cases came from: "fixtures" or an upstream version tag. */
   dataset: string;
   caseCount: number;
@@ -34,7 +37,8 @@ export function formatReport(report: BfclReport, env: RunEnvelope): string {
   lines.push('');
   lines.push(`- model: \`${env.model}\` (${env.backend})`);
   lines.push(`- quantization: **${env.quantization}**`);
-  lines.push(`- context: ${env.contextTokens} tokens · temperature: ${env.temperature}`);
+  const context = env.contextTokens === undefined ? 'set by the server' : `${env.contextTokens} tokens`;
+  lines.push(`- context: ${context} · temperature: ${env.temperature}`);
   lines.push(`- dataset: ${env.dataset} (${env.caseCount} cases) · per-case timeout: ${env.perCaseTimeoutMs} ms`);
   lines.push('');
   lines.push('## Scores');
