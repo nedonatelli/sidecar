@@ -44,7 +44,7 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 PATCH: each change tunes a firing condition or a message inside an existing
 mechanism; none adds, removes or re-defaults one. These merged between
-2026-10-22 and 2026-10-27 while the version stayed at 5.1.2, so **a manifest
+2026-10-22 and 2026-10-28 while the version stayed at 5.1.2, so **a manifest
 stamped 5.1.2 from after 2026-10-21 may include any of them — compare those
 runs by commit, not by version.**
 
@@ -58,7 +58,8 @@ runs by commit, not by version.**
   edit (#286); only applied edits count against edit_file's budget (#329).
 - **edit_file:** a search == replace no-op is diagnosed correctly on CRLF
   files (#330); an edit that removes an import the file still uses is refused
-  (#336).
+  (#336); the dropped-definition refusal fires only where the edit would
+  write, so a non-matching edit gets "search string not found" (#343).
 - **Tool-call parsing:** every call in a multi-object fence is dispatched and
   calls quoted in prose are skipped (#301); a `<tool_call>` body's end is found
   with a string-aware scan (#333).

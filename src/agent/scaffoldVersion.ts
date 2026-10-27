@@ -81,12 +81,13 @@
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
  * - **5.1.3** (2026-10) — catch-up for guard, gate, reprompt and parser fixes
- *   merged 2026-10-22..27 without a bump: completion gate (#282 installs are
+ *   merged 2026-10-22..28 without a bump: completion gate (#282 installs are
  *   not test runs, #283 a script that runs no test earns no credit, #325 no
  *   read/write demands for quoted or missing files); reprompts (#285, #303,
  *   #331); loop counting (#286 shell edits count as edits, #329 only applied
  *   edits spend edit_file's budget); edit_file (#330 CRLF no-op diagnosis,
- *   #336 dropped-import refusal); tool-call parsing (#301, #333); grep (#322).
+ *   #336 dropped-import refusal, #343 a dropped-definition refusal only
+ *   where the edit would write); tool-call parsing (#301, #333); grep (#322).
  *   PATCH: each tunes a firing condition or message inside an existing
  *   mechanism. Manifests stamped 5.1.2 from after 2026-10-21 may carry any of
  *   these; compare those runs by commit, not by version.
