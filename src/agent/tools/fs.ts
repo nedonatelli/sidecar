@@ -2123,7 +2123,7 @@ export async function resolveEditedText(params: {
         summary: `File edited: ${filePath} (replace_all — ${whole.length} occurrences replaced${skippedNote})`,
         syntax: allSyntax.verdict,
         tier: match.tier,
-        prefixNote: matchToleranceNote(match, filePath, text),
+        prefixNote: matchToleranceNote(match, filePath, text, search),
         suffixNote: '',
       };
     }
@@ -2276,7 +2276,7 @@ export async function resolveEditedText(params: {
 
   return {
     newText,
-    prefixNote: anchorRedundantNote() + matchToleranceNote(match, filePath, text) + duplicateTrimNote,
+    prefixNote: anchorRedundantNote() + matchToleranceNote(match, filePath, text, search) + duplicateTrimNote,
     suffixNote: escapeRecoveryNote,
     // After an escape recovery the ORIGINAL verdict was 'refuse'; the recovery
     // only proceeds when the decoded text parses, so report that, not the

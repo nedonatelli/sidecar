@@ -23,7 +23,14 @@ import { validateToolInput } from './executor/inputValidator.js';
 import { remapParamSynonyms, coerceParamTypes, stripEchoedCarriageReturns } from './executor/paramRemap.js';
 import { resolveToolNameAlias } from './executor/toolNameAlias.js';
 import { isExampleReplay, buildExampleReplayError } from './executor/exampleReplayGuard.js';
-import { recordBounce, clearBounces, escalationSuffix } from './executor/bounceEscalation.js';
+import {
+  recordBounce,
+  recordToolErrorBounce,
+  failureSignature,
+  reportsOwnRepeat,
+  clearBounces,
+  escalationSuffix,
+} from './executor/bounceEscalation.js';
 import { isGenericClarification, CANNED_CLARIFICATION } from './executor/genericClarification.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
@@ -658,11 +665,15 @@ export async function executeTool(
     // messages exist to be read and acted on by a weak model.
     const raw = err instanceof Error ? err.message : String(err);
     const message = raw.replace(/^Error:\s*/i, '');
-    const bounces = recordBounce(bounceCounts, toolUse.name, 'tool-error');
+    // The streak is per failure, not per tool (#161 ML-72), so "the same reason"
+    // in the suffix is true. A message that already reports its own repeat gets
+    // no second escalation on top.
+    const bounces = recordToolErrorBounce(bounceCounts, toolUse.name, failureSignature(toolUse.input, message));
+    const suffix = reportsOwnRepeat(message) ? '' : escalationSuffix(bounces, toolUse.name);
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
-      content: `Error: ${message}${escalationSuffix(bounces, toolUse.name)}`,
+      content: `Error: ${message}${suffix}`,
       is_error: true,
     };
   }
