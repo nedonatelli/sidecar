@@ -37,7 +37,18 @@ increment.
 npm run bench:bfcl                                   # gemma4:e4b on local Ollama
 SIDECAR_BFCL_MODEL=ministral-3:latest npm run bench:bfcl
 SIDECAR_BFCL_BACKEND=anthropic SIDECAR_BFCL_MODEL=claude-haiku-4-5-20251001 npm run bench:bfcl
+
+# Any OpenAI-compatible server (vLLM, NIM, llama.cpp, LM Studio — e.g. on a DGX Spark):
+SIDECAR_BFCL_BACKEND=openai SIDECAR_BFCL_BASE_URL=http://spark.local:8000/v1 \
+  SIDECAR_BFCL_MODEL=<served model id> npm run bench:bfcl
 ```
+
+The `openai` backend posts to `<base>/chat/completions`:
+
+- **The base comes from** `SIDECAR_BFCL_BASE_URL`, then `OPENAI_BASE_URL`, then `https://api.openai.com/v1`. Either form of the URL works, with or without `/chat/completions`.
+- **The key comes from** `SIDECAR_BFCL_API_KEY`, then `OPENAI_API_KEY`. It is required only for OpenAI's own API; a local server is called without `Authorization` when no key is set.
+- **Calls written as text are recovered** by SideCar's parser, the same product lens as the Ollama backend. `SIDECAR_BFCL_RAW=1` still measures native `tool_calls` only.
+- **The report names the endpoint host** (`openai-compatible @ spark.local:8000`), so a local run is never read as an OpenAI result.
 
 Cloud backends (`anthropic` / `openai`) skip cleanly when their API key is
 absent; the `ollama` backend targets a local daemon and fails loudly if it's
