@@ -34,8 +34,8 @@ Only the latest released version on the VS Code Marketplace receives security pa
 
 | Version           | Supported |
 | ----------------- | --------- |
-| 0.132.x (current) | ✅        |
-| < 0.132           | ❌        |
+| 0.133.x (current) | ✅        |
+| < 0.133           | ❌        |
 
 ## Threat model — what SideCar defends
 
