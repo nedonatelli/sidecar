@@ -103,6 +103,12 @@ export interface SideCarConfig {
   agentSeed: number | null;
   ollamaNumCtx: number | null;
   ollamaDisableThinking: boolean;
+  /**
+   * Offer text-format tool calls to an Ollama model that reports no `tools`
+   * capability, instead of dropping its tools (#250). Opt-in. Env
+   * `SIDECAR_OLLAMA_TEXT_TOOL_FALLBACK=true` for headless runs.
+   */
+  ollamaTextToolFallback: boolean;
   agentMaxIterations: number;
   /**
    * True when the user set `sidecar.agentMaxIterations` themselves (user,
@@ -565,6 +571,10 @@ function readConfig(): SideCarConfig {
     agentSeed: cfg.get<number | null>('agentSeed', null),
     ollamaNumCtx: cfg.get<number | null>('ollama.numCtx', null),
     ollamaDisableThinking: cfg.get<boolean>('ollama.disableThinking', process.env.SIDECAR_DISABLE_THINKING === 'true'),
+    ollamaTextToolFallback: cfg.get<boolean>(
+      'ollama.textToolFallback',
+      process.env.SIDECAR_OLLAMA_TEXT_TOOL_FALLBACK === 'true',
+    ),
     agentMaxIterations: clampMin(cfg.get<number>('agentMaxIterations'), 1, 50),
     agentMaxIterationsSet: isUserSet(cfg.inspect<number>('agentMaxIterations')),
     agentMaxMessages: clampMin(cfg.get<number>('agentMaxMessages'), 5, 100),

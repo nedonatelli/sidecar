@@ -395,6 +395,16 @@
             ],
             "markdownDescription": "Disable the extended reasoning (`think`) phase for Ollama models that support it (e.g. Qwen3, DeepSeek-R1). When `true`, SideCar passes `think: false` with every request, skipping the internal chain-of-thought and reducing latency significantly at the cost of reasoning depth.\n\nLeave `false` (default) to keep thinking enabled — recommended for complex coding tasks. Enable when speed matters more than depth, or when running evals."
           },
+          "sidecar.ollama.textToolFallback": {
+            "type": "boolean",
+            "default": false,
+            "order": 23,
+            "tags": [
+              "sidecar",
+              "backend"
+            ],
+            "markdownDescription": "Let Ollama models without native tool calling use tools. When Ollama reports that a model lacks the `tools` capability, SideCar normally sends no tools and the model can only chat. With this on, SideCar instead describes a core tool set (`read_file`, `edit_file`, `write_file`, `grep`, `run_command`) in the system prompt and reads calls written as JSON in `<tool_call>` tags. Approvals and validation are the same as for native calls.\n\nModels with native tool calling, and models whose capability could not be checked, are unaffected. Ollama backend only."
+          },
           "sidecar.agentMaxIterations": {
             "type": "number",
             "default": 50,

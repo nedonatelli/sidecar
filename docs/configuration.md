@@ -611,10 +611,11 @@ These settings tune the Audit Mode buffer behaviour. See [Agent Mode → Review 
 
 ## Ollama Settings
 
-| Setting                          | Type    | Default | Description                                                                                                                                                                  |
-| -------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.ollama.disableThinking` | boolean | `false` | Pass `think: false` with every Ollama request, disabling extended reasoning for models that support it (Qwen3, DeepSeek-R1). Reduces latency at the cost of reasoning depth. |
-| `sidecar.ollama.numCtx`          | number  | `null`  | Override the context window size (`num_ctx`). `null` = use the model's Modelfile default. Set to e.g. `32768` or `65536` to force a specific window. Ollama backend only.    |
+| Setting                           | Type    | Default | Description                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.ollama.disableThinking`  | boolean | `false` | Pass `think: false` with every Ollama request, disabling extended reasoning for models that support it (Qwen3, DeepSeek-R1). Reduces latency at the cost of reasoning depth.                                                                                                                                                                        |
+| `sidecar.ollama.numCtx`           | number  | `null`  | Override the context window size (`num_ctx`). `null` = use the model's Modelfile default. Set to e.g. `32768` or `65536` to force a specific window. Ollama backend only.                                                                                                                                                                           |
+| `sidecar.ollama.textToolFallback` | boolean | `false` | Let a model that Ollama reports without the `tools` capability call tools anyway: SideCar describes a core set (`read_file`, `edit_file`, `write_file`, `grep`, `run_command`) in the system prompt and reads calls written as JSON in `<tool_call>` tags. Off: such a model can only chat. Native-tool models are unaffected. Ollama backend only. |
 
 ## Retrieval & Project Knowledge (advanced)
 

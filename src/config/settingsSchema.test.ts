@@ -141,11 +141,13 @@ describe('package.json contributes.configuration — 13-category layout', () => 
     //   which playwright-core does not ship).
     // + maxOutputTokens (+1: the per-response output cap, reasoning included;
     //   was a fixed 8192 on Ollama and 4096 on OpenAI-compatible servers).
+    // + ollama.textToolFallback (+1: opt-in text-format tool calls for Ollama
+    //   models that report no `tools` capability, #250).
     // Adding a setting requires bumping this + adding it to one of
     // the sections.
     const cfg = loadConfiguration();
     const totalKeys = cfg.reduce((sum, s) => sum + Object.keys(s.properties).length, 0);
-    expect(totalKeys).toBe(256);
+    expect(totalKeys).toBe(257);
   });
 
   it('no setting key is duplicated across sections', () => {

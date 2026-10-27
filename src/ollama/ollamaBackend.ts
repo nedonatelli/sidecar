@@ -23,6 +23,12 @@ import {
   fitOutputBudget,
 } from '../config/constants.js';
 import { estimateRequestTokens } from '../config/tokenEstimation.js';
+import {
+  buildTextToolPrompt,
+  renderTextToolCall,
+  renderTextToolResult,
+  textFallbackTools,
+} from './textToolFallback.js';
 
 /**
  * Ollama's `done_reason` in the loop's vocabulary. `length` means the turn hit
@@ -301,6 +307,21 @@ export function recordToolSuccess(model: string): void {
 }
 
 /**
+ * True when `model` gets text-format tool calls instead of a native catalog
+ * (#250): the user opted in AND Ollama said explicitly that the model has no
+ * `tools` capability (its /api/show, or its 400 "does not support tools").
+ * Unknown capability -- never probed, or the probe timed out or failed -- is
+ * not "no tools", and neither is the runtime failure count (#314): both keep
+ * the native path.
+ */
+function usesTextToolFallback(model: string, enabled: boolean): boolean {
+  return enabled && toolCapabilityCache.get(model) === false;
+}
+
+/** Models already told, this session, that they are on text-format tool calls. */
+const textFallbackAnnounced = new Set<string>();
+
+/**
  * Synchronous tool support check. Uses probed capabilities + runtime failure tracking.
  * For accurate results, call probeModelToolSupport() first (e.g. during model loading).
  */
@@ -353,8 +374,12 @@ interface OllamaChatChunk {
  *   - Tool results are sent as role:"tool" messages
  *   - Tool calls are in message.tool_calls, not content blocks
  */
-function toOllamaMessages(messages: ChatMessage[], systemPrompt: string): OllamaMessage[] {
+function toOllamaMessages(messages: ChatMessage[], systemPrompt: string, textTools = false): OllamaMessage[] {
   const result: OllamaMessage[] = [];
+  // A text-format model (#250) has no tool role: its calls are rendered back as
+  // the `<tool_call>` text it was asked to write, and each result as user text
+  // naming the tool it answers. The names come from the calls seen so far.
+  const toolNameById = new Map<string, string>();
 
   if (systemPrompt) {
     result.push({ role: 'system', content: systemPrompt });
@@ -376,15 +401,19 @@ function toOllamaMessages(messages: ChatMessage[], systemPrompt: string): Ollama
       const imageBlocks = blocks.filter((b) => b.type === 'image');
 
       // Emit tool result messages
+      const textResults: string[] = [];
       for (const tr of toolResults) {
-        if (tr.type === 'tool_result') {
+        if (tr.type !== 'tool_result') continue;
+        if (textTools) {
+          textResults.push(renderTextToolResult(toolNameById.get(tr.tool_use_id) ?? 'tool', tr.content, tr.is_error));
+        } else {
           result.push({ role: 'tool', content: tr.content });
         }
       }
 
       // Emit text/image as user message
-      if (textBlocks.length > 0 || imageBlocks.length > 0) {
-        const text = textBlocks.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+      if (textBlocks.length > 0 || imageBlocks.length > 0 || textResults.length > 0) {
+        const text = [...textResults, ...textBlocks.map((b) => (b.type === 'text' ? b.text : ''))].join('\n');
         const images = imageBlocks
           .filter((b) => b.type === 'image')
           .map((b) => (b.type === 'image' ? b.source.data : ''));
@@ -402,6 +431,9 @@ function toOllamaMessages(messages: ChatMessage[], systemPrompt: string): Ollama
       for (const block of blocks) {
         if (block.type === 'text') {
           textParts.push(block.text);
+        } else if (block.type === 'tool_use' && textTools) {
+          toolNameById.set(block.id, block.name);
+          textParts.push(renderTextToolCall(block.name, block.input));
         } else if (block.type === 'tool_use') {
           toolCalls.push({
             function: {
@@ -495,7 +527,23 @@ export class OllamaBackend implements ApiBackend {
       promptPruningEnabled,
       promptPruningMaxToolResultTokens,
       maxOutputTokens = AGENT_MAX_OUTPUT_TOKENS,
+      ollamaTextToolFallback,
     } = getConfig();
+    // #250: with the fallback on, learn the model's capability before choosing
+    // the request's shape. Before the numCtx probe, which this one fills too. A
+    // failed probe caches nothing, so the capability stays unknown and the
+    // request stays native.
+    if (ollamaTextToolFallback && tools && tools.length > 0 && !toolCapabilityCache.has(model)) {
+      await probeModelToolSupport(this.baseUrl, model);
+    }
+    // The core tools this turn offers as text; empty means the native path.
+    const textTools = usesTextToolFallback(model, ollamaTextToolFallback) ? textFallbackTools(tools ?? []) : [];
+    const textMode = textTools.length > 0;
+    const textToolNames = textTools.map((t) => t.name);
+    // Appended last, so the base prompt's prefix stays what every other model sees.
+    const requestPrompt = textMode ? `${systemPrompt}\n\n${buildTextToolPrompt(textTools)}` : systemPrompt;
+    const stopEvent = (stopReason: string): StreamEvent =>
+      textMode ? { type: 'stop', stopReason, textTools: textToolNames } : { type: 'stop', stopReason };
     const numCtx = await this.resolveNumCtx(model, ollamaNumCtx);
     // Neutralize presence/frequency penalties. Some models ship aggressive
     // penalty defaults in their Ollama Modelfile (e.g. qwen3.5's `presence_penalty
@@ -517,7 +565,7 @@ export class OllamaBackend implements ApiBackend {
     const numPredict =
       envPredict !== undefined && envPredict !== '' && Number.isFinite(Number(envPredict)) && Number(envPredict) > 0
         ? Number(envPredict)
-        : fitOutputBudget(maxOutputTokens, numCtx, estimateRequestTokens(systemPrompt, messages, 0));
+        : fitOutputBudget(maxOutputTokens, numCtx, estimateRequestTokens(requestPrompt, messages, 0));
     const options: Record<string, unknown> = {
       temperature: agentTemperature,
       num_ctx: numCtx,
@@ -547,7 +595,7 @@ export class OllamaBackend implements ApiBackend {
     const dedupExemptTools = tools
       ? new Set(tools.filter((t) => t.nondeterministicOutput).map((t) => t.name))
       : undefined;
-    const pruned = prunePrompt(systemPrompt, messages, {
+    const pruned = prunePrompt(requestPrompt, messages, {
       enabled: promptPruningEnabled,
       maxToolResultTokens: promptPruningMaxToolResultTokens,
       dedupExemptTools,
@@ -556,7 +604,7 @@ export class OllamaBackend implements ApiBackend {
     if (pruneLog) logger.info(`[SideCar] ${pruneLog}`);
     const body: Record<string, unknown> = {
       model,
-      messages: toOllamaMessages(pruned.messages, pruned.systemPrompt),
+      messages: toOllamaMessages(pruned.messages, pruned.systemPrompt, textMode),
       stream: true,
       options,
       // Keep the model warm between requests — every request refreshes the
@@ -570,7 +618,16 @@ export class OllamaBackend implements ApiBackend {
     };
 
     if (tools && tools.length > 0) {
-      if (supportsTools(model)) {
+      if (textMode) {
+        // No `tools` field: the model was told about them in the prompt.
+        if (!textFallbackAnnounced.has(model)) {
+          textFallbackAnnounced.add(model);
+          yield {
+            type: 'warning',
+            message: `Model "${model}" has no native tool calling, so it calls tools as text (sidecar.ollama.textToolFallback): ${textToolNames.join(', ')}.`,
+          };
+        }
+      } else if (supportsTools(model)) {
         body.tools = toFunctionTools(tools);
       } else {
         yield {
@@ -671,7 +728,13 @@ export class OllamaBackend implements ApiBackend {
           let emittedToolCallThisChunk = false;
           if (chunk.message?.content) {
             for (const ev of parseThinkTags(chunk.message.content, thinkState)) {
-              if (ev.type === 'text') {
+              if (ev.type === 'text' && textMode) {
+                // #250: a text-format model's calls are read from the whole
+                // reply by the loop, which can tell a call from one quoted in
+                // prose or a code example; mid-stream, the rest of the line and
+                // whether a fence closes are not known yet.
+                yield ev;
+              } else if (ev.type === 'text') {
                 for (const sub of parseTextToolCallsStream(ev.text, textToolState)) {
                   if (sub.type === 'tool_use') {
                     sawToolCall = true;
@@ -720,10 +783,7 @@ export class OllamaBackend implements ApiBackend {
                 },
               };
             }
-            yield {
-              type: 'stop',
-              stopReason: ollamaStopReason(chunk.done_reason, sawToolCall || emittedToolCallThisChunk),
-            };
+            yield stopEvent(ollamaStopReason(chunk.done_reason, sawToolCall || emittedToolCallThisChunk));
           }
         }
       }
@@ -757,7 +817,7 @@ export class OllamaBackend implements ApiBackend {
                 },
               };
             }
-            yield { type: 'stop', stopReason: ollamaStopReason(chunk.done_reason, sawToolCall) };
+            yield stopEvent(ollamaStopReason(chunk.done_reason, sawToolCall));
           }
         } catch {
           logger.warn('[SideCar] Ollama: stream ended with unparsed trailing data:', trailing.slice(0, 200));
@@ -773,7 +833,7 @@ export class OllamaBackend implements ApiBackend {
           type: 'warning',
           message: 'Ollama stream closed without a completion signal — the response may be truncated.',
         };
-        yield { type: 'stop', stopReason: 'error' };
+        yield stopEvent('error');
       }
 
       // Drain any text still buffered by the streaming tool-call parser
@@ -850,7 +910,13 @@ export class OllamaBackend implements ApiBackend {
     });
     const body: Record<string, unknown> = {
       model,
-      messages: toOllamaMessages(prunedComplete.messages, prunedComplete.systemPrompt),
+      // A side call (summarizer, repair) on a text-format model's history sends
+      // the same text rendering its turns use (#250).
+      messages: toOllamaMessages(
+        prunedComplete.messages,
+        prunedComplete.systemPrompt,
+        usesTextToolFallback(model, completeCfg.ollamaTextToolFallback),
+      ),
       stream: false,
     };
     // Known from the chat that ran first (the usual case for a summarizer or

@@ -76,6 +76,12 @@ export interface TurnResult {
   fenceWrite?: { path: string; content: string };
   /** The code a text-only turn printed for its one target file (textParsing printedCodeTarget), for the same check. */
   printedCode?: { path: string; code: string };
+  /**
+   * The tools a text-format turn offered in its prompt (#250), from the
+   * backend's stop event. Unset on a native turn. Text-form calls are then read
+   * against these names only, and a call quoted in prose or code is skipped.
+   */
+  textTools?: string[];
 }
 
 /**
@@ -186,6 +192,7 @@ export async function streamOneTurn(
   const fullThinkingParts: string[] = [];
   const pendingToolUses: ToolUseContentBlock[] = [];
   let stopReason = 'end_turn';
+  let textTools: string[] | undefined;
   let terminated: TurnTermination = 'none';
 
   // In plan mode the model writes a plan rather than executing code.
@@ -308,6 +315,7 @@ export async function streamOneTurn(
           break;
         case 'stop':
           stopReason = event.stopReason;
+          if (event.textTools) textTools = event.textTools;
           break;
         case 'usage':
           // Store actual token counts for the next compression check.
@@ -395,6 +403,7 @@ export async function streamOneTurn(
     pendingToolUses,
     stopReason,
     terminated,
+    ...(textTools ? { textTools } : {}),
   };
 }
 
@@ -437,10 +446,16 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     // Validate text-form calls against THIS iteration's catalog, not the full
     // set — otherwise a text-form call to a tool that plan mode has removed is
     // still parsed and recorded as a call. See resolveIterationTools.
-    const iterationTools = resolveIterationTools(state);
+    // A text-format turn (#250) offered only its core tools, so only those are
+    // read back: the same one-catalog rule, narrowed to what the prompt listed.
+    const offeredAsText = turn.textTools ? new Set(turn.textTools) : null;
+    const iterationTools = offeredAsText
+      ? resolveIterationTools(state).filter((t) => offeredAsText.has(t.name))
+      : resolveIterationTools(state);
     const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(rawText, iterationTools, {
       callExpressions: state.config.codeAsTextRecoveryEnabled === true,
       echoSource: toolOutputText(state.messages),
+      ...(offeredAsText ? { textToolFallback: true } : {}),
     });
     for (const tu of parsed) {
       pendingToolUses.push(tu);

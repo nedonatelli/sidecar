@@ -284,6 +284,79 @@ export interface TextParseOpts {
    * could otherwise script the agent by containing the call.
    */
   echoSource?: string;
+  /**
+   * The model is on text-format tool calls (#250): it was shown the
+   * `<tool_call>` format in its prompt, so it also writes the tag when quoting
+   * a call. A tag inside a code block or inline code, quoted in prose
+   * (isQuotedCall), or repeated from tool output is not run, and no other
+   * pattern re-reads its JSON. An object that never closes is not run either:
+   * repair would close it and run the cut-off prefix (#164 ML-15, ML-58).
+   */
+  textToolFallback?: boolean;
+}
+
+/** [start, end) of each fenced code block (an unclosed one runs to the end) and inline code span. */
+function codeSpans(text: string): Array<[number, number]> {
+  const fences: Array<[number, number]> = [];
+  const fenceLine = /^[ \t]*(?:```|~~~)/gm;
+  let open = -1;
+  let m;
+  while ((m = fenceLine.exec(text)) !== null) {
+    if (open === -1) {
+      open = m.index;
+    } else {
+      const nl = text.indexOf('\n', m.index);
+      fences.push([open, nl === -1 ? text.length : nl]);
+      open = -1;
+    }
+  }
+  if (open !== -1) fences.push([open, text.length]);
+  const spans = [...fences];
+  const inline = /`[^`\n]+`/g;
+  while ((m = inline.exec(text)) !== null) {
+    const at = m.index;
+    if (!fences.some(([s, e]) => at >= s && at < e)) spans.push([at, at + m[0].length]);
+  }
+  return spans;
+}
+
+/** Where a tag call starting at `start` ends: its object and close tag, its close tag, or the end of the text. */
+function tagCallEnd(text: string, start: number, marker: string): number {
+  if (marker === '<tool_call>') {
+    let j = start + marker.length;
+    while (j < text.length && /\s/.test(text[j])) j++;
+    if (text[j] === '{') {
+      const objEnd = findBalancedEnd(text, j, { dialect: 'json' });
+      if (objEnd !== -1) {
+        const close = /^\s*<\/tool_call>/.exec(text.slice(objEnd + 1));
+        return objEnd + 1 + (close ? close[0].length : 0);
+      }
+    }
+    const close = text.indexOf('</tool_call>', start);
+    return close === -1 ? text.length : close + '</tool_call>'.length;
+  }
+  const close = text.indexOf('</function>', start);
+  return close === -1 ? text.length : close + '</function>'.length;
+}
+
+/** Spans of tag calls that are quoted rather than made (see TextParseOpts.textToolFallback). */
+function quotedTagSpans(text: string, opts: TextParseOpts): Array<[number, number]> {
+  const code = codeSpans(text);
+  const quoted: Array<[number, number]> = [];
+  const marker = /<tool_call>|<function=\w+>/g;
+  let m;
+  while ((m = marker.exec(text)) !== null) {
+    const start = m.index;
+    const end = tagCallEnd(text, start, m[0]);
+    if (
+      code.some(([s, e]) => start >= s && start < e) ||
+      isQuotedCall(text, start, end) ||
+      isEchoed(text.slice(start, end), opts)
+    ) {
+      quoted.push([start, end]);
+    }
+  }
+  return quoted;
 }
 
 /** Whitespace-insensitive, for comparing a parsed call with tool output. */
@@ -358,8 +431,11 @@ function parseTextToolCallsInternal(
   // drop every real <tool_call> after it.
   let firstType: 'fn' | 'tc' | 'json' | 'bare' | null = null;
   let match;
+  const quoted = opts?.textToolFallback ? quotedTagSpans(text, opts) : [];
+  const isQuotedAt = (i: number): boolean => quoted.some(([s, e]) => i >= s && i < e);
 
   while ((match = combined.exec(text)) !== null) {
+    if (isQuotedAt(match.index)) continue;
     // Pattern 1: <function=name><parameter=key>value</parameter></function>
     if (match[1] !== undefined) {
       if (firstType !== null && firstType !== 'fn') continue;
@@ -447,6 +523,14 @@ function parseTextToolCallsInternal(
           spans?.push([match.index, end]);
         }
       } catch {
+        // #250: on text-format calls, mirror the streaming parser (ML-58): only
+        // a body whose object closes at its end goes on to repair.
+        if (
+          opts?.textToolFallback &&
+          (!body.startsWith('{') || findBalancedEnd(body, 0, { dialect: 'json' }) !== body.length - 1)
+        ) {
+          continue;
+        }
         // Malformed JSON: don't silently drop — emit a marker so the
         // constrained-repair layer can recover it (A5).
         const name = salvageToolName(body, toolNames);
@@ -538,13 +622,15 @@ function parseTextToolCallsInternal(
     let consumedUntil = -1;
     while (starts.length > 0) {
       const start = starts.shift()!;
-      if (seen.has(start) || start < consumedUntil) continue;
+      if (seen.has(start) || start < consumedUntil || isQuotedAt(start)) continue;
       seen.add(start);
       // Shared string-aware scanner (agent/delimiters.ts): a naive depth count
       // ran off on braces inside argument VALUES — the commonest call there is,
       // a code edit — discarding the arguments and dispatching edit_file({}).
       const end = findBalancedEnd(text, start, { dialect: 'json' });
       if (end === -1) {
+        // #250: a text-format call that never closes is cut off; it does not run.
+        if (opts?.textToolFallback) continue;
         // Truncated emission — the object never closes (observed live:
         // llama3.2 emitted an OpenAI-function-shaped call missing its final
         // brace). Don't silently drop it: salvage the tool name and emit the
@@ -619,6 +705,7 @@ function parseTextToolCallsInternal(
   // otherwise text-only turn, same family as paramRemap / toolNameAlias.
   if (firstType === null && results.length === 0 && opts?.callExpressions) {
     for (const call of parseCallExpressions(text, toolNames)) {
+      if (isQuotedAt(call.span[0])) continue;
       if (isEchoed(text.slice(call.span[0], call.span[1]).replace(/^`|`$/g, ''), opts)) continue;
       spans?.push(call.span);
       results.push({ type: 'tool_use', id: `text_tc_${idCounter++}`, name: call.name, input: call.input });

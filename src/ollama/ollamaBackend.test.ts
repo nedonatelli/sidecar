@@ -1157,3 +1157,149 @@ describe('ollamaStopReason (#164 ML-15)', () => {
     expect(ollamaStopReason(undefined, false)).toBe('end_turn');
   });
 });
+
+describe('text-format tool fallback (#250)', () => {
+  const tools: ToolDefinition[] = ['read_file', 'list_directory', 'run_command'].map((name) => ({
+    name,
+    description: `${name} tool`,
+    input_schema: { type: 'object', properties: { path: { type: 'string' } } },
+  }));
+  const history = [
+    { role: 'user', content: 'read a.ts' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Reading it.' },
+        { type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'a.ts', start_line: 3 } },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 't1',
+          content: '<tool_output tool="read_file">\nconst a = 1;\n</tool_output>',
+        },
+      ],
+    },
+  ] as ChatMessage[];
+  const call = '<tool_call>{"name": "read_file", "arguments": {"path": "b.ts"}}</tool_call>';
+
+  let configSpy: { mockRestore: () => void } | undefined;
+  beforeEach(() => mockFetch.mockReset());
+  afterEach(() => configSpy?.mockRestore());
+
+  /** Queue an /api/show answer: a capability list, or a failure. */
+  function probeAnswers(answer: string[] | Error): void {
+    if (answer instanceof Error) mockFetch.mockRejectedValueOnce(answer);
+    else mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: answer }) });
+  }
+
+  /** One streamChat with the fallback setting as given; returns the request body and the events. */
+  async function chat(model: string, fallback: boolean, reply = 'ok') {
+    const settings = await import('../config/settings.js');
+    configSpy = vi.spyOn(settings, 'getConfig').mockReturnValue({
+      agentTemperature: 0,
+      agentSeed: null,
+      ollamaNumCtx: 8192,
+      ollamaDisableThinking: false,
+      ollamaTextToolFallback: fallback,
+    } as never);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: ndjsonBody([{ model, message: { role: 'assistant', content: reply }, done: true, done_reason: 'stop' }]),
+    });
+    const events: StreamEvent[] = [];
+    const b = new OllamaBackend('http://localhost:11434');
+    for await (const e of b.streamChat(model, 'BASE PROMPT', history, undefined, tools)) events.push(e);
+    const body = JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string);
+    return { body, events };
+  }
+
+  it('a model without tools gets the core tools as text, and its history as text', async () => {
+    probeAnswers(['completion']);
+    const { body, events } = await chat('no-tools-fallback-on', true, `Next file.\n${call}`);
+
+    expect(body.tools).toBeUndefined();
+    const [system, ...rest] = body.messages as Array<{ role: string; content: string; tool_calls?: unknown }>;
+    expect(system.content.startsWith('BASE PROMPT\n\n## Calling tools')).toBe(true);
+    expect(system.content).toContain('- read_file(');
+    expect(system.content).toContain('- run_command(');
+    expect(system.content).not.toContain('list_directory');
+    // No tool role and no native tool_calls: the call and its result are text.
+    expect(rest.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    expect(rest.some((m) => m.tool_calls)).toBe(false);
+    expect(rest[1].content).toBe(
+      'Reading it.\n<tool_call>{"name":"read_file","arguments":{"path":"a.ts","start_line":3}}</tool_call>',
+    );
+    expect(rest[2].content).toBe('<tool_output tool="read_file">\nconst a = 1;\n</tool_output>');
+
+    // The reply's call reaches the loop as text, with the offered tools on the stop.
+    expect(events.filter((e) => e.type === 'tool_use')).toEqual([]);
+    expect(
+      events
+        .filter((e) => e.type === 'text')
+        .map((e) => (e as { text: string }).text)
+        .join(''),
+    ).toBe(`Next file.\n${call}`);
+    expect(events.at(-1)).toEqual({ type: 'stop', stopReason: 'end_turn', textTools: ['read_file', 'run_command'] });
+    expect(events.filter((e) => e.type === 'warning')).toHaveLength(1);
+  });
+
+  it('says so once per model, not every turn', async () => {
+    probeAnswers(['completion']);
+    await chat('no-tools-announce-once', true);
+    const { events } = await chat('no-tools-announce-once', true);
+    expect(events.filter((e) => e.type === 'warning')).toEqual([]);
+  });
+
+  it('a native-tool model is unaffected: the request is byte-identical with the setting on or off', async () => {
+    probeAnswers(['completion', 'tools']);
+    const on = await chat('native-tools-model', true, call);
+    const off = await chat('native-tools-model', false, call);
+
+    expect(on.body).toEqual(off.body);
+    expect(on.body.tools.map((t: { function: { name: string } }) => t.function.name)).toEqual([
+      'read_file',
+      'list_directory',
+      'run_command',
+    ]);
+    expect(on.body.messages[0].content).toBe('BASE PROMPT');
+    expect(on.body.messages.map((m: { role: string }) => m.role)).toEqual(['system', 'user', 'assistant', 'tool']);
+    // Its text calls still go through the streaming parser, as before.
+    expect(on.events).toEqual(off.events);
+    expect(on.events.filter((e) => e.type === 'tool_use')).toHaveLength(1);
+    expect(on.events.at(-1)).toEqual({ type: 'stop', stopReason: 'tool_use' });
+  });
+
+  it("with the setting off, a model without tools keeps today's behavior: a warning and no tools", async () => {
+    probeAnswers(['completion']);
+    expect(await probeModelToolSupport('http://localhost:11434', 'no-tools-fallback-off')).toBe(false);
+    const { body, events } = await chat('no-tools-fallback-off', false);
+    expect(body.tools).toBeUndefined();
+    expect(body.messages[0].content).toBe('BASE PROMPT');
+    expect(body.messages.map((m: { role: string }) => m.role)).toContain('tool');
+    expect(events[0]).toEqual({ type: 'warning', message: expect.stringContaining('does not support tools') });
+  });
+
+  it('a probe that times out is not "no tools": the request stays native and nothing is cached', async () => {
+    probeAnswers(new Error('timeout'));
+    const { body, events } = await chat('probe-timeout-model', true);
+    expect(body.tools).toHaveLength(3);
+    expect(body.messages[0].content).toBe('BASE PROMPT');
+    expect(events.at(-1)).toEqual({ type: 'stop', stopReason: 'end_turn' });
+    expect(modelSupportsTools('probe-timeout-model')).toBe(true);
+  });
+
+  it('the runtime failure count is not "no tools" either (#314)', async () => {
+    // Unknown capability plus three tool-less turns stops tools being sent, but
+    // that inference must not switch a model onto text-format calls.
+    probeAnswers(new Error('network down'));
+    for (let i = 0; i < 3; i++) recordToolFailure('heuristic-only-model');
+    const { body, events } = await chat('heuristic-only-model', true);
+    expect(body.tools).toBeUndefined();
+    expect(body.messages[0].content).toBe('BASE PROMPT');
+    expect(events.at(-1)).toEqual({ type: 'stop', stopReason: 'end_turn' });
+  });
+});

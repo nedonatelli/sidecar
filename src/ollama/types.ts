@@ -221,6 +221,12 @@ export interface StreamThinkingEvent {
 export interface StreamStopEvent {
   type: 'stop';
   stopReason: string;
+  /**
+   * Set when the turn ran in text-format tool mode (#250): the tool names the
+   * model was offered in its prompt instead of a native catalog. The loop reads
+   * calls from the reply text against these names only.
+   */
+  textTools?: string[];
 }
 
 export interface StreamWarningEvent {
