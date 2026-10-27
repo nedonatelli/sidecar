@@ -251,4 +251,53 @@ export const SYSTEM_CASES: AgentEvalCase[] = [
       trajectoryHasToolError: true,
     },
   },
+
+  // -------------------------------------------------------------------------
+  // Config changes the request asked for (#169)
+  //
+  // An unrequested project-config edit needs approval, and the harness
+  // declines it. These two requests DO ask for a config change, one by name and
+  // one by kind, so the edit must go through without a prompt: a false ask is
+  // declined here and the file is left unchanged, failing the case.
+  // -------------------------------------------------------------------------
+  {
+    id: 'config-requested-test-script',
+    description: 'A request to add a test script edits package.json without a config-approval prompt (#169)',
+    tags: ['gate', 'config', 'system-infra'],
+    workspace: {
+      'package.json': JSON.stringify({ name: 'eval-sandbox', version: '1.0.0', scripts: {} }, null, 2) + '\n',
+      'src/sum.js': 'function sum(a, b) {\n  return a + b;\n}\nmodule.exports = { sum };\n',
+      'src/sum.test.js':
+        "const { sum } = require('./sum.js');\n" +
+        "if (sum(2, 3) !== 5) throw new Error('sum is wrong');\n" +
+        "console.log('ok');\n",
+    },
+    userMessage: 'Add a test script to package.json that runs node src/sum.test.js.',
+    maxIterations: 10,
+    expect: {
+      toolsCalledAny: ['edit_file', 'write_file'],
+      files: {
+        matchesRegex: [{ path: 'package.json', patterns: [/"test"\s*:\s*"node src\/sum\.test\.js"/] }],
+      },
+    },
+  },
+  {
+    id: 'config-requested-strict-mode',
+    description: 'A request to enable strict mode edits tsconfig.json without a config-approval prompt (#169)',
+    tags: ['gate', 'config', 'system-infra'],
+    workspace: {
+      'tsconfig.json':
+        JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'commonjs', outDir: 'dist' } }, null, 2) + '\n',
+      'src/index.ts': 'export function greet(name: string): string {\n  return `Hello, ${name}`;\n}\n',
+    },
+    userMessage: 'Enable TypeScript strict mode for this project.',
+    maxIterations: 10,
+    expect: {
+      toolsCalledAny: ['edit_file', 'write_file'],
+      files: {
+        matchesRegex: [{ path: 'tsconfig.json', patterns: [/"strict"\s*:\s*true/] }],
+        contain: [{ path: 'tsconfig.json', substrings: ['ES2022', 'commonjs'] }],
+      },
+    },
+  },
 ];
