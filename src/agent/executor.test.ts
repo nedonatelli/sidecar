@@ -234,6 +234,30 @@ describe('executeTool', () => {
     expect(fresh.content).not.toContain('consecutive');
   });
 
+  // #161 ML-72: different failures still escalate (that is what stops a stuck
+  // run), but never as "the same reason"; a self-reported repeat skips only the
+  // 2nd-call warning, never the CRITICAL stop.
+  it('escalates consecutive tool errors with an honest reason', async () => {
+    const executor = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('edit_file failed — search string not found in a.py.'))
+      .mockRejectedValueOnce(new Error('edit_file failed AGAIN — you resubmitted the EXACT SAME search'))
+      .mockRejectedValueOnce(new Error('edit_file failed AGAIN — you resubmitted the EXACT SAME search'));
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'edit_file', description: '', input_schema: { type: 'object' as const, properties: {} } },
+      executor,
+      requiresApproval: false,
+    });
+    mockConfig({ toolPermissions: { edit_file: 'allow' } });
+    const opts = { executorContext: { bounceCounts: new Map<string, number>() } as never };
+    const call = () => executeTool(makeToolUse('edit_file', { path: 'a.py' }), opts);
+
+    expect((await call()).content).not.toContain('consecutive');
+    expect((await call()).content).not.toContain('consecutive');
+    const third = (await call()).content;
+    expect(third).toContain('CRITICAL: 3 consecutive edit_file calls have failed, not all for the same reason');
+  });
+
   describe('cautious-mode edit approval must be visible and abortable', () => {
     const editTool = {
       definition: {

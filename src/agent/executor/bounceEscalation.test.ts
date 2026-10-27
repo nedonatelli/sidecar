@@ -68,37 +68,47 @@ describe('escalationSuffix', () => {
 });
 
 // #161 ML-72: tool errors shared one streak per tool name, so unrelated failures
-// were reported as "N consecutive calls rejected for the same reason".
-describe('tool-error streaks are per failure (#161 ML-72)', () => {
+// were reported as "N consecutive calls rejected for the same reason". The fix
+// keeps the streak (it is what makes a stuck run stop) and drops only the claim.
+describe('tool-error streaks: same thresholds, honest reason (#161 ML-72)', () => {
   const sig = (path: string, msg: string) => failureSignature({ path }, msg);
+  const notFound = sig('a.py', 'edit_file failed — search string not found in a.py.');
+  const noop = sig('b.py', 'edit_file failed — search and replace text are identical');
+  const multi = sig('c.py', 'edit_file failed — search string appears 3 times in c.py.');
 
-  it("the issue's case: three different failures never claim 'the same reason'", () => {
+  it("the issue's case: three different failures still escalate, without claiming 'the same reason'", () => {
     const counts = new Map<string, number>();
-    const a = recordToolErrorBounce(
-      counts,
-      'edit_file',
-      sig('a.py', 'edit_file failed — search string not found in a.py.'),
-    );
-    const b = recordToolErrorBounce(
-      counts,
-      'edit_file',
-      sig('b.py', 'edit_file failed — search and replace text are identical'),
-    );
-    const c = recordToolErrorBounce(
-      counts,
-      'edit_file',
-      sig('c.py', 'edit_file failed — search string appears 3 times in c.py.'),
-    );
-    expect([a, b, c]).toEqual([1, 1, 1]);
-    expect(escalationSuffix(c, 'edit_file')).toBe('');
+    const r = [notFound, noop, multi].map((s) => recordToolErrorBounce(counts, 'edit_file', s));
+    expect(r).toEqual([
+      { count: 1, sameReason: true },
+      { count: 2, sameReason: false },
+      { count: 3, sameReason: false },
+    ]);
+    const s = escalationSuffix(3, 'edit_file', false);
+    expect(s).toContain('CRITICAL: 3 consecutive edit_file calls have failed, not all for the same reason');
+    expect(s).toContain('Stop retrying');
+    expect(s).not.toContain('rejected for the same reason');
   });
 
-  it('three identical failures in a row still escalate', () => {
+  it('three identical failures in a row escalate with the same-reason wording', () => {
     const counts = new Map<string, number>();
-    const s = sig('a.py', 'edit_file failed — search string not found in a.py.');
-    const n = [1, 2, 3].map(() => recordToolErrorBounce(counts, 'edit_file', s));
-    expect(n).toEqual([1, 2, 3]);
-    expect(escalationSuffix(n[2], 'edit_file')).toContain('CRITICAL: 3 consecutive edit_file calls');
+    const r = [1, 2, 3].map(() => recordToolErrorBounce(counts, 'edit_file', notFound));
+    expect(r.map((x) => x.count)).toEqual([1, 2, 3]);
+    expect(r.every((x) => x.sameReason)).toBe(true);
+    expect(escalationSuffix(3, 'edit_file', true)).toContain('CRITICAL: 3 consecutive edit_file calls');
+  });
+
+  it('a run is the same reason only if every failure in it is: A, B, B is mixed', () => {
+    const counts = new Map<string, number>();
+    recordToolErrorBounce(counts, 'edit_file', notFound);
+    recordToolErrorBounce(counts, 'edit_file', noop);
+    expect(recordToolErrorBounce(counts, 'edit_file', noop)).toEqual({ count: 3, sameReason: false });
+  });
+
+  it('the 2nd-call warning for a different failure does not tell the model it resubmitted', () => {
+    const s = escalationSuffix(2, 'edit_file', false);
+    expect(s).toContain('2nd consecutive edit_file call to fail, for a different reason');
+    expect(s).not.toContain('Do not resubmit');
   });
 
   it('the same failure with different numbers or quoted text is the same reason', () => {
@@ -108,24 +118,18 @@ describe('tool-error streaks are per failure (#161 ML-72)', () => {
     expect(sig('a.py', 'not found')).not.toBe(sig('b.py', 'not found'));
   });
 
-  it('a different failure in between resets the streak (consecutive means consecutive)', () => {
-    const counts = new Map<string, number>();
-    const x = sig('a.py', 'not found'),
-      y = sig('a.py', 'identical');
-    recordToolErrorBounce(counts, 'edit_file', x);
-    recordToolErrorBounce(counts, 'edit_file', y);
-    expect(recordToolErrorBounce(counts, 'edit_file', x)).toBe(1);
-  });
-
   it('a successful call clears the streak (clearBounces), and other tools keep theirs', () => {
     const counts = new Map<string, number>();
-    const s = sig('a.py', 'not found');
-    recordToolErrorBounce(counts, 'edit_file', s);
-    recordToolErrorBounce(counts, 'edit_file', s);
-    recordToolErrorBounce(counts, 'read_file', s);
+    recordToolErrorBounce(counts, 'edit_file', notFound);
+    recordToolErrorBounce(counts, 'edit_file', noop);
+    recordToolErrorBounce(counts, 'read_file', notFound);
     clearBounces(counts, 'edit_file');
-    expect(recordToolErrorBounce(counts, 'edit_file', s)).toBe(1);
-    expect(recordToolErrorBounce(counts, 'read_file', s)).toBe(2);
+    expect(recordToolErrorBounce(counts, 'edit_file', noop)).toEqual({ count: 1, sameReason: true });
+    expect(recordToolErrorBounce(counts, 'read_file', notFound)).toEqual({ count: 2, sameReason: true });
+  });
+
+  it('is a no-op without a map', () => {
+    expect(recordToolErrorBounce(undefined, 'edit_file', notFound)).toEqual({ count: 1, sameReason: true });
   });
 
   it('reportsOwnRepeat recognises edit_file messages that already say it is a repeat', () => {

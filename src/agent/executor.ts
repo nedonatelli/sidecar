@@ -665,11 +665,17 @@ export async function executeTool(
     // messages exist to be read and acted on by a weak model.
     const raw = err instanceof Error ? err.message : String(err);
     const message = raw.replace(/^Error:\s*/i, '');
-    // The streak is per failure, not per tool (#161 ML-72), so "the same reason"
-    // in the suffix is true. A message that already reports its own repeat gets
-    // no second escalation on top.
-    const bounces = recordToolErrorBounce(bounceCounts, toolUse.name, failureSignature(toolUse.input, message));
-    const suffix = reportsOwnRepeat(message) ? '' : escalationSuffix(bounces, toolUse.name);
+    // Escalate on every consecutive failure of the tool, as before, but claim
+    // "the same reason" only when it is true (#161 ML-72). A message that
+    // already reports its own repeat says "don't resubmit" itself, so it skips
+    // the 2nd-call warning; from the 3rd on it still gets the CRITICAL stop,
+    // which it does not carry.
+    const { count, sameReason } = recordToolErrorBounce(
+      bounceCounts,
+      toolUse.name,
+      failureSignature(toolUse.input, message),
+    );
+    const suffix = reportsOwnRepeat(message) && count < 3 ? '' : escalationSuffix(count, toolUse.name, sameReason);
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
