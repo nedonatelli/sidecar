@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { logger } from '../system/logger.js';
 import { randomBytes } from 'crypto';
 import * as os from 'os';
+import { withUtf8ChildEnv } from './utf8ChildEnv.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
@@ -211,9 +212,13 @@ export class ShellSession {
     private readonly sandboxEnabled = false,
   ) {
     this.cwd = cwd;
-    this.env = { ...(process.env as Record<string, string>), ...env };
     this.maxOutputSize = maxOutputSize;
     this.isWindows = os.platform() === 'win32';
+    // Python on Windows writes cp1252 to a pipe; this session decodes UTF-8 (utf8ChildEnv.ts).
+    this.env = withUtf8ChildEnv({ ...(process.env as Record<string, string>), ...env }, this.isWindows) as Record<
+      string,
+      string
+    >;
     this.shellPath = this.isWindows ? resolveWindowsShell() : resolvePosixShell();
     // The PROTOCOL follows the shell, not the platform: on Windows running Git
     // Bash we need POSIX quoting and redirection, not cmd's.

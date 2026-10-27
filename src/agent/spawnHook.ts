@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import * as os from 'os';
 import { ManagedChildProcess, getProcessRegistry } from './processLifecycle.js';
+import { withUtf8ChildEnv } from '../terminal/utf8ChildEnv.js';
 
 /**
  * Result of running a hook via spawn.
@@ -55,7 +56,8 @@ export async function runSpawnedHook(opts: RunSpawnedHookOptions): Promise<Spawn
 
   const proc = spawn(shellCmd, [shellArg, opts.command], {
     cwd: opts.cwd,
-    env: opts.env,
+    // Python on Windows writes cp1252 to a pipe; the output is decoded as UTF-8.
+    env: withUtf8ChildEnv(opts.env ?? process.env, os.platform() === 'win32'),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
