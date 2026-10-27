@@ -22,9 +22,9 @@
  * - **PATCH** (x.y.Z) — tuning WITHIN a mechanism (a threshold, a reprompt
  *   string) that doesn't change which mechanisms run.
  *
- * Discipline: bumping the version AND appending to the changelog below is part
- * of the release checklist whenever a scaffold mechanism changes. The
- * human-facing registry is `docs/scaffold-versions.md`.
+ * Discipline: the PR that changes a scaffold mechanism bumps the version AND
+ * appends to the changelog below (what counts: AGENTS.md "Scaffold version").
+ * The human-facing registry is `docs/scaffold-versions.md`.
  *
  * ## Changelog
  * - **3.1.0** (2026-07) — adaptive scaffolding ON by default, and capability
@@ -80,6 +80,16 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.3** (2026-10) — catch-up for guard, gate, reprompt and parser fixes
+ *   merged 2026-10-22..27 without a bump: completion gate (#282 installs are
+ *   not test runs, #283 a script that runs no test earns no credit, #325 no
+ *   read/write demands for quoted or missing files); reprompts (#285, #303,
+ *   #331); loop counting (#286 shell edits count as edits, #329 only applied
+ *   edits spend edit_file's budget); edit_file (#330 CRLF no-op diagnosis,
+ *   #336 dropped-import refusal); tool-call parsing (#301, #333); grep (#322).
+ *   PATCH: each tunes a firing condition or message inside an existing
+ *   mechanism. Manifests stamped 5.1.2 from after 2026-10-21 may carry any of
+ *   these; compare those runs by commit, not by version.
  * - **5.1.2** (2026-10) — iteration ceiling by tier (#237). When neither the
  *   caller nor the user sets one, the strong tier's default ceiling is 150
  *   (`maxIterations` in ScaffoldingProfile); medium and weak keep 50, pinned
@@ -195,7 +205,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.2';
+export const SCAFFOLD_VERSION = '5.1.3';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
