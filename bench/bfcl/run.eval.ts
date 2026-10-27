@@ -9,10 +9,17 @@
 //   SIDECAR_BFCL_MODEL=ministral-3:latest npm run bench:bfcl
 //   SIDECAR_BFCL_BACKEND=anthropic SIDECAR_BFCL_MODEL=claude-haiku-4-5 npm run bench:bfcl
 //   SIDECAR_BFCL_DATA=/path/to/bfcl npm run bench:bfcl   # full upstream dataset
+//   SIDECAR_BFCL_BACKEND=openai SIDECAR_BFCL_BASE_URL=http://spark:8000/v1 \
+//     SIDECAR_BFCL_MODEL=<served model id> npm run bench:bfcl   # any OpenAI-compatible server
 //
 // Env:
 //   SIDECAR_BFCL_MODEL       model id (default: gemma4:e4b)
 //   SIDECAR_BFCL_BACKEND     ollama | anthropic | openai (default: ollama)
+//   SIDECAR_BFCL_BASE_URL    openai backend: OpenAI-compatible base URL, with or without
+//                            /chat/completions (falls back to OPENAI_BASE_URL, then
+//                            https://api.openai.com/v1)
+//   SIDECAR_BFCL_API_KEY     openai backend: bearer key (falls back to OPENAI_API_KEY;
+//                            optional for a non-OpenAI host)
 //   SIDECAR_BFCL_QUANT       quantization label for the envelope (default: unknown)
 //   SIDECAR_BFCL_DATA        dir with BFCL_v*_<category>.json + possible_answer/ (optional)
 //   SIDECAR_BFCL_OUT         where to write the markdown report (optional)
@@ -30,7 +37,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseFixtures, parseUpstream, sampleCases } from './loader.js';
 import { runBfcl } from './runner.js';
-import { ollamaBackend, anthropicBackend, openAiBackend, type BfclBackend, type BackendOptions } from './backend.js';
+import {
+  ollamaBackend,
+  anthropicBackend,
+  openAiBackend,
+  openAiBaseUrl,
+  isOpenAiHost,
+  type BfclBackend,
+  type BackendOptions,
+} from './backend.js';
 import { formatReport, type RunEnvelope } from './report.js';
 import type { BfclCase } from './types.js';
 
@@ -117,7 +132,12 @@ describe('BFCL AST subset', () => {
       const env: RunEnvelope = {
         model: CONSTRAINED ? `${MODEL} [schema-constrained]` : MODEL,
         quantization: QUANT,
-        backend: BACKEND,
+        // Name a non-OpenAI endpoint, so a run against a local server is never
+        // read as an OpenAI result. Host only: no path, no credentials.
+        backend:
+          BACKEND === 'openai' && !isOpenAiHost(openAiBaseUrl())
+            ? `openai-compatible @ ${new URL(openAiBaseUrl()).host}`
+            : BACKEND,
         contextTokens: CONTEXT_TOKENS,
         dataset,
         caseCount: cases.length,

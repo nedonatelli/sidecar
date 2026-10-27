@@ -57,6 +57,11 @@ export interface BackendOptions {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   /**
+   * OpenAI backend only: base URL of an OpenAI-compatible Chat Completions API
+   * (e.g. a DGX Spark's vLLM/NIM server). Defaults to {@link openAiBaseUrl}.
+   */
+  baseUrl?: string;
+  /**
    * Phase 1: constrain generation to a JSON schema (Ollama `format`) so a
    * malformed call is unsamplable, instead of relying on native tool-calling +
    * post-hoc repair. Ollama only. The BFCL on/off comparison of this flag is the
@@ -226,18 +231,44 @@ interface OpenAiToolCall {
   function?: { name?: string; arguments?: string };
 }
 
+const OPENAI_BASE = 'https://api.openai.com/v1';
+
+/**
+ * The Chat Completions base URL for the OpenAI backend: SIDECAR_BFCL_BASE_URL,
+ * else OPENAI_BASE_URL, else OpenAI's own. It was hard-coded to OpenAI's, so the
+ * benchmark could not target an OpenAI-compatible server such as a DGX Spark.
+ * Trailing slashes and a trailing `/chat/completions` are dropped, so either
+ * form of the URL works.
+ */
+export function openAiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = (env.SIDECAR_BFCL_BASE_URL || env.OPENAI_BASE_URL || OPENAI_BASE).trim();
+  return raw.replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
+}
+
+/** True for OpenAI's own API, the one endpoint where a key is always required. */
+export function isOpenAiHost(baseUrl: string): boolean {
+  try {
+    return /(^|\.)openai\.com$/i.test(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function openAiBackend(opts: BackendOptions): BfclBackend {
   const doFetch = opts.fetchImpl ?? fetch;
+  const base = opts.baseUrl ?? openAiBaseUrl();
+  // A local OpenAI-compatible server often needs no key; OpenAI always does.
+  const apiKey = () => process.env.SIDECAR_BFCL_API_KEY || process.env.OPENAI_API_KEY;
   return {
     name: 'openai',
     model: opts.model,
-    available: () => Boolean(process.env.OPENAI_API_KEY),
+    available: () => Boolean(apiKey()) || !isOpenAiHost(base),
     callModel: async (question, functions) => {
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) throw new Error('OPENAI_API_KEY not set');
-      const res = await doFetch('https://api.openai.com/v1/chat/completions', {
+      const key = apiKey();
+      if (!key && isOpenAiHost(base)) throw new Error('OPENAI_API_KEY not set');
+      const res = await doFetch(`${base}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
         signal: withTimeout(opts.timeoutMs ?? 120_000),
         body: JSON.stringify({
           model: opts.model,
@@ -249,11 +280,20 @@ export function openAiBackend(opts: BackendOptions): BfclBackend {
           ],
         }),
       });
-      if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
+      if (!res.ok) {
+        const where = isOpenAiHost(base) ? 'OpenAI' : `OpenAI-compatible ${new URL(base).host}`;
+        throw new Error(`${where} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`);
+      }
       const data = (await res.json()) as {
-        choices?: Array<{ message?: { tool_calls?: OpenAiToolCall[] } }>;
+        choices?: Array<{ message?: { tool_calls?: OpenAiToolCall[]; content?: string | null } }>;
       };
-      return normalizeOpenAiStyle(data.choices?.[0]?.message?.tool_calls ?? []);
+      const message = data.choices?.[0]?.message;
+      const native = normalizeOpenAiStyle(message?.tool_calls ?? []);
+      // Same product lens as the Ollama backend: a local model behind an
+      // OpenAI-compatible server may write its call as text, which SideCar's
+      // parser recovers. `rawParsing` measures native tool_calls only.
+      if (native.length > 0 || opts.rawParsing) return native;
+      return parseTextCalls(message?.content ?? '', functions);
     },
   };
 }
