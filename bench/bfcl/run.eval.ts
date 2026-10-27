@@ -138,7 +138,8 @@ describe('BFCL AST subset', () => {
           BACKEND === 'openai' && !isOpenAiHost(openAiBaseUrl())
             ? `openai-compatible @ ${new URL(openAiBaseUrl()).host}`
             : BACKEND,
-        contextTokens: CONTEXT_TOKENS,
+        // Only Ollama's native API takes num_ctx; elsewhere the server decides.
+        contextTokens: BACKEND === 'openai' || BACKEND === 'anthropic' ? undefined : CONTEXT_TOKENS,
         dataset,
         caseCount: cases.length,
         temperature: TEMPERATURE,
