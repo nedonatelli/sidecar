@@ -113,6 +113,31 @@ python -m swebench.harness.run_evaluation \
 # (three-arm: also preds.scaffold-on-noratchet.jsonl → run_id sidecar-noratchet)
 ```
 
+> **Preflight the scorer first, and score from Linux or WSL.** A score only
+> means something on an instance whose image can score a patch at all.
+> `scorer_preflight.py run` checks each instance and caches the result per image ID:
+>
+> - the environment activates;
+> - the project imports;
+> - the gold test patch applies;
+> - unpatched code fails at least one F2P test;
+> - gold resolves.
+>
+> `gate` then refuses a predictions file containing any instance that failed.
+> `local/score_local.sh` and `cloud/run_campaign.sh` run both for you;
+> `SWE_PREFLIGHT=warn` scores anyway, and `SWE_PREFLIGHT=off` skips the check.
+>
+> ```bash
+> python bench/swe/scorer_preflight.py run --reuse --instances ids.txt
+> python bench/swe/scorer_preflight.py gate --predictions out/preds.scaffold-on.jsonl
+> ```
+>
+> The script refuses Windows-native Python. There, the harness writes `eval.sh`
+> with CRLF, so every instance's setup fails inside the container, and the
+> failures read as "unresolved" (#338). Labels that are only partly right appear
+> as warnings rather than failures: F2P tests that already pass unpatched, and
+> P2P tests that fail unpatched (a mislabel, or a flaky test).
+
 > **Dataset namespace matters.** `swebench` 5.x requires `image`, `eval_script`,
 > `log_parser` and `eval_type` on each instance. The classic
 > `princeton-nlp/*` mirrors carry none of them and fail with a bare
