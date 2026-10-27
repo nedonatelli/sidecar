@@ -32,11 +32,39 @@ iff both match.**
 | **MINOR** `x.Y.0` | A new mechanism ships behind a flag (default OFF), or a default arm composition changes                                                   | Comparable when the active-mechanism snapshots match |
 | **PATCH** `x.y.Z` | Tuning _within_ a mechanism (a threshold, a reprompt string) — no change to which mechanisms run                                          | Comparable; note the patch when reporting            |
 
-**Discipline:** whenever a scaffold mechanism changes, bump `SCAFFOLD_VERSION`,
-append a row here and to the changelog in `scaffoldVersion.ts`, and (for a
-release) note it in `CHANGELOG.md`. This is part of the release checklist.
+**Discipline:** the PR that changes a scaffold mechanism bumps `SCAFFOLD_VERSION`
+and adds a section here and to the changelog in `scaffoldVersion.ts`; a release
+notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
+5.1.2 cover a week of changes (see 5.1.3). What counts is listed in
+[AGENTS.md](https://github.com/nedonatelli/sidecar/blob/main/AGENTS.md#scaffold-version).
 
 ## Registry
+
+### 5.1.3 — catch-up for fixes merged without a bump (2026-10)
+
+PATCH: each change tunes a firing condition or a message inside an existing
+mechanism; none adds, removes or re-defaults one. These merged between
+2026-10-22 and 2026-10-28 while the version stayed at 5.1.2, so **a manifest
+stamped 5.1.2 from after 2026-10-21 may include any of them — compare those
+runs by commit, not by version.**
+
+- **Completion gate:** package installs are not test or checker runs (#282);
+  a test script that runs no test earns no test credit (#283); no read/write
+  demands for files the request only quotes, or that don't exist (#325).
+- **Reprompts:** no "no tool calls detected" to a model that finished (#285);
+  check a reprinted "already done" when nothing changed (#303); a question or
+  a "do not change" request is not a change request (#331).
+- **Loop counting:** a shell command that edits a tracked file counts as an
+  edit (#286); only applied edits count against edit_file's budget (#329).
+- **edit_file:** a search == replace no-op is diagnosed correctly on CRLF
+  files (#330); an edit that removes an import the file still uses is refused
+  (#336); the dropped-definition refusal fires only where the edit would
+  write, so a non-matching edit gets "search string not found" (#343).
+- **Tool-call parsing:** every call in a multi-object fence is dispatched and
+  calls quoted in prose are skipped (#301); a `<tool_call>` body's end is found
+  with a string-aware scan (#333).
+- **grep:** the pattern goes on stdin so quotes work on Windows, and an invalid
+  regex is searched literally (#322).
 
 ### 5.1.2 — iteration ceiling by tier (2026-10)
 

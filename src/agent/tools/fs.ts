@@ -20,6 +20,7 @@ import { computeLineDiff } from './diffUtils.js';
 import { DIFF_STREAM_PREFIX } from './diffStream.js';
 import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
 import { findSkippedLinesMatch, skippedLinesError } from './skippedLines.js';
+import { droppedUsedImports, droppedImportError } from './droppedImports.js';
 import {
   findEditMatch,
   findEditMatches,
@@ -1053,6 +1054,9 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // working against the buffered state; user reviews later and either
   // flushes (applies every buffered change atomically) or rejects.
   if (isAuditModeActive(context)) {
+    const buffered = getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath));
+    const auditDropped = buffered !== undefined ? droppedUsedImports(filePath, buffered, content) : [];
+    if (auditDropped.length > 0) throw new Error(droppedImportError(filePath, auditDropped, { tool: 'write_file' }));
     recordWrite();
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
@@ -1116,6 +1120,16 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
       `\n[note: your content contained literal \\n escape sequences where line breaks belong. They were ` +
       `decoded to real newlines and the decoded file parses cleanly. Send content with real line breaks, ` +
       `not \\n escapes.]`;
+  }
+
+  // The same dropped-import check edit_file runs (#334). A whole-file rewrite is
+  // the way around a refused edit: in the #336 canary, django-11583 resubmitted
+  // a refused edit 8 times, then rewrote autoreload.py with write_file and broke
+  // 50 tests instead of 24.
+  if (original !== undefined) {
+    const droppedByWrite = droppedUsedImports(filePath, original, content);
+    if (droppedByWrite.length > 0)
+      throw new Error(droppedImportError(filePath, droppedByWrite, { tool: 'write_file' }));
   }
 
   recordWrite();
@@ -1447,6 +1461,11 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       context,
     });
     if (resolvedAudit.newText === null) return resolvedAudit.message;
+    const auditDropped = droppedUsedImports(filePath, currentText, resolvedAudit.newText);
+    if (auditDropped.length > 0) {
+      const repeat = recordEditFailure(context, filePath, search ?? '', replace ?? '');
+      throw new Error(droppedImportError(filePath, auditDropped, { repeat }));
+    }
     const auditPatch = computeLineDiff(currentText, resolvedAudit.newText, filePath);
     await buf.write(filePath, resolvedAudit.newText, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
@@ -1555,6 +1574,15 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     return resolved.message;
   }
   const newText = resolved.newText;
+
+  // An import the edit removed while the file still uses its name breaks the
+  // module at import time (#334).
+  const dropped = droppedUsedImports(filePath, text, newText);
+  if (dropped.length > 0) {
+    reportOutcome(false, 'unchecked');
+    const repeat = recordEditFailure(context, filePath, search ?? '', replace ?? '');
+    throw new Error(droppedImportError(filePath, dropped, { repeat }));
+  }
 
   const badChars = unencodableChars(newText, encoding);
   if (badChars.length > 0) {
@@ -1799,21 +1827,27 @@ export async function resolveEditedText(params: {
   // below still runs against real file bytes — and they run BEFORE the
   // intent-based fuzzy recovery, which guesses at the region from word overlap
   // and is far less certain than "the same text with different line endings".
-  // A `replace` that drops a definition its `search` carried deletes it. Runs
-  // BEFORE matching so the refusal is about the two fields, not about where
-  // they landed, and so no tolerance tier can turn it into a silent write.
+  // A `replace` that drops a definition its `search` carried deletes it.
+  // Computed here, refused only where the edit would WRITE (#162 ML-21): a real
+  // match below, or an inferred edit. It used to be refused before matching,
+  // so edits that could not apply were told their replace "drops a definition"
+  // -- 89 of 241 verified refusals over 4,784 recorded runs, 20 of the
+  // no-match ones already applied. The model spent a call following that
+  // advice, then got not-found; for an applied edit, the not-found path would
+  // have said "No change needed". No tolerance tier writes without passing
+  // the check: every write below goes through refuseDropped().
   const dropped = droppedDefinition(search, replace);
-  if (dropped) {
+  const refuseDropped = (): never => {
     recordEditFailure(context, filePath, search, replace);
     throw new Error(
       `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — your 'replace' drops the line ` +
-        `\`${dropped.trim()}\`, which your 'search' contained. The file was NOT modified. ` +
+        `\`${(dropped ?? '').trim()}\`, which your 'search' contained. The file was NOT modified. ` +
         `edit_file substitutes: everything in 'search' and missing from 'replace' is DELETED, and deleting a ` +
         `definition leaves its body attached to whatever precedes it — which still parses, so nothing downstream ` +
         `would catch it. Either repeat that line inside 'replace' alongside your change, or shorten 'search' to ` +
         `just the line you are changing and pass the enclosing definition in 'within' to disambiguate.`,
     );
-  }
+  };
 
   // `within` carries the "where" so `search` can carry only the "what". Both
   // roles in one field is what makes a model grow `search` for uniqueness and
@@ -1994,6 +2028,7 @@ export async function resolveEditedText(params: {
       const at = text.indexOf(applyTarget);
       const inferredText =
         text.slice(0, at) + applyEol(replace, detectEol(text).eol) + text.slice(at + applyTarget.length);
+      if (dropped) refuseDropped(); // an inferred edit writes too
       const inferSyntax = await editWouldBreakSyntax(filePath, text, inferredText);
       if (!inferSyntax.refuse) {
         return {
@@ -2068,6 +2103,8 @@ export async function resolveEditedText(params: {
       `${stalePrefix}${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
     );
   }
+  // The search matched: this edit would write, so a dropped definition is real.
+  if (dropped) refuseDropped();
   if (match.count > 1) {
     // replace_all: the caller wants EVERY occurrence changed. Each occurrence
     // is spliced at its own span with its own adapted replacement (a tolerance
