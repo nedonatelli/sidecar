@@ -67,6 +67,18 @@ SIDECAR_SWE_DATA="$SLICE" SIDECAR_SWE_N="$N" SIDECAR_SWE_MODEL="$MODEL" \
   npm run bench:swe:predict 2>&1 | tee "$WORK/predict.log"
 
 echo "== [4/6] official swebench scoring (Docker) — per arm =="
+# Prove each instance can score a patch at all before trusting any score (#338);
+# see bench/swe/scorer_preflight.py. SWE_PREFLIGHT=warn scores anyway; =off skips.
+if [ "${SWE_PREFLIGHT:-gate}" != off ]; then
+  python -c 'import json, sys; print("\n".join(sorted({json.loads(l)["instance_id"] for p in sys.argv[1:] for l in open(p) if l.strip()})))' \
+    "$PRED"/preds.*.jsonl > "$WORK/preflight-ids.txt"
+  python bench/swe/scorer_preflight.py --dataset "SWE-bench/$DATASET" run --reuse \
+    --instances "$WORK/preflight-ids.txt" 2>&1 | tee "$WORK/preflight.log" || true
+  for arm in ${ARMS//,/ }; do
+    python bench/swe/scorer_preflight.py --dataset "SWE-bench/$DATASET" gate --predictions "$PRED/preds.$arm.jsonl" \
+      || [ "${SWE_PREFLIGHT:-gate}" = warn ] || { echo "!! preflight gate failed for $arm (SWE_PREFLIGHT=warn to score anyway)"; exit 1; }
+  done
+fi
 # Needs a Docker host. There is no serverless option any more: swebench's Modal
 # evaluator calls Modal's retired legacy Sandbox filesystem API, so every
 # instance errors at sandbox creation (observed 2026-10-20). On a host without

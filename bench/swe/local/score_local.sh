@@ -47,6 +47,25 @@ PY
     || echo "!! pull failed: $img"
 done
 
+# Prove each instance can score a patch at all before trusting any score (#338):
+# the environment activates, the project imports, the gold test patch applies,
+# unpatched code fails and gold resolves. Cached per image ID, so only new or
+# changed images cost a run. SWE_PREFLIGHT=warn scores anyway; =off skips it.
+if [ "${SWE_PREFLIGHT:-gate}" != off ]; then
+  python3 -c '
+import json, sys
+print("\n".join(sorted({json.loads(l)["instance_id"] for p in sys.argv[1:] for l in open(p) if l.strip()})))
+' "${PREDS[@]}" > "$WORK/preflight-ids.txt"
+  "$VENV/bin/python" bench/swe/scorer_preflight.py run --reuse --instances "$WORK/preflight-ids.txt" \
+    > "$WORK/preflight.log" 2>&1 || true
+  for preds in "${PREDS[@]}"; do
+    if ! "$VENV/bin/python" bench/swe/scorer_preflight.py gate --predictions "$preds"; then
+      [ "${SWE_PREFLIGHT:-gate}" = warn ] || { echo "!! preflight gate failed for $preds — see $WORK/preflight.log (SWE_PREFLIGHT=warn to score anyway)"; exit 1; }
+      echo "!! SWE_PREFLIGHT=warn: scoring $preds although the gate failed"
+    fi
+  done
+fi
+
 cd "$WORK"
 for preds in "${PREDS[@]}"; do
   label=$(basename "$preds" .jsonl)
