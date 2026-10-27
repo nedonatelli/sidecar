@@ -38,3 +38,23 @@ shape or it breaks the build:
 
 There is no `CONTEXT.md` domain glossary; the ADRs and CONTRIBUTING.md are the
 written record.
+
+## Scaffold version
+
+Any change to how the agent behaves in a run bumps `SCAFFOLD_VERSION` in
+[`src/agent/scaffoldVersion.ts`](src/agent/scaffoldVersion.ts) **in the same
+PR**, with an entry in that file's changelog and a section in
+[`docs/scaffold-versions.md`](docs/scaffold-versions.md). Benchmark manifests
+are stamped with it, and runs are compared by it.
+
+- **Counts:** the completion gate and other gates, reprompts, guards and
+  refusals in tools (edit_file, write_file, run_command, grep…), the text of
+  tool results and escalations the model reads, budgets and cycle detection,
+  tool-call parsing and repair, the system prompt and tool descriptions.
+- **Doesn't count:** backends and transports, UI, the bench harness and
+  scorer, docs, tests.
+- **Level:** the semver table in `docs/scaffold-versions.md`. Tuning inside
+  an existing mechanism is PATCH, which is most fixes.
+- **An eval-pending PR** adds the bump as its last commit once the results
+  are posted, so the evaluated commit and the merged behavior are the same.
+  If another bump merges first, take the next number.
