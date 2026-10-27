@@ -14,6 +14,16 @@ export const TEST_FILE_RE =
   /\.(test|spec)\.[tj]sx?$|(^|\/)tests?\/|(^|\/)test_[^/]+\.py$|_test\.py$|(^|\/)conftest\.py$/;
 
 /**
+ * A shell command that runs a test runner; group 1 is the runner, group 2 its
+ * arguments. The completion gate's verification predicate, shared so the tool
+ * budget's repeat refusal (#268) sends the same commands to run_tests.
+ * Anchored on start-of-token rather than `\b`: `\b` never matches before the
+ * `-` of `-m unittest`, and `./tests/runtests.py` is preceded by `/`.
+ */
+export const TEST_RUNNER_RE =
+  /(?:^|[\s;&|/])(vitest|jest|pytest|py\.test|mocha|go\s+test|tox|nose2?|runtests\.py|manage\.py\s+test|-m\s+unittest)\b([^|;&]*)/;
+
+/**
  * Normalize a file path to workspace-relative forward-slashed form.
  * Returns null if the path is outside the workspace or can't be resolved.
  */

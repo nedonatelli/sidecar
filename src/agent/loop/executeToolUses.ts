@@ -186,10 +186,21 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     return { type: 'tool_result', tool_use_id: toolUse.id, content: toolUse._withheldReason, is_error: true };
   }
 
+  // The per-iteration catalog -- the same list streamTurn sends. Read by the
+  // budget check (a repeat refusal names only offered tools, #268) and by the
+  // catalog gate below.
+  const offered = resolveIterationTools(state);
+  const isOffered = (n: string): boolean =>
+    offered.some((t) => t.name === n) || (options.extraTools?.some((t) => t.definition.name === n) ?? false);
+
   // Per-tool rate limiting: check budget before executing (a refusal is
   // recorded as a tool_budget decision there). ask_user is only suggested when
   // a clarification UI can answer it.
-  const budgetError = checkToolBudget(state, toolUse.name, { canAskUser: options.clarifyFn !== undefined });
+  const budgetError = checkToolBudget(state, toolUse.name, {
+    canAskUser: options.clarifyFn !== undefined,
+    isOffered,
+    input: toolUse.input,
+  });
   if (budgetError) {
     callbacks.onToolResult(toolUse.name, budgetError, true, toolUse.id);
     return {
@@ -234,11 +245,8 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
   // `bash`, `cat`) by the tool the executor maps it to — rejecting the alias
   // here meant that mapping never ran. Either way the TARGET must be offered,
   // so neither route reaches a hidden tool.
-  const offered = resolveIterationTools(state);
   const salvagedName = parseMangledToolName(toolUse.name)?.name;
   const aliasTarget = resolveToolNameAlias(toolUse.name);
-  const isOffered = (n: string): boolean =>
-    offered.some((t) => t.name === n) || (options.extraTools?.some((t) => t.definition.name === n) ?? false);
   if (
     !isOffered(toolUse.name) &&
     !(salvagedName !== undefined && isOffered(salvagedName)) &&

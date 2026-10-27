@@ -307,9 +307,35 @@ describe('executeToolUses — budget check short-circuit', () => {
       );
     vi.mocked(executeTool).mockResolvedValue({ type: 'tool_result', tool_use_id: 'tu-read_file', content: 'ok' });
     await run({} as AgentOptions);
-    expect(checkToolBudget).toHaveBeenLastCalledWith(expect.anything(), 'read_file', { canAskUser: false });
+    expect(checkToolBudget).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'read_file',
+      expect.objectContaining({ canAskUser: false }),
+    );
     await run({ clarifyFn: async () => 'yes' } as AgentOptions);
-    expect(checkToolBudget).toHaveBeenLastCalledWith(expect.anything(), 'read_file', { canAskUser: true });
+    expect(checkToolBudget).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'read_file',
+      expect.objectContaining({ canAskUser: true }),
+    );
+  });
+
+  // #268: a repeat refusal names only tools the model is offered, and points a
+  // test command at run_tests, so the check gets the catalog and the input.
+  it('tells the budget check what is offered and what the call asked for', async () => {
+    vi.mocked(executeTool).mockResolvedValue({ type: 'tool_result', tool_use_id: 'tu-read_file', content: 'ok' });
+    await executeToolUses(
+      catalogState(),
+      [use('read_file', { path: 'a.py' })],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    const opts = vi.mocked(checkToolBudget).mock.lastCall![2]!;
+    expect(opts.input).toEqual({ path: 'a.py' });
+    expect(opts.isOffered!('edit_file')).toBe(true);
+    expect(opts.isOffered!('run_tests')).toBe(false);
   });
 
   // #268: a failed edit_file call must not spend edit_file's budget, so the

@@ -2,7 +2,7 @@ import { workspace, Uri } from 'vscode';
 import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { recordDecision, type DecisionSink } from './decisions.js';
-import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE } from './completionGate/pathUtil.js';
+import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE, TEST_RUNNER_RE } from './completionGate/pathUtil.js';
 import { isNoChangeNeededResult, isFailingCheckOutput } from './loop/actionReprompt.js';
 
 /**
@@ -577,11 +577,7 @@ export function recordToolCall(
     // fired ONCE, while 76 of 92 runs that had reproduced their bug finished
     // with that reproduction still red, 79% on the same failure they
     // started with.
-    // Anchored on start-of-token rather than `\b`: `\b` never matches before
-    // the `-` of `-m unittest`, and `./tests/runtests.py` is preceded by `/`.
-    const testMatch = cmd.match(
-      /(?:^|[\s;&|/])(vitest|jest|pytest|py\.test|mocha|go\s+test|tox|nose2?|runtests\.py|manage\.py\s+test|-m\s+unittest)\b([^|;&]*)/,
-    );
+    const testMatch = cmd.match(TEST_RUNNER_RE);
     // Record the verdict for EVERY shell command, recognized or not. That
     // second case is the valuable one: it is how a drift between the product's
     // predicate and an analysis script's copy becomes visible instead of

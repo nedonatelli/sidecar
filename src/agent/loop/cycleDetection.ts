@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState, NormalizedEntry } from './state.js';
+import { isToolBudgetSpent, toolBudgetRefusals } from './toolBudget.js';
 
 // ---------------------------------------------------------------------------
 // Per-iteration safety checks on tool-use bursts and repeat patterns.
@@ -145,6 +146,15 @@ const MIN_IDENTICAL_CONSECUTIVE = 4;
  */
 const MIN_IDENTICAL_MUTATION_CALLS = 4;
 
+/**
+ * Budget refusals of one tool before a turn made only of calls that will be
+ * refused counts as a cycle (#268): the first refusal and two escalated ones
+ * (toolBudget.ts), so the call that would be the 4th refusal is caught, the
+ * same 4 as MIN_IDENTICAL_CONSECUTIVE. Arguments don't matter: a refused call
+ * never runs, and its answer is the same whatever it asked for.
+ */
+const REFUSALS_BEFORE_CYCLE = 3;
+
 /** Lookback window for a ring buffer checked against `threshold` repeats.
  *  Always at least `threshold + REPEAT_WINDOW_MARGIN` so raising the
  *  configured threshold can never make a check mathematically unable to
@@ -234,6 +244,28 @@ export function detectCycleAndBail(
     if (state.recentMutationCalls.length > mutationWindow) {
       state.recentMutationCalls.shift();
     }
+  }
+
+  // --- Refused-repeat pass (#268) ---
+  // 78% of archived SWE runs that hit a tool budget called the refused tool
+  // again, about 5 refusals each, and the other passes seldom saw it: the
+  // repeats vary their arguments or are interleaved, and the threshold for
+  // varying ones is 10. A turn whose every call goes to a spent budget changes
+  // nothing, so it is counted here. It is read-only in effect (nothing runs),
+  // so before any edit it gets the #222 nudge, and the stop follows.
+  const refused = refusedRepeat(pendingToolUses, state);
+  if (refused) {
+    const { tool, refusals } = refused;
+    const nudge =
+      `${tool} has no budget left this session. You have called it again after ${refusals} refusals, and ` +
+      `this call did not run either; every further ${tool} call will be refused the same way. Use a different ` +
+      `tool for what you still need, or stop calling tools and give your final answer from what you have gathered.`;
+    if (nudgeInsteadOfStop(state, `${tool} (out of budget)`, true, `budget:${tool}`, nudge)) return false;
+    state.logger?.warn(`Agent loop refused-call repeat detected (${tool} called again after ${refusals} refusals)`);
+    callbacks.onText(
+      `\n\n⚠️ Agent stopped: ${tool} is out of budget and was called again after ${refusals} refusals.\n`,
+    );
+    return true;
   }
 
   // --- Identical-mutation resubmission pass (consecutive or not) ---
@@ -681,6 +713,25 @@ function normalizeEntry(pendingToolUses: ToolUseContentBlock[]): NormalizedEntry
 }
 
 /**
+ * The tool a turn keeps calling past its budget (#268), when every call in the
+ * turn will be refused and one of those tools already has REFUSALS_BEFORE_CYCLE
+ * refusals. A turn with any call that can still run is left to the other
+ * passes: it may be making progress alongside the wasted call.
+ */
+function refusedRepeat(
+  pendingToolUses: ToolUseContentBlock[],
+  state: LoopState,
+): { tool: string; refusals: number } | null {
+  if (pendingToolUses.length === 0 || !pendingToolUses.every((tu) => isToolBudgetSpent(state, tu.name))) return null;
+  let worst: { tool: string; refusals: number } | null = null;
+  for (const tu of pendingToolUses) {
+    const refusals = toolBudgetRefusals(state, tu.name);
+    if (refusals >= REFUSALS_BEFORE_CYCLE && (!worst || refusals > worst.refusals)) worst = { tool: tu.name, refusals };
+  }
+  return worst;
+}
+
+/**
  * #222: one nudge instead of a stop for a read-only loop before the first
  * successful edit. A run stopped there ends with nothing at all, and the loop
  * isn't reliable: the same 31b config that repeated one `grep` 4 times and was
@@ -691,14 +742,15 @@ function normalizeEntry(pendingToolUses: ToolUseContentBlock[]): NormalizedEntry
  * repeats the nudged lookup again is stopped on that turn, because its repeats
  * are still in the window. One that moves on is not (see `cycleNudgedSig`).
  */
-function nudgeInsteadOfStop(state: LoopState, what: string, readOnly: boolean, sig: string): boolean {
+function nudgeInsteadOfStop(state: LoopState, what: string, readOnly: boolean, sig: string, message?: string): boolean {
   if (!readOnly || state.fileMutations > 0 || state.readOnlyCycleNudged) return false;
   state.readOnlyCycleNudged = true;
   state.cycleNudgedSig = sig;
   state.pendingCycleNudge =
+    message ??
     `You have run ${what} several times and it keeps returning the same result, so running it ` +
-    `again won't show you anything new. Act on what it already showed you: open the file it ` +
-    `points to, or make the change. If it didn't find what you need, search for something different.`;
+      `again won't show you anything new. Act on what it already showed you: open the file it ` +
+      `points to, or make the change. If it didn't find what you need, search for something different.`;
   state.logger?.info?.(`Agent loop read-only repeat before any edit — nudging once instead of stopping: ${what}`);
   return true;
 }

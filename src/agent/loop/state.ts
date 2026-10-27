@@ -378,6 +378,10 @@ export interface LoopState {
   // edit_file calls that failed and changed nothing. Kept apart from
   // toolCallCounts so a failure does not spend edit_file's budget (#268).
   failedEditCalls?: number;
+  // How many times each tool has been refused for an exhausted budget this
+  // run. A repeat refusal escalates, and cycle detection counts a turn of
+  // nothing but refused repeats (#268). toolBudget.ts is the only writer.
+  toolBudgetRefusals?: Map<string, number>;
 
   // Completion-gate state (tracks edited files and verification calls).
   // gate.ts + executeToolUses.ts both touch it.
