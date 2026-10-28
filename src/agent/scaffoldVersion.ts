@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.5** (2026-10) — project config the request didn't ask for needs
+ *   approval (#351). Edits, writes and deletes of package manifests and
+ *   compiler, lint, test-runner and Python config, and shell commands that
+ *   rewrite them, ask in every mode unless the request names the file or that
+ *   kind of change; a declined change tells the agent to finish without it.
+ *   Agent eval: ministral-3 215/237 and gemma4:31b 233/237 on shared cases
+ *   (baselines 215, 235); 8 unrequested edits declined, none needed. PATCH:
+ *   a new approval guard on existing write tools.
  * - **5.1.4** (2026-10) — an edit written out as a fake tool result runs
  *   (#342). When a turn parses no text-form calls, an edit_file/write_file
  *   call whose arguments sit in a `<tool_output tool="…">` block is
@@ -213,7 +221,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.4';
+export const SCAFFOLD_VERSION = '5.1.5';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

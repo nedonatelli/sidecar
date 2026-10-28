@@ -40,6 +40,25 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.5 — unrequested project-config changes need approval (2026-10)
+
+PATCH: a new approval guard on the existing write tools and `run_command`; no
+mechanism is added, removed or re-defaulted.
+
+- **What changed:** edits, writes and deletes of package manifests and
+  compiler, lint, test-runner and Python config, plus shell commands that
+  rewrite them (`npm init`, `npm pkg set`, `tsc --init`, `sed -i`, redirects),
+  need approval in every mode when the user's request names neither the file
+  nor that kind of change. A declined or unanswerable change tells the agent to
+  finish without it and say what it would need. Sub-agents judge against the
+  user's request. (#351)
+- **Measured:** agent eval, 3 trials per case, against the release-0133
+  baselines. ministral-3 215/237 and gemma4:31b 233/237 on the shared cases
+  (215 and 235); the gemma −2 is on large-file cases the guard never touched.
+  The two new cases that ask for config changes: strict mode 3/3 on both,
+  test script 3/3 on gemma and 1/3 on ministral (both misses are the model's
+  own script). 8 unrequested config edits were declined; none was needed.
+
 ### 5.1.4 — an edit written out as a fake tool result runs (2026-10)
 
 PATCH: a new recovery shape inside existing text-form tool-call recovery,
