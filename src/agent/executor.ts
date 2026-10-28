@@ -17,6 +17,12 @@ import type { PendingEditStore } from './pendingEdits.js';
 import { withFileLock } from './fileLock.js';
 import { detectIrrecoverable, shellCommandOf } from './executor/irrecoverableDetector.js';
 import { detectPackageInstall, installQuestion, installRefusal } from './executor/packageInstallDetector.js';
+import {
+  detectConfigEdit,
+  requestNamesConfigChange,
+  configEditQuestion,
+  configEditRefusal,
+} from './executor/configEditDetector.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
@@ -56,6 +62,12 @@ export interface ConfirmOptions {
   detail?: string;
   /** Unified diff to display inline in the chat confirm card. */
   diffBlock?: string;
+  /**
+   * Set when the question is a project-config change the request didn't ask
+   * for (#169), naming the file. Lets a headless caller tell this prompt apart
+   * without parsing its wording: the agent eval records it and declines.
+   */
+  configFile?: string;
 }
 export type ConfirmFn = (message: string, actions: string[], options?: ConfirmOptions) => Promise<string | undefined>;
 export type DiffPreviewFn = (filePath: string, proposedContent: string) => Promise<'accept' | 'reject'>;
@@ -362,6 +374,14 @@ export async function executeTool(
     const bin = path.join(root, 'node_modules', '.bin', name);
     return existsSync(bin) || existsSync(`${bin}.cmd`);
   });
+  // Project config the user's request did not ask to change (#169): asked
+  // about like an install, but only when the request names neither the file
+  // nor that kind of change -- "add a test script" is the task, not a detour.
+  const detectedConfigEdit = detectConfigEdit(toolUse);
+  const configEdit =
+    detectedConfigEdit && !requestNamesConfigChange(detectedConfigEdit, executorContext?.userRequestText)
+      ? detectedConfigEdit
+      : null;
   const needsApproval = resolveApprovalNeeded({
     tool,
     toolName: toolUse.name,
@@ -369,6 +389,7 @@ export async function executeTool(
     explicitPermission,
     isIrrecoverable: irrecoverableDescription !== null,
     isPackageInstall: install !== null,
+    isUnrequestedConfigEdit: configEdit !== null,
   });
 
   if (needsApproval) {
@@ -450,7 +471,7 @@ export async function executeTool(
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
-          content: 'Tool call denied by user after diff preview.',
+          content: configEdit ? configEditRefusal(configEdit, true) : 'Tool call denied by user after diff preview.',
           is_error: true,
         };
       }
@@ -472,15 +493,22 @@ export async function executeTool(
       const useModal =
         (NATIVE_MODAL_APPROVAL_TOOLS.has(toolUse.name) || shellCommandOf(toolUse) !== null) && !chatVisible;
       // An install says what it is: the user is being asked whether to add
-      // software, not to approve an opaque command.
-      const question = install ? installQuestion(install) : `SideCar wants to use **${toolUse.name}**:`;
+      // software, not to approve an opaque command. So does a config change
+      // (#169); `npm init -y && npm install jest` is both.
+      const question = install
+        ? installQuestion(install) + (configEdit ? ` It also changes **${configEdit.file}**.` : '')
+        : configEdit
+          ? configEditQuestion(configEdit)
+          : `SideCar wants to use **${toolUse.name}**:`;
+      const modalTitle = install
+        ? `Install ${install.what}?`
+        : configEdit
+          ? `Allow SideCar to change ${configEdit.file}?`
+          : `Allow SideCar to run ${toolUse.name}?`;
+      const configFile = configEdit ? { configFile: configEdit.file } : undefined;
       const choice = useModal
-        ? await confirm(
-            install ? `Install ${install.what}?` : `Allow SideCar to run ${toolUse.name}?`,
-            ['Allow', 'Deny'],
-            { modal: true, detail: inputSummary },
-          )
-        : await confirm(`${question}\n${inputSummary}`, ['Allow', 'Deny']);
+        ? await confirm(modalTitle, ['Allow', 'Deny'], { modal: true, detail: inputSummary, ...configFile })
+        : await confirm(`${question}\n${inputSummary}`, ['Allow', 'Deny'], configFile);
 
       if (choice !== 'Allow') {
         // A background, scheduled or MCP-server run wires no confirmFn: the
@@ -489,7 +517,11 @@ export async function executeTool(
         return {
           type: 'tool_result',
           tool_use_id: toolUse.id,
-          content: install ? installRefusal(install, confirmFn !== undefined) : 'Tool call denied by user.',
+          content: install
+            ? installRefusal(install, confirmFn !== undefined)
+            : configEdit
+              ? configEditRefusal(configEdit, confirmFn !== undefined)
+              : 'Tool call denied by user.',
           is_error: true,
         };
       }

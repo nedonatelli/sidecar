@@ -17,7 +17,8 @@ const warnedSubstitutions = new Set<string>();
  * silently. A default Copilot no longer offers (gpt-4o, retired from Copilot
  * 2025-08-06) therefore ran on whichever model happened to be first, possibly
  * another extension's, with no notice (#230). It now stays with Copilot and says
- * which model it picked.
+ * which model it picked, in the log and once in a notification that offers the
+ * model picker.
  */
 export async function resolveCopilotModel(
   modelId: string,
@@ -35,6 +36,14 @@ export async function resolveCopilotModel(
       `[SideCar] Copilot doesn't offer "${modelId}"; using ${chosen.name} (${chosen.id}) instead. ` +
         `Pick a model with SideCar: Select Model.`,
     );
+    void vscode.window
+      .showWarningMessage(
+        `Copilot doesn't offer "${modelId}", so SideCar is using ${chosen.name} instead.`,
+        'Select Model',
+      )
+      .then((choice) => {
+        if (choice === 'Select Model') void vscode.commands.executeCommand('sidecar.selectModel');
+      });
   }
   return chosen;
 }

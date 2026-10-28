@@ -71,6 +71,12 @@ export interface ResolveApprovalOptions {
    * is the user's call in every mode. Optional for existing callers.
    */
   isPackageInstall?: boolean;
+  /**
+   * True when detectConfigEdit matched and the user's request names neither
+   * the config file nor that kind of change (#169). Asked in every mode except
+   * where the edit stays in a shadow worktree the user reviews afterwards.
+   */
+  isUnrequestedConfigEdit?: boolean;
 }
 
 /**
@@ -80,15 +86,23 @@ export interface ResolveApprovalOptions {
  *  1. `alwaysRequireApproval` — non-negotiable; overrides everything
  *  2. `isIrrecoverable` — force approval even in autonomous mode
  *  3. `isPackageInstall` — installing software is the user's call, in every mode
- *  4. `explicitPermission: 'allow'` — user opted in; skip approval
- *  5. `explicitPermission: 'ask'`  — user opted in to always-ask
- *  6. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
+ *  4. `isUnrequestedConfigEdit` — so is changing project config the request did
+ *     not ask for, except a file write contained in a sandboxed shadow
+ *  5. `explicitPermission: 'allow'` — user opted in; skip approval
+ *  6. `explicitPermission: 'ask'`  — user opted in to always-ask
+ *  7. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
  */
 export function resolveApprovalNeeded(opts: ResolveApprovalOptions): boolean {
   const { tool, toolName, approvalMode, explicitPermission, isIrrecoverable } = opts;
   if (tool.alwaysRequireApproval) return true;
   if (isIrrecoverable) return true;
   if (opts.isPackageInstall) return true;
+  // A sandboxed file write lands in the shadow, whose diff the user reviews
+  // before anything reaches the project -- the same reason review mode queues
+  // it unasked. A command (`npm init`) runs for real, so it still asks.
+  if (opts.isUnrequestedConfigEdit && !(approvalMode === 'sandboxed' && SHADOW_CONTAINED_TOOLS.has(toolName ?? ''))) {
+    return true;
+  }
   if (explicitPermission === 'allow') return false;
   if (explicitPermission === 'ask') return true;
   if (approvalMode === 'sandboxed') return !!tool.requiresApproval && !SHADOW_CONTAINED_TOOLS.has(toolName ?? '');
