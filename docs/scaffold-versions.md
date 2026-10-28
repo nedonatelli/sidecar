@@ -40,6 +40,22 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.4 — an edit written out as a fake tool result runs (2026-10)
+
+PATCH: a new recovery shape inside existing text-form tool-call recovery,
+behind the same `codeAsTextRecoveryEnabled` flag. Models that call tools
+natively are unaffected.
+
+- **What changed:** text-form callers sometimes write an `edit_file` call and
+  an invented result into the reply instead of calling the tool. When a turn
+  parses no text-form calls, an `edit_file` or `write_file` call whose
+  arguments sit in a `<tool_output tool="…">` block is salvaged and run
+  through every normal guard and approval. Salvaged calls carry the
+  `fake_output_` ID prefix. (#342)
+- **Measured:** agent eval, 79 cases × 3 trials. qwen2.5-coder:7b 142 → 147/237,
+  with the salvage firing in 11 trials (9 passed). ministral-3 213/237 and
+  gemma4:31b 236/237 against 215 and 235 baselines, with no salvage firing.
+
 ### 5.1.3 — catch-up for fixes merged without a bump (2026-10)
 
 PATCH: each change tunes a firing condition or a message inside an existing
