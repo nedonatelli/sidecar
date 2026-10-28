@@ -215,6 +215,13 @@ export interface ToolExecutorContext {
    * content that would delete definitions the file already has.
    */
   synthesizedFromFence?: boolean;
+  /**
+   * What the user asked for in this run (`LoopState.userRequestText`, or the
+   * parent run's for a sub-agent). The executor asks before a project-config
+   * change the request does not name (#169). Absent outside the loop, where
+   * every such change asks.
+   */
+  userRequestText?: string;
 }
 
 export interface ToolExecutor {

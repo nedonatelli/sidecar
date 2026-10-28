@@ -100,6 +100,11 @@ export interface AgentEvalCase {
    * almost always mean the case is wrong or the model regressed).
    */
   approvalMode?: 'autonomous' | 'cautious' | 'manual' | 'plan' | 'review';
+  /**
+   * Allow project-config changes the request didn't ask for (#169). By default
+   * the harness declines them, as a user who asked for something else would.
+   */
+  allowConfigEdits?: boolean;
   maxIterations?: number;
   /** Token budget override — set LOW to force compression mid-run (long-horizon cases). */
   maxTokens?: number;

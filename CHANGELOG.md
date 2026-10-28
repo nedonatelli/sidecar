@@ -4,6 +4,80 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.133.0] - 2026-10-27
+
+Edits that would break a file are refused before they are written: an edit that removes an
+import the file still uses, and a dropped definition only where the edit would actually write.
+Tool calls written as text reach disk intact, and on Windows `grep` handles quoted patterns and
+Python output with non-ASCII characters no longer crashes. The completion gate and the
+"make the change now" reprompt stop asking for work the request didn't ask for. Bedrock stops
+offering retired models.
+
+### Changed
+
+- **An edit that removes a still-used import is refused**
+  ([#334](https://github.com/nedonatelli/sidecar/issues/334)). An applied `edit_file` sometimes
+  deleted a Python import while the file still used the name, so the module failed at import time
+  and every test importing it failed too. `edit_file` and `write_file` now refuse that edit and
+  say which line still uses the name; keep the import, or remove every use as well. A call
+  refused the same way again says so.
+- **The dropped-definition refusal fires only where the edit would write**
+  ([#162](https://github.com/nedonatelli/sidecar/issues/162)). It ran before matching, so an edit
+  that couldn't apply at all was told its `replace` "drops the line `def …`". The model followed
+  that advice and then got "search string not found". Such an edit now gets "search string not
+  found" with hints to the real lines first.
+- **Only applied edits spend `edit_file`'s budget**
+  ([#268](https://github.com/nedonatelli/sidecar/issues/268)). Calls that failed and changed
+  nothing counted against it, so a model that had made few real edits could be refused further
+  edits.
+- **A reprinted "already done" is checked when nothing changed**
+  ([#297](https://github.com/nedonatelli/sidecar/issues/297)). A model that reprinted a file's
+  existing code as "already done", without having changed anything, could end the run there. It
+  is now asked once to make the change, or to quote the existing lines that already do what was
+  asked and finish.
+- **A question or a "do not change" request is not a change request**
+  ([#327](https://github.com/nedonatelli/sidecar/issues/327)). "Did that rename land? Check
+  src/greeter.ts — do not change anything else." was read as a request to rename and change, so
+  the model was told to make the change now.
+- **No read or write demands for files the request only quotes, or that don't exist**
+  ([#317](https://github.com/nedonatelli/sidecar/issues/317)). The completion gate asked the
+  model to read or write file names that appeared in quoted output, such as a `pip list` row, or
+  that weren't in the workspace.
+
+### Fixed
+
+- **Text-form tool calls** ([#244](https://github.com/nedonatelli/sidecar/issues/244),
+  [#246](https://github.com/nedonatelli/sidecar/issues/246)):
+  - every call in a fence holding several JSON objects is dispatched, not just the first;
+  - a call quoted in the model's prose is no longer run;
+  - on Ollama and OpenAI-compatible backends, a `<tool_call>` whose arguments contain
+    `</tool_call>` inside a string is no longer cut short there.
+- **Ollama: a probed `tools` capability wins over the text heuristic**
+  ([#314](https://github.com/nedonatelli/sidecar/issues/314)). After three text-only turns that
+  looked like tool calls, SideCar stopped sending tool definitions even to a model Ollama reports
+  as supporting tools.
+- **`edit_file` diagnoses a search == replace no-op correctly on CRLF files**
+  ([#328](https://github.com/nedonatelli/sidecar/issues/328)). A correct `search` on a CRLF file
+  was reported as not being in the file, with the model's own text quoted back as the region to
+  copy.
+- **Windows: `grep` with quotes** ([#316](https://github.com/nedonatelli/sidecar/issues/316)).
+  Every pattern containing `"` failed with `grep: Trailing backslash`. The pattern is now passed
+  on stdin, and an invalid regex is searched literally.
+- **Windows: Python output in UTF-8**
+  ([#340](https://github.com/nedonatelli/sidecar/pull/340)). Python child processes wrote in the
+  console code page, so the first `✓` or accented name a test printed raised
+  `UnicodeEncodeError`. They now run with `PYTHONUTF8=1`.
+- **Bedrock** ([#112](https://github.com/nedonatelli/sidecar/issues/112)): retired models are no
+  longer offered, and two common errors say what to do: a retired model ("end of its life"), and
+  an account that AWS doesn't allow to invoke models in that region ("Error 002").
+- **Facet reviews and auto mode stream into one chat message**
+  ([#312](https://github.com/nedonatelli/sidecar/pull/312)) instead of one finished bubble per
+  streamed chunk.
+
+### Stats
+- 10439 total tests (584 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.132.0] - 2026-10-22
 
 Finished runs end sooner: a model that has already made its change is no longer told it

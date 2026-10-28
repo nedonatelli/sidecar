@@ -1827,21 +1827,27 @@ export async function resolveEditedText(params: {
   // below still runs against real file bytes — and they run BEFORE the
   // intent-based fuzzy recovery, which guesses at the region from word overlap
   // and is far less certain than "the same text with different line endings".
-  // A `replace` that drops a definition its `search` carried deletes it. Runs
-  // BEFORE matching so the refusal is about the two fields, not about where
-  // they landed, and so no tolerance tier can turn it into a silent write.
+  // A `replace` that drops a definition its `search` carried deletes it.
+  // Computed here, refused only where the edit would WRITE (#162 ML-21): a real
+  // match below, or an inferred edit. It used to be refused before matching,
+  // so edits that could not apply were told their replace "drops a definition"
+  // -- 89 of 241 verified refusals over 4,784 recorded runs, 20 of the
+  // no-match ones already applied. The model spent a call following that
+  // advice, then got not-found; for an applied edit, the not-found path would
+  // have said "No change needed". No tolerance tier writes without passing
+  // the check: every write below goes through refuseDropped().
   const dropped = droppedDefinition(search, replace);
-  if (dropped) {
+  const refuseDropped = (): never => {
     recordEditFailure(context, filePath, search, replace);
     throw new Error(
       `${unreadPrefix}Error: edit_file refused this edit to ${filePath} — your 'replace' drops the line ` +
-        `\`${dropped.trim()}\`, which your 'search' contained. The file was NOT modified. ` +
+        `\`${(dropped ?? '').trim()}\`, which your 'search' contained. The file was NOT modified. ` +
         `edit_file substitutes: everything in 'search' and missing from 'replace' is DELETED, and deleting a ` +
         `definition leaves its body attached to whatever precedes it — which still parses, so nothing downstream ` +
         `would catch it. Either repeat that line inside 'replace' alongside your change, or shorten 'search' to ` +
         `just the line you are changing and pass the enclosing definition in 'within' to disambiguate.`,
     );
-  }
+  };
 
   // `within` carries the "where" so `search` can carry only the "what". Both
   // roles in one field is what makes a model grow `search` for uniqueness and
@@ -2022,6 +2028,7 @@ export async function resolveEditedText(params: {
       const at = text.indexOf(applyTarget);
       const inferredText =
         text.slice(0, at) + applyEol(replace, detectEol(text).eol) + text.slice(at + applyTarget.length);
+      if (dropped) refuseDropped(); // an inferred edit writes too
       const inferSyntax = await editWouldBreakSyntax(filePath, text, inferredText);
       if (!inferSyntax.refuse) {
         return {
@@ -2096,6 +2103,8 @@ export async function resolveEditedText(params: {
       `${stalePrefix}${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
     );
   }
+  // The search matched: this edit would write, so a dropped definition is real.
+  if (dropped) refuseDropped();
   if (match.count > 1) {
     // replace_all: the caller wants EVERY occurrence changed. Each occurrence
     // is spliced at its own span with its own adapted replacement (a tolerance

@@ -269,6 +269,13 @@ export interface AgentOptions {
   isChatVisible?: () => boolean;
   /** Current sub-agent nesting depth (0 = top-level). Used to enforce MAX_AGENT_DEPTH. */
   depth?: number;
+  /**
+   * For a sub-agent: the user's request the parent run started from. The
+   * sub-agent's own first message is a task the parent MODEL wrote, so it
+   * cannot stand in for what the user asked when deciding whether a config
+   * change was requested (#169).
+   */
+  originRequestText?: string;
   /** Per-tool permission overrides from the active custom mode. */
   modeToolPermissions?: Record<string, 'allow' | 'deny' | 'ask'>;
   /**
