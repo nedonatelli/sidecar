@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.4** (2026-10) — an edit written out as a fake tool result runs
+ *   (#342). When a turn parses no text-form calls, an edit_file/write_file
+ *   call whose arguments sit in a `<tool_output tool="…">` block is
+ *   salvaged and run through the normal guards, behind the existing
+ *   codeAsTextRecoveryEnabled flag. qwen2.5-coder:7b agent eval 142→147/237;
+ *   ministral-3 and gemma4:31b never trigger it. PATCH: a new recovery
+ *   shape inside existing text-form tool-call recovery.
  * - **5.1.3** (2026-10) — catch-up for guard, gate, reprompt and parser fixes
  *   merged 2026-10-22..28 without a bump: completion gate (#282 installs are
  *   not test runs, #283 a script that runs no test earns no credit, #325 no
@@ -206,7 +213,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.3';
+export const SCAFFOLD_VERSION = '5.1.4';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
