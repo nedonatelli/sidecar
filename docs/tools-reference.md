@@ -583,7 +583,7 @@ Check that the shape/dtype contracts on numerical functions are internally consi
 
 ## Databases
 
-Requires connections configured under `sidecar.databases.profiles`; see [Configuration](configuration#database-integration-v076) for the profile fields and how to store a password. DuckDB profiles don't work in the Marketplace build, which doesn't ship the DuckDB engine.
+Requires connections configured under `sidecar.databases.profiles`; see [Configuration](configuration#database-integration-v076) for the profile fields and how to store a password. DuckDB needs its engine installed first (**SideCar: Install DuckDB Engine**, or `sidecar.databases.duckdbPath`).
 
 ### `db_list_connections`
 
