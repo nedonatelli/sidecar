@@ -6,6 +6,9 @@ import {
   gitStage,
   gitLog,
   gitPush,
+  describeGitPush,
+  describeShellGitPush,
+  pushRemoteInCommand,
   gitPull,
   gitBranch,
   gitStash,
@@ -13,6 +16,7 @@ import {
 } from './git.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import { GitCLI } from '../../github/git.js';
+import { fetchRepoVisibility } from '../../github/repoVisibility.js';
 import * as settings from '../../config/settings.js';
 
 // Mock GitCLI so executor tests don't need a real git repo
@@ -49,6 +53,10 @@ vi.mock('../../github/api.js', () => {
   };
   return { GitHubAPI };
 });
+
+vi.mock('../../github/repoVisibility.js', () => ({
+  fetchRepoVisibility: vi.fn().mockResolvedValue(null),
+}));
 
 vi.mock('../../github/auth.js', () => ({
   getGitHubToken: vi.fn().mockResolvedValue('fake-token'),
@@ -236,50 +244,171 @@ describe('gitLog', () => {
   });
 });
 
+/** A GitCLI for push tests: on `main`, tracking nothing, remote not on GitHub. */
+function pushGit(overrides: Record<string, unknown> = {}) {
+  return {
+    getCurrentBranch: vi.fn().mockResolvedValue('main'),
+    getUpstreamRemote: vi.fn().mockResolvedValue(null),
+    getRemoteUrl: vi.fn().mockResolvedValue('https://git.example.com/repo.git'),
+    refExists: vi.fn().mockResolvedValue(true),
+    unpushedCommits: vi.fn().mockResolvedValue({ count: 0, subjects: [], shortstat: '' }),
+    push: vi.fn().mockResolvedValue('pushed ok'),
+    pushWithUpstream: vi.fn().mockResolvedValue('pushed with upstream'),
+    ...overrides,
+  };
+}
+
+async function useGit(git: ReturnType<typeof pushGit>) {
+  const { GitCLI } = await import('../../github/git.js');
+  vi.mocked(GitCLI).mockImplementationOnce(function () {
+    return git;
+  });
+  return git;
+}
+
 describe('gitPush', () => {
-  it('calls push without args when setUpstream is false', async () => {
+  it('pushes the current branch to origin when it tracks no remote', async () => {
+    const git = await useGit(pushGit());
     const result = await gitPush({ setUpstream: false });
+    expect(git.push).toHaveBeenCalledWith('origin', 'main');
     expect(result).toContain('pushed ok');
   });
 
-  it('calls getCurrentBranch + push with origin when setUpstream is true', async () => {
-    const pushMock = vi.fn().mockResolvedValue('upstream set + pushed');
-    const { GitCLI } = await import('../../github/git.js');
-    vi.mocked(GitCLI).mockImplementationOnce(function () {
-      return {
-        getCurrentBranch: vi.fn().mockResolvedValue('feature/x'),
-        getRemoteUrl: vi.fn().mockResolvedValue(null),
-        push: pushMock,
-      };
-    });
-    const result = await gitPush({ setUpstream: true });
-    expect(pushMock).toHaveBeenCalledWith('origin', 'feature/x');
-    expect(result).toContain('upstream set');
+  it("pushes to the branch's upstream remote, not origin", async () => {
+    const git = await useGit(
+      pushGit({
+        getCurrentBranch: vi.fn().mockResolvedValue('bench/x'),
+        getUpstreamRemote: vi.fn().mockResolvedValue('bench'),
+      }),
+    );
+    await gitPush({});
+    expect(git.push).toHaveBeenCalledWith('bench', 'bench/x');
+  });
+
+  it('pushes to a remote the call names, over the upstream', async () => {
+    const git = await useGit(pushGit({ getUpstreamRemote: vi.fn().mockResolvedValue('origin') }));
+    await gitPush({ remote: 'mirror' });
+    expect(git.getRemoteUrl).toHaveBeenCalledWith('mirror');
+    expect(git.push).toHaveBeenCalledWith('mirror', 'main');
+  });
+
+  it('sets the upstream when setUpstream is true', async () => {
+    const git = await useGit(pushGit({ getCurrentBranch: vi.fn().mockResolvedValue('feature/x') }));
+    const result = await gitPush({ setUpstream: true, remote: 'bench' });
+    expect(git.pushWithUpstream).toHaveBeenCalledWith('bench', 'feature/x');
+    expect(git.push).not.toHaveBeenCalled();
+    expect(result).toContain('pushed with upstream');
+  });
+
+  it('refuses a remote that is not configured', async () => {
+    const git = await useGit(pushGit({ getRemoteUrl: vi.fn().mockResolvedValue(null) }));
+    await expect(gitPush({ remote: 'nope' })).rejects.toThrow('No remote named "nope"');
+    expect(git.push).not.toHaveBeenCalled();
+  });
+
+  it('refuses a detached HEAD', async () => {
+    await useGit(pushGit({ getCurrentBranch: vi.fn().mockResolvedValue('') }));
+    await expect(gitPush({})).rejects.toThrow('HEAD is detached');
   });
 
   it('THROWS on failure (a returned error string reads as is_error=false)', async () => {
-    const { GitCLI } = await import('../../github/git.js');
-    vi.mocked(GitCLI).mockImplementationOnce(function () {
-      return {
-        getCurrentBranch: vi.fn().mockResolvedValue('main'),
-        getRemoteUrl: vi.fn().mockResolvedValue(null),
-        push: vi.fn().mockRejectedValue(new Error('push fail')),
-      };
-    });
+    await useGit(pushGit({ push: vi.fn().mockRejectedValue(new Error('push fail')) }));
     await expect(gitPush({})).rejects.toThrow('git push failed');
+  });
+});
+
+describe('describeGitPush', () => {
+  it('names the remote URL, a PUBLIC repository, a new branch and the commits', async () => {
+    vi.mocked(fetchRepoVisibility).mockResolvedValueOnce('public');
+    await useGit(
+      pushGit({
+        getCurrentBranch: vi.fn().mockResolvedValue('bench/results'),
+        getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
+        refExists: vi.fn().mockResolvedValue(false),
+        unpushedCommits: vi.fn().mockResolvedValue({
+          count: 7,
+          subjects: ['a1 one', 'b2 two', 'c3 three', 'd4 four', 'e5 five'],
+          shortstat: '801 files changed, 512329 insertions(+)',
+        }),
+      }),
+    );
+    const text = await describeGitPush({ setUpstream: true });
+    expect(text).toContain('Remote: origin → https://github.com/owner/repo.git (PUBLIC repository)');
+    expect(text).toContain('Branch: bench/results → origin/bench/results (new branch)');
+    expect(text).toContain('Commits: 7 not on origin');
+    expect(text).toContain('a1 one');
+    expect(text).toContain('… and 2 more');
+    expect(text).toContain('801 files changed');
+    expect(text).toContain('Sets bench/results to track origin/bench/results.');
+    expect(text).toContain('⚠ Anyone can read what this pushes.');
+  });
+
+  it('shows a private target without the public warning', async () => {
+    vi.mocked(fetchRepoVisibility).mockResolvedValueOnce('private');
+    await useGit(
+      pushGit({
+        getUpstreamRemote: vi.fn().mockResolvedValue('bench'),
+        getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/bench.git'),
+      }),
+    );
+    const text = await describeGitPush({});
+    expect(text).toContain('Remote: bench → https://github.com/owner/bench.git (private repository)');
+    expect(text).not.toContain('(new branch)');
+    expect(text).not.toContain('Anyone can read');
+  });
+
+  it('says when the target cannot be resolved instead of showing nothing', async () => {
+    await useGit(pushGit({ getRemoteUrl: vi.fn().mockResolvedValue(null) }));
+    expect(await describeGitPush({ remote: 'gone' })).toContain('Push target could not be resolved');
+  });
+});
+
+describe('pushRemoteInCommand', () => {
+  it.each([
+    ['git push origin bench/x', 'origin'],
+    ['git push -u bench HEAD', 'bench'],
+    ['git push', ''],
+    ['git add -A && git commit -m x && git push --set-upstream origin main', 'origin'],
+    ['git -C ../repo push mirror main', 'mirror'],
+    ['git push https://github.com/o/r.git main', 'https://github.com/o/r.git'],
+  ])('%s -> %s', (cmd, remote) => {
+    expect(pushRemoteInCommand(cmd)).toBe(remote);
+  });
+
+  it('is null for a command that does not push', () => {
+    expect(pushRemoteInCommand('git status && git log -1')).toBeNull();
+    expect(pushRemoteInCommand('echo git pushing')).toBeNull();
+  });
+});
+
+describe('describeShellGitPush', () => {
+  it('resolves the named remote and flags a public one', async () => {
+    vi.mocked(fetchRepoVisibility).mockResolvedValueOnce('public');
+    await useGit(
+      pushGit({
+        getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
+        unpushedCommits: vi.fn().mockResolvedValue({ count: 2, subjects: ['a1 one', 'b2 two'], shortstat: '' }),
+      }),
+    );
+    const text = await describeShellGitPush('git push origin bench/x');
+    expect(text).toContain('Pushes to: origin → https://github.com/owner/repo.git (PUBLIC repository)');
+    expect(text).toContain('Commits on HEAD not on origin (as of the last fetch): 2');
+    expect(text).toContain('⚠ Anyone can read what this pushes.');
+  });
+
+  it('is null for a command that does not push', async () => {
+    expect(await describeShellGitPush('npm test')).toBeNull();
   });
 });
 
 describe('gitPush — branch protection', () => {
   it('blocks push when branch requires a PR (pullRequestRequired)', async () => {
-    const { GitCLI } = await import('../../github/git.js');
-    vi.mocked(GitCLI).mockImplementationOnce(function () {
-      return {
-        getCurrentBranch: vi.fn().mockResolvedValue('main'),
+    const git = await useGit(
+      pushGit({
         getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
         push: vi.fn().mockResolvedValue('should not reach'),
-      };
-    });
+      }),
+    );
     const { GitHubAPI } = await import('../../github/api.js');
     vi.mocked(GitHubAPI).mockImplementationOnce(function () {
       return {
@@ -303,18 +432,33 @@ describe('gitPush — branch protection', () => {
     expect(result).toContain('requires a pull request');
     expect(result).toContain('direct push is blocked');
     expect(result).toContain('Push aborted');
+    expect(git.push).not.toHaveBeenCalled();
+  });
+
+  it("checks protection on the push's own remote", async () => {
+    await useGit(
+      pushGit({
+        getUpstreamRemote: vi.fn().mockResolvedValue('bench'),
+        getRemoteUrl: vi.fn().mockImplementation(async (r: string) => `https://github.com/owner/${r}.git`),
+      }),
+    );
+    const { GitHubAPI } = await import('../../github/api.js');
+    const getBranchProtection = vi.fn().mockResolvedValue(null);
+    vi.mocked(GitHubAPI).mockImplementationOnce(function () {
+      return { getBranchProtection };
+    });
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ branchProtectionEnabled: true } as never);
+    await gitPush({});
+    expect(getBranchProtection).toHaveBeenCalledWith('owner', 'bench', 'main');
   });
 
   it('allows push and appends protection info when warnEvenIfPassing is true', async () => {
-    const { GitCLI } = await import('../../github/git.js');
-    const pushMock = vi.fn().mockResolvedValue('pushed ok');
-    vi.mocked(GitCLI).mockImplementationOnce(function () {
-      return {
+    const git = await useGit(
+      pushGit({
         getCurrentBranch: vi.fn().mockResolvedValue('feature/x'),
         getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
-        push: pushMock,
-      };
-    });
+      }),
+    );
     const { GitHubAPI } = await import('../../github/api.js');
     vi.mocked(GitHubAPI).mockImplementationOnce(function () {
       return {
@@ -335,12 +479,14 @@ describe('gitPush — branch protection', () => {
       branchProtectionWarnEvenIfPassing: true,
     } as never);
     const result = await gitPush({});
+    expect(git.push).toHaveBeenCalledWith('origin', 'feature/x');
     expect(result).toContain('pushed ok');
     expect(result).toContain('Branch protection on');
     expect(result).toContain('ci/test');
   });
 
   it('falls through when branchProtectionEnabled is false', async () => {
+    await useGit(pushGit());
     vi.spyOn(settings, 'getConfig').mockReturnValue({ branchProtectionEnabled: false } as never);
     const result = await gitPush({});
     expect(result).toContain('pushed ok');
@@ -353,14 +499,12 @@ describe('gitPush — branch protection', () => {
       branchProtectionEnabled: true,
       branchProtectionWarnEvenIfPassing: false,
     } as never);
-    const { GitCLI } = await import('../../github/git.js');
-    vi.mocked(GitCLI).mockImplementationOnce(function () {
-      return {
-        getCurrentBranch: vi.fn().mockResolvedValue('main'),
+    await useGit(
+      pushGit({
         getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'),
         push: vi.fn().mockResolvedValue('pushed ok despite no token'),
-      };
-    });
+      }),
+    );
     const result = await gitPush({});
     expect(result).toContain('pushed ok despite no token');
   });
