@@ -40,6 +40,21 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.11 — the commit check asks about ignored files themselves (2026-10)
+
+PATCH: two more conditions on the 5.1.9 commit approval; no mechanism is
+added, removed or re-defaulted.
+
+- **What changed:** 5.1.9 asked about _copies_ of ignored files, but not about
+  a commit holding a path `.gitignore` itself matches. `git add` refuses such a
+  path unless forced, so these were staged with `git add -f` or were tracked
+  before the rule existed (git keeps tracking them). The check now runs
+  `git check-ignore --no-index` over everything the commit would hold and asks
+  about either kind, and asks about a command that force-adds, whose files are
+  not staged yet when it looks.
+- **Measured:** not run through an eval; no eval case commits ignored files.
+  An ordinary source change passes every check.
+
 ### 5.1.10 — grep without grep on PATH (2026-10)
 
 PATCH: an existing tool's executable lookup and error text; no mechanism is

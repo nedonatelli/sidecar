@@ -17,15 +17,37 @@ const use = (name: string, input: Record<string, unknown> = {}): ToolUseContentB
 
 describe('commitCallOf', () => {
   it('matches git_commit and shell commits, and whether the command stages files itself', () => {
-    expect(commitCallOf(use('git_commit', { message: 'x' }))).toEqual({ via: 'git_commit', addsFiles: false });
+    expect(commitCallOf(use('git_commit', { message: 'x' }))).toEqual({
+      via: 'git_commit',
+      addsFiles: false,
+      forceAdds: false,
+    });
     expect(commitCallOf(use('run_command', { command: 'git commit -m "fix: x"' }))).toEqual({
       via: 'command',
       addsFiles: false,
+      forceAdds: false,
     });
     for (const command of ['git add -A && git commit -m "x"', 'git commit -am "x"', 'git -C repo commit --all -m x']) {
       expect(commitCallOf(use('run_command', { command }))?.addsFiles).toBe(true);
     }
     expect(commitCallOf(use('run_command', { command: 'git commit --amend --no-edit' }))?.addsFiles).toBe(false);
+  });
+
+  it('notices a force-add in the same command', () => {
+    for (const command of [
+      'git add -f logs/a.txt && git commit -m x',
+      'git add --force . && git commit -m x',
+      'git add -Af && git commit -m x',
+    ]) {
+      expect(commitCallOf(use('run_command', { command }))?.forceAdds).toBe(true);
+    }
+    for (const command of [
+      'git add -A && git commit -m x',
+      'git add -- file-f.ts && git commit -m x',
+      'git commit -m "add -f"',
+    ]) {
+      expect(commitCallOf(use('run_command', { command }))?.forceAdds).toBe(false);
+    }
   });
 
   it('is null for anything that is not a commit', () => {
@@ -44,7 +66,7 @@ describe('reviewCommit', () => {
     fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
     fs.writeFileSync(path.join(repo, rel), content);
   };
-  const staged = { via: 'git_commit' as const, addsFiles: false };
+  const staged = { via: 'git_commit' as const, addsFiles: false, forceAdds: false };
 
   beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'commit-guard-'));
@@ -81,7 +103,33 @@ describe('reviewCommit', () => {
   it('sees an unstaged copy only when the command stages it', async () => {
     write('bench/audit.jsonl', '{"tool":"get_setting","result":"machine-specific"}\n');
     expect(await reviewCommit(staged, repo)).toBeNull();
-    expect((await reviewCommit({ via: 'command', addsFiles: true }, repo))?.concerns[0]).toMatch(/copies of files/);
+    expect((await reviewCommit({ via: 'command', addsFiles: true, forceAdds: false }, repo))?.concerns[0]).toMatch(
+      /copies of files/,
+    );
+  });
+
+  it('flags an ignored file that was force-staged', async () => {
+    git('add', '-f', 'logs/audit.jsonl');
+    const text = (await reviewCommit(staged, repo))?.concerns.join('\n') ?? '';
+    expect(text).toMatch(/1 new file that \.gitignore excludes \(logs\/audit\.jsonl\): staged with git add -f/);
+  });
+
+  it('flags a change to a file tracked before .gitignore matched it, with the way out', async () => {
+    write('build/out.js', 'v1\n');
+    git('add', 'build/out.js');
+    git('commit', '-q', '-m', 'track build');
+    write('.gitignore', 'logs/\nnode_modules/\nbuild/\n');
+    git('add', '.gitignore');
+    git('commit', '-q', '-m', 'ignore build');
+    write('build/out.js', 'v2\n');
+    const text = (await reviewCommit({ via: 'command', addsFiles: true, forceAdds: false }, repo))?.concerns.join('\n');
+    expect(text).toMatch(/1 changed file that \.gitignore now excludes \(build\/out\.js\)/);
+    expect(text).toMatch(/git rm --cached <path>/);
+  });
+
+  it('flags a command that force-adds, before anything is staged', async () => {
+    const review = await reviewCommit({ via: 'command', addsFiles: true, forceAdds: true }, repo);
+    expect(review?.concerns[0]).toMatch(/force-adds files \(git add -f\)/);
   });
 
   it('does not treat a copy of a dependency as ignored data', async () => {

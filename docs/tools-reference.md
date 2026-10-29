@@ -281,6 +281,8 @@ Create a git commit from the currently staged changes. Appends a `Co-Authored-By
 
 Before any commit (this tool, or `git commit` through `run_command`), SideCar looks at what it would hold. It asks first, in every approval mode including autonomous, when the commit would:
 
+- hold a file `.gitignore` matches: one staged with `git add -f`, or one git still tracks because it was committed before the ignore rule (the question names `git rm --cached <path>`, which stops tracking without deleting the file);
+- come from a command that force-adds (`git add -f` / `--force`);
 - add copies of files git ignores, such as logs copied out of `.sidecar/logs` into a tracked folder (dependency folders like `node_modules` are not counted);
 - total more than 10 MB, or hold a single file over 5 MB;
 - add more than 500 files;

@@ -80,6 +80,10 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.11** (2026-10) — the commit check also asks about files .gitignore
+ *   matches: force-added ones, ones tracked from before the rule, and a
+ *   command that runs `git add -f`. PATCH: two more conditions on the 5.1.9
+ *   approval.
  * - **5.1.10** (2026-10) — grep runs without grep on PATH. On Windows the
  *   grep tool falls back to the grep.exe Git for Windows ships in usr/bin
  *   (beside the git on PATH, then the standard install folders); with no
@@ -233,7 +237,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.10';
+export const SCAFFOLD_VERSION = '5.1.11';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
