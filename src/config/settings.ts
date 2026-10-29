@@ -366,6 +366,8 @@ export interface SideCarConfig {
   databaseProfiles: import('../db/provider.js').ConnectionProfile[];
   databaseQueryTimeoutMs: number;
   databaseQueryRowLimit: number;
+  /** An existing @duckdb/node-api install to load DuckDB from (#364). Empty = not set. */
+  databaseDuckDbPath: string;
   /* Visual verification */
   visualVerifyEnabled: boolean;
   visualVerifyVlm: string;
@@ -763,6 +765,7 @@ function readConfig(): SideCarConfig {
     databaseProfiles: cfg.get<import('../db/provider.js').ConnectionProfile[]>('databases.profiles', []),
     databaseQueryTimeoutMs: clampMin(cfg.get<number>('databases.queryTimeoutMs'), 1000, 30000),
     databaseQueryRowLimit: clampMin(cfg.get<number>('databases.queryRowLimit'), 1, 10000),
+    databaseDuckDbPath: (cfg.get<string>('databases.duckdbPath') ?? '').trim(),
     /* Visual verification */
     visualVerifyEnabled: cfg.get<boolean>('visualVerify.enabled', false),
     visualVerifyVlm: cfg.get<string>('visualVerify.vlm', ''),

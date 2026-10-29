@@ -16,6 +16,7 @@ import { registerSidecarParticipant } from './chat/sidecarParticipant.js';
 import { registerLmTools } from './chat/lmTools.js';
 import { dispose as disposeDiagnostics } from './agent/sidecarDiagnostics.js';
 import { setGrammarsPath } from './parsing/registry.js';
+import { configureDuckDbEngine } from './db/duckdbEngine.js';
 import { disposeShellSession, disposeAgentTerminalExecutor } from './agent/tools.js';
 import { initBaseServices } from './activation/baseSetup.js';
 import { initWorkspaceIndex } from './activation/workspaceIndexer.js';
@@ -56,6 +57,12 @@ export function activate(context: ExtensionContext) {
   // Fire-and-forget: subsequent getConfig() calls pick up the cached secrets.
   initSecrets(context).catch((err) => {
     logger.warn('[SideCar] Failed to initialize secrets:', err);
+  });
+
+  // DuckDB is opt-in: its engine is installed into SideCar's storage on request.
+  configureDuckDbEngine({
+    engineDir: path.join(context.globalStorageUri.fsPath, 'duckdb-engine'),
+    configuredPath: () => getConfig().databaseDuckDbPath || undefined,
   });
 
   // Load repo-level policy from .sidecar/policy.json (restrictions-only, non-fatal).

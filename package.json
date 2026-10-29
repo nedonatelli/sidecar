@@ -2086,6 +2086,12 @@
               }
             }
           },
+          "sidecar.databases.duckdbPath": {
+            "type": "string",
+            "default": "",
+            "scope": "machine",
+            "markdownDescription": "An existing install of DuckDB's Node package (`@duckdb/node-api`) for DuckDB profiles: the package folder itself, or a folder whose `node_modules` contains it (a project, or your global npm folder). Checked before the engine **SideCar: Install DuckDB Engine** installs. A Python or CLI DuckDB install can't be used."
+          },
           "sidecar.databases.queryTimeoutMs": {
             "type": "number",
             "default": 30000,
@@ -3009,6 +3015,12 @@
         "title": "Set / Clear Database Password",
         "category": "SideCar",
         "icon": "$(key)"
+      },
+      {
+        "command": "sidecar.installDuckDbEngine",
+        "title": "Install DuckDB Engine",
+        "category": "SideCar",
+        "icon": "$(database)"
       },
       {
         "command": "sidecar.showSpend",
