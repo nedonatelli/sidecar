@@ -1,9 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { workspace, window } from 'vscode';
 import { resetWorkspaceTrust } from '../config/workspaceTrust.js';
 import { executeTool, type ConfirmFn, type ExecuteToolOptions } from './executor.js';
 import type { ToolUseContentBlock } from '../ollama/types.js';
 import type { ChangeLog } from './changelog.js';
+import { gitEnvForCwd } from './loop/treeSignature.js';
 
 // Mock the modules
 vi.mock('../config/settings.js', () => ({
@@ -15,6 +20,14 @@ vi.mock('../config/settings.js', () => ({
 
 vi.mock('./tools.js', () => ({
   findTool: vi.fn(),
+}));
+
+vi.mock('./tools/git.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./tools/git.js')>()),
+  describeGitPush: vi.fn(async () => 'Remote: origin → https://github.com/o/r.git (PUBLIC repository)'),
+  describeShellGitPush: vi.fn(async (cmd: string) =>
+    /git push/.test(cmd) ? 'Pushes to: origin → https://github.com/o/r.git (PUBLIC repository)' : null,
+  ),
 }));
 
 import { findTool } from './tools.js';
@@ -683,6 +696,35 @@ describe('executeTool', () => {
     expect(options.detail).toContain('npm test');
   });
 
+  it('a git_push approval shows where the push goes, not just its arguments', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'git_push', description: '', input_schema: { type: 'object', properties: {} } },
+      executor: vi.fn().mockResolvedValue('pushed'),
+      requiresApproval: true,
+    });
+    await executeTool(makeToolUse('git_push', { setUpstream: true }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
+    const [, , options] = (mockConfirm as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(options.detail).toBe('Remote: origin → https://github.com/o/r.git (PUBLIC repository)');
+  });
+
+  it('a shell git push keeps the command and adds its destination', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+      executor: vi.fn().mockResolvedValue('ran'),
+      requiresApproval: true,
+    });
+    await executeTool(makeToolUse('run_command', { command: 'git push origin bench/x' }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
+    const [, , options] = (mockConfirm as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(options.detail).toContain('command: git push origin bench/x');
+    expect(options.detail).toContain('Pushes to: origin → https://github.com/o/r.git (PUBLIC repository)');
+  });
+
   it('uses an inline (non-modal) confirmation for non-destructive approvals', async () => {
     // search_files is not in NATIVE_MODAL_APPROVAL_TOOLS — the old
     // inline-card path should still be used even when approval is
@@ -958,6 +1000,183 @@ describe('executeTool', () => {
       }
       expect(confirm).not.toHaveBeenCalled();
       expect(executor).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Project config the request did not ask to change (#169)
+  // ------------------------------------------------------------------
+  describe('config edit gate', () => {
+    const fileTool = (name: string, executor: (input: Record<string, unknown>) => Promise<string>) =>
+      mockedFindTool.mockReturnValue({
+        definition: { name, description: '', input_schema: { type: 'object', properties: {} } },
+        executor,
+        requiresApproval: true,
+      });
+    const JSDOC_TASK = 'Add JSDoc comments to every exported function in src/math.ts.';
+    // The issue's case: `module`/`target` rewritten so tsc would accept a file.
+    const tsconfigEdit = makeToolUse('edit_file', {
+      path: 'tsconfig.json',
+      search: '"module": "commonjs"',
+      replace: '"module": "nodenext"',
+    });
+
+    it('asks before an edit the request did not ask for, in autonomous mode, and does not apply it when declined', async () => {
+      const executor = vi.fn().mockResolvedValue('File edited: tsconfig.json');
+      fileTool('edit_file', executor);
+      const confirm = vi.fn().mockResolvedValue('Deny');
+      const result = await executeTool(tsconfigEdit, {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(String(confirm.mock.calls[0][0])).toMatch(/edit \*\*tsconfig\.json\*\*.*did not ask to change it/s);
+      expect(executor).not.toHaveBeenCalled();
+      expect(result.is_error).toBe(true);
+      expect(String(result.content)).toMatch(/The user declined this change to tsconfig\.json/);
+      expect(String(result.content)).toMatch(/Finish the task without changing project config/);
+    });
+
+    it('names the config file in the confirm options, so a headless caller can tell the prompt apart', async () => {
+      fileTool('edit_file', vi.fn().mockResolvedValue('File edited: tsconfig.json'));
+      const confirm = vi.fn().mockResolvedValue('Deny');
+      await executeTool(tsconfigEdit, {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      expect(confirm.mock.calls[0][2]).toEqual(expect.objectContaining({ configFile: 'tsconfig.json' }));
+    });
+
+    it('applies it once the user allows it', async () => {
+      const executor = vi.fn().mockResolvedValue('File edited: tsconfig.json');
+      fileTool('edit_file', executor);
+      await executeTool(tsconfigEdit, {
+        approvalMode: 'autonomous',
+        confirmFn: vi.fn().mockResolvedValue('Allow'),
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      expect(executor).toHaveBeenCalled();
+    });
+
+    it('proceeds without asking when the request names the file or that kind of change', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      fileTool('edit_file', executor);
+      const confirm = vi.fn();
+      for (const userRequestText of ['Switch tsconfig.json to "module": "nodenext".', 'Enable strict mode.']) {
+        await executeTool(tsconfigEdit, {
+          approvalMode: 'autonomous',
+          confirmFn: confirm,
+          executorContext: { userRequestText },
+        });
+      }
+      fileTool('write_file', executor);
+      await executeTool(makeToolUse('write_file', { path: 'package.json', content: '{}' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext: { userRequestText: 'Add a test script that runs vitest.' },
+      });
+      expect(confirm).not.toHaveBeenCalled();
+      expect(executor).toHaveBeenCalledTimes(3);
+    });
+
+    it('gates creating a config file and deleting one', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      const confirm = vi.fn().mockResolvedValue('Deny');
+      fileTool('write_file', executor);
+      await executeTool(makeToolUse('write_file', { path: 'tsconfig.json', content: '{}' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      fileTool('delete_file', executor);
+      await executeTool(makeToolUse('delete_file', { path: 'jest.config.js' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      expect(confirm).toHaveBeenCalledTimes(2);
+      expect(executor).not.toHaveBeenCalled();
+    });
+
+    it('leaves non-config files to the mode', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      fileTool('edit_file', executor);
+      const confirm = vi.fn();
+      await executeTool(makeToolUse('edit_file', { path: 'src/math.ts', search: 'a', replace: 'b' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      expect(confirm).not.toHaveBeenCalled();
+      expect(executor).toHaveBeenCalled();
+    });
+
+    it('a rejected diff preview returns the config refusal', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      fileTool('write_file', executor);
+      const result = await executeTool(makeToolUse('write_file', { path: 'package.json', content: '{}' }), {
+        approvalMode: 'autonomous',
+        diffPreviewFn: vi.fn().mockResolvedValue('reject'),
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      expect(executor).not.toHaveBeenCalled();
+      expect(String(result.content)).toMatch(/The user declined this change to package\.json/);
+    });
+
+    it('refuses without claiming a user declined, when the run has no one to ask', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      fileTool('edit_file', executor);
+      const result = await executeTool(tsconfigEdit, {
+        approvalMode: 'autonomous',
+        executorContext: { userRequestText: JSDOC_TASK },
+      });
+      expect(executor).not.toHaveBeenCalled();
+      expect(String(result.content)).toMatch(/tsconfig\.json was not changed: this run has no one to ask/);
+      expect(String(result.content)).not.toMatch(/user declined/i);
+    });
+
+    it('asks before `npm init` the request did not ask for, and names both halves of init + install', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      fileTool('run_command', executor);
+      const confirm = vi.fn().mockResolvedValue('Deny');
+      const executorContext = { userRequestText: 'Write unit tests for src/math.ts.', isChatVisible: () => true };
+      await executeTool(makeToolUse('run_command', { command: 'npm init -y' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext,
+      });
+      expect(String(confirm.mock.calls[0][0])).toMatch(/changes \*\*package\.json\*\* \(`npm init`\)/);
+      // ministral-3 replaced a fixture's package.json with exactly this (#169).
+      await executeTool(makeToolUse('run_command', { command: 'npm init -y && npm install --save-dev jest' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext,
+      });
+      expect(String(confirm.mock.calls[1][0])).toMatch(/install \*\*jest\*\*.*It also changes \*\*package\.json\*\*/s);
+      expect(executor).not.toHaveBeenCalled();
+    });
+
+    it('runs `npm pkg set` unasked when the request asks for that script', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      fileTool('run_command', executor);
+      const confirm = vi.fn();
+      await executeTool(makeToolUse('run_command', { command: 'npm pkg set scripts.test="vitest run"' }), {
+        approvalMode: 'autonomous',
+        confirmFn: confirm,
+        executorContext: { userRequestText: 'Add a test script to package.json that runs vitest.' },
+      });
+      expect(confirm).not.toHaveBeenCalled();
+      expect(executor).toHaveBeenCalled();
+    });
+
+    it('asks when the call carries no request at all', async () => {
+      const executor = vi.fn().mockResolvedValue('ok');
+      fileTool('edit_file', executor);
+      const confirm = vi.fn().mockResolvedValue('Allow');
+      await executeTool(tsconfigEdit, { approvalMode: 'autonomous', confirmFn: confirm });
+      expect(confirm).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1315,5 +1534,93 @@ describe('executeTool', () => {
       await executeTool(makeToolUse('run_tests', {}), { approvalMode: 'autonomous' });
       expect(testsTool.executor).toHaveBeenCalled();
     });
+  });
+});
+
+// ------------------------------------------------------------------
+// What a commit would hold: copies of ignored files, size, count, path length
+// ------------------------------------------------------------------
+describe('commit review gate', () => {
+  let repo: string;
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, env: gitEnvForCwd(), stdio: 'pipe' });
+  const commitTool = (executor: () => Promise<string>) =>
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'git_commit', description: '', input_schema: { type: 'object', properties: {} } },
+      executor,
+      requiresApproval: true,
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig();
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-commit-'));
+    git('init', '-q');
+    git('config', 'user.email', 't@example.com');
+    git('config', 'user.name', 't');
+    fs.writeFileSync(path.join(repo, '.gitignore'), '.sidecar/logs/\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    fs.mkdirSync(path.join(repo, '.sidecar', 'logs'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.sidecar', 'logs', 'audit.jsonl'), '{"result":"private"}\n');
+  });
+
+  afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+
+  it('asks in autonomous mode before committing a copy of ignored logs, and does not commit when declined', async () => {
+    fs.mkdirSync(path.join(repo, 'bench'));
+    fs.copyFileSync(path.join(repo, '.sidecar', 'logs', 'audit.jsonl'), path.join(repo, 'bench', 'audit.jsonl'));
+    git('add', 'bench');
+    const executor = vi.fn().mockResolvedValue('committed');
+    commitTool(executor);
+    const confirm = vi.fn().mockResolvedValue('Deny');
+    const result = await executeTool(makeToolUse('git_commit', { message: 'bench: results' }), {
+      approvalMode: 'autonomous',
+      confirmFn: confirm,
+      executorContext: { cwd: repo },
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    // Chat hidden here, so git_commit asks in a native modal: the problems must be in its detail.
+    expect(confirm.mock.calls[0][0]).toBe('Allow SideCar to make this commit?');
+    expect(String(confirm.mock.calls[0][2]?.detail)).toMatch(/copies of files git ignores \(from \.sidecar\/logs\)/);
+    expect(String(confirm.mock.calls[0][2]?.detail)).toMatch(/message: bench: results/);
+    expect(executor).not.toHaveBeenCalled();
+    expect(result.is_error).toBe(true);
+    expect(String(result.content)).toMatch(/The user declined this commit/);
+  });
+
+  it('asks in the chat about a shell commit that stages the copy itself', async () => {
+    fs.mkdirSync(path.join(repo, 'bench'));
+    fs.copyFileSync(path.join(repo, '.sidecar', 'logs', 'audit.jsonl'), path.join(repo, 'bench', 'audit.jsonl'));
+    const executor = vi.fn().mockResolvedValue('ok');
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+      executor,
+      requiresApproval: true,
+    });
+    const confirm = vi.fn().mockResolvedValue('Deny');
+    await executeTool(makeToolUse('run_command', { command: 'git add -A && git commit -m "bench: results"' }), {
+      approvalMode: 'autonomous',
+      confirmFn: confirm,
+      executorContext: { cwd: repo, isChatVisible: () => true },
+    });
+    expect(String(confirm.mock.calls[0][0])).toMatch(
+      /^SideCar wants to make a commit that needs a look first:\n- 1 of the new files are copies/,
+    );
+    expect(executor).not.toHaveBeenCalled();
+  });
+
+  it('commits an ordinary change in autonomous mode without asking', async () => {
+    fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\n');
+    git('add', 'a.ts');
+    const executor = vi.fn().mockResolvedValue('committed');
+    commitTool(executor);
+    const confirm = vi.fn();
+    await executeTool(makeToolUse('git_commit', { message: 'feat: a' }), {
+      approvalMode: 'autonomous',
+      confirmFn: confirm,
+      executorContext: { cwd: repo },
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(executor).toHaveBeenCalled();
   });
 });

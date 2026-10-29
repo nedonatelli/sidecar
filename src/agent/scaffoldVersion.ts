@@ -22,9 +22,9 @@
  * - **PATCH** (x.y.Z) — tuning WITHIN a mechanism (a threshold, a reprompt
  *   string) that doesn't change which mechanisms run.
  *
- * Discipline: bumping the version AND appending to the changelog below is part
- * of the release checklist whenever a scaffold mechanism changes. The
- * human-facing registry is `docs/scaffold-versions.md`.
+ * Discipline: the PR that changes a scaffold mechanism bumps the version AND
+ * appends to the changelog below (what counts: AGENTS.md "Scaffold version").
+ * The human-facing registry is `docs/scaffold-versions.md`.
  *
  * ## Changelog
  * - **3.1.0** (2026-07) — adaptive scaffolding ON by default, and capability
@@ -80,6 +80,62 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.14** (2026-10) — the commit check also asks about files .gitignore
+ *   matches: force-added ones, ones tracked from before the rule, and a
+ *   command that runs `git add -f`. PATCH: two more conditions on the 5.1.9
+ *   approval. (5.1.11 was held for this PR, which merged after 5.1.13.)
+ * - **5.1.13** (2026-10) — a completion-gate nudge no longer counts as the
+ *   user speaking. The action reprompt's "since the user's message" window
+ *   reset at every gate nudge, so a finished run was told it "did not call
+ *   any tools". A text-only user message now opens the window only when it is
+ *   part of the request or a steer. No-file-write skips a file the run
+ *   deleted. PATCH: a narrower trigger on an existing mechanism (agent eval
+ *   reprompt firings 45→13 e4b, 52→25 ministral-3; SWE canary 88→35, F2P and
+ *   resolve unchanged on 150 pairs).
+ * - **5.1.12** (2026-10) — git_push goes where its approval says. It pushes
+ *   to the branch's upstream remote (or a `remote` the call names), not
+ *   always `origin`; `setUpstream` now sets one. The approval for git_push
+ *   and for a shell `git push` names the remote's URL, whether the GitHub
+ *   repo is public, the target branch, and the commits that would go up.
+ *   PATCH: a parameter and description change on an existing tool.
+ * - **5.1.10** (2026-10) — grep runs without grep on PATH. On Windows the
+ *   grep tool falls back to the grep.exe Git for Windows ships in usr/bin
+ *   (beside the git on PATH, then the standard install folders); with no
+ *   grep anywhere it throws "grep is not installed… nothing was searched",
+ *   pointing at `git grep`, instead of "Grep failed" or a false "No matches
+ *   found". PATCH: an existing tool's executable lookup and error.
+ * - **5.1.9** (2026-10) — a commit is looked at before it is made. git_commit
+ *   and a shell `git commit` ask first, in every mode, when the commit would
+ *   add copies of gitignored files, exceed 10 MB (or 5 MB in one file), add
+ *   more than 500 files, or hold a path over 200 characters. PATCH: a new
+ *   approval condition on existing tools. (5.1.6–5.1.8 were held for PRs
+ *   still open when this merged, and are skipped.)
+ * - **5.1.5** (2026-10) — project config the request didn't ask for needs
+ *   approval (#351). Edits, writes and deletes of package manifests and
+ *   compiler, lint, test-runner and Python config, and shell commands that
+ *   rewrite them, ask in every mode unless the request names the file or that
+ *   kind of change; a declined change tells the agent to finish without it.
+ *   Agent eval: ministral-3 215/237 and gemma4:31b 233/237 on shared cases
+ *   (baselines 215, 235); 8 unrequested edits declined, none needed. PATCH:
+ *   a new approval guard on existing write tools.
+ * - **5.1.4** (2026-10) — an edit written out as a fake tool result runs
+ *   (#342). When a turn parses no text-form calls, an edit_file/write_file
+ *   call whose arguments sit in a `<tool_output tool="…">` block is
+ *   salvaged and run through the normal guards, behind the existing
+ *   codeAsTextRecoveryEnabled flag. qwen2.5-coder:7b agent eval 142→147/237;
+ *   ministral-3 and gemma4:31b never trigger it. PATCH: a new recovery
+ *   shape inside existing text-form tool-call recovery.
+ * - **5.1.3** (2026-10) — catch-up for guard, gate, reprompt and parser fixes
+ *   merged 2026-10-22..28 without a bump: completion gate (#282 installs are
+ *   not test runs, #283 a script that runs no test earns no credit, #325 no
+ *   read/write demands for quoted or missing files); reprompts (#285, #303,
+ *   #331); loop counting (#286 shell edits count as edits, #329 only applied
+ *   edits spend edit_file's budget); edit_file (#330 CRLF no-op diagnosis,
+ *   #336 dropped-import refusal, #343 a dropped-definition refusal only
+ *   where the edit would write); tool-call parsing (#301, #333); grep (#322).
+ *   PATCH: each tunes a firing condition or message inside an existing
+ *   mechanism. Manifests stamped 5.1.2 from after 2026-10-21 may carry any of
+ *   these; compare those runs by commit, not by version.
  * - **5.1.2** (2026-10) — iteration ceiling by tier (#237). When neither the
  *   caller nor the user sets one, the strong tier's default ceiling is 150
  *   (`maxIterations` in ScaffoldingProfile); medium and weak keep 50, pinned
@@ -195,7 +251,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.2';
+export const SCAFFOLD_VERSION = '5.1.14';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

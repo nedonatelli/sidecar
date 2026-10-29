@@ -265,6 +265,54 @@ describe('editFile audit mode', () => {
     expect(err).toContain('search field is CORRECT');
   });
 
+  // #162 ML-21: the dropped-definition guard refused edits that could not apply.
+  describe('dropped-definition guard runs only where the edit would write (#162)', () => {
+    const ctx = () => ({ config: { agentMode: 'audit' } as never });
+
+    it("the issue's case: an edit that already landed gets 'No change needed', not a dropped-definition refusal", async () => {
+      await buf.write(
+        'cart.py',
+        'class Cart:\n    def total(self):\n        return round(sum(self.items), 2)\n',
+        async () => undefined,
+      );
+      const msg = await editMsg(
+        {
+          path: 'cart.py',
+          search: '    def total(self):\n        return sum(self.items)',
+          replace: '        return round(sum(self.items), 2)',
+        },
+        ctx(),
+      );
+      expect(msg).toContain('No change needed');
+      expect(msg).not.toContain('drops the line');
+    });
+
+    it('a search that is not in the file gets the not-found answer', async () => {
+      await buf.write('nf.py', 'def other():\n    return 1\n', async () => undefined);
+      const msg = await editMsg(
+        { path: 'nf.py', search: 'def total(self):\n    return 0', replace: '    return 42' },
+        ctx(),
+      );
+      expect(msg).not.toContain('drops the line');
+      expect(msg).toMatch(/not found|does not appear in the file|nearest/i);
+    });
+
+    it('a search that matches and drops a definition is still refused, and writes nothing', async () => {
+      const original = 'def total(items):\n    return sum(items)\n';
+      await buf.write('m.py', original, async () => undefined);
+      const msg = await editMsg(
+        {
+          path: 'm.py',
+          search: 'def total(items):\n    return sum(items)',
+          replace: '    return round(sum(items), 2)',
+        },
+        ctx(),
+      );
+      expect(msg).toContain('drops the line `def total(items):`');
+      expect(buf.read('m.py').content).toBe(original);
+    });
+  });
+
   // #334: scikit-learn-10949 replaced `import numpy as np` while np stayed in use.
   it('refuses an edit that removes an import the file still uses, and writes nothing', async () => {
     const context = { config: { agentMode: 'audit' } as never };

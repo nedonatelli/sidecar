@@ -4,7 +4,7 @@
 // from a machine other than this workstation (#294).
 //
 //   node bench/swe/export_trajectories.mjs --in <run dir> --out <export dir> \
-//     [--redact <value>]... [--no-user]
+//     [--redact <value>]... [--redact-token <value>]... [--no-user]
 //
 // Reads every *.jsonl / *.log / *.json under --in (the SWE loop's
 // `*.trial*.jsonl` traces and `trajectory.*.log` files, plus run manifests).
@@ -15,7 +15,13 @@
 //   - API keys from the provider env vars, key-shaped tokens, bearer tokens;
 //   - this machine's home path, username and git author (name and email),
 //     and the username in any /home/…, /Users/…, C:\Users\… path;
-//   - each --redact value (e.g. a public DNS name for the endpoint).
+//   - each --redact value (e.g. a public DNS name for the endpoint);
+//   - each --redact-token value WITH the whole name around it: `--redact-token
+//     acme-` removes all of `acme-billing-tests-3f2a`, where --redact would
+//     leave `billing-tests-3f2a`. Pass these on the command line, never in a
+//     committed file: a list of what is sensitive is itself sensitive;
+//   - the Windows short form of the username (`JOHNSM~1`);
+//   - every run of three or more `ls -l` entries, whatever it lists.
 //
 // FAILS CLOSED: after rewriting, a stricter scan looks for anything that still
 // looks like a secret. On any hit nothing is written, and the hits are listed
@@ -45,7 +51,7 @@ const IN = arg('in');
 const OUT = arg('out');
 if (!IN || !OUT) {
   console.error(
-    'usage: node bench/swe/export_trajectories.mjs --in <run dir> --out <export dir> [--redact <value>]... [--no-user]',
+    'usage: node bench/swe/export_trajectories.mjs --in <run dir> --out <export dir> [--redact <value>]... [--redact-token <value>]... [--no-user]',
   );
   process.exit(2);
 }
@@ -89,6 +95,7 @@ function explicitValues() {
   if (name) e.push({ value: name, placeholder: '<author>' });
   if (email) e.push({ value: email, placeholder: '<email>' });
   for (const v of args('redact')) e.push({ value: v, placeholder: '<redacted>' });
+  for (const v of args('redact-token')) e.push({ value: v, placeholder: '<redacted>', token: true });
   return e;
 }
 

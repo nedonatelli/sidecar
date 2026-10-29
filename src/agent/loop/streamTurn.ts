@@ -8,6 +8,7 @@ import type { LoopState } from './state.js';
 import {
   parseTextToolCallsCleaned,
   printedCodeTarget,
+  salvageFakeToolOutputCalls,
   stripRepeatedContent,
   synthesizeFenceWrite,
 } from './textParsing.js';
@@ -438,10 +439,26 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     // set — otherwise a text-form call to a tool that plan mode has removed is
     // still parsed and recorded as a call. See resolveIterationTools.
     const iterationTools = resolveIterationTools(state);
-    const { calls: parsed, cleanedText } = parseTextToolCallsCleaned(rawText, iterationTools, {
+    const { calls: textCalls, cleanedText } = parseTextToolCallsCleaned(rawText, iterationTools, {
       callExpressions: state.config.codeAsTextRecoveryEnabled === true,
       echoSource: toolOutputText(state.messages),
     });
+    // A turn with no call that wrote its edit as a fake <tool_output> result
+    // meant that edit: run it, through every normal guard (#337).
+    let parsed = textCalls;
+    if (parsed.length === 0 && state.config.codeAsTextRecoveryEnabled === true) {
+      parsed = salvageFakeToolOutputCalls(rawText, iterationTools);
+      if (parsed.length > 0) {
+        state.logger?.info(
+          `Salvaged ${parsed.length} call(s) the model wrote as fake <tool_output> results (#337): ` +
+            parsed.map((p) => p.name).join(', '),
+        );
+        callbacks.onText(
+          `\n⚙️ Your reply contained a tool call written as a tool result — tools only run when you call them. ` +
+            `Running it now.\n`,
+        );
+      }
+    }
     for (const tu of parsed) {
       pendingToolUses.push(tu);
       state.logger?.logToolCall(tu.name, tu.input);
@@ -485,7 +502,8 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       const alreadyDone =
         isMutationRequest(userText) &&
         !looksLikeDeclinedAction(fullText) &&
-        (recentResultsShowWorkAlreadyDone(state.messages) || verifiedMutationSinceUserMessage(state.messages));
+        (recentResultsShowWorkAlreadyDone(state.messages, state.userRequestText) ||
+          verifiedMutationSinceUserMessage(state.messages, state.userRequestText));
       if (alreadyDone) {
         state.logger?.info('Fence-write coercion suppressed: work already applied or verified done');
       }

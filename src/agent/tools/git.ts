@@ -4,6 +4,7 @@ import type { ToolDefinition } from '../../ollama/types.js';
 import { GitCLI } from '../../github/git.js';
 import { GitHubAPI } from '../../github/api.js';
 import { getGitHubToken } from '../../github/auth.js';
+import { fetchRepoVisibility } from '../../github/repoVisibility.js';
 import { canPushDirect, summarizeProtection, formatProtectionMarkdown } from '../../github/branchProtection.js';
 import { resolveRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { compressGitDiff } from './compression.js';
@@ -180,14 +181,19 @@ export async function gitLog(input: Record<string, unknown>, context?: ToolExecu
 export const gitPushDef: ToolDefinition = {
   name: 'git_push',
   description:
-    'Push local commits on the current branch to the remote. ' +
+    'Push local commits on the current branch to a remote. ' +
     "Use only when the user has explicitly asked to push — pushing is irreversible from the agent's side and visible to collaborators. " +
+    'Without `remote`, pushes to the remote the branch already tracks, or `origin` when it tracks none. Pass `remote` when the user names a different one (e.g. a private mirror). ' +
     'Pass `setUpstream=true` when pushing a newly-created branch for the first time (git otherwise errors with "The current branch has no upstream"). ' +
     'Not for force-push — call `run_command "git push --force-with-lease"` explicitly, and expect the irrecoverable-operation confirmation gate to fire. ' +
-    'Example: `git_push()` for an existing branch, `git_push(setUpstream=true)` for a new one.',
+    'Example: `git_push()` for an existing branch, `git_push(setUpstream=true)` for a new one, `git_push(remote="bench", setUpstream=true)` to push a new branch to the `bench` remote.',
   input_schema: {
     type: 'object',
     properties: {
+      remote: {
+        type: 'string',
+        description: "Remote to push to. Default: the branch's upstream remote, else origin.",
+      },
       setUpstream: {
         type: 'boolean',
         description: 'If true, sets the upstream tracking branch for a newly-created branch. Default: false.',
@@ -197,39 +203,152 @@ export const gitPushDef: ToolDefinition = {
   },
 };
 
+export interface PushTarget {
+  remote: string;
+  branch: string;
+  url: string | null;
+  /** False when the remote has no branch of this name as of the last fetch. */
+  remoteBranchExists: boolean;
+}
+
+/**
+ * Where git_push will send the current branch. The approval prompt and the
+ * push both use this, so what the user approves is what runs: git_push used to
+ * push to `origin` whatever the branch tracked, and its approval showed only
+ * `setUpstream`.
+ */
+export async function resolvePushTarget(git: GitCLI, input: Record<string, unknown>): Promise<PushTarget> {
+  const branch = await git.getCurrentBranch();
+  if (!branch) throw new Error('HEAD is detached: switch to a branch before pushing.');
+  const requested = typeof input.remote === 'string' && input.remote.trim() ? input.remote.trim() : null;
+  const remote = requested ?? (await git.getUpstreamRemote(branch)) ?? 'origin';
+  const url = await git.getRemoteUrl(remote);
+  if (!url) throw new Error(`No remote named "${remote}". Check \`git remote -v\`.`);
+  return { remote, branch, url, remoteBranchExists: await git.refExists(`refs/remotes/${remote}/${branch}`) };
+}
+
+/**
+ * The remote a shell `git push` names: the first argument after `push` that is
+ * not an option, or '' when it names none (git then uses the upstream).
+ * Null when the command runs no `git push`.
+ */
+export function pushRemoteInCommand(command: string): string | null {
+  const m = command.match(/(?:^|[;&|(]\s*)git(?:\s+-C\s+\S+)?\s+push\b([^;&|)]*)/);
+  if (!m) return null;
+  const arg = m[1]
+    .trim()
+    .split(/\s+/)
+    .find((t) => t && !t.startsWith('-'));
+  return arg?.replace(/^['"]|['"]$/g, '') ?? '';
+}
+
+/**
+ * The destination lines for a `git push` run through run_command, appended to
+ * the command in its approval: which remote, its URL and visibility, and what
+ * that remote lacks. Null when the command is not a push.
+ */
+export async function describeShellGitPush(command: string, cwd?: string): Promise<string | null> {
+  const named = pushRemoteInCommand(command);
+  if (named === null) return null;
+  const git = new GitCLI(cwd);
+  const isUrl = /^(https?:\/\/|git@|ssh:\/\/)/.test(named);
+  let remote = named;
+  let url: string | null = isUrl ? named : null;
+  try {
+    if (!remote) {
+      const branch = await git.getCurrentBranch();
+      remote = (branch && (await git.getUpstreamRemote(branch))) || 'origin';
+    }
+    if (!isUrl) url = await git.getRemoteUrl(remote);
+  } catch {
+    // Unresolvable names are reported below rather than blocking the prompt.
+  }
+  if (!url) return `Pushes to: ${remote || '(unknown remote)'}, which has no URL configured here`;
+  const token = await getGitHubToken().catch(() => null);
+  const visibility = await fetchRepoVisibility(url, token);
+  const where = visibility ? ` (${visibility === 'public' ? 'PUBLIC' : visibility} repository)` : '';
+  const lines = [`Pushes to: ${isUrl ? url : `${remote} → ${url}`}${where}`];
+  if (!isUrl) {
+    const pending = await git.unpushedCommits(remote).catch(() => null);
+    if (pending && pending.count > 0) {
+      lines.push(`Commits on HEAD not on ${remote} (as of the last fetch): ${pending.count}`);
+      for (const s of pending.subjects) lines.push(`  ${s}`);
+      if (pending.shortstat) lines.push(`Changes: ${pending.shortstat}`);
+    }
+  }
+  if (visibility === 'public') lines.push('⚠ Anyone can read what this pushes.');
+  return lines.join('\n');
+}
+
+/**
+ * The approval text for a git_push: the destination by URL and visibility,
+ * and what would go up. Every line is something the user should check before
+ * a push they cannot take back.
+ */
+export async function describeGitPush(input: Record<string, unknown>, cwd?: string): Promise<string> {
+  const git = new GitCLI(cwd);
+  let target: PushTarget;
+  try {
+    target = await resolvePushTarget(git, input);
+  } catch (err) {
+    return `Push target could not be resolved: ${formatToolError(err)}`;
+  }
+  const token = await getGitHubToken().catch(() => null);
+  const visibility = target.url ? await fetchRepoVisibility(target.url, token) : null;
+  const where = visibility ? ` (${visibility === 'public' ? 'PUBLIC' : visibility} repository)` : '';
+  const lines = [
+    `Remote: ${target.remote} → ${target.url}${where}`,
+    `Branch: ${target.branch} → ${target.remote}/${target.branch}${target.remoteBranchExists ? '' : ' (new branch)'}`,
+  ];
+  const pending = await git.unpushedCommits(target.remote).catch(() => null);
+  if (pending) {
+    if (pending.count === 0) lines.push(`Commits: none that ${target.remote} lacks (as of the last fetch)`);
+    else {
+      lines.push(`Commits: ${pending.count} not on ${target.remote} (as of the last fetch)`);
+      for (const s of pending.subjects) lines.push(`  ${s}`);
+      if (pending.count > pending.subjects.length)
+        lines.push(`  … and ${pending.count - pending.subjects.length} more`);
+      if (pending.shortstat) lines.push(`Changes: ${pending.shortstat}`);
+    }
+  }
+  if (input.setUpstream) lines.push(`Sets ${target.branch} to track ${target.remote}/${target.branch}.`);
+  if (visibility === 'public') lines.push('⚠ Anyone can read what this pushes.');
+  return lines.join('\n');
+}
+
 export async function gitPush(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const config = getConfig();
   const git = new GitCLI(context?.cwd);
+  let target: PushTarget;
+  try {
+    target = await resolvePushTarget(git, input);
+  } catch (err) {
+    throw new Error(`git push failed: ${formatToolError(err)}`);
+  }
+  const push = () =>
+    input.setUpstream ? git.pushWithUpstream(target.remote, target.branch) : git.push(target.remote, target.branch);
 
   if (config.branchProtectionEnabled) {
     try {
-      const currentBranch = await git.getCurrentBranch();
-      if (currentBranch) {
-        const remoteUrl = await git.getRemoteUrl();
-        if (remoteUrl) {
-          const parsed = GitHubAPI.parseRepo(remoteUrl);
-          if (parsed) {
-            const token = await getGitHubToken().catch(() => null);
-            if (token) {
-              const api = new GitHubAPI(token);
-              const protection = await api
-                .getBranchProtection(parsed.owner, parsed.repo, currentBranch)
-                .catch(() => null);
-              if (!canPushDirect(protection)) {
-                const summary = formatProtectionMarkdown(summarizeProtection(protection));
-                return (
-                  `Branch protection check: \`${currentBranch}\` requires a pull request — direct push is blocked.\n\n` +
-                  summary +
-                  `\n\nPush aborted. Create a PR from this branch instead of pushing directly.`
-                );
-              }
-              if (config.branchProtectionWarnEvenIfPassing && protection) {
-                const lines = summarizeProtection(protection);
-                if (lines.length > 0) {
-                  const pushResult = input.setUpstream ? await git.push('origin', currentBranch) : await git.push();
-                  return `${pushResult}\n\nBranch protection on \`${currentBranch}\`:\n${formatProtectionMarkdown(lines)}`;
-                }
-              }
+      const parsed = target.url ? GitHubAPI.parseRepo(target.url) : null;
+      if (parsed) {
+        const token = await getGitHubToken().catch(() => null);
+        if (token) {
+          const api = new GitHubAPI(token);
+          const protection = await api.getBranchProtection(parsed.owner, parsed.repo, target.branch).catch(() => null);
+          if (!canPushDirect(protection)) {
+            const summary = formatProtectionMarkdown(summarizeProtection(protection));
+            return (
+              `Branch protection check: \`${target.branch}\` requires a pull request — direct push is blocked.\n\n` +
+              summary +
+              `\n\nPush aborted. Create a PR from this branch instead of pushing directly.`
+            );
+          }
+          if (config.branchProtectionWarnEvenIfPassing && protection) {
+            const lines = summarizeProtection(protection);
+            if (lines.length > 0) {
+              const pushResult = await push();
+              return `${pushResult}\n\nBranch protection on \`${target.branch}\`:\n${formatProtectionMarkdown(lines)}`;
             }
           }
         }
@@ -240,11 +359,7 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
   }
 
   try {
-    if (input.setUpstream) {
-      const branch = await git.getCurrentBranch();
-      return await git.push('origin', branch);
-    }
-    return await git.push();
+    return await push();
   } catch (err) {
     throw new Error(`git push failed: ${formatToolError(err)}`);
   }

@@ -366,7 +366,7 @@ describe('BUILT_IN_BACKEND_PROFILES', () => {
   it('uses Haiku (not Sonnet) as the Anthropic profile default', () => {
     const anthropic = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === 'anthropic');
     expect(anthropic?.defaultModel).toBe(ANTHROPIC_DEFAULT_MODEL);
-    expect(anthropic?.defaultModel).toBe('claude-haiku-4-5');
+    expect(anthropic?.defaultModel).toBe('claude-haiku-5-5');
   });
 });
 

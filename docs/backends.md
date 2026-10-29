@@ -111,7 +111,7 @@ SideCar has a dedicated `AnthropicBackend` that uses the native Messages API (`/
 "sidecar.model": "claude-sonnet-5-5"
 ```
 
-The **☰ menu → Backend → Anthropic Claude** profile sets the base URL and provider for you and selects `claude-haiku-4-5`, the lowest-cost default; set `sidecar.model` to the model you want for agent work.
+The **☰ menu → Backend → Anthropic Claude** profile sets the base URL and provider for you and selects `claude-haiku-5-5`, the lowest-cost default; set `sidecar.model` to the model you want for agent work.
 
 ### Recommended models
 
@@ -164,10 +164,10 @@ SideCar's `OpenAIBackend` speaks the standard Chat Completions API (`/v1/chat/co
 ```json
 "sidecar.baseUrl": "https://api.openai.com",
 "sidecar.provider": "openai",
-"sidecar.model": "gpt-4o"
+"sidecar.model": "gpt-6-luna"
 ```
 
-The **☰ menu → Backend → OpenAI** profile sets all three automatically (default model `gpt-4o`). OpenAI has deprecated `gpt-4o` (shutdown scheduled for 2027-01-14) and `gpt-5` (2026-12-11); pick a current model such as `gpt-6.1-sol` from the model list. See [OpenAI's deprecations page](https://developers.openai.com/api/docs/deprecations).
+The **☰ menu → Backend → OpenAI** profile sets all three automatically (default model `gpt-6-luna`, the low-cost tier); `gpt-6-sol` is stronger for agent work. OpenAI has deprecated `gpt-4o` (shutdown scheduled for 2027-01-14) and `gpt-5` (2026-12-11). Avoid `gpt-6.1-sol` and `gpt-6-astra` for agent work: OpenAI's Chat Completions API, which SideCar uses, doesn't support function calling with them. See [OpenAI's deprecations page](https://developers.openai.com/api/docs/deprecations).
 
 ### Rate-limit note
 
@@ -187,7 +187,7 @@ OpenRouter proxies hundreds of models from Anthropic, OpenAI, Google, Meta, Mist
 "sidecar.model": "anthropic/claude-sonnet-5.5"
 ```
 
-The **☰ menu → Backend → OpenRouter** profile sets these for you and selects `anthropic/claude-sonnet-4.5`. Keep `provider` on `openrouter` (or `auto`): with `openai`, requests go through the generic OpenAI backend and skip the OpenRouter cost accounting described below.
+The **☰ menu → Backend → OpenRouter** profile sets these for you and selects `anthropic/claude-sonnet-5.5`. Keep `provider` on `openrouter` (or `auto`): with `openai`, requests go through the generic OpenAI backend and skip the OpenRouter cost accounting described below.
 
 Set your OpenRouter API key via `SideCar: Set / Refresh API Key`. Get a key at [openrouter.ai](https://openrouter.ai).
 
@@ -198,7 +198,6 @@ OpenRouter uses fully qualified model IDs in the form `provider/model-name`. Exa
 | Model             | ID                            |
 | ----------------- | ----------------------------- |
 | Claude Sonnet 5.5 | `anthropic/claude-sonnet-5.5` |
-| Claude Sonnet 4.5 | `anthropic/claude-sonnet-4.5` |
 | GPT-6.1 Sol       | `openai/gpt-6.1-sol`          |
 | Gemini 3.8 Flash  | `google/gemini-3.8-flash`     |
 
@@ -261,7 +260,7 @@ Fireworks hosts open-weight models (DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixt
 ```json
 "sidecar.baseUrl": "https://api.fireworks.ai/inference/v1",
 "sidecar.provider": "fireworks",
-"sidecar.model": "accounts/fireworks/models/qwen2p5-coder-32b-instruct"
+"sidecar.model": "accounts/fireworks/models/glm-5p3"
 ```
 
 Set your Fireworks API key via `SideCar: Set / Refresh API Key`. Get a key at [fireworks.ai](https://fireworks.ai).
@@ -270,17 +269,16 @@ Set your Fireworks API key via `SideCar: Set / Refresh API Key`. Get a key at [f
 
 Fireworks uses fully qualified IDs with the `accounts/fireworks/models/` prefix:
 
-| Model              | ID                                                     |
-| ------------------ | ------------------------------------------------------ |
-| DeepSeek V3 (0324) | `accounts/fireworks/models/deepseek-v3-0324`           |
-| Qwen2.5 Coder 32B  | `accounts/fireworks/models/qwen2p5-coder-32b-instruct` |
-| Llama 3.3 70B      | `accounts/fireworks/models/llama-v3p3-70b-instruct`    |
-| Mixtral 8x22B      | `accounts/fireworks/models/mixtral-8x22b-instruct`     |
-| DeepSeek R1        | `accounts/fireworks/models/deepseek-r1`                |
+| Model               | ID                                              |
+| ------------------- | ----------------------------------------------- |
+| GLM 5.3             | `accounts/fireworks/models/glm-5p3`             |
+| DeepSeek V4.1 Flash | `accounts/fireworks/models/deepseek-v4p1-flash` |
+
+Fireworks retires serverless models often, sometimes with two weeks' notice; a model that's gone returns a "not found" error. Check the [Fireworks model library](https://fireworks.ai/models) (filter by serverless) or the [changelog](https://docs.fireworks.ai/updates/changelog) for what's current.
 
 ### Best models for coding
 
-`qwen2p5-coder-32b-instruct` and `deepseek-v3-0324` are both strong for agentic coding tasks. Fireworks pricing is generally lower than OpenAI for comparable open-weight capability, making it a cost-effective cloud option when you don't want to run models locally.
+GLM 5.3 (the menu default) is built for coding and long-horizon agent work, with tool calling and a 1M-token context, and DeepSeek V4.1 Flash is a cheaper option. Fireworks pricing is generally lower than OpenAI for comparable open-weight capability, making it a cost-effective cloud option when you don't want to run models locally.
 
 ---
 
@@ -374,7 +372,7 @@ Run Claude models through AWS Bedrock. Bedrock accepts the native Anthropic Mess
 No API key prompt. SideCar uses the standard AWS credential chain, in order:
 
 1. Environment: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` (for temporary creds).
-2. The shared credentials file `~/.aws/credentials` for the active profile (`AWS_PROFILE`, default `default`).
+2. The shared credentials file `~/.aws/credentials` (or the file `AWS_SHARED_CREDENTIALS_FILE` names) for the active profile (`AWS_PROFILE`, default `default`).
 
 > SSO / role-assumption / IMDS are not resolved natively — export static keys (e.g. via `aws sso login` + `aws configure export-credentials`, or your own tooling) into the environment.
 
@@ -446,11 +444,10 @@ SideCar can route requests through the VS Code `vscode.lm` Language Model API, w
 ### Enable
 
 ```json
-"sidecar.provider": "copilot",
-"sidecar.model": "gpt-4o"
+"sidecar.provider": "copilot"
 ```
 
-With `sidecar.provider` set to `copilot` (or **GitHub Copilot** picked in the backend menu), SideCar routes requests through `vscode.lm.selectChatModels`. It matches `sidecar.model` against a Copilot model's id, then its family; if neither matches, it uses the first model Copilot offers. The Copilot extension handles authentication, token management, and rate limiting — SideCar never sees or stores a Copilot token.
+Picking **GitHub Copilot** in the backend menu sets the provider and selects the first model Copilot offers you; which models those are depends on your Copilot plan. Pick another with `SideCar: Select Model`. SideCar routes requests through `vscode.lm.selectChatModels`, matching `sidecar.model` against a Copilot model's id, then its family; if neither matches, it uses the first model Copilot offers and says so in a notification. The Copilot extension handles authentication, token management, and rate limiting — SideCar never sees or stores a Copilot token.
 
 ### How it works
 

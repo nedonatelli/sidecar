@@ -4,6 +4,159 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.134.0] - 2026-10-29
+
+SideCar now asks before commits and pushes that could publish the wrong thing, in every approval
+mode including autonomous. That covers commits holding copies of ignored files, files `.gitignore`
+excludes, or unusually large content, and changes to project config the request didn't ask for. A
+push approval names the remote, and whether its GitHub repository is public. On Windows the `grep`
+tool works without grep on PATH. The "use your tools" reprompt no longer fires at runs that had
+already finished their change. The backend menu's default models are current again.
+
+### Changed
+
+- **A commit is looked at before it is made**
+  ([#318](https://github.com/nedonatelli/sidecar/issues/318)). `git_commit` and a shell
+  `git commit` ask first, in every mode, when the commit would add copies of files git ignores
+  (for example logs copied out of an ignored folder), more than 10 MB in total, a single file over
+  5 MB, more than 500 new files, or a path longer than 200 characters. They also ask when the
+  commit holds a file `.gitignore` matches: one force-added with `git add -f`, or one tracked from
+  before its ignore rule. For the tracked case the message suggests `git rm --cached <path>`. When
+  you decline, the agent is told not to commit those files another way and not to push.
+- **A push goes where its approval says**
+  ([#318](https://github.com/nedonatelli/sidecar/issues/318)). `git_push` pushes to the branch's
+  upstream remote, or a `remote` the call names, instead of always `origin`, and `setUpstream`
+  now sets one. Its approval, and the approval for a shell `git push`, names the remote's URL,
+  whether the GitHub repository is public, the target branch, and the commits that would go up.
+- **Project config the request didn't ask for needs approval**
+  ([#169](https://github.com/nedonatelli/sidecar/issues/169)). Edits, writes and deletes of
+  package manifests and compiler, lint, test-runner and Python config, plus shell commands that
+  rewrite them (`npm init`, `tsc --init`, `sed -i` and the like), ask first in every mode when the
+  request names neither the file nor that kind of change. In sandboxed mode a file write doesn't
+  ask, since you review the shadow worktree first.
+- **Gate nudges no longer reset the action reprompt**
+  ([#284](https://github.com/nedonatelli/sidecar/issues/284)). The reprompt is skipped once a
+  change has landed since your message, but every completion-gate nudge counted as a new message,
+  so a finished run could be told it "did not call any tools". Only your request and your steers
+  count now. The no-file-write check also stops asking about a file the run deleted.
+- **An edit written out as a fake tool result is run**
+  ([#337](https://github.com/nedonatelli/sidecar/issues/337)). Text-form tool callers sometimes
+  wrote an `edit_file` call and an invented result into the reply, so nothing reached disk. When
+  the block carries every required argument, the call now runs through the usual checks and
+  approvals.
+
+### Fixed
+
+- **`grep` on Windows without grep on PATH**
+  ([#315](https://github.com/nedonatelli/sidecar/issues/315)). Git for Windows' default PATH
+  setting leaves out its `usr/bin`, so every grep call failed, as "Grep failed" or as a false
+  "No matches found". The tool now uses the `grep.exe` that ships beside git. With no grep
+  anywhere it says nothing was searched and points at `git grep`.
+- **Copilot model substitution is shown**
+  ([#230](https://github.com/nedonatelli/sidecar/issues/230)). When Copilot doesn't offer the
+  configured model, a warning names the model used instead, with a **Select Model** button.
+- **Backend menu defaults are current**
+  ([#370](https://github.com/nedonatelli/sidecar/pull/370)). Switching backend from the ☰ menu
+  set models that were retired or failing. OpenAI now defaults to `gpt-6-luna` (`gpt-4o`
+  snapshots shut down 2027-01-14), Anthropic to `claude-haiku-5-5`, OpenRouter to
+  `anthropic/claude-sonnet-5.5`, and Fireworks to `glm-5p3` (the old default is no longer
+  serverless). GitHub Copilot takes the first model your plan offers. `@opus`, `@sonnet` and
+  `@haiku` point at the 5.5 models.
+- **Test Current Model no longer leaves a shell running**
+  ([#245](https://github.com/nedonatelli/sidecar/issues/245)). Its shell session is disposed
+  whether the test succeeds or fails.
+
+### Documentation
+
+- **A shorter README** ([#369](https://github.com/nedonatelli/sidecar/pull/369)), about half
+  its old length, with the quick start first. Per-provider setup, hardware guidance and the full
+  settings list are in the linked docs.
+
+### Benchmark tooling
+
+- The run exporter removes home paths after escaped newlines and in 8.3 short names, and omits
+  directory listings and temp-folder paths.
+- The SWE harness gives each task shell its own temp and home folders
+  ([#216](https://github.com/nedonatelli/sidecar/issues/216)).
+
+### Stats
+- 10603 total tests (591 test files)
+- 87 built-in tools, 11 skills
+
+## [0.133.0] - 2026-10-27
+
+Edits that would break a file are refused before they are written: an edit that removes an
+import the file still uses, and a dropped definition only where the edit would actually write.
+Tool calls written as text reach disk intact, and on Windows `grep` handles quoted patterns and
+Python output with non-ASCII characters no longer crashes. The completion gate and the
+"make the change now" reprompt stop asking for work the request didn't ask for. Bedrock stops
+offering retired models.
+
+### Changed
+
+- **An edit that removes a still-used import is refused**
+  ([#334](https://github.com/nedonatelli/sidecar/issues/334)). An applied `edit_file` sometimes
+  deleted a Python import while the file still used the name, so the module failed at import time
+  and every test importing it failed too. `edit_file` and `write_file` now refuse that edit and
+  say which line still uses the name; keep the import, or remove every use as well. A call
+  refused the same way again says so.
+- **The dropped-definition refusal fires only where the edit would write**
+  ([#162](https://github.com/nedonatelli/sidecar/issues/162)). It ran before matching, so an edit
+  that couldn't apply at all was told its `replace` "drops the line `def …`". The model followed
+  that advice and then got "search string not found". Such an edit now gets "search string not
+  found" with hints to the real lines first.
+- **Only applied edits spend `edit_file`'s budget**
+  ([#268](https://github.com/nedonatelli/sidecar/issues/268)). Calls that failed and changed
+  nothing counted against it, so a model that had made few real edits could be refused further
+  edits.
+- **A reprinted "already done" is checked when nothing changed**
+  ([#297](https://github.com/nedonatelli/sidecar/issues/297)). A model that reprinted a file's
+  existing code as "already done", without having changed anything, could end the run there. It
+  is now asked once to make the change, or to quote the existing lines that already do what was
+  asked and finish.
+- **A question or a "do not change" request is not a change request**
+  ([#327](https://github.com/nedonatelli/sidecar/issues/327)). "Did that rename land? Check
+  src/greeter.ts — do not change anything else." was read as a request to rename and change, so
+  the model was told to make the change now.
+- **No read or write demands for files the request only quotes, or that don't exist**
+  ([#317](https://github.com/nedonatelli/sidecar/issues/317)). The completion gate asked the
+  model to read or write file names that appeared in quoted output, such as a `pip list` row, or
+  that weren't in the workspace.
+
+### Fixed
+
+- **Text-form tool calls** ([#244](https://github.com/nedonatelli/sidecar/issues/244),
+  [#246](https://github.com/nedonatelli/sidecar/issues/246)):
+  - every call in a fence holding several JSON objects is dispatched, not just the first;
+  - a call quoted in the model's prose is no longer run;
+  - on Ollama and OpenAI-compatible backends, a `<tool_call>` whose arguments contain
+    `</tool_call>` inside a string is no longer cut short there.
+- **Ollama: a probed `tools` capability wins over the text heuristic**
+  ([#314](https://github.com/nedonatelli/sidecar/issues/314)). After three text-only turns that
+  looked like tool calls, SideCar stopped sending tool definitions even to a model Ollama reports
+  as supporting tools.
+- **`edit_file` diagnoses a search == replace no-op correctly on CRLF files**
+  ([#328](https://github.com/nedonatelli/sidecar/issues/328)). A correct `search` on a CRLF file
+  was reported as not being in the file, with the model's own text quoted back as the region to
+  copy.
+- **Windows: `grep` with quotes** ([#316](https://github.com/nedonatelli/sidecar/issues/316)).
+  Every pattern containing `"` failed with `grep: Trailing backslash`. The pattern is now passed
+  on stdin, and an invalid regex is searched literally.
+- **Windows: Python output in UTF-8**
+  ([#340](https://github.com/nedonatelli/sidecar/pull/340)). Python child processes wrote in the
+  console code page, so the first `✓` or accented name a test printed raised
+  `UnicodeEncodeError`. They now run with `PYTHONUTF8=1`.
+- **Bedrock** ([#112](https://github.com/nedonatelli/sidecar/issues/112)): retired models are no
+  longer offered, and two common errors say what to do: a retired model ("end of its life"), and
+  an account that AWS doesn't allow to invoke models in that region ("Error 002").
+- **Facet reviews and auto mode stream into one chat message**
+  ([#312](https://github.com/nedonatelli/sidecar/pull/312)) instead of one finished bubble per
+  streamed chunk.
+
+### Stats
+- 10439 total tests (584 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.132.0] - 2026-10-22
 
 Finished runs end sooner: a model that has already made its change is no longer told it

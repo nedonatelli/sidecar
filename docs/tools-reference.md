@@ -279,6 +279,17 @@ Create a git commit from the currently staged changes. Appends a `Co-Authored-By
 
 **Requires approval.**
 
+Before any commit (this tool, or `git commit` through `run_command`), SideCar looks at what it would hold. It asks first, in every approval mode including autonomous, when the commit would:
+
+- hold a file `.gitignore` matches: one staged with `git add -f`, or one git still tracks because it was committed before the ignore rule (the question names `git rm --cached <path>`, which stops tracking without deleting the file);
+- come from a command that force-adds (`git add -f` / `--force`);
+- add copies of files git ignores, such as logs copied out of `.sidecar/logs` into a tracked folder (dependency folders like `node_modules` are not counted);
+- total more than 10 MB, or hold a single file over 5 MB;
+- add more than 500 files;
+- hold a path longer than 200 characters, which a Windows clone without `core.longpaths` may not be able to check out.
+
+The question lists what it found. A shell command that runs `git add` or `git commit -a` is checked against the files it would stage. A copy made earlier in the same command line is not seen until it exists.
+
 ---
 
 ### `git_log`
@@ -293,11 +304,14 @@ Show recent commit history (hash, message, author, date).
 
 ### `git_push`
 
-Push local commits on the current branch to the remote.
+Push local commits on the current branch to a remote: the branch's upstream remote, or `origin` when it tracks none.
 
 | Parameter     | Type    | Required | Description                                                                             |
 | ------------- | ------- | -------- | --------------------------------------------------------------------------------------- |
+| `remote`      | string  | No       | Remote to push to, when it is not the branch's upstream (e.g. a private mirror).        |
 | `setUpstream` | boolean | No       | If true, sets the upstream tracking branch for a newly-created branch (default: false). |
+
+The approval names the remote's URL, whether the GitHub repository is public, the target branch, and the commits that would be pushed. A `git push` run through `run_command` gets the same destination lines under its command.
 
 Checks branch protection rules before pushing when `sidecar.pr.branchProtection.enabled` is true (the default).
 
@@ -480,6 +494,8 @@ Search file contents for a text pattern (string or regex).
 | `path`    | string | No       | Limit search to this file or directory. |
 
 Returns matching lines with file paths and line numbers. Output is capped and grouped by file.
+
+Runs the `grep` on PATH. On Windows, when there is none, it uses the `grep.exe` that Git for Windows installs in its `usr/bin` folder. With no grep at all the call fails with an error saying nothing was searched; use `git grep` through `run_command` instead.
 
 ---
 

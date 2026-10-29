@@ -12,7 +12,7 @@ import {
 } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
 import { compressGrepOutput } from './compression.js';
-import { execGrep, REGEX_SYNTAX_ERROR_RE } from './grepArgs.js';
+import { execGrep, isGrepMissing, REGEX_SYNTAX_ERROR_RE } from './grepArgs.js';
 
 // Search tools: search_files (glob), grep (content), find_references (symbol
 // graph). `find_references` reads the symbol graph off the default
@@ -241,6 +241,17 @@ function isTimeout(e: GrepError): boolean {
   return e.killed === true || e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT';
 }
 
+/**
+ * No grep executable at all. Before, ENOENT fell through to "Grep failed" plus a
+ * Perl-escape hint, or -- for a path-shaped pattern, or the relaxed search of a
+ * snippet -- to "No matches found", a false absence. Thrown, so the result is a
+ * tool error; `git grep` works wherever git does.
+ */
+export const GREP_MISSING_MESSAGE =
+  'grep is not installed on this machine, so nothing was searched -- this is not a "no matches" result. ' +
+  'Search with run_command instead: `git grep -n -E "pattern"` searches the tracked files of a git repository. ' +
+  'On Windows, Git for Windows ships a grep in its usr\\bin folder, which this tool uses when it can find it.';
+
 const PATH_PATTERN_CHARS = /[*?[\]{}()|+^$]/;
 
 /**
@@ -297,6 +308,7 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
       const capped = stdout.split('\n').slice(0, 200).join('\n');
       return capped.trim() ? capped : null;
     } catch (err) {
+      if (isGrepMissing(err)) throw new Error(GREP_MISSING_MESSAGE);
       const e = err as GrepError;
       const partial = (e.stdout ?? '').split('\n').slice(0, 200).join('\n');
       if (partial.trim()) return partial;
@@ -375,6 +387,7 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     if (!capped.trim()) return await explainZeroHit();
     return compressGrepOutput(capped);
   } catch (err) {
+    if (isGrepMissing(err)) throw new Error(GREP_MISSING_MESSAGE);
     const error = err as GrepError;
     if (error.code === 1) return await explainZeroHit();
     // Matches found before the failure are real matches. grep exits 2 when ANY
@@ -416,6 +429,7 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
         const found = literal.stdout.split('\n').slice(0, 200).join('\n');
         if (found.trim()) return `${note}\n${compressGrepOutput(found)}`;
       } catch (literalErr) {
+        if (isGrepMissing(literalErr)) throw new Error(GREP_MISSING_MESSAGE);
         const partialLiteral = ((literalErr as GrepError).stdout ?? '').split('\n').slice(0, 200).join('\n');
         if (partialLiteral.trim()) return `${note}\n${compressGrepOutput(partialLiteral)}`;
       }
