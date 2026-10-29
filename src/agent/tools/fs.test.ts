@@ -530,6 +530,34 @@ describe('editFile audit mode', () => {
     expect(editedSinceRead.size).toBe(0);
   });
 
+  it('records an inferred edit as "edited since read" too (#362)', async () => {
+    const source =
+      'def compute_total(prices, tax_rate):\n' +
+      '    subtotal = sum(prices)\n' +
+      '    return subtotal * (1 + tax_rate) + shipping_fee + handling_cost\n' +
+      '\n' +
+      'def describe_order(order_id, customer_name):\n' +
+      "    return f'{order_id}: {customer_name}'\n";
+    await buf.write('orders.py', source, async () => undefined);
+    const editedSinceRead = new Set<string>();
+    const context = {
+      config: { agentMode: 'audit' } as never,
+      filesReadThisTurn: new Set(['orders.py']),
+      editedSinceRead,
+    } as never;
+    const edit = fsTools.find((t) => t.definition.name === 'edit_file')!;
+    const out = await edit.executor(
+      {
+        path: 'orders.py',
+        search: '    return subtotal*(1+tax)', // absent: forces the inference path
+        replace: '    return round(subtotal * (1 + tax_rate) + shipping_fee + handling_cost, 2)',
+      },
+      context,
+    );
+    expect(String(out)).toMatch(/Applied inferred edit to orders\.py/);
+    expect([...editedSinceRead]).toEqual(['orders.py']);
+  });
+
   it('coerces edit_file(path, search) on a nonexistent file into a create (llama3.2 shape 1)', async () => {
     const context = { config: { agentMode: 'audit' } as never };
     const { workspace } = await import('vscode');
