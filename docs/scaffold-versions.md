@@ -40,6 +40,26 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.15 — the eol match note names the search's own line ending (2026-10)
+
+PATCH: the text of an existing note; no mechanism is added, removed or
+re-defaulted.
+
+- **What changed:** after an edit matched only by ignoring line endings, the
+  note told the model which line ending its search used. It read that from
+  the replacement after the replacement had been converted to the file's line
+  ending, so an LF search on a CRLF file was told "your search used CRLF line
+  endings", which describes no difference at all. Of 3,909 eol-tier notes
+  recorded, 3,794 were wrong this way. The note now names the search's own
+  line ending, and the trailing-space note also says when a multi-line
+  search's line endings differed.
+- **Measured:** e4b SWE canary, 50 tasks × 3 seeds against main `dde0c504`:
+  NULL on the primary (F2P progress 20% → 19%, resolve 13% → 12%, McNemar
+  p = 0.50). The note changes text the model sees in many edits: 82 of 150
+  runs first diverge at it. Both lost resolves were seaborn-3010 (seeds 11 and
+  22). On 10 further seeds that task resolved 10/10 in both arms, so the
+  losses were how those seeds played out.
+
 ### 5.1.14 — the commit check asks about ignored files themselves (2026-10)
 
 PATCH: two more conditions on the 5.1.9 commit approval; no mechanism is

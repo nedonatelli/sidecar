@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.15** (2026-10) — the eol match note names the search's own line
+ *   ending. It read the replacement after conversion to the file's ending, so
+ *   an LF search on a CRLF file was told it "used CRLF" (3,794 of 3,909 notes).
+ *   The trailing-space note also says when line endings differed. PATCH: text
+ *   of an existing note.
  * - **5.1.14** (2026-10) — the commit check also asks about files .gitignore
  *   matches: force-added ones, ones tracked from before the rule, and a
  *   command that runs `git add -f`. PATCH: two more conditions on the 5.1.9
@@ -251,7 +256,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.14';
+export const SCAFFOLD_VERSION = '5.1.15';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
