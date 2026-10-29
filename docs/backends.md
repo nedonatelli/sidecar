@@ -374,7 +374,7 @@ Run Claude models through AWS Bedrock. Bedrock accepts the native Anthropic Mess
 No API key prompt. SideCar uses the standard AWS credential chain, in order:
 
 1. Environment: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` (for temporary creds).
-2. The shared credentials file `~/.aws/credentials` for the active profile (`AWS_PROFILE`, default `default`).
+2. The shared credentials file `~/.aws/credentials` (or the file `AWS_SHARED_CREDENTIALS_FILE` names) for the active profile (`AWS_PROFILE`, default `default`).
 
 > SSO / role-assumption / IMDS are not resolved natively — export static keys (e.g. via `aws sso login` + `aws configure export-credentials`, or your own tooling) into the environment.
 
