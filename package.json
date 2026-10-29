@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.133.0",
+  "version": "0.134.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -441,7 +441,7 @@
               "sidecar",
               "agent"
             ],
-            "markdownDescription": "Maximum tokens the model may generate in one response, **reasoning included**. Reasoning models often think for 5–20K tokens before answering, so a low cap cuts them off mid-thought. Capped automatically at the model's own output limit (OpenAI) and at the context left after the prompt (Ollama). If a response still hits the cap, the agent asks the model to continue. On OpenAI, the cap is also reserved against your tokens-per-minute rate limit, so lower it if you hit rate limits on a low tier."
+            "markdownDescription": "Maximum tokens the model may generate in one response, **reasoning included**. Reasoning models often think for 5–20K tokens before answering, so a low cap cuts them off mid-thought. Capped automatically at the model's own output limit (OpenAI, Anthropic, Bedrock) and at the context left after the prompt (Ollama). If a response still hits the cap, the agent asks the model to continue. On OpenAI, the cap is also reserved against your tokens-per-minute rate limit, so lower it if you hit rate limits on a low tier."
           },
           "sidecar.toolPermissions": {
             "type": "object",
@@ -2027,7 +2027,7 @@
           "sidecar.databases.profiles": {
             "type": "array",
             "default": [],
-            "markdownDescription": "Database connection profiles for the `db_list_tables` / `db_describe_table` / `db_query` tools. Each entry: `{ id, name, dialect, filePath?, host?, port?, database?, user?, secretKey?, readOnly? }`. Passwords are stored in VS Code SecretStorage keyed by `secretKey` — never put passwords in this setting.",
+            "markdownDescription": "Database connection profiles for the `db_list_tables` / `db_describe_table` / `db_query` tools. Each entry: `{ id, name, dialect, filePath?, host?, port?, database?, user?, secretKey?, readOnly? }`. Passwords are stored in VS Code SecretStorage (run **SideCar: Set / Clear Database Password**), under `secretKey` if the profile names one — never put passwords in this setting.",
             "items": {
               "type": "object",
               "required": [
@@ -2085,6 +2085,12 @@
                 }
               }
             }
+          },
+          "sidecar.databases.duckdbPath": {
+            "type": "string",
+            "default": "",
+            "scope": "machine",
+            "markdownDescription": "An existing install of DuckDB's Node package (`@duckdb/node-api`) for DuckDB profiles: the package folder itself, or a folder whose `node_modules` contains it (a project, or your global npm folder). Checked before the engine **SideCar: Install DuckDB Engine** installs. A Python or CLI DuckDB install can't be used."
           },
           "sidecar.databases.queryTimeoutMs": {
             "type": "number",
@@ -3003,6 +3009,18 @@
         "title": "Set / Clear HuggingFace Token",
         "category": "SideCar",
         "icon": "$(key)"
+      },
+      {
+        "command": "sidecar.setDatabasePassword",
+        "title": "Set / Clear Database Password",
+        "category": "SideCar",
+        "icon": "$(key)"
+      },
+      {
+        "command": "sidecar.installDuckDbEngine",
+        "title": "Install DuckDB Engine",
+        "category": "SideCar",
+        "icon": "$(database)"
       },
       {
         "command": "sidecar.showSpend",

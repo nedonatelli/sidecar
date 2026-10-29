@@ -23,6 +23,7 @@ import type { RegisteredTool } from './shared.js';
 import type { ConnectionProfile, QueryResult } from '../../db/provider.js';
 import { assertReadOnly } from '../../db/provider.js';
 import { getRoot } from './shared.js';
+import { getDbPassword, takesPassword } from '../../db/dbPassword.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -115,7 +116,7 @@ async function dbListTables(input: Record<string, unknown>): Promise<string> {
 
   let provider;
   try {
-    provider = await connectionManager.getOrConnect(profile);
+    provider = await connectProfile(profile);
   } catch (err) {
     return `Error connecting to "${profile.name}": ${String(err)}`;
   }
@@ -154,7 +155,7 @@ async function dbDescribeTable(input: Record<string, unknown>): Promise<string> 
 
   let provider;
   try {
-    provider = await connectionManager.getOrConnect(profile);
+    provider = await connectProfile(profile);
   } catch (err) {
     return `Error connecting to "${profile.name}": ${String(err)}`;
   }
@@ -224,7 +225,7 @@ async function dbQuery(
 
   let provider;
   try {
-    provider = await connectionManager.getOrConnect(profile);
+    provider = await connectProfile(profile);
   } catch (err) {
     return `Error connecting to "${profile.name}": ${String(err)}`;
   }
@@ -284,7 +285,7 @@ async function dbExecute(
 
   let provider;
   try {
-    provider = await connectionManager.getOrConnect(profile);
+    provider = await connectProfile(profile);
   } catch (err) {
     return `Error connecting to "${profile.name}": ${String(err)}`;
   }
@@ -378,6 +379,25 @@ async function dbMigrateUp(input: Record<string, unknown>): Promise<string> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Connect with the profile's stored password (#364). A network database that
+ * refuses the connection with no password stored gets a pointer to the
+ * command that stores one.
+ */
+async function connectProfile(profile: ConnectionProfile) {
+  const password = takesPassword(profile) ? await getDbPassword(profile) : undefined;
+  try {
+    return await connectionManager.getOrConnect(profile, password);
+  } catch (err) {
+    if (takesPassword(profile) && password === undefined) {
+      throw new Error(
+        `${String(err)} -- no password is stored for "${profile.name}". Run "SideCar: Set Database Password" to store one.`,
+      );
+    }
+    throw err;
+  }
+}
 
 function findProfile(id: string, injectedConfig?: SideCarConfig): ConnectionProfile | undefined {
   return (injectedConfig ?? getConfig()).databaseProfiles.find((p) => p.id === id);

@@ -124,7 +124,11 @@ export async function listInstalledModelsInner(ctx: ModelListContext): Promise<I
 
   if (provider === 'copilot') {
     const models = await CopilotBackend.listAvailableModels();
-    return models.map((m) => ({ name: m.name || m.id, model: m.id, size: 0 }));
+    // `name` is the identifier everywhere else (the model picker, the
+    // post-switch check, sidecar.model). Copilot's display name ("Claude Sonnet
+    // 4.6") is not one: stored as sidecar.model it matched no id or family, so
+    // every request fell back with a "Copilot doesn't offer" warning (#230).
+    return models.map((m) => ({ name: m.id, model: m.id, size: 0 }));
   }
 
   if (provider === 'anthropic') {

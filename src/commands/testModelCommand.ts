@@ -68,19 +68,25 @@ export function registerTestModelCommand(context: ExtensionContext, getEvalProvi
           let doneCount = 0;
           progress.report({ message: `0 / ${SMOKE_CASE_COUNT} cases…` });
 
+          // Disposed when the run ends: an undisposed session keeps its shell alive,
+          // sitting in the workspace, until VS Code exits (#245).
           const shell = new ShellSession(cwd);
-          await shell.execute('SIDECAR_EVAL_TAGS=smoke npm run eval:llm 2>&1', {
-            timeout: 15 * 60 * 1000,
-            onOutput: (chunk: string) => {
-              for (const line of chunk.split('\n')) {
-                const result = parseVitestLine(line);
-                if (!result) continue;
-                evalProvider.updateCase(result.caseId, result.passed ? 'passed' : 'failed');
-                doneCount++;
-                progress.report({ message: `${doneCount} / ${SMOKE_CASE_COUNT} cases…` });
-              }
-            },
-          });
+          try {
+            await shell.execute('SIDECAR_EVAL_TAGS=smoke npm run eval:llm 2>&1', {
+              timeout: 15 * 60 * 1000,
+              onOutput: (chunk: string) => {
+                for (const line of chunk.split('\n')) {
+                  const result = parseVitestLine(line);
+                  if (!result) continue;
+                  evalProvider.updateCase(result.caseId, result.passed ? 'passed' : 'failed');
+                  doneCount++;
+                  progress.report({ message: `${doneCount} / ${SMOKE_CASE_COUNT} cases…` });
+                }
+              },
+            });
+          } finally {
+            shell.dispose();
+          }
         },
       );
 

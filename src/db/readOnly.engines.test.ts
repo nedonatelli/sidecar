@@ -39,7 +39,10 @@ describe('assertReadOnly sees past comments and quoted names', () => {
   });
 });
 
-describe('SQLite: a read on a read-write profile cannot write', () => {
+// Node 20 (still in the CI matrix) has no node:sqlite; VS Code runs Node 24.
+const hasNodeSqlite = !!(process as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule?.('node:sqlite');
+
+describe.skipIf(!hasNodeSqlite)('SQLite: a read on a read-write profile cannot write', () => {
   it('refuses a writing statement the text check would let through, and allows a read', async () => {
     const file = path.join(dir, 'rw.sqlite');
     const p = new SqliteProvider();

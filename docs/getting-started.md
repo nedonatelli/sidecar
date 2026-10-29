@@ -69,7 +69,7 @@ The sections below describe each backend in detail and also cover the manual set
 
 ## Using the Anthropic API
 
-**Recommended:** click the ☰ menu → **Backend** → **Anthropic Claude**. SideCar sets `baseUrl` / `provider` / `model` for you; with no key stored yet it offers **Set API Key** and saves the key to the Anthropic-specific SecretStorage slot. The menu entry selects `claude-haiku-4-5` (lowest cost); for agent work, switch `sidecar.model` to a current model such as `claude-sonnet-5-5`.
+**Recommended:** click the ☰ menu → **Backend** → **Anthropic Claude**. SideCar sets `baseUrl` / `provider` / `model` for you; with no key stored yet it offers **Set API Key** and saves the key to the Anthropic-specific SecretStorage slot. The menu entry selects `claude-haiku-5-5` (lowest cost); for agent work, switch `sidecar.model` to a current model such as `claude-sonnet-5-5`.
 
 **Manual:**
 

@@ -23,19 +23,19 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 
 You don't have to edit these settings by hand. Click the **☰ menu** in the chat header and pick a backend from the **Backend** submenu — SideCar's built-in profiles flip `baseUrl`, `provider`, and `model` in one click:
 
-| Profile          | Provider     | Base URL                                                  | Default model                                                                   |
-| ---------------- | ------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Local Ollama     | `ollama`     | `http://localhost:11434`                                  | `gemma4:e4b`                                                                    |
-| Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                               | `claude-haiku-4-5`                                                              |
-| OpenAI           | `openai`     | `https://api.openai.com`                                  | `gpt-4o`                                                                        |
-| OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`                                                   |
-| Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                                                           |
-| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/qwen2p5-coder-32b-instruct`                          |
-| AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |
-| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash` (shut down by Google — pick a current model after switching) |
-| GitHub Copilot   | `copilot`    | `vscode://github.copilot`                                 | `gpt-4o` (uses your Copilot subscription — no API key)                          |
+| Profile          | Provider     | Base URL                                                  | Default model                                                                |
+| ---------------- | ------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Local Ollama     | `ollama`     | `http://localhost:11434`                                  | `gemma4:e4b`                                                                 |
+| Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                               | `claude-haiku-5-5`                                                           |
+| OpenAI           | `openai`     | `https://api.openai.com`                                  | `gpt-6-luna`                                                                 |
+| OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-5.5`                                                |
+| Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                                                        |
+| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/glm-5p3`                                          |
+| AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-5-5` (AWS credential chain, no API key)          |
+| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash`                                                           |
+| GitHub Copilot   | `copilot`    | `vscode://github.copilot`                                 | first model Copilot offers you (uses your Copilot subscription — no API key) |
 
-Some profile defaults are older models. The Anthropic entry selects the lowest-cost `claude-haiku-4-5`; current Claude models are `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5`, and `claude-fable-5-1`. Google has shut down `gemini-2.0-flash` and recommends `gemini-3.8-flash`. OpenAI has deprecated `gpt-4o` (shutdown scheduled for 2027-01-14). Set `sidecar.model` after switching if you want a different model. The menu also has a **Custom endpoint** entry for any OpenAI-compatible server: it asks for the URL and then the API key, and sets `sidecar.provider` to `openai-compat`.
+The Anthropic and OpenAI entries select their providers' lowest-cost current models; for agent work, `claude-sonnet-5-5` or `gpt-6-sol` are stronger. The Copilot entry has no fixed default because the models Copilot offers depend on your plan: it picks the first one Copilot lists. Set `sidecar.model` after switching if you want a different model. The menu also has a **Custom endpoint** entry for any OpenAI-compatible server: it asks for the URL and then the API key, and sets `sidecar.provider` to `openai-compat`.
 
 Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your OpenAI key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
@@ -116,7 +116,7 @@ Each file in the planned-edits card has a **cancel button** — clicking it abor
 | `sidecar.agentTemperature`   | number | `0.2`      | Temperature for agent tool-calling requests. Lower values (0.1–0.3) produce more deterministic tool selection                                                                                                      |
 | `sidecar.agentMaxIterations` | number | `50`       | Max agent loop iterations. If unset, 150 for strong-tier models (Claude, GPT, Gemini) and 50 for the rest                                                                                                          |
 | `sidecar.agentMaxTokens`     | number | `200000`   | Max tokens per agent run                                                                                                                                                                                           |
-| `sidecar.maxOutputTokens`    | number | `32768`    | Max tokens per model response, reasoning included. Clamped to the model's output limit (OpenAI) and the context left after the prompt (Ollama). A response that hits it is continued                               |
+| `sidecar.maxOutputTokens`    | number | `32768`    | Max tokens per model response, reasoning included. Clamped to the model's output limit (OpenAI, Anthropic, Bedrock) and the context left after the prompt (Ollama). A response that hits it is continued           |
 | `sidecar.requestTimeout`     | number | `120`      | Timeout in seconds for each LLM request. Aborts if no tokens arrive within this window. Set to 0 to disable                                                                                                        |
 | `sidecar.toolPermissions`    | object | `{}`       | Per-tool overrides: `{ "tool_name": "allow" \| "deny" \| "ask" }`                                                                                                                                                  |
 | `sidecar.customModes`        | array  | `[]`       | Custom agent modes with dedicated system prompts and approval behavior. See [Custom modes](agent-mode#custom-modes)                                                                                                |
@@ -809,21 +809,25 @@ ELO ratings are persisted to `.sidecar/arena/elo.json` (K=32, multi-way pairwise
 
 Configure database connections for the `db_query`, `db_execute`, `db_migrate_up`, `db_list_tables`, `db_describe_table`, and `db_list_connections` agent tools.
 
-| Setting                            | Type   | Default | Description                                                                                                                                                                                                                                                                                   |
-| ---------------------------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.databases.profiles`       | array  | `[]`    | List of named database connection profiles. Each entry has `name` (identifier shown to the agent), `type` (`"sqlite"` / `"postgres"` / `"mysql"` / `"duckdb"`), and connection-specific fields (`path` for SQLite/DuckDB; `host`, `port`, `database`, `user`, `password` for Postgres/MySQL). |
-| `sidecar.databases.queryRowLimit`  | number | `10000` | Maximum rows returned by `db_query`. Results beyond this limit are truncated with a count of omitted rows.                                                                                                                                                                                    |
-| `sidecar.databases.queryTimeoutMs` | number | `30000` | Hard timeout in milliseconds for every `db_query` call. Prevents runaway queries from blocking the agent.                                                                                                                                                                                     |
+| Setting                            | Type   | Default | Description                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.databases.profiles`       | array  | `[]`    | Named connection profiles. Each entry has `id` (what the agent passes as `connection_id`), `name`, `dialect` (`"sqlite"` / `"postgres"` / `"mysql"` / `"duckdb"`), and the fields for its dialect: `filePath` for SQLite and DuckDB; `host`, `port`, `database`, `user` and optionally `secretKey` for Postgres and MySQL. `readOnly` defaults to `true`. |
+| `sidecar.databases.queryRowLimit`  | number | `10000` | Maximum rows returned by `db_query`. Results beyond this limit are truncated with a count of omitted rows.                                                                                                                                                                                                                                                |
+| `sidecar.databases.duckdbPath`     | string | `""`    | An existing install of DuckDB's Node package (`@duckdb/node-api`) for DuckDB profiles: the package folder, or a folder whose `node_modules` contains it. Machine-wide only; a workspace can't set it.                                                                                                                                                     |
+| `sidecar.databases.queryTimeoutMs` | number | `30000` | Hard timeout in milliseconds for every `db_query` call. Prevents runaway queries from blocking the agent.                                                                                                                                                                                                                                                 |
 
-**Example profile (SQLite):**
+**Example profiles:**
 
 ```json
 "sidecar.databases.profiles": [
-  { "name": "local", "type": "sqlite", "path": "./data/app.db" }
+  { "id": "local", "name": "Local app DB", "dialect": "sqlite", "filePath": "./data/app.db" },
+  { "id": "pg", "name": "Dev Postgres", "dialect": "postgres", "host": "localhost", "port": 5432, "database": "app", "user": "dev" }
 ]
 ```
 
-Store passwords using environment variables (`"password": "${DB_PASS}"`) rather than plaintext in `settings.json`.
+**Passwords** never go in `settings.json`. Run **SideCar: Set / Clear Database Password**, pick the connection, and the password is stored in VS Code SecretStorage (the OS keychain). It's stored under the profile's `secretKey` if it names one, otherwise under a key derived from its `id`.
+
+**Engines:** Postgres and MySQL drivers ship with SideCar. SQLite uses Node's built-in `node:sqlite`, which VS Code's runtime provides. DuckDB is opt-in, because its engine is a native module of about 40 MB per platform. Either run **SideCar: Install DuckDB Engine**, which runs `npm install @duckdb/node-api` into SideCar's storage folder (Node.js needs to be installed), or set `sidecar.databases.duckdbPath` to a copy you already have. It has to be DuckDB's Node package; a Python or CLI install can't be loaded. SideCar never loads DuckDB from the open project on its own, so a cloned repository can't supply code that runs when you query it.
 
 ## Dependency Drift Alerts (v0.91+)
 

@@ -6,6 +6,7 @@ import type {
   ColumnInfo,
   QueryResult,
 } from './provider.js';
+import { loadDuckDb } from './duckdbEngine.js';
 import { assertReadOnly, type QueryOptions } from './provider.js';
 
 // ---------------------------------------------------------------------------
@@ -65,15 +66,8 @@ export class DuckDbProvider implements DatabaseProvider {
   // -------------------------------------------------------------------------
 
   async connect(profile: ConnectionProfile): Promise<void> {
-    let mod: DuckDbModule;
-    try {
-      // @ts-expect-error — optional peer dep, not in devDependencies
-      mod = (await import('@duckdb/node-api')) as DuckDbModule;
-    } catch {
-      throw new Error(
-        'DuckDB not available — install @duckdb/node-api in your project to use the DuckDB database provider',
-      );
-    }
+    // Opt-in: the user installs the engine; the .vsix doesn't ship it (#364).
+    const mod = await loadDuckDb<DuckDbModule>();
 
     this.readOnly = profile.readOnly !== false;
 

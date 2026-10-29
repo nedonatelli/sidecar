@@ -30,6 +30,10 @@ Ten dedicated Git tools are available to the agent at all times:
 
 **Confirmation** means a native blocking modal appears before the tool executes — you can't miss it even while scrolled away from the chat panel.
 
+### What a push approval shows
+
+The approval for `git_push`, or for a `git push` through `run_command`, names where the push goes before you allow it: the remote and its URL, whether the GitHub repository is **public** (asked of the GitHub API, with your token when one is configured), the target branch and whether it is new, and the commits and diffstat that remote does not have yet. `git_push` pushes to the branch's upstream remote, so a branch that tracks a private mirror stays there.
+
 ### Branch protection awareness (v0.99+)
 
 Before `git_push`, SideCar checks the branch protection rules for the target branch. If direct pushes are blocked, the push is aborted and the agent is told to create a PR instead. Configure via:

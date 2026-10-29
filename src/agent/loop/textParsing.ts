@@ -831,6 +831,56 @@ export function parseCallExpressions(
 /** Tool-use id prefix of a write_file the loop synthesized from a printed fence. */
 export const FENCE_WRITE_ID_PREFIX = 'fence_write_';
 
+/** Tool-use id prefix of a call salvaged from a fake `<tool_output>` block (#337). */
+export const FAKE_OUTPUT_ID_PREFIX = 'fake_output_';
+
+/** Tools whose fake "result" is salvaged as the call it describes. Read-shaped fakes carry invented content, not a call. */
+const SALVAGEABLE_FAKE_OUTPUT = new Set(['edit_file', 'write_file']);
+const FAKE_OUTPUT_OPEN = /<tool_output tool="(\w+)">\s*/g;
+
+/**
+ * The calls a text-form model wrote as fake tool RESULTS (#337). qwen2.5-coder
+ * often stops calling tools and narrates the rest of the session itself:
+ *
+ *   <tool_response><tool_output tool="edit_file">
+ *   {"path":"src/math.ts","search":"return a - b;","replace":"return a + b;"}
+ *   </tool_response>
+ *
+ * The body is exactly the call it meant to make, but nothing ran and the file
+ * was never changed. In the 2026-10-26 qwen agent eval, 22 of 91 failed trials
+ * did this against 2 of 146 passed ones, and applying the salvaged calls would
+ * have passed the file checks of 14 failed trials.
+ *
+ * A real edit_file/write_file result is "File edited: …" text, never a JSON
+ * object of arguments, so quoting an earlier result cannot match. The body is
+ * the JSON object right after the opening tag, found by a string-aware scan:
+ * the model often closes with `</tool_response>` and no `</tool_output>`. Only
+ * an offered tool, and only when every required argument is present.
+ */
+export function salvageFakeToolOutputCalls(text: string, tools: ToolDefinition[]): ToolUseContentBlock[] {
+  const offered = new Map(tools.map((t) => [t.name, t]));
+  const out: ToolUseContentBlock[] = [];
+  for (const m of text.matchAll(FAKE_OUTPUT_OPEN)) {
+    const def = offered.get(m[1]);
+    if (!def || !SALVAGEABLE_FAKE_OUTPUT.has(def.name)) continue;
+    const at = m.index! + m[0].length;
+    if (text[at] !== '{') continue;
+    const end = findBalancedEnd(text, at, { dialect: 'json' });
+    if (end === -1) continue;
+    let input: unknown;
+    try {
+      input = JSON.parse(text.slice(at, end + 1));
+    } catch {
+      continue;
+    }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) continue;
+    const args = input as Record<string, unknown>;
+    if (!(def.input_schema.required ?? []).every((k) => k in args)) continue;
+    out.push({ type: 'tool_use', id: `${FAKE_OUTPUT_ID_PREFIX}${out.length}`, name: def.name, input: args });
+  }
+  return out;
+}
+
 /** Fence language ↔ file extension sanity map for the fence-write synthesizer. */
 const LANG_TO_EXTS: Record<string, string[]> = {
   python: ['py'],

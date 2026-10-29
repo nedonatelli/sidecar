@@ -475,6 +475,53 @@ describe('executeToolUses — fence-write flag', () => {
   });
 });
 
+// #169: the executor asks before a config change the USER's request did not
+// name. A sub-agent's task is the parent model's words, so it carries the
+// parent run's request instead of standing in for it.
+describe("executeToolUses — the user's request reaches the executor", () => {
+  it('passes the run request, or the origin request a sub-agent inherited', async () => {
+    const seen: unknown[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(executeTool).mockImplementation(async (toolUse: any, opts: any) => {
+      seen.push(opts.executorContext.userRequestText);
+      return { type: 'tool_result', tool_use_id: toolUse.id, content: 'ok', is_error: false };
+    });
+    const run = (options: AgentOptions) =>
+      executeToolUses(
+        catalogState({ userRequestText: 'Add JSDoc to src/math.ts' }),
+        [use('read_file', { path: 'a.ts' })],
+        {} as SideCarClient,
+        options,
+        stubCallbacks(),
+        new AbortController().signal,
+      );
+    await run({} as AgentOptions);
+    await run({ originRequestText: 'Enable strict mode' } as AgentOptions);
+    expect(seen).toEqual(['Add JSDoc to src/math.ts', 'Enable strict mode']);
+    vi.mocked(executeTool).mockReset();
+  });
+
+  it('hands a spawned sub-agent the user request, not the task the model wrote', async () => {
+    vi.mocked(spawnSubAgent).mockResolvedValueOnce({
+      id: 's',
+      task: 't',
+      output: 'ok',
+      success: true,
+      charsConsumed: 0,
+    });
+    await executeToolUses(
+      catalogState({ userRequestText: 'Add JSDoc to src/math.ts' }),
+      [use('spawn_agent', { task: 'Fix tsconfig.json so tsc runs' })],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    const subOptions = vi.mocked(spawnSubAgent).mock.calls[0][5] as AgentOptions;
+    expect(subOptions.originRequestText).toBe('Add JSDoc to src/math.ts');
+  });
+});
+
 describe('executeToolUses — memory + chain recording', () => {
   it('records a "pattern" memory on successful tool execution', async () => {
     vi.mocked(executeTool).mockResolvedValueOnce({

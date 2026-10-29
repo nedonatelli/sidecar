@@ -7,6 +7,7 @@ import {
   hasFakeToolOutput,
   maybeInjectActionReprompt,
   recentResultsShowWorkAlreadyDone,
+  isUserRequestMessage,
 } from './actionReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 
@@ -844,6 +845,64 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
           'Deleted src/old.ts as requested.',
         ),
       ).toBe(false);
+    });
+
+    describe('a completion-gate nudge is not the user speaking again', () => {
+      // night-1027, delete-file-when-requested on ministral-3: the file was
+      // deleted, the no-read and no-file-write gates each pushed a plain
+      // sentence, and the reprompt then fired three times on a finished run --
+      // each nudge looked like a new user message with no change after it.
+      const REQ = 'Delete src/legacy.ts. Do not touch src/modern.ts.';
+      const DELETED = res('<tool_output tool="delete_file">\nFile deleted: src/legacy.ts\n</tool_output>');
+      const nudge = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+      const NO_READ = nudge(
+        'The request mentions `src/modern.ts`, but no read_file, grep, or other file-reading tool has been called on it.',
+      );
+      const fires = (messages: unknown[], userRequestText: string | undefined, text: string) =>
+        maybeInjectActionReprompt(
+          stubLoopState({
+            tools: [{ name: 'edit_file' }] as never,
+            messages: messages as never,
+            userRequestText,
+            config: { codeAsTextRecoveryEnabled: true } as never,
+          }),
+          text,
+          stubCallbacks(),
+        );
+
+      it('the deletion still counts after a gate nudge', () => {
+        const messages = [{ role: 'user', content: REQ }, asst, DELETED, asst, NO_READ];
+        expect(fires(messages, REQ, 'src/legacy.ts has been deleted; src/modern.ts is untouched.')).toBe(false);
+      });
+
+      it("the user's message is told apart by the request text; without it, only by the '[' prefix", () => {
+        const nudgeText = NO_READ.content[0].text;
+        expect(isUserRequestMessage(REQ, REQ)).toBe(true);
+        expect(isUserRequestMessage(nudgeText, REQ)).toBe(false);
+        expect(isUserRequestMessage('[No tools called] ...', REQ)).toBe(false);
+        // Hand-built states carry no request text: the old rule.
+        expect(isUserRequestMessage(nudgeText, undefined)).toBe(true);
+        expect(isUserRequestMessage('[Nothing changed] ...', undefined)).toBe(false);
+      });
+
+      it('a real steer after the change IS the user speaking: the old change no longer excuses a text-only turn', () => {
+        const steer = 'Also rename greet to hello in src/modern.ts.';
+        const messages = [{ role: 'user', content: REQ }, asst, DELETED, { role: 'user', content: steer }];
+        expect(fires(messages, `${REQ}\n${steer}`, 'The rename in src/modern.ts is straightforward.')).toBe(true);
+      });
+
+      it('a read request answered after a gate nudge is still an answer', () => {
+        const READ_REQ = 'Read src/config.ts and tell me the default port.';
+        const READ = res('<tool_output tool="read_file">\nexport const PORT = 8080;\n</tool_output>');
+        const messages = [
+          { role: 'user', content: READ_REQ },
+          asst,
+          READ,
+          asst,
+          nudge('The request mentions `src/x.ts`.'),
+        ];
+        expect(fires(messages, READ_REQ, 'The default port in src/config.ts is 8080.')).toBe(false);
+      });
     });
 
     it('STILL fires on a first turn that only announces the work', () => {

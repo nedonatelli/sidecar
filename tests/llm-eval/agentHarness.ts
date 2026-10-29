@@ -681,9 +681,20 @@ export async function runAgentCase(
       : {}),
     toolRuntime,
     ...(evalCase.mcpManager ? { mcpManager: evalCase.mcpManager } : {}),
-    // Permissive confirmFn for the rare case an irrecoverable-gate
-    // or alwaysRequireApproval tool fires under autonomous mode.
-    confirmFn: async () => 'Allow',
+    // Permissive confirmFn for the rare case an irrecoverable-gate or
+    // alwaysRequireApproval tool fires under autonomous mode, with one
+    // exception. A project-config change the request didn't ask for (#169) is
+    // declined, as a user who asked for something else would: allowing it made
+    // the gate invisible here, since every config edit still landed. Every
+    // prompt is recorded as an `[approval]` line, so a run shows how often the
+    // agent asked and what it did after a no. `allowConfigEdits` opts a case out.
+    confirmFn: async (message, _actions, confirmOptions) => {
+      const configFile = confirmOptions?.configFile;
+      const answer = configFile && !evalCase.allowConfigEdits ? 'Deny' : 'Allow';
+      const what = configFile ? `config-edit ${configFile}` : message.split('\n')[0].slice(0, 120);
+      trajectory.push({ type: 'text', text: `\n[approval] ${what} -> ${answer}\n` });
+      return answer;
+    },
     // Cooperative clarifyFn: the test plays a helpful user. A clarifying
     // question is a legitimate move (better than guessing wrong), so we answer
     // it and let the agent continue — the case measures whether the model

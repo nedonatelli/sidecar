@@ -9,7 +9,8 @@ const warnedSubstitutions = new Set<string>();
 
 /**
  * The model SideCar actually uses for a configured Copilot model id: the id,
- * else the family, else Copilot's first available model. Used by both the chat
+ * else the family, else a Copilot model with that display name, else Copilot's
+ * first available model. Used by both the chat
  * path and the context-length lookup, so the two can't disagree.
  *
  * The last step used to call `selectChatModels()` with no selector, which
@@ -17,7 +18,8 @@ const warnedSubstitutions = new Set<string>();
  * silently. A default Copilot no longer offers (gpt-4o, retired from Copilot
  * 2025-08-06) therefore ran on whichever model happened to be first, possibly
  * another extension's, with no notice (#230). It now stays with Copilot and says
- * which model it picked.
+ * which model it picked, in the log and once in a notification that offers the
+ * model picker.
  */
 export async function resolveCopilotModel(
   modelId: string,
@@ -28,6 +30,10 @@ export async function resolveCopilotModel(
   if (models.length > 0) return models[0];
   models = await select(COPILOT);
   if (models.length === 0) return null;
+  // A display name ("Claude Sonnet 4.6") is the model it names: before #230's
+  // fix the model list stored names, so existing settings hold them.
+  const byName = models.find((m) => m.name === modelId);
+  if (byName) return byName;
   const chosen = models[0];
   if (!warnedSubstitutions.has(modelId)) {
     warnedSubstitutions.add(modelId);
@@ -35,6 +41,14 @@ export async function resolveCopilotModel(
       `[SideCar] Copilot doesn't offer "${modelId}"; using ${chosen.name} (${chosen.id}) instead. ` +
         `Pick a model with SideCar: Select Model.`,
     );
+    void vscode.window
+      .showWarningMessage(
+        `Copilot doesn't offer "${modelId}", so SideCar is using ${chosen.name} instead.`,
+        'Select Model',
+      )
+      .then((choice) => {
+        if (choice === 'Select Model') void vscode.commands.executeCommand('sidecar.selectModel');
+      });
   }
   return chosen;
 }

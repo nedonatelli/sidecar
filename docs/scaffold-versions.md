@@ -40,6 +40,144 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.15 — the eol match note names the search's own line ending (2026-10)
+
+PATCH: the text of an existing note; no mechanism is added, removed or
+re-defaulted.
+
+- **What changed:** after an edit matched only by ignoring line endings, the
+  note told the model which line ending its search used. It read that from
+  the replacement after the replacement had been converted to the file's line
+  ending, so an LF search on a CRLF file was told "your search used CRLF line
+  endings", which describes no difference at all. Of 3,909 eol-tier notes
+  recorded, 3,794 were wrong this way. The note now names the search's own
+  line ending, and the trailing-space note also says when a multi-line
+  search's line endings differed.
+- **Measured:** e4b SWE canary, 50 tasks × 3 seeds against main `dde0c504`:
+  NULL on the primary (F2P progress 20% → 19%, resolve 13% → 12%, McNemar
+  p = 0.50). The note changes text the model sees in many edits: 82 of 150
+  runs first diverge at it. Both lost resolves were seaborn-3010 (seeds 11 and
+  22). On 10 further seeds that task resolved 10/10 in both arms, so the
+  losses were how those seeds played out.
+
+### 5.1.14 — the commit check asks about ignored files themselves (2026-10)
+
+PATCH: two more conditions on the 5.1.9 commit approval; no mechanism is
+added, removed or re-defaulted.
+
+- **What changed:** 5.1.9 asked about _copies_ of ignored files, but not about
+  a commit holding a path `.gitignore` itself matches. `git add` refuses such a
+  path unless forced, so these were staged with `git add -f` or were tracked
+  before the rule existed (git keeps tracking them). The check now runs
+  `git check-ignore --no-index` over everything the commit would hold and asks
+  about either kind, and asks about a command that force-adds, whose files are
+  not staged yet when it looks.
+- **Measured:** not run through an eval; no eval case commits ignored files.
+  An ordinary source change passes every check.
+- **Number:** 5.1.11 was held for this change while it was open; it merged
+  after 5.1.13, so 5.1.11 is skipped.
+
+### 5.1.13 — gate nudges don't reset the reprompt's window (2026-10)
+
+PATCH: a narrower trigger on an existing mechanism; nothing is added, removed
+or re-defaulted.
+
+- **What changed:** the action reprompt is skipped when a change has landed,
+  or a read request was answered, since the user's message. It took any
+  user-role text not starting with `[` as the user's message, so each
+  completion-gate nudge restarted the window and a finished run was
+  re-prompted for not calling tools. A text-only user message now counts only
+  when its text is part of the request or a steer. No-file-write no longer
+  asks for a file the run deleted.
+- **Measured (bundle night, with #350):** agent eval reprompt firings 45→13
+  on gemma4:e4b and 52→25 on ministral-3, pass rate 235→233 and 214→222 of 243. e4b SWE canary, 150 pairs: firings 88→35, F2P 20%→20%, resolve
+  13%→13%, no task changed.
+
+### 5.1.12 — git_push goes where its approval says (2026-10)
+
+PATCH: a new optional parameter and a description change on an existing tool;
+no mechanism is added, removed or re-defaulted.
+
+- **What changed:** `git_push` pushed to `origin` whatever the branch tracked,
+  and `setUpstream` did not set an upstream. It now pushes to the branch's
+  upstream remote, or to a `remote` the call names, falling back to `origin`;
+  `setUpstream` pushes with `-u`. The approval for `git_push`, and for a
+  `git push` run through `run_command`, shows the remote's URL, whether the
+  GitHub repository is public, the target branch (and whether it is new), and
+  the commits and diffstat that would go up.
+- **Measured:** not run through an eval: no eval case pushes.
+
+### 5.1.10 — grep without grep on PATH (2026-10)
+
+PATCH: an existing tool's executable lookup and error text; no mechanism is
+added, removed or re-defaulted.
+
+- **What changed:** the `grep` tool ran `grep` from PATH. Git for Windows'
+  default PATH setting adds only its `cmd` folder, so a machine with git and
+  Git Bash could still have no `grep` for the tool to start. Every call then
+  failed with ENOENT, reported as "Grep failed" with a regex hint, or — for a
+  path-shaped pattern, or the relaxed search of a pasted snippet — as "No
+  matches found", a false absence. On Windows the tool now uses the
+  `usr/bin/grep.exe` beside the git on PATH, then the standard install
+  folders. With no grep anywhere it is a tool error that says nothing was
+  searched and points at `git grep`.
+- **Measured:** not run through an eval; the eval machine has grep on PATH.
+  On one Windows workstation 114 of 120 grep calls failed this way.
+
+### 5.1.9 — a commit is looked at before it is made (2026-10)
+
+PATCH: a new approval condition on existing tools; no mechanism is removed or
+re-defaulted. 5.1.6–5.1.8 were held for PRs still open when this merged,
+and are skipped.
+
+- **What changed:** nothing looked at what a commit held. In one autonomous
+  run the agent copied two gitignored folders (its own `.sidecar/logs` and
+  `.sidecar/cache`) into a tracked folder and committed 757 files, 70.7 MB,
+  then pushed them. `.gitignore` matches paths, so the copy was an ordinary
+  new file. `git_commit` and a shell `git commit` now ask first, in every
+  mode, when the commit would add copies of gitignored files (same content;
+  dependency folders excluded), exceed 10 MB in total or 5 MB in one file,
+  add more than 500 files, or hold a path over 200 characters. Declined, or
+  with no one to ask, the agent is told not to commit them another way or
+  push.
+- **Measured:** not run through an eval; no eval case commits files like
+  these. An ordinary source change passes every check.
+
+### 5.1.5 — unrequested project-config changes need approval (2026-10)
+
+PATCH: a new approval guard on the existing write tools and `run_command`; no
+mechanism is added, removed or re-defaulted.
+
+- **What changed:** edits, writes and deletes of package manifests and
+  compiler, lint, test-runner and Python config, plus shell commands that
+  rewrite them (`npm init`, `npm pkg set`, `tsc --init`, `sed -i`, redirects),
+  need approval in every mode when the user's request names neither the file
+  nor that kind of change. A declined or unanswerable change tells the agent to
+  finish without it and say what it would need. Sub-agents judge against the
+  user's request. (#351)
+- **Measured:** agent eval, 3 trials per case, against the release-0133
+  baselines. ministral-3 215/237 and gemma4:31b 233/237 on the shared cases
+  (215 and 235); the gemma −2 is on large-file cases the guard never touched.
+  The two new cases that ask for config changes: strict mode 3/3 on both,
+  test script 3/3 on gemma and 1/3 on ministral (both misses are the model's
+  own script). 8 unrequested config edits were declined; none was needed.
+
+### 5.1.4 — an edit written out as a fake tool result runs (2026-10)
+
+PATCH: a new recovery shape inside existing text-form tool-call recovery,
+behind the same `codeAsTextRecoveryEnabled` flag. Models that call tools
+natively are unaffected.
+
+- **What changed:** text-form callers sometimes write an `edit_file` call and
+  an invented result into the reply instead of calling the tool. When a turn
+  parses no text-form calls, an `edit_file` or `write_file` call whose
+  arguments sit in a `<tool_output tool="…">` block is salvaged and run
+  through every normal guard and approval. Salvaged calls carry the
+  `fake_output_` ID prefix. (#342)
+- **Measured:** agent eval, 79 cases × 3 trials. qwen2.5-coder:7b 142 → 147/237,
+  with the salvage firing in 11 trials (9 passed). ministral-3 213/237 and
+  gemma4:31b 236/237 against 215 and 235 baselines, with no salvage firing.
+
 ### 5.1.3 — catch-up for fixes merged without a bump (2026-10)
 
 PATCH: each change tunes a firing condition or a message inside an existing

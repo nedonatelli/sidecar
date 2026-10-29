@@ -84,6 +84,25 @@ describe('the gates on issue-report text (#317)', () => {
     expect(await buildNoFileWriteReprompt(msgs, new Set(), undefined, async () => false)).toBeNull();
   });
 
+  it('no-file-write does not ask about a file the run deleted (delete-file-when-requested)', async () => {
+    const msgs = [
+      { role: 'user' as const, content: 'Delete src/legacy.ts. Do not touch src/modern.ts.' },
+      {
+        role: 'user' as const,
+        content: [
+          {
+            type: 'tool_result' as const,
+            tool_use_id: 't1',
+            content: '<tool_output tool="delete_file">\nFile deleted: src/legacy.ts\n</tool_output>',
+          },
+        ],
+      },
+    ];
+    // Neither file is in editedFiles; legacy.ts is gone from disk, modern.ts exists.
+    const exists = async (p: string) => p.endsWith('modern.ts');
+    expect(await buildNoFileWriteReprompt(msgs, new Set(), undefined, exists)).toBeNull();
+  });
+
   it('no-file-write still asks about a file the request asks to create', async () => {
     const msgs = [{ role: 'user' as const, content: 'Create src/hello.ts exporting hello().' }];
     const r = await buildNoFileWriteReprompt(msgs, new Set(), undefined, async () => false);

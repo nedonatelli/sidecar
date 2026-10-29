@@ -1,4 +1,4 @@
-import { window, commands, workspace, env, Uri, ExtensionContext } from 'vscode';
+import { window, commands, workspace, env, Uri, ExtensionContext, ProgressLocation } from 'vscode';
 import {
   getConfig,
   isLocalOllama,
@@ -13,6 +13,14 @@ export const SKILL_MARKETPLACE_URL = 'https://github.com/topics/sidecar-skill';
 /** Public MCP marketplace — browseable GitHub topic index of `mcp-server` repos. */
 export const MCP_MARKETPLACE_URL = 'https://github.com/topics/mcp-server';
 import { registerNoSqlMcpCommands } from './noSqlMcpCommands.js';
+import { setDbPassword, clearDbPassword, takesPassword } from '../db/dbPassword.js';
+import {
+  DUCKDB_ENGINE_PACKAGE,
+  duckDbEngineDir,
+  installDuckDbEngine,
+  isDuckDbEngineInstalled,
+  removeDuckDbEngine,
+} from '../db/duckdbEngine.js';
 import { bedrockRuntimeOrigin } from '../ollama/bedrockBackend.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
@@ -241,6 +249,82 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
       }
       await setHuggingFaceToken(trimmed);
       window.showInformationMessage('HuggingFace token saved to SecretStorage.');
+    }),
+    commands.registerCommand('sidecar.setDatabasePassword', async () => {
+      const profiles = getConfig().databaseProfiles.filter(takesPassword);
+      if (profiles.length === 0) {
+        window.showInformationMessage(
+          'No Postgres or MySQL profile in sidecar.databases.profiles. SQLite and DuckDB files take no password.',
+        );
+        return;
+      }
+      const profilePick = await window.showQuickPick(
+        profiles.map((p) => ({ label: p.name, description: `${p.dialect} ${p.host ?? ''}`.trim(), profile: p })),
+        { title: 'SideCar: Database password', placeHolder: 'Which connection?' },
+      );
+      if (!profilePick) return;
+      const action = await window.showQuickPick(
+        [
+          { label: 'Set / Update password', id: 'set' },
+          { label: 'Clear stored password', id: 'clear' },
+        ],
+        { title: `SideCar: Password for ${profilePick.label}` },
+      );
+      if (!action) return;
+      if (action.id === 'clear') {
+        await clearDbPassword(profilePick.profile);
+        window.showInformationMessage(`Password for "${profilePick.label}" removed.`);
+        return;
+      }
+      const value = await window.showInputBox({
+        prompt: `Password for "${profilePick.label}" (stored in SecretStorage, not in settings)`,
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (value === undefined) return;
+      if (!value) {
+        window.showWarningMessage('Password was empty -- not saved.');
+        return;
+      }
+      await setDbPassword(profilePick.profile, value);
+      window.showInformationMessage(`Password for "${profilePick.label}" saved to SecretStorage.`);
+    }),
+    commands.registerCommand('sidecar.installDuckDbEngine', async () => {
+      const dir = duckDbEngineDir();
+      if (!dir) return;
+      const installed = isDuckDbEngineInstalled(dir);
+      const choice = await window.showInformationMessage(
+        installed
+          ? `The DuckDB engine is installed in SideCar's storage (${dir}).`
+          : `Install the DuckDB engine? SideCar runs "npm install ${DUCKDB_ENGINE_PACKAGE}" in its own storage ` +
+              'folder: about 40 MB from the npm registry. Needs Node.js (npm) on PATH. SQLite, Postgres and MySQL ' +
+              "don't need this.",
+        { modal: true },
+        ...(installed ? ['Reinstall', 'Remove'] : ['Install']),
+      );
+      if (!choice) return;
+      if (choice === 'Remove') {
+        try {
+          removeDuckDbEngine(dir);
+          window.showInformationMessage('DuckDB engine removed.');
+        } catch (err) {
+          window.showErrorMessage(
+            `Could not remove the DuckDB engine (${String(err)}). If a DuckDB connection was opened, reload the window and try again.`,
+          );
+        }
+        return;
+      }
+      try {
+        await window.withProgress(
+          { location: ProgressLocation.Notification, title: 'SideCar: installing the DuckDB engine…' },
+          () => installDuckDbEngine(dir),
+        );
+        window.showInformationMessage(
+          'DuckDB engine installed. DuckDB profiles in sidecar.databases.profiles now work.',
+        );
+      } catch (err) {
+        window.showErrorMessage(`DuckDB engine install failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }),
     commands.registerCommand('sidecar.bedrock.setRegion', () => promptBedrockRegion()),
     commands.registerCommand('sidecar.switchBackend', async (profileId?: unknown) => {

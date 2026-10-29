@@ -296,6 +296,45 @@ describe('resolveCopilotModel (#230)', () => {
     warn.mockRestore();
   });
 
+  it('shows the substitution once in a notification that opens the model picker', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const notify = vi.mocked(vscode.window.showWarningMessage);
+    notify.mockClear();
+    notify.mockResolvedValueOnce('Select Model' as never);
+    vi.mocked(vscode.commands.executeCommand).mockClear();
+    await resolveCopilotModel('gpt-4o', select);
+    await resolveCopilotModel('gpt-4o', select);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(String(notify.mock.calls[0][0])).toContain('GPT-6-LUNA');
+    await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith('sidecar.selectModel'));
+    vi.mocked(logger.warn).mockRestore();
+  });
+
+  it('a stored display name resolves to that model, with no warning (settings written before the fix)', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const notify = vi.mocked(vscode.window.showWarningMessage);
+    notify.mockClear();
+    // The fake names a model by its upper-cased id, as Copilot's "Claude Sonnet 4.6" names claude-sonnet-4.6.
+    expect((await resolveCopilotModel('CLAUDE-SONNET-5-5', select))?.id).toBe('claude-sonnet-5-5');
+    expect(warn).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("matches a display name only among Copilot's models", async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    // OTHER-EXT-MODEL is another vendor's display name: Copilot's first model is used instead.
+    expect((await resolveCopilotModel('OTHER-EXT-MODEL', select))?.id).toBe('gpt-6-luna');
+    vi.mocked(logger.warn).mockRestore();
+  });
+
+  it('shows no notification when the configured model is offered', async () => {
+    const notify = vi.mocked(vscode.window.showWarningMessage);
+    notify.mockClear();
+    await resolveCopilotModel('claude-sonnet-5-5', select);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it('returns null when Copilot offers no models at all', async () => {
     const none = vi.fn(async () => []) as unknown as typeof vscode.lm.selectChatModels;
     expect(await resolveCopilotModel('gpt-4o', none)).toBeNull();

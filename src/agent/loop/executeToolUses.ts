@@ -337,6 +337,8 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       bounceCounts: state.bounceCounts,
       planRef: state.planRef,
       synthesizedFromFence: toolUse.id.startsWith(FENCE_WRITE_ID_PREFIX),
+      // A config change the user's request did not ask for needs approval (#169).
+      userRequestText: options.originRequestText ?? state.userRequestText,
     },
     inlineEditFn: options.inlineEditFn,
     streamingDiffPreviewFn: options.streamingDiffPreviewFn,
@@ -448,6 +450,9 @@ async function runSpawnAgent(ctx: ExecutionContext, toolUse: ToolUseContentBlock
       maxIterations: Math.min(state.maxIterations, 15),
       depth: options.depth || 0,
       mcpManager: state.mcpManager,
+      // The task is the parent model's words; the user's request still decides
+      // which config changes were asked for (#169).
+      originRequestText: options.originRequestText ?? state.userRequestText,
     },
   );
   state.totalChars += subResult.charsConsumed;

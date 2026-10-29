@@ -57,9 +57,36 @@ const IPV4 = '(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\
 const IPV4_RE = new RegExp(`(?<![\\w.])${IPV4}(?![\\w]|\\.\\d)`, 'g');
 
 // /home/<name>, /Users/<name>, C:\Users\<name> (raw or JSON-escaped), c:/users/<name>.
-// The lookbehind keeps URL paths such as api.github.com/users/<login> out.
+// The lookbehind keeps URL paths such as api.github.com/users/<login> out. The
+// drive letter is not `\b`-bounded: in a JSON trace, a path that starts a line
+// of tool output reads `\nC:\\Users\\…`, and `n` then `C` is no word boundary,
+// so every such path passed both the rewrite and the scan.
 const HOME_RE =
-  /((?<![\w.\-])\/home\/|(?<![\w.\-])\/Users\/|\b[A-Za-z]:(?:\\\\|\\|\/)Users(?:\\\\|\\|\/))([^/\\\s"'<>:*?|]+)/gi;
+  /((?<![\w.\-])\/home\/|(?<![\w.\-])\/Users\/|(?:(?<=\\[nrt])|(?<![A-Za-z0-9_]))[A-Za-z]:(?:\\\\|\\|\/)Users(?:\\\\|\\|\/))([^/\\\s"'<>:*?|]+)/gi;
+
+// The fixed columns of one `ls -l` entry: mode, links, owner, group, size, date.
+const LS_HEAD =
+  /[-dlcbps][rwxsStT-]{9}[.+@]?[ \t]+\d+[ \t]+\S+[ \t]+\S+[ \t]+\d+[ \t]+[A-Z][a-z]{2}[ \t]+\d{1,2}[ \t]+(?:\d{1,2}:\d{2}|\d{4})[ \t]+/;
+// The name runs to the next entry or the end of the line. Entries are
+// separated by a real newline, `\n` inside a JSON string, or -- in the
+// one-line-per-event `.log` files -- a space.
+const LS_NAME = String.raw`(?:[^\n\\"]|\\(?!n))*?`;
+const LS_SEP = String.raw`(?:\\n|\n|[ \t]+)`;
+// Three or more entries in a row are a directory listing. Its names say what
+// is on the run machine (temp folders full of other projects) whether or not
+// anyone knows which of them are sensitive, so the whole run goes.
+const LISTING_RE = new RegExp(
+  `${LS_HEAD.source}${LS_NAME}(?:${LS_SEP}${LS_HEAD.source}${LS_NAME}){2,}(?=\\\\n|\\n|"|$)`,
+  'gm',
+);
+const LS_HEAD_G = new RegExp(LS_HEAD.source, 'g');
+
+// A path under a temp folder: /tmp/…, …\AppData\Local\Temp\…, …/Temp/… (raw or
+// JSON-escaped). What sits in a run machine's temp folders is other work --
+// `find /tmp` output, an agent's scratch folder named after another project --
+// and nothing a SWE trace needs, so everything after the temp root goes.
+const TEMP_PATH_RE =
+  /((?:(?<=\\[nrt])|(?<![\w.-]))\/tmp\/|(?:\\\\|\\|\/)Temp(?:\\\\|\\|\/))((?:[^\s"'<>|\\]|\\\\|\\(?![nrt"]))+)/g;
 
 const PRIVATE_SUFFIX_RE = /\.(?:local|localdomain|lan|internal|intranet|home|corp)$/i;
 
@@ -80,8 +107,24 @@ export function isPrivateHost(host) {
 function normalizeExplicit(explicit) {
   return explicit
     .filter((e) => e && typeof e.value === 'string' && e.value.trim().length >= 3)
-    .map((e) => ({ value: e.value.trim(), placeholder: e.placeholder || '<redacted>' }))
+    .map((e) => ({ value: e.value.trim(), placeholder: e.placeholder || '<redacted>', token: Boolean(e.token) }))
     .sort((a, b) => b.value.length - a.value.length);
+}
+
+/**
+ * The Windows 8.3 short form of a username (`JOHNSM~1` for `johnsmithers`),
+ * which Windows prints in temp paths such as `C:\Users\JOHNSM~1\AppData`. Only
+ * names longer than eight characters have one; null otherwise.
+ */
+function shortNameRe(value) {
+  const base = value.replace(/[^A-Za-z0-9]/g, '');
+  if (base.length <= 8) return null;
+  return new RegExp(`(?<![A-Za-z0-9])${escapeRe(base.slice(0, 6))}~\\d+`, 'gi');
+}
+
+/** A token value takes the whole name around it: letters, digits and `. _ ~ + -`. */
+function tokenRe(value) {
+  return new RegExp(`[A-Za-z0-9._~+-]*${escapeRe(value)}[A-Za-z0-9._~+-]*`, 'gi');
 }
 
 function count(counts, rule, n) {
@@ -103,7 +146,7 @@ function replaceCounting(text, re, fn, counts, rule) {
  * Rewrite every recognised sensitive value. Returns the new text and a count per
  * rule (never the values).
  */
-export function sanitizeText(text, { explicit = [] } = {}) {
+export function sanitizeText(text, { explicit = [], structural = true } = {}) {
   const counts = {};
   let t = text;
 
@@ -111,7 +154,32 @@ export function sanitizeText(text, { explicit = [] } = {}) {
   // whole before the URL rule sees its host. Word-bounded at alphanumeric ends
   // so a username does not rewrite the middle of a longer word; the scan below
   // catches that case instead.
-  for (const { value, placeholder } of normalizeExplicit(explicit)) {
+  // Not in a predictions file: a patch is scored as written, and one that adds
+  // a test using /tmp must not be rewritten.
+  if (structural) {
+    t = replaceCounting(
+      t,
+      LISTING_RE,
+      (m) => `[${m.match(LS_HEAD_G).length} directory entries omitted]`,
+      counts,
+      'directory listing',
+    );
+    t = replaceCounting(
+      t,
+      TEMP_PATH_RE,
+      (m, root, rest) => (rest === '<tmp-path>' ? m : `${root}<tmp-path>`),
+      counts,
+      'temp path',
+    );
+  }
+
+  for (const { value, placeholder, token } of normalizeExplicit(explicit)) {
+    if (token) {
+      t = replaceCounting(t, tokenRe(value), () => placeholder, counts, `explicit token ${placeholder}`);
+      continue;
+    }
+    const short = placeholder === '<user>' ? shortNameRe(value) : null;
+    if (short) t = replaceCounting(t, short, () => placeholder, counts, 'short user name');
     for (const v of variants(value)) {
       const pre = /^\w/.test(v) ? '(?<!\\w)' : '';
       const post = /\w$/.test(v) ? '(?!\\w)' : '';
@@ -173,11 +241,16 @@ export function findSecrets(text, { explicit = [] } = {}) {
   const values = normalizeExplicit(explicit).flatMap((e) =>
     variants(e.value).map((v) => [v.toLowerCase(), e.placeholder]),
   );
+  const shortNames = normalizeExplicit(explicit)
+    .filter((e) => e.placeholder === '<user>')
+    .map((e) => shortNameRe(e.value))
+    .filter(Boolean);
   const findings = [];
   lines.forEach((line, i) => {
     const hit = (detector) => findings.push({ line: i + 1, detector });
     const lower = line.toLowerCase();
     for (const [v, placeholder] of values) if (lower.includes(v)) hit(`explicit value (${placeholder})`);
+    for (const re of shortNames) if (new RegExp(re.source, 'i').test(line)) hit('short user name');
     for (const re of KEY_SHAPES) if (new RegExp(re.source).test(line)) hit('api key shape');
     for (const m of line.matchAll(BEARER_RE)) if (!PLACEHOLDER_RE.test(m[2])) hit('bearer token');
     if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(line)) hit('private key');
@@ -206,7 +279,10 @@ export function planExport(files, { explicit = [] } = {}) {
   const totals = {};
   const perFile = [];
   for (const f of files) {
-    const { text, counts } = sanitizeText(f.text, { explicit });
+    // A predictions file holds the patches that get scored: credentials and
+    // explicit values still go, but listings and temp paths in a patch stay.
+    const structural = !/(^|\/)preds\.[^/]*\.jsonl$/.test(f.path);
+    const { text, counts } = sanitizeText(f.text, { explicit, structural });
     for (const s of findSecrets(text, { explicit })) findings.push({ path: f.path, ...s });
     for (const [k, n] of Object.entries(counts)) totals[k] = (totals[k] || 0) + n;
     perFile.push({ path: f.path, bytes: Buffer.byteLength(text), replacements: counts });

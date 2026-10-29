@@ -25,9 +25,9 @@ interface SentinelMapping {
 }
 
 const SENTINEL_MAPPINGS: readonly SentinelMapping[] = [
-  { token: '@opus', model: 'claude-opus-4-6' },
-  { token: '@sonnet', model: 'claude-sonnet-4-6' },
-  { token: '@haiku', model: 'claude-haiku-4-5' },
+  { token: '@opus', model: 'claude-opus-5-5' },
+  { token: '@sonnet', model: 'claude-sonnet-5-5' },
+  { token: '@haiku', model: 'claude-haiku-5-5' },
   // `@local` resolves to the user's shipped default Ollama model. That's
   // intentionally a loose binding — the principle is "use the free local
   // model," not "use this exact GGUF." Users with a different locally-
