@@ -40,6 +40,23 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.7 — a command that did not run is a tool error (2026-10)
+
+PATCH: the error flag and text of an existing tool's result; no mechanism is
+added, removed or re-defaulted. Numbered after 5.1.6 (`git_push`'s target).
+
+- **What changed:** `run_command` and `run_tests` returned "command not found"
+  (exit 127) as an ordinary result ending in `(exit code: 127)`, so the model
+  was told the call succeeded; the shell's own failures came back as
+  `Command failed: …` the same way. Exit 127 (not found), 126 (not executable)
+  and 9009 (cmd.exe: not recognized), and a failed shell, are now tool errors
+  carrying the shell's message, the exit code and a note naming the program —
+  for Python: try `py` or `python3`, or the project's virtualenv. Every other
+  non-zero exit (failing tests, grep with no match) is unchanged.
+- **Measured:** not run through an eval. The case is rare on the eval machine;
+  on one Windows workstation without Python in Git Bash it was 56 results
+  across 28 SWE runs, every one `isError: false`.
+
 ### 5.1.5 — unrequested project-config changes need approval (2026-10)
 
 PATCH: a new approval guard on the existing write tools and `run_command`; no

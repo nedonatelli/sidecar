@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.7** (2026-10) — a command that did not run is a tool error.
+ *   run_command and run_tests throw on exit 127 / 126 / 9009 and when the
+ *   shell itself fails, so the model gets is_error with the shell's message
+ *   and a note (python: try py / python3 / the venv). Every other non-zero
+ *   exit is still an ordinary result. PATCH: the error flag and text of an
+ *   existing tool's result. (Numbered after 5.1.6, git_push's target.)
  * - **5.1.5** (2026-10) — project config the request didn't ask for needs
  *   approval (#351). Edits, writes and deletes of package manifests and
  *   compiler, lint, test-runner and Python config, and shell commands that
@@ -221,7 +227,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.5';
+export const SCAFFOLD_VERSION = '5.1.7';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
