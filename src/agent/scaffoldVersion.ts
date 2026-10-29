@@ -80,6 +80,10 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.14** (2026-10) — the commit check also asks about files .gitignore
+ *   matches: force-added ones, ones tracked from before the rule, and a
+ *   command that runs `git add -f`. PATCH: two more conditions on the 5.1.9
+ *   approval. (5.1.11 was held for this PR, which merged after 5.1.13.)
  * - **5.1.13** (2026-10) — a completion-gate nudge no longer counts as the
  *   user speaking. The action reprompt's "since the user's message" window
  *   reset at every gate nudge, so a finished run was told it "did not call
@@ -247,7 +251,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.13';
+export const SCAFFOLD_VERSION = '5.1.14';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

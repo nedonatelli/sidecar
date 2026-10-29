@@ -16,6 +16,10 @@ import { gitEnvForCwd } from '../loop/treeSignature.js';
  * Windows clone without `core.longpaths` cannot check out.
  *
  * A commit is held for the user's approval, in every mode, when it would:
+ *  - hold a file `.gitignore` matches: one staged with `git add -f`, or one
+ *    committed before the ignore rule existed (git keeps tracking it);
+ *  - come from a command that force-adds (`git add -f`), whose files are not
+ *    staged yet when this looks;
  *  - add copies of gitignored files (same content as a file git ignores);
  *  - be larger than COMMIT_LIMITS.totalBytes, or hold a file larger than
  *    COMMIT_LIMITS.fileBytes;
@@ -61,18 +65,25 @@ export interface CommitCall {
    * holds more than the index does now: untracked and modified files count too.
    */
   addsFiles: boolean;
+  /** The command runs `git add -f` / `--force`, which stages files .gitignore excludes. */
+  forceAdds: boolean;
 }
 
 const SHELL_COMMIT_RE = /\bgit\s+(?:-[Cc]\s+\S+\s+)*commit\b/;
 const SHELL_ADD_RE = /\bgit\s+(?:-[Cc]\s+\S+\s+)*add\b/;
+const FORCE_ADD_RE = /\bgit\s+(?:-[Cc]\s+\S+\s+)*add\b[^;&|\n]*\s(?:-[a-zA-Z]*f[a-zA-Z]*|--force)(?=\s|$)/;
 const COMMIT_ALL_RE = /\bcommit\b[^;&|\n]*\s(?:-[a-zA-Z]*a[a-zA-Z]*|--all)\b/;
 
 /** A tool call that makes a git commit, or null. */
 export function commitCallOf(toolUse: ToolUseContentBlock): CommitCall | null {
-  if (toolUse.name === 'git_commit') return { via: 'git_commit', addsFiles: false };
+  if (toolUse.name === 'git_commit') return { via: 'git_commit', addsFiles: false, forceAdds: false };
   const cmd = shellCommandOf(toolUse);
   if (!cmd || !SHELL_COMMIT_RE.test(cmd)) return null;
-  return { via: 'command', addsFiles: SHELL_ADD_RE.test(cmd) || COMMIT_ALL_RE.test(cmd) };
+  return {
+    via: 'command',
+    addsFiles: SHELL_ADD_RE.test(cmd) || COMMIT_ALL_RE.test(cmd),
+    forceAdds: FORCE_ADD_RE.test(cmd),
+  };
 }
 
 export interface CommitReview {
@@ -211,6 +222,32 @@ async function ignoredCopies(root: string, fresh: Candidate[]): Promise<Map<stri
   return copies;
 }
 
+/**
+ * The candidates whose own path `.gitignore` matches. `git add` refuses an
+ * ignored path unless forced, so these were force-added or were tracked before
+ * the rule. --no-index checks the rules alone; a tracked file would otherwise
+ * never be reported. Exit 1 means "none matched".
+ */
+function ignoredPaths(root: string, files: Candidate[]): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      'git',
+      ['check-ignore', '--no-index', '-z', '--stdin'],
+      { cwd: root, env: gitEnvForCwd(), maxBuffer: 16 * 1024 * 1024, timeout: 10_000 },
+      (err, stdout) => {
+        if (!err) resolve(nul(stdout));
+        else if ((err as { code?: unknown }).code === 1) resolve([]);
+        else reject(err);
+      },
+    );
+    child.stdin?.end(files.map((f) => f.path).join('\0') + '\0');
+  });
+}
+
+function sample(paths: string[]): string {
+  return paths.slice(0, 3).join(', ') + (paths.length > 3 ? ', …' : '');
+}
+
 function mb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
@@ -221,8 +258,33 @@ export async function reviewCommit(call: CommitCall, cwd: string): Promise<Commi
     const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
     if (!root) return null;
     const files = await candidates(root, call.addsFiles);
-    if (files.length === 0) return null;
     const concerns: string[] = [];
+    if (call.forceAdds) {
+      concerns.push(
+        'The command force-adds files (git add -f), which stages files .gitignore keeps out of the repository.',
+      );
+    }
+    if (files.length === 0) return concerns.length > 0 ? { concerns } : null;
+
+    const ignored = new Set(await ignoredPaths(root, files));
+    if (ignored.size > 0) {
+      const added = files.filter((f) => f.isNew && ignored.has(f.path)).map((f) => f.path);
+      const tracked = files.filter((f) => !f.isNew && ignored.has(f.path)).map((f) => f.path);
+      if (added.length > 0) {
+        concerns.push(
+          `${added.length} new file${added.length === 1 ? '' : 's'} that .gitignore excludes (${sample(added)}): ` +
+            'staged with git add -f.',
+        );
+      }
+      if (tracked.length > 0) {
+        concerns.push(
+          `${tracked.length} changed file${tracked.length === 1 ? '' : 's'} that .gitignore now excludes ` +
+            `(${sample(tracked)}): git still tracks ${tracked.length === 1 ? 'it' : 'them'} because ` +
+            `${tracked.length === 1 ? 'it was' : 'they were'} committed before the rule. ` +
+            '`git rm --cached <path>` stops tracking without deleting the file.',
+        );
+      }
+    }
 
     const fresh = files.filter((f) => f.isNew);
     const copies = await ignoredCopies(root, fresh);
