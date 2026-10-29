@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { grepArgs, GREP_ENV } from '../../src/agent/tools/grepArgs.js';
+import { grepArgs, grepCommand, GREP_ENV } from '../../src/agent/tools/grepArgs.js';
 
 /**
  * Read every file in a freshly checked-out tree once, before the agent runs.
@@ -32,7 +32,12 @@ const defaultRunner: GrepRunner = (args, cwd) => {
   // stderr is kept for the reason; stdout carries nothing (the pattern never
   // matches). The buffer is generous because ENOBUFS kills grep mid-tree: a
   // tree with thousands of unreadable files must not turn into a cold one.
-  execFileSync('grep', args, { cwd, env: GREP_ENV, stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
+  execFileSync(grepCommand(), args, {
+    cwd,
+    env: GREP_ENV,
+    stdio: ['ignore', 'ignore', 'pipe'],
+    maxBuffer: 16 * 1024 * 1024,
+  });
 };
 
 export interface WarmResult {

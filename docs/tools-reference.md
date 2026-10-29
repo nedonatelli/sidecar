@@ -481,6 +481,8 @@ Search file contents for a text pattern (string or regex).
 
 Returns matching lines with file paths and line numbers. Output is capped and grouped by file.
 
+Runs the `grep` on PATH. On Windows, when there is none, it uses the `grep.exe` that Git for Windows installs in its `usr/bin` folder. With no grep at all the call fails with an error saying nothing was searched; use `git grep` through `run_command` instead.
+
 ---
 
 ### `find_references`

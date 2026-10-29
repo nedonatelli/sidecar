@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.8** (2026-10) — grep runs without grep on PATH. On Windows the
+ *   grep tool falls back to the grep.exe Git for Windows ships in usr/bin
+ *   (beside the git on PATH, then the standard install folders); with no
+ *   grep anywhere it throws "grep is not installed… nothing was searched",
+ *   pointing at `git grep`, instead of "Grep failed" or a false "No matches
+ *   found". PATCH: an existing tool's executable lookup and error. (Numbered
+ *   after 5.1.7, the command-not-found error.)
  * - **5.1.5** (2026-10) — project config the request didn't ask for needs
  *   approval (#351). Edits, writes and deletes of package manifests and
  *   compiler, lint, test-runner and Python config, and shell commands that
@@ -221,7 +228,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.5';
+export const SCAFFOLD_VERSION = '5.1.8';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
