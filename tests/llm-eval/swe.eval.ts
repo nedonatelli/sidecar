@@ -34,6 +34,7 @@ import { resolveIterationCeiling, type IterationCeiling } from '../../bench/swe/
 import { parseToolBudgets, withToolBudgets } from '../../bench/swe/toolBudgets.js';
 import { getToolDefinitionsForTier, findTool } from '../../src/agent/tools.js';
 import { STABLE_TOOL_ENV, stableOutputTools } from '../../bench/swe/stableToolOutput.js';
+import { isolateShellEnv, prepareScratchDir, pythonRuns } from '../../bench/swe/shellIsolation.js';
 import { ShellRootGuard, shellGuardTools } from '../../bench/swe/shellGuard.js';
 import { loadHarnessOverrides, applyToSystemPrompt, applyToToolDefinitions } from '../../bench/swe/harnessOverrides.js';
 import { mountWorkspaceRoot } from './workspaceSandbox.js';
@@ -136,6 +137,12 @@ if (STABLE_OUTPUT) Object.assign(process.env, STABLE_TOOL_ENV);
 // inside the clone still persists. SIDECAR_SWE_SHELL_GUARD=0 restores the
 // unguarded shell (cells run before 2026-10-17).
 const SHELL_GUARD = process.env.SIDECAR_SWE_SHELL_GUARD !== '0';
+// The task shell gets its own TMP/TEMP/TMPDIR and HOME under OUT/scratch, and
+// PYTHONNOUSERSITE=1 (bench/swe/shellIsolation.ts), so a run on somebody's
+// workstation does not list their temp folder or import their user-wide
+// packages. SIDECAR_SWE_ISOLATE_SHELL=0 restores the inherited environment
+// (cells run before 2026-10-29).
+const ISOLATE_SHELL = process.env.SIDECAR_SWE_ISOLATE_SHELL !== '0';
 // #213: path-based runners (pytest, tox, sympy bin/test) were given Django's
 // dotted-label instructions, which select zero tests on them. 'runner' gives
 // each runner its own; unset keeps the old text so the change can be A/B'd.
@@ -506,6 +513,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   let failureReason: string | null = null;
   let dir: string | null = null;
   let venvDir: string | null = null;
+  // Without a venv the task relies on the machine's Python; false means none
+  // runs in the task shell, so every `python` fails with 127 (undefined: a venv).
+  let envPython: boolean | undefined;
+  let scratchDir: string | null = null;
   let workspaceSnapshot: ShellChangeSnapshot | null = null;
   let shellChanged: string[] = [];
   let shellChangeDrift: ShellChangeDrift | undefined;
@@ -572,7 +583,19 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // the agent runs without one (blind) until the container fallback lands.
     const taskEnv = task.version ? setupTaskEnv(task.repo, task.version, dir, ENV_CACHE_BASE, ENV_SPECS) : null;
     venvDir = taskEnv?.venvDir ?? null;
-    toolRuntime = new ToolRuntime(dir, taskEnv?.env);
+    scratchDir = ISOLATE_SHELL ? prepareScratchDir(path.join(OUT, 'scratch'), task.instance_id, arm) : null;
+    const shellEnv = scratchDir
+      ? isolateShellEnv(taskEnv?.env ?? (process.env as Record<string, string>), scratchDir)
+      : taskEnv?.env;
+    if (!taskEnv) {
+      envPython = pythonRuns(shellEnv ?? (process.env as Record<string, string>));
+      if (!envPython)
+        console.warn(
+          `[swe]   ${task.instance_id}: no venv for ${task.repo} and no python runs in the task shell -- ` +
+            'every python command will fail on the machine, not the model',
+        );
+    }
+    toolRuntime = new ToolRuntime(dir, shellEnv);
     // Real RAG: attach the repo's symbol-embedding index so the agent's
     // project_knowledge_search tool queries it (same retrieval as the product),
     // and seed the orientation block from the SAME index — real symbol bodies,
@@ -900,6 +923,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       console.warn(`[swe]   ${task.instance_id}: PATCH CAPTURE FAILED: ${captureError}`);
     }
     if (restoreMock) restoreMock();
+    // The scratch folder holds only what the task's own shell wrote there.
+    if (scratchDir) fs.rmSync(scratchDir, { recursive: true, force: true, maxRetries: 3 });
     // Don't delete the clone — it's cached and reset per task. cleanupRepoClones() at the end.
   }
   // A suspend outranks whatever the run then reported (a timeout, an empty
@@ -921,6 +946,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     ...(shellChanged.length > 0 ? { shellChanged } : {}),
     ...(shellChangeDrift ? { shellChangeDrift } : {}),
     retrievalRecall,
+    ...(envPython !== undefined ? { envPython } : {}),
     ratchetReverted,
     peakInputTokens,
     turns,
@@ -1046,6 +1072,7 @@ describe('SWE-bench Lite — prediction generation', () => {
         redCheckRatcheted: REDCHECK_RATCHETED,
         stableToolOutput: STABLE_OUTPUT,
         shellGuard: SHELL_GUARD,
+        shellIsolated: ISOLATE_SHELL,
         testTargets: TEST_TARGETS,
         shellCapture: SHELL_CAPTURE,
         harnessOverrides: HARNESS_OVERRIDES
