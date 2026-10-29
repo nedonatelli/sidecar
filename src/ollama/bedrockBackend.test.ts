@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { BedrockBackend, bedrockRuntimeOrigin, bedrockControlOrigin, bedrockErrorMessage } from './bedrockBackend.js';
 import type { ChatMessage } from './types.js';
+import { workspace } from 'vscode';
+import { invalidateConfigCache } from '../config/settings.js';
 
 const CREDS = { accessKeyId: 'AKID', secretAccessKey: 'secret' };
 
@@ -348,5 +350,32 @@ describe('bedrockErrorMessage', () => {
     expect(bedrockErrorMessage(429, 'Too Many Requests', 'slow down', 'm', 'us-east-1')).toBe(
       'Bedrock request failed: 429 Too Many Requests — slow down',
     );
+  });
+});
+
+describe('BedrockBackend request body (#363)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    invalidateConfigCache();
+  });
+
+  it('caps max_tokens with maxOutputTokens and sends temperature to a prefixed Claude 3 id', async () => {
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string) => (key === 'maxOutputTokens' ? 4096 : key === 'agentMaxTokens' ? 200_000 : undefined),
+      inspect: () => undefined,
+    } as never);
+    invalidateConfigCache();
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return streamResponse([chunkFrame({ type: 'message_stop' })]);
+    });
+    const backend = new BedrockBackend('us-east-1', { credentials: CREDS });
+    for await (const _ of backend.streamChat('us.anthropic.claude-3-5-haiku-20241022-v1:0', 'sys', messages)) {
+      void _;
+    }
+    expect(body.max_tokens).toBe(4096);
+    expect(body).toHaveProperty('temperature');
   });
 });
