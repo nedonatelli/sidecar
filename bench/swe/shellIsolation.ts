@@ -29,7 +29,6 @@ import * as path from 'path';
  * config) read it, and moving it breaks them. Absolute paths to the user's
  * folders are still reachable -- this is a default, not a sandbox.
  */
-export const ISOLATED_KEYS = ['TMP', 'TEMP', 'TMPDIR', 'HOME', 'PYTHONNOUSERSITE'] as const;
 
 /**
  * Set `key` in `env` under the spelling the environment already uses. Windows
