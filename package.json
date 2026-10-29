@@ -441,7 +441,7 @@
               "sidecar",
               "agent"
             ],
-            "markdownDescription": "Maximum tokens the model may generate in one response, **reasoning included**. Reasoning models often think for 5–20K tokens before answering, so a low cap cuts them off mid-thought. Capped automatically at the model's own output limit (OpenAI) and at the context left after the prompt (Ollama). If a response still hits the cap, the agent asks the model to continue. On OpenAI, the cap is also reserved against your tokens-per-minute rate limit, so lower it if you hit rate limits on a low tier."
+            "markdownDescription": "Maximum tokens the model may generate in one response, **reasoning included**. Reasoning models often think for 5–20K tokens before answering, so a low cap cuts them off mid-thought. Capped automatically at the model's own output limit (OpenAI, Anthropic, Bedrock) and at the context left after the prompt (Ollama). If a response still hits the cap, the agent asks the model to continue. On OpenAI, the cap is also reserved against your tokens-per-minute rate limit, so lower it if you hit rate limits on a low tier."
           },
           "sidecar.toolPermissions": {
             "type": "object",
