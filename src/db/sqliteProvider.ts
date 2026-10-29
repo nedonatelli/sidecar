@@ -17,27 +17,46 @@ function validateIdentifier(name: string, label: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// better-sqlite3 type shim — we only reference the subset we actually use
-// so the module can be dynamically imported without a hard dep at compile time.
+// node:sqlite type shim -- only the subset we call. SQLite runs on Node's
+// built-in module, not better-sqlite3: a native module would have to be built
+// for VS Code's Electron on every platform, and the .vsix never shipped it, so
+// every installed SideCar failed to open SQLite (#364). VS Code's extension
+// host runs Node 24, which has node:sqlite.
 // ---------------------------------------------------------------------------
 
-interface BetterSqlite3Statement {
+interface NodeSqliteStatement {
   all(...params: unknown[]): unknown[];
-  /** True when the statement does not write (sqlite3_stmt_readonly). */
-  readonly readonly: boolean;
+  setReadBigInts(enabled: boolean): void;
 }
 
-interface BetterSqlite3Database {
-  prepare(sql: string): BetterSqlite3Statement;
+interface NodeSqliteDatabase {
+  prepare(sql: string): NodeSqliteStatement;
+  exec(sql: string): void;
   close(): void;
 }
 
-interface BetterSqlite3Constructor {
-  new (path: string, opts?: { readonly?: boolean }): BetterSqlite3Database;
+interface NodeSqliteModule {
+  DatabaseSync: new (path: string, opts?: { readOnly?: boolean }) => NodeSqliteDatabase;
 }
 
+function loadNodeSqlite(): NodeSqliteModule {
+  // getBuiltinModule, not import('node:sqlite'): it needs no type declarations
+  // and returns undefined instead of throwing where the module doesn't exist.
+  const getBuiltin = (process as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule;
+  const mod = getBuiltin?.('node:sqlite') as NodeSqliteModule | undefined;
+  if (!mod) {
+    throw new Error(
+      `SQLite needs Node's built-in node:sqlite, which this VS Code's runtime (Node ${process.versions.node}) does not have. Update VS Code.`,
+    );
+  }
+  return mod;
+}
+
+/** SQLite's message when a write meets a read-only connection or `query_only`. */
+const SQLITE_READONLY_WRITE = /attempt to write a readonly database/i;
+
 // ---------------------------------------------------------------------------
-// PRAGMA shapes returned by better-sqlite3
+// PRAGMA shapes returned by SQLite
 // ---------------------------------------------------------------------------
 
 interface PragmaTableInfoRow {
@@ -75,7 +94,7 @@ interface SqliteMasterRow {
 export class SqliteProvider implements DatabaseProvider {
   readonly dialect = 'sqlite' as const;
 
-  private db: BetterSqlite3Database | null = null;
+  private db: NodeSqliteDatabase | null = null;
   private connected = false;
   private readOnly = true;
 
@@ -84,14 +103,13 @@ export class SqliteProvider implements DatabaseProvider {
   // -------------------------------------------------------------------------
 
   async connect(profile: ConnectionProfile): Promise<void> {
-    const { default: Database } = (await import('better-sqlite3')) as unknown as { default: BetterSqlite3Constructor };
-
     if (!profile.filePath) {
       throw new Error('SQLite connection requires a filePath');
     }
+    const { DatabaseSync } = loadNodeSqlite();
 
     this.readOnly = profile.readOnly !== false; // default true
-    this.db = new Database(profile.filePath, { readonly: this.readOnly });
+    this.db = new DatabaseSync(profile.filePath, { readOnly: this.readOnly });
     this.connected = true;
   }
 
@@ -213,16 +231,39 @@ export class SqliteProvider implements DatabaseProvider {
     }
 
     const limit = opts.limit ?? 1000;
-    // SQLite itself reports whether a statement can write (sqlite3_stmt_readonly),
-    // which covers what a text check cannot: PRAGMA forms, functions, triggers.
-    if (readOnly && !db.prepare(sql).readonly) {
-      throw new Error('Read-only violation: SQLite reports that this statement can write. Use db_execute.');
-    }
+    const statement = db.prepare(sql);
+    // BigInt reads: without them node:sqlite throws on an integer beyond 2^53.
+    statement.setReadBigInts(true);
 
-    // better-sqlite3 is synchronous — wrap in async but note that it blocks
-    // the event loop for the duration of the query. The practical timeout
-    // mitigation for SQLite is the row limit below.
-    const rawRows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+    // node:sqlite runs synchronously -- it blocks the event loop for the
+    // duration of the query. The practical mitigation for SQLite is the row
+    // limit below.
+    let rawRows: Array<Record<string, unknown>>;
+    if (readOnly && !this.readOnly) {
+      // A read on a read-write connection: SQLite's query_only makes the
+      // engine refuse any write, which covers what a text check cannot
+      // (PRAGMA forms, functions, triggers).
+      db.exec('PRAGMA query_only = ON');
+      try {
+        rawRows = statement.all(...params) as Array<Record<string, unknown>>;
+      } catch (err) {
+        if (SQLITE_READONLY_WRITE.test(String(err))) {
+          throw new Error('Read-only violation: SQLite refused this statement because it writes. Use db_execute.');
+        }
+        throw err;
+      } finally {
+        db.exec('PRAGMA query_only = OFF');
+      }
+    } else {
+      try {
+        rawRows = statement.all(...params) as Array<Record<string, unknown>>;
+      } catch (err) {
+        if (readOnly && SQLITE_READONLY_WRITE.test(String(err))) {
+          throw new Error('Read-only violation: this connection is read-only. Use db_execute on a read-write profile.');
+        }
+        throw err;
+      }
+    }
 
     const truncated = rawRows.length > limit;
     const slicedRows = truncated ? rawRows.slice(0, limit) : rawRows;
@@ -244,7 +285,7 @@ export class SqliteProvider implements DatabaseProvider {
   // helpers
   // -------------------------------------------------------------------------
 
-  private requireDb(): BetterSqlite3Database {
+  private requireDb(): NodeSqliteDatabase {
     if (!this.db) {
       throw new Error('SQLite provider is not connected');
     }
@@ -256,7 +297,8 @@ function normaliseRow(row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(row)) {
     if (typeof val === 'bigint') {
-      out[key] = Number(val);
+      // A number when it fits; past 2^53 a string, so the value stays exact.
+      out[key] = Number.isSafeInteger(Number(val)) ? Number(val) : val.toString();
     } else {
       out[key] = val ?? null;
     }

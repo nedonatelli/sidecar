@@ -70,8 +70,11 @@ export class DuckDbProvider implements DatabaseProvider {
       // @ts-expect-error — optional peer dep, not in devDependencies
       mod = (await import('@duckdb/node-api')) as DuckDbModule;
     } catch {
+      // Installing it in the workspace doesn't help: Node resolves the module
+      // from the extension's folder. The engine is a native module of ~37 MB
+      // per platform, so the Marketplace build doesn't ship it (#364).
       throw new Error(
-        'DuckDB not available — install @duckdb/node-api in your project to use the DuckDB database provider',
+        'DuckDB is not available in this build of SideCar: its engine (@duckdb/node-api) is a native module SideCar does not ship. Use a SQLite, Postgres or MySQL profile instead.',
       );
     }
 

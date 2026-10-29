@@ -809,21 +809,24 @@ ELO ratings are persisted to `.sidecar/arena/elo.json` (K=32, multi-way pairwise
 
 Configure database connections for the `db_query`, `db_execute`, `db_migrate_up`, `db_list_tables`, `db_describe_table`, and `db_list_connections` agent tools.
 
-| Setting                            | Type   | Default | Description                                                                                                                                                                                                                                                                                   |
-| ---------------------------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.databases.profiles`       | array  | `[]`    | List of named database connection profiles. Each entry has `name` (identifier shown to the agent), `type` (`"sqlite"` / `"postgres"` / `"mysql"` / `"duckdb"`), and connection-specific fields (`path` for SQLite/DuckDB; `host`, `port`, `database`, `user`, `password` for Postgres/MySQL). |
-| `sidecar.databases.queryRowLimit`  | number | `10000` | Maximum rows returned by `db_query`. Results beyond this limit are truncated with a count of omitted rows.                                                                                                                                                                                    |
-| `sidecar.databases.queryTimeoutMs` | number | `30000` | Hard timeout in milliseconds for every `db_query` call. Prevents runaway queries from blocking the agent.                                                                                                                                                                                     |
+| Setting                            | Type   | Default | Description                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.databases.profiles`       | array  | `[]`    | Named connection profiles. Each entry has `id` (what the agent passes as `connection_id`), `name`, `dialect` (`"sqlite"` / `"postgres"` / `"mysql"` / `"duckdb"`), and the fields for its dialect: `filePath` for SQLite and DuckDB; `host`, `port`, `database`, `user` and optionally `secretKey` for Postgres and MySQL. `readOnly` defaults to `true`. |
+| `sidecar.databases.queryRowLimit`  | number | `10000` | Maximum rows returned by `db_query`. Results beyond this limit are truncated with a count of omitted rows.                                                                                                                                                                                                                                                |
+| `sidecar.databases.queryTimeoutMs` | number | `30000` | Hard timeout in milliseconds for every `db_query` call. Prevents runaway queries from blocking the agent.                                                                                                                                                                                                                                                 |
 
-**Example profile (SQLite):**
+**Example profiles:**
 
 ```json
 "sidecar.databases.profiles": [
-  { "name": "local", "type": "sqlite", "path": "./data/app.db" }
+  { "id": "local", "name": "Local app DB", "dialect": "sqlite", "filePath": "./data/app.db" },
+  { "id": "pg", "name": "Dev Postgres", "dialect": "postgres", "host": "localhost", "port": 5432, "database": "app", "user": "dev" }
 ]
 ```
 
-Store passwords using environment variables (`"password": "${DB_PASS}"`) rather than plaintext in `settings.json`.
+**Passwords** never go in `settings.json`. Run **SideCar: Set / Clear Database Password**, pick the connection, and the password is stored in VS Code SecretStorage (the OS keychain). It's stored under the profile's `secretKey` if it names one, otherwise under a key derived from its `id`.
+
+**Engines:** Postgres and MySQL drivers ship with SideCar. SQLite uses Node's built-in `node:sqlite`, which VS Code's runtime provides. DuckDB is not available in the Marketplace build: its engine is a native module SideCar doesn't ship.
 
 ## Dependency Drift Alerts (v0.91+)
 

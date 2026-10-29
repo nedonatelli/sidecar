@@ -44,12 +44,12 @@ This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gat
 
 ### Always-on but context-specific — relevance-gating candidates: ~14 tools
 
-| Group     | File                           | Tools | Relevant only when…                  | Heavy deps                                              |
-| --------- | ------------------------------ | ----- | ------------------------------------ | ------------------------------------------------------- |
-| Database  | database.ts                    | 6     | a DB connection is configured        | pg, mysql2 (bundled); duckdb, better-sqlite3 (external) |
-| GitHub PR | github.ts                      | 5     | workspace has a GitHub remote w/ PRs | —                                                       |
-| Academic  | zotero.ts, pdf.ts, citation.ts | 5     | research/writing workflow            | pdf-parse (external)                                    |
-| Viz       | vizSpec.ts                     | 1     | diagram output wanted                | mermaid (bundled)                                       |
+| Group     | File                           | Tools | Relevant only when…                  | Heavy deps                                                         |
+| --------- | ------------------------------ | ----- | ------------------------------------ | ------------------------------------------------------------------ |
+| Database  | database.ts                    | 6     | a DB connection is configured        | pg, mysql2 (bundled); node:sqlite (built in); duckdb (not shipped) |
+| GitHub PR | github.ts                      | 5     | workspace has a GitHub remote w/ PRs | —                                                                  |
+| Academic  | zotero.ts, pdf.ts, citation.ts | 5     | research/writing workflow            | pdf-parse (external)                                               |
+| Viz       | vizSpec.ts                     | 1     | diagram output wanted                | mermaid (bundled)                                                  |
 
 ### Default-ON gated groups (in catalog unless disabled): 6 tools
 

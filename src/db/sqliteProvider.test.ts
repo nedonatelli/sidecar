@@ -1,54 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { assertReadOnly } from './provider.js';
 
-// ---------------------------------------------------------------------------
-// Mock better-sqlite3
-// ---------------------------------------------------------------------------
-
-interface MockStatement {
-  all: ReturnType<typeof vi.fn>;
-  readonly?: boolean;
-}
-
-interface MockDatabase {
-  prepare: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-}
-
-let mockDb: MockDatabase;
-
-vi.mock('better-sqlite3', () => ({
-  default: vi.fn(function (this: unknown) {
-    return mockDb;
-  }),
-}));
-
 import { SqliteProvider } from './sqliteProvider.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeProfile(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'test',
-    name: 'Test SQLite',
-    dialect: 'sqlite' as const,
-    filePath: '/tmp/test.db',
-    readOnly: true,
-    ...overrides,
-  };
-}
-
-function setupSimpleDb(statementResults: Map<string, unknown[]>): void {
-  mockDb = {
-    prepare: vi.fn((sql: string): MockStatement => {
-      const rows = statementResults.get(sql) ?? [];
-      return { all: vi.fn(() => rows), readonly: true };
-    }),
-    close: vi.fn(),
-  };
-}
 
 // ---------------------------------------------------------------------------
 // assertReadOnly (exported from provider.ts, exercised here as a sanity check)
@@ -144,239 +100,145 @@ describe('assertReadOnly', () => {
 // SqliteProvider unit tests
 // ---------------------------------------------------------------------------
 
-describe('SqliteProvider', () => {
+// ---------------------------------------------------------------------------
+// SqliteProvider against a real database file, on Node's built-in node:sqlite
+// (#364). Node 20, still in the CI matrix, has no node:sqlite; VS Code's
+// extension host runs Node 24.
+// ---------------------------------------------------------------------------
+
+interface SeedDb {
+  exec(sql: string): void;
+  close(): void;
+}
+
+const nodeSqlite = (process as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule?.('node:sqlite') as
+  | { DatabaseSync: new (p: string) => SeedDb }
+  | undefined;
+
+describe.skipIf(!nodeSqlite)('SqliteProvider', () => {
+  let dir: string;
+  let file: string;
+
   beforeEach(() => {
-    setupSimpleDb(new Map());
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqlite-provider-'));
+    file = path.join(dir, 'app.db');
+    const { DatabaseSync } = nodeSqlite!;
+    const seed = new DatabaseSync(file);
+    seed.exec(`
+      CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT DEFAULT 'none');
+      CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id), big INTEGER);
+      CREATE UNIQUE INDEX users_email ON users(email);
+      INSERT INTO users (name, email) VALUES ('ada', 'a@x'), ('bob', 'b@x'), ('cy', 'c@x');
+      INSERT INTO orders (user_id, big) VALUES (1, 42), (2, 9007199254740993);
+    `);
+    seed.close();
   });
 
-  // ---- connect / disconnect ------------------------------------------------
+  afterEach(() => {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* Windows may still hold the file briefly */
+    }
+  });
 
-  it('connects and marks as connected', async () => {
-    setupSimpleDb(new Map());
-    const provider = new SqliteProvider();
-    expect(provider.isConnected()).toBe(false);
-    await provider.connect(makeProfile());
-    expect(provider.isConnected()).toBe(true);
+  async function open(readOnly = true): Promise<SqliteProvider> {
+    const p = new SqliteProvider();
+    await p.connect({ id: 't', name: 'T', dialect: 'sqlite', filePath: file, readOnly });
+    return p;
+  }
+
+  it('connects, and disconnect clears isConnected', async () => {
+    const p = await open();
+    expect(p.isConnected()).toBe(true);
+    await p.disconnect();
+    expect(p.isConnected()).toBe(false);
   });
 
   it('throws if filePath is missing', async () => {
-    setupSimpleDb(new Map());
-    const provider = new SqliteProvider();
-    await expect(provider.connect(makeProfile({ filePath: undefined }))).rejects.toThrow('filePath');
-  });
-
-  it('disconnect sets isConnected to false', async () => {
-    setupSimpleDb(new Map());
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile());
-    await provider.disconnect();
-    expect(provider.isConnected()).toBe(false);
-    expect(mockDb.close).toHaveBeenCalledTimes(1);
+    await expect(new SqliteProvider().connect({ id: 't', name: 'T', dialect: 'sqlite' })).rejects.toThrow(/filePath/);
   });
 
   it('disconnect is a no-op if never connected', async () => {
-    setupSimpleDb(new Map());
-    const provider = new SqliteProvider();
-    await expect(provider.disconnect()).resolves.toBeUndefined();
+    await expect(new SqliteProvider().disconnect()).resolves.toBeUndefined();
   });
 
-  // ---- listTables ----------------------------------------------------------
-
-  it('listTables returns correct TableInfo[] from mocked sqlite_master results', async () => {
-    const masterRows = [{ name: 'users' }, { name: 'orders' }];
-    const usersCountRows = [{ cnt: 42 }];
-    const ordersCountRows = [{ cnt: 7 }];
-
-    mockDb = {
-      prepare: vi.fn((sql: string) => {
-        if (sql.includes('sqlite_master')) return { all: vi.fn(() => masterRows) };
-        if (sql.includes('"users"')) return { all: vi.fn(() => usersCountRows) };
-        if (sql.includes('"orders"')) return { all: vi.fn(() => ordersCountRows) };
-        return { all: vi.fn(() => []) };
-      }),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile());
-
-    const tables = await provider.listTables();
-
-    expect(tables).toHaveLength(2);
-    expect(tables[0]).toMatchObject({ name: 'users', schema: '', rowCount: 42 });
-    expect(tables[1]).toMatchObject({ name: 'orders', schema: '', rowCount: 7 });
+  it('listTables returns each table with its row count', async () => {
+    const p = await open();
+    expect(await p.listTables()).toEqual([
+      { name: 'orders', schema: '', rowCount: 2 },
+      { name: 'users', schema: '', rowCount: 3 },
+    ]);
+    await p.disconnect();
   });
 
-  it('listTables handles rowCount failure gracefully (undefined, not throw)', async () => {
-    const masterRows = [{ name: 'broken_table' }];
+  it('describeTable maps columns, keys, indexes and constraints', async () => {
+    const p = await open();
+    const users = await p.describeTable('users');
+    expect(users.columns.map((c) => [c.name, c.type, c.nullable, c.isPK])).toEqual([
+      ['id', 'INTEGER', true, true],
+      ['name', 'TEXT', false, false],
+      ['email', 'TEXT', true, false],
+    ]);
+    expect(users.columns[2].default).toBe("'none'");
+    expect(users.indexes).toContain('UNIQUE INDEX users_email');
+    expect(users.constraints).toContain('PRIMARY KEY (id)');
+    expect(users.approxRowCount).toBe(3);
 
-    mockDb = {
-      prepare: vi.fn((sql: string) => {
-        if (sql.includes('sqlite_master')) return { all: vi.fn(() => masterRows) };
-        // COUNT(*) throws
-        return {
-          all: vi.fn(() => {
-            throw new Error('table broken_table is corrupt');
-          }),
-        };
-      }),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile());
-
-    const tables = await provider.listTables();
-    expect(tables).toHaveLength(1);
-    expect(tables[0].rowCount).toBeUndefined();
+    const orders = await p.describeTable('orders');
+    expect(orders.columns.find((c) => c.name === 'user_id')).toMatchObject({
+      isFK: true,
+      references: { table: 'users', column: 'id' },
+    });
+    await p.disconnect();
   });
 
-  // ---- describeTable -------------------------------------------------------
-
-  it('correctly maps PRAGMA table_info results to ColumnInfo[]', async () => {
-    const pragmaTableInfo = [
-      { cid: 0, name: 'id', type: 'INTEGER', notnull: 1, dflt_value: null, pk: 1 },
-      { cid: 1, name: 'name', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
-      { cid: 2, name: 'user_id', type: 'INTEGER', notnull: 1, dflt_value: null, pk: 0 },
-    ];
-    const pragmaIndexList = [
-      { seq: 0, name: 'idx_name', unique: 0, origin: 'c', partial: 0 },
-      { seq: 1, name: 'idx_user_id_unique', unique: 1, origin: 'c', partial: 0 },
-    ];
-    const pragmaFkList = [
-      {
-        id: 0,
-        seq: 0,
-        table: 'users',
-        from: 'user_id',
-        to: 'id',
-        on_update: 'NO ACTION',
-        on_delete: 'CASCADE',
-        match: 'NONE',
-      },
-    ];
-
-    mockDb = {
-      prepare: vi.fn((sql: string) => {
-        if (sql.includes('PRAGMA table_info')) return { all: vi.fn(() => pragmaTableInfo) };
-        if (sql.includes('PRAGMA index_list')) return { all: vi.fn(() => pragmaIndexList) };
-        if (sql.includes('PRAGMA foreign_key_list')) return { all: vi.fn(() => pragmaFkList) };
-        // COUNT(*)
-        return { all: vi.fn(() => [{ cnt: 10 }]) };
-      }),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile());
-
-    const schema = await provider.describeTable('orders');
-
-    // Columns
-    expect(schema.columns).toHaveLength(3);
-    expect(schema.columns[0]).toMatchObject({ name: 'id', type: 'INTEGER', nullable: false, isPK: true, isFK: false });
-    expect(schema.columns[1]).toMatchObject({ name: 'name', type: 'TEXT', nullable: true, isPK: false, isFK: false });
-    expect(schema.columns[2]).toMatchObject({ name: 'user_id', type: 'INTEGER', isPK: false, isFK: true });
-    expect(schema.columns[2].references).toEqual({ table: 'users', column: 'id' });
-
-    // Indexes
-    expect(schema.indexes).toContain('INDEX idx_name');
-    expect(schema.indexes).toContain('UNIQUE INDEX idx_user_id_unique');
-
-    // Constraints
-    expect(schema.constraints).toContain('PRIMARY KEY (id)');
-    expect(schema.constraints).toContain('FOREIGN KEY (user_id) REFERENCES users(id)');
+  it('describeTable refuses an unsafe identifier', async () => {
+    const p = await open();
+    await expect(p.describeTable('users"; DROP TABLE users; --')).rejects.toThrow(/Invalid table name/);
+    await p.disconnect();
   });
 
-  // ---- query ---------------------------------------------------------------
-
-  it('query returns QueryResult with correct shape', async () => {
-    const dbRows = [
-      { id: 1, name: 'Alice' },
-      { id: 2, name: 'Bob' },
-    ];
-
-    mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile());
-
-    const result = await provider.query('SELECT id, name FROM users');
-
-    expect(result.columns).toEqual(['id', 'name']);
-    expect(result.rows).toHaveLength(2);
-    expect(result.rowCount).toBe(2);
-    expect(result.truncated).toBe(false);
-    expect(result.rows[0]).toEqual({ id: 1, name: 'Alice' });
+  it('query returns rows, binds parameters and truncates at the limit', async () => {
+    const p = await open();
+    const r = await p.query('SELECT name FROM users WHERE id > ? ORDER BY id', [1]);
+    expect(r).toEqual({ columns: ['name'], rows: [{ name: 'bob' }, { name: 'cy' }], rowCount: 2, truncated: false });
+    const capped = await p.query('SELECT id FROM users ORDER BY id', [], { limit: 2 });
+    expect(capped).toMatchObject({ rowCount: 3, truncated: true });
+    expect(capped.rows).toHaveLength(2);
+    await p.disconnect();
   });
 
-  it('query truncates when rowCount exceeds limit', async () => {
-    const dbRows = Array.from({ length: 10 }, (_, i) => ({ id: i + 1 }));
-
-    mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile());
-
-    const result = await provider.query('SELECT id FROM users', [], { limit: 5 });
-
-    expect(result.rows).toHaveLength(5);
-    expect(result.rowCount).toBe(10); // raw count before slice
-    expect(result.truncated).toBe(true);
+  it('returns a safe integer as a number and a larger one as an exact string', async () => {
+    const p = await open();
+    const r = await p.query('SELECT big FROM orders ORDER BY id');
+    expect(r.rows).toEqual([{ big: 42 }, { big: '9007199254740993' }]);
+    await p.disconnect();
   });
 
-  it('query converts BigInt values to numbers', async () => {
-    const dbRows = [{ id: BigInt(9999999999999), count: BigInt(1) }];
-
-    mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile());
-
-    const result = await provider.query('SELECT id, count FROM metrics');
-
-    expect(typeof result.rows[0]['id']).toBe('number');
-    expect(typeof result.rows[0]['count']).toBe('number');
+  it('refuses INSERT on a read-only connection', async () => {
+    const p = await open(true);
+    await expect(p.query("INSERT INTO users (name) VALUES ('x')")).rejects.toThrow(/Read-only violation/);
+    await p.disconnect();
   });
 
-  it('query throws Read-only violation for INSERT on read-only connection', async () => {
-    mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => []) })),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile({ readOnly: true }));
-
-    await expect(provider.query('INSERT INTO users (name) VALUES (?)', ['Eve'])).rejects.toThrow('Read-only violation');
+  it('allows INSERT on a read-write connection', async () => {
+    const p = await open(false);
+    await p.query("INSERT INTO users (name, email) VALUES ('dee', 'd@x')");
+    expect((await p.query('SELECT COUNT(*) AS n FROM users')).rows).toEqual([{ n: 4 }]);
+    await p.disconnect();
   });
 
-  it('query allows INSERT on a non-read-only connection', async () => {
-    const dbRows = [{ changes: 1 }];
-
-    mockDb = {
-      prepare: vi.fn(() => ({ all: vi.fn(() => dbRows), readonly: true })),
-      close: vi.fn(),
-    };
-
-    const provider = new SqliteProvider();
-    await provider.connect(makeProfile({ readOnly: false }));
-
-    const result = await provider.query('INSERT INTO users (name) VALUES (?)', ['Eve']);
-    expect(result.rowCount).toBe(1);
+  it('a read on a read-write connection cannot write, and the connection still writes afterwards', async () => {
+    const p = await open(false);
+    await expect(p.query('PRAGMA user_version(7)', [], { readOnly: true })).rejects.toThrow(/Read-only violation/);
+    expect((await p.query('PRAGMA user_version')).rows).toEqual([{ user_version: 0 }]);
+    await p.query('PRAGMA user_version(3)');
+    expect((await p.query('PRAGMA user_version')).rows).toEqual([{ user_version: 3 }]);
+    await p.disconnect();
   });
 
   it('query throws when not connected', async () => {
-    const provider = new SqliteProvider();
-    await expect(provider.query('SELECT 1')).rejects.toThrow('not connected');
+    await expect(new SqliteProvider().query('SELECT 1')).rejects.toThrow(/not connected/);
   });
 });
