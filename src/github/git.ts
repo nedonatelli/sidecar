@@ -203,12 +203,52 @@ export class GitCLI {
     return `Switched to branch: ${name}`;
   }
 
-  async getRemoteUrl(): Promise<string | null> {
+  async getRemoteUrl(remote: string = 'origin'): Promise<string | null> {
+    assertGitName(remote, 'remote');
     try {
-      return await this.exec(['remote', 'get-url', 'origin']);
+      return await this.exec(['remote', 'get-url', remote]);
     } catch {
       return null;
     }
+  }
+
+  /** The remote `branch` tracks (`branch.<name>.remote`), or null when it tracks none. */
+  async getUpstreamRemote(branch: string): Promise<string | null> {
+    assertGitName(branch, 'branch');
+    try {
+      return (await this.exec(['config', '--get', `branch.${branch}.remote`])) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** True when `ref` names a commit in this repo. */
+  async refExists(ref: string): Promise<boolean> {
+    assertGitName(ref, 'ref');
+    try {
+      await this.exec(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * What a push of HEAD to `remote` would send, as far as the last fetch knows:
+   * the commits no remote-tracking ref of that remote has, newest first, and a
+   * diffstat from the parent of the oldest one.
+   */
+  async unpushedCommits(remote: string): Promise<{ count: number; subjects: string[]; shortstat: string }> {
+    assertGitName(remote, 'remote');
+    const not = ['HEAD', '--not', `--remotes=${remote}`];
+    const shas = (await this.exec(['rev-list', ...not])).split('\n').filter(Boolean);
+    if (shas.length === 0) return { count: 0, subjects: [], shortstat: '' };
+    const subjects = (await this.exec(['log', '--format=%h %s', '-n', '5', ...not])).split('\n').filter(Boolean);
+    const oldest = shas[shas.length - 1];
+    const shortstat = (await this.refExists(`${oldest}^`))
+      ? await this.exec(['diff', '--shortstat', `${oldest}^`, 'HEAD']).catch(() => '')
+      : '';
+    return { count: shas.length, subjects, shortstat };
   }
 
   async getCurrentBranch(): Promise<string> {

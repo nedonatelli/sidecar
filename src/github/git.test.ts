@@ -241,6 +241,52 @@ describe('GitCLI', () => {
     expect(url).toBeNull();
   });
 
+  it('getRemoteUrl asks for the named remote', async () => {
+    mockGitOutput('https://github.com/user/bench.git');
+    await git.getRemoteUrl('bench');
+    expect(mockExecFile.mock.calls[0][1]).toEqual(['remote', 'get-url', 'bench']);
+  });
+
+  it('getUpstreamRemote reads branch.<name>.remote, null when unset', async () => {
+    mockGitOutput('bench');
+    expect(await git.getUpstreamRemote('feature/x')).toBe('bench');
+    expect(mockExecFile.mock.calls[0][1]).toEqual(['config', '--get', 'branch.feature/x.remote']);
+    mockGitError('');
+    expect(await git.getUpstreamRemote('feature/x')).toBeNull();
+  });
+
+  it('unpushedCommits lists what the remote lacks and diffs from the oldest parent', async () => {
+    const calls: string[][] = [];
+    mockExecFile.mockImplementation((_cmd, args, _opts, fn: unknown) => {
+      const a = args as string[];
+      calls.push(a);
+      const out =
+        a[0] === 'rev-list'
+          ? 'c3\nc2\nc1'
+          : a[0] === 'log'
+            ? 'c3 three\nc2 two\nc1 one'
+            : a[0] === 'diff'
+              ? ' 3 files changed'
+              : '';
+      cb(fn)(null, out, '');
+      return ret();
+    });
+    const r = await git.unpushedCommits('origin');
+    expect(r).toEqual({ count: 3, subjects: ['c3 three', 'c2 two', 'c1 one'], shortstat: '3 files changed' });
+    expect(calls[0]).toEqual(['rev-list', 'HEAD', '--not', '--remotes=origin']);
+    expect(calls.find((a) => a[0] === 'diff')).toEqual(['diff', '--shortstat', 'c1^', 'HEAD']);
+  });
+
+  it('unpushedCommits is empty when the remote has everything', async () => {
+    mockGitOutput('');
+    expect(await git.unpushedCommits('origin')).toEqual({ count: 0, subjects: [], shortstat: '' });
+  });
+
+  it('refuses a remote name that would be read as an option', async () => {
+    await expect(git.unpushedCommits('--upload-pack=x')).rejects.toThrow('Invalid remote');
+    await expect(git.getRemoteUrl('-x')).rejects.toThrow('Invalid remote');
+  });
+
   it('clone calls git clone', async () => {
     mockGitOutput('');
     const result = await git.clone('https://github.com/user/repo.git', '/tmp/repo');

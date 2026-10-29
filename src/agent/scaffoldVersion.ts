@@ -88,6 +88,12 @@
  *   deleted. PATCH: a narrower trigger on an existing mechanism (agent eval
  *   reprompt firings 45→13 e4b, 52→25 ministral-3; SWE canary 88→35, F2P and
  *   resolve unchanged on 150 pairs).
+ * - **5.1.12** (2026-10) — git_push goes where its approval says. It pushes
+ *   to the branch's upstream remote (or a `remote` the call names), not
+ *   always `origin`; `setUpstream` now sets one. The approval for git_push
+ *   and for a shell `git push` names the remote's URL, whether the GitHub
+ *   repo is public, the target branch, and the commits that would go up.
+ *   PATCH: a parameter and description change on an existing tool.
  * - **5.1.10** (2026-10) — grep runs without grep on PATH. On Windows the
  *   grep tool falls back to the grep.exe Git for Windows ships in usr/bin
  *   (beside the git on PATH, then the standard install folders); with no
