@@ -9,7 +9,8 @@ const warnedSubstitutions = new Set<string>();
 
 /**
  * The model SideCar actually uses for a configured Copilot model id: the id,
- * else the family, else Copilot's first available model. Used by both the chat
+ * else the family, else a Copilot model with that display name, else Copilot's
+ * first available model. Used by both the chat
  * path and the context-length lookup, so the two can't disagree.
  *
  * The last step used to call `selectChatModels()` with no selector, which
@@ -29,6 +30,10 @@ export async function resolveCopilotModel(
   if (models.length > 0) return models[0];
   models = await select(COPILOT);
   if (models.length === 0) return null;
+  // A display name ("Claude Sonnet 4.6") is the model it names: before #230's
+  // fix the model list stored names, so existing settings hold them.
+  const byName = models.find((m) => m.name === modelId);
+  if (byName) return byName;
   const chosen = models[0];
   if (!warnedSubstitutions.has(modelId)) {
     warnedSubstitutions.add(modelId);
