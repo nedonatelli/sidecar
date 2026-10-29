@@ -310,6 +310,24 @@ describe('resolveCopilotModel (#230)', () => {
     vi.mocked(logger.warn).mockRestore();
   });
 
+  it('a stored display name resolves to that model, with no warning (settings written before the fix)', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const notify = vi.mocked(vscode.window.showWarningMessage);
+    notify.mockClear();
+    // The fake names a model by its upper-cased id, as Copilot's "Claude Sonnet 4.6" names claude-sonnet-4.6.
+    expect((await resolveCopilotModel('CLAUDE-SONNET-5-5', select))?.id).toBe('claude-sonnet-5-5');
+    expect(warn).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("matches a display name only among Copilot's models", async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    // OTHER-EXT-MODEL is another vendor's display name: Copilot's first model is used instead.
+    expect((await resolveCopilotModel('OTHER-EXT-MODEL', select))?.id).toBe('gpt-6-luna');
+    vi.mocked(logger.warn).mockRestore();
+  });
+
   it('shows no notification when the configured model is offered', async () => {
     const notify = vi.mocked(vscode.window.showWarningMessage);
     notify.mockClear();

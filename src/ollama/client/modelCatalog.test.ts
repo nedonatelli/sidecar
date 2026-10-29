@@ -56,11 +56,14 @@ afterEach(() => {
 });
 
 describe('listInstalledModelsInner — copilot', () => {
-  it('lists Copilot models, using name || id', async () => {
-    mockedCopilot.listAvailableModels.mockResolvedValueOnce([{ name: 'GPT-4o', id: 'gpt-4o' }, { id: 'gpt-3' }]);
+  it('lists Copilot models by id, not display name (#230)', async () => {
+    mockedCopilot.listAvailableModels.mockResolvedValueOnce([
+      { name: 'Claude Sonnet 4.6', id: 'claude-sonnet-4.6' },
+      { id: 'gpt-3' },
+    ]);
     const result = await listInstalledModelsInner(ctx({ provider: 'copilot' }));
     expect(result).toEqual([
-      { name: 'GPT-4o', model: 'gpt-4o', size: 0 },
+      { name: 'claude-sonnet-4.6', model: 'claude-sonnet-4.6', size: 0 },
       { name: 'gpt-3', model: 'gpt-3', size: 0 },
     ]);
   });
