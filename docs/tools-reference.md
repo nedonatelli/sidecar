@@ -304,11 +304,14 @@ Show recent commit history (hash, message, author, date).
 
 ### `git_push`
 
-Push local commits on the current branch to the remote.
+Push local commits on the current branch to a remote: the branch's upstream remote, or `origin` when it tracks none.
 
 | Parameter     | Type    | Required | Description                                                                             |
 | ------------- | ------- | -------- | --------------------------------------------------------------------------------------- |
+| `remote`      | string  | No       | Remote to push to, when it is not the branch's upstream (e.g. a private mirror).        |
 | `setUpstream` | boolean | No       | If true, sets the upstream tracking branch for a newly-created branch (default: false). |
+
+The approval names the remote's URL, whether the GitHub repository is public, the target branch, and the commits that would be pushed. A `git push` run through `run_command` gets the same destination lines under its command.
 
 Checks branch protection rules before pushing when `sidecar.pr.branchProtection.enabled` is true (the default).
 

@@ -40,7 +40,7 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
-### 5.1.11 — the commit check asks about ignored files themselves (2026-10)
+### 5.1.14 — the commit check asks about ignored files themselves (2026-10)
 
 PATCH: two more conditions on the 5.1.9 commit approval; no mechanism is
 added, removed or re-defaulted.
@@ -54,6 +54,23 @@ added, removed or re-defaulted.
   not staged yet when it looks.
 - **Measured:** not run through an eval; no eval case commits ignored files.
   An ordinary source change passes every check.
+
+  5.1.11 was held for this change while it was open; it merged after 5.1.12,
+  so 5.1.11 is skipped.
+
+### 5.1.12 — git_push goes where its approval says (2026-10)
+
+PATCH: a new optional parameter and a description change on an existing tool;
+no mechanism is added, removed or re-defaulted.
+
+- **What changed:** `git_push` pushed to `origin` whatever the branch tracked,
+  and `setUpstream` did not set an upstream. It now pushes to the branch's
+  upstream remote, or to a `remote` the call names, falling back to `origin`;
+  `setUpstream` pushes with `-u`. The approval for `git_push`, and for a
+  `git push` run through `run_command`, shows the remote's URL, whether the
+  GitHub repository is public, the target branch (and whether it is new), and
+  the commits and diffstat that would go up.
+- **Measured:** not run through an eval: no eval case pushes.
 
 ### 5.1.10 — grep without grep on PATH (2026-10)
 

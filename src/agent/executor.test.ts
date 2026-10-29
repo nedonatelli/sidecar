@@ -22,6 +22,14 @@ vi.mock('./tools.js', () => ({
   findTool: vi.fn(),
 }));
 
+vi.mock('./tools/git.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./tools/git.js')>()),
+  describeGitPush: vi.fn(async () => 'Remote: origin → https://github.com/o/r.git (PUBLIC repository)'),
+  describeShellGitPush: vi.fn(async (cmd: string) =>
+    /git push/.test(cmd) ? 'Pushes to: origin → https://github.com/o/r.git (PUBLIC repository)' : null,
+  ),
+}));
+
 import { findTool } from './tools.js';
 import { getConfig } from '../config/settings.js';
 
@@ -686,6 +694,35 @@ describe('executeTool', () => {
     expect(actions).toEqual(['Allow', 'Deny']);
     expect(options).toMatchObject({ modal: true });
     expect(options.detail).toContain('npm test');
+  });
+
+  it('a git_push approval shows where the push goes, not just its arguments', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'git_push', description: '', input_schema: { type: 'object', properties: {} } },
+      executor: vi.fn().mockResolvedValue('pushed'),
+      requiresApproval: true,
+    });
+    await executeTool(makeToolUse('git_push', { setUpstream: true }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
+    const [, , options] = (mockConfirm as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(options.detail).toBe('Remote: origin → https://github.com/o/r.git (PUBLIC repository)');
+  });
+
+  it('a shell git push keeps the command and adds its destination', async () => {
+    mockedFindTool.mockReturnValue({
+      definition: { name: 'run_command', description: '', input_schema: { type: 'object', properties: {} } },
+      executor: vi.fn().mockResolvedValue('ran'),
+      requiresApproval: true,
+    });
+    await executeTool(makeToolUse('run_command', { command: 'git push origin bench/x' }), {
+      approvalMode: 'cautious',
+      confirmFn: mockConfirm,
+    });
+    const [, , options] = (mockConfirm as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(options.detail).toContain('command: git push origin bench/x');
+    expect(options.detail).toContain('Pushes to: origin → https://github.com/o/r.git (PUBLIC repository)');
   });
 
   it('uses an inline (non-modal) confirmation for non-destructive approvals', async () => {
