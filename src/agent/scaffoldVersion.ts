@@ -80,6 +80,18 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.10** (2026-10) — grep runs without grep on PATH. On Windows the
+ *   grep tool falls back to the grep.exe Git for Windows ships in usr/bin
+ *   (beside the git on PATH, then the standard install folders); with no
+ *   grep anywhere it throws "grep is not installed… nothing was searched",
+ *   pointing at `git grep`, instead of "Grep failed" or a false "No matches
+ *   found". PATCH: an existing tool's executable lookup and error.
+ * - **5.1.9** (2026-10) — a commit is looked at before it is made. git_commit
+ *   and a shell `git commit` ask first, in every mode, when the commit would
+ *   add copies of gitignored files, exceed 10 MB (or 5 MB in one file), add
+ *   more than 500 files, or hold a path over 200 characters. PATCH: a new
+ *   approval condition on existing tools. (5.1.6–5.1.8 were held for PRs
+ *   still open when this merged, and are skipped.)
  * - **5.1.5** (2026-10) — project config the request didn't ask for needs
  *   approval (#351). Edits, writes and deletes of package manifests and
  *   compiler, lint, test-runner and Python config, and shell commands that
@@ -221,7 +233,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.5';
+export const SCAFFOLD_VERSION = '5.1.10';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
