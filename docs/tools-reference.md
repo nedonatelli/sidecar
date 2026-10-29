@@ -583,7 +583,7 @@ Check that the shape/dtype contracts on numerical functions are internally consi
 
 ## Databases
 
-Requires connections configured under `sidecar.databases.profiles`.
+Requires connections configured under `sidecar.databases.profiles`; see [Configuration](configuration#database-integration-v076) for the profile fields and how to store a password. DuckDB profiles don't work in the Marketplace build, which doesn't ship the DuckDB engine.
 
 ### `db_list_connections`
 
@@ -620,7 +620,7 @@ Describe the schema of a specific table: columns, indexes, and constraints.
 
 Run a read-only parameterized SQL query against a database connection.
 
-The query is read-only even on a read-write profile: Postgres and MySQL run it in a `READ ONLY` transaction, SQLite refuses any statement it reports as writing, and DuckDB connections have external file and URL access turned off (`read_csv`, `read_text`, `glob`, `httpfs` and `ATTACH` are unavailable). Use `db_execute`, which asks for approval, for anything that writes.
+The query is read-only even on a read-write profile: Postgres and MySQL run it in a `READ ONLY` transaction, SQLite runs it with `query_only` on, so the engine refuses any write, and DuckDB connections have external file and URL access turned off (`read_csv`, `read_text`, `glob`, `httpfs` and `ATTACH` are unavailable). Use `db_execute`, which asks for approval, for anything that writes.
 
 | Parameter       | Type   | Required | Description                                                                                                 |
 | --------------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------- |

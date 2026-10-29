@@ -9,6 +9,11 @@ vi.mock('../../config/settings.js', () => ({
   })),
 }));
 
+const storedSecrets = vi.hoisted(() => new Map<string, string>());
+vi.mock('../../config/settings/secrets.js', () => ({
+  getSecretContext: () => ({ secrets: { get: async (k: string) => storedSecrets.get(k) } }),
+}));
+
 vi.mock('../../db/connectionManager.js', () => ({
   connectionManager: {
     getStatus: vi.fn(() => []),
@@ -441,5 +446,60 @@ describe('db_migrate_up', () => {
   it('returns error for an unsupported tool name', async () => {
     const result = await exec({ connection_id: 'test-db', tool: 'liquibase' });
     expect(result).toMatch(/unsupported migration tool/);
+  });
+});
+
+describe('database passwords (#364)', () => {
+  const exec = getExecutor('db_list_tables');
+  const pg = makeProfile({ id: 'pg', name: 'Prod PG', dialect: 'postgres', host: 'db', filePath: undefined });
+
+  beforeEach(() => {
+    storedSecrets.clear();
+    vi.mocked(connectionManager.getOrConnect).mockReset();
+  });
+
+  it('passes the password stored under the derived key to the connection', async () => {
+    storedSecrets.set('sidecar.dbPassword.pg', 's3cret');
+    vi.mocked(getConfig).mockReturnValue({ databaseProfiles: [pg] } as never);
+    (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockResolvedValue({
+      listTables: vi.fn().mockResolvedValue([]),
+    });
+
+    await exec({ connection_id: 'pg' });
+    expect(connectionManager.getOrConnect).toHaveBeenCalledWith(pg, 's3cret');
+  });
+
+  it("uses the profile's own secretKey when it names one", async () => {
+    storedSecrets.set('team.pg.password', 'from-key');
+    const keyed = { ...pg, secretKey: 'team.pg.password' };
+    vi.mocked(getConfig).mockReturnValue({ databaseProfiles: [keyed] } as never);
+    (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockResolvedValue({
+      listTables: vi.fn().mockResolvedValue([]),
+    });
+
+    await exec({ connection_id: 'pg' });
+    expect(connectionManager.getOrConnect).toHaveBeenCalledWith(keyed, 'from-key');
+  });
+
+  it('a failed connection with no stored password points at the command', async () => {
+    vi.mocked(getConfig).mockReturnValue({ databaseProfiles: [pg] } as never);
+    (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockRejectedValue(
+      new Error('password authentication failed'),
+    );
+
+    const result = await exec({ connection_id: 'pg' });
+    expect(result).toContain('password authentication failed');
+    expect(result).toContain('SideCar: Set Database Password');
+  });
+
+  it('a file database gets no password', async () => {
+    storedSecrets.set('sidecar.dbPassword.test-db', 'ignored');
+    vi.mocked(getConfig).mockReturnValue({ databaseProfiles: [makeProfile()] } as never);
+    (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockResolvedValue({
+      listTables: vi.fn().mockResolvedValue([]),
+    });
+
+    await exec({ connection_id: 'test-db' });
+    expect(connectionManager.getOrConnect).toHaveBeenCalledWith(makeProfile(), undefined);
   });
 });

@@ -2027,7 +2027,7 @@
           "sidecar.databases.profiles": {
             "type": "array",
             "default": [],
-            "markdownDescription": "Database connection profiles for the `db_list_tables` / `db_describe_table` / `db_query` tools. Each entry: `{ id, name, dialect, filePath?, host?, port?, database?, user?, secretKey?, readOnly? }`. Passwords are stored in VS Code SecretStorage keyed by `secretKey` — never put passwords in this setting.",
+            "markdownDescription": "Database connection profiles for the `db_list_tables` / `db_describe_table` / `db_query` tools. Each entry: `{ id, name, dialect, filePath?, host?, port?, database?, user?, secretKey?, readOnly? }`. Passwords are stored in VS Code SecretStorage (run **SideCar: Set / Clear Database Password**), under `secretKey` if the profile names one — never put passwords in this setting.",
             "items": {
               "type": "object",
               "required": [
@@ -3001,6 +3001,12 @@
       {
         "command": "sidecar.setHuggingFaceToken",
         "title": "Set / Clear HuggingFace Token",
+        "category": "SideCar",
+        "icon": "$(key)"
+      },
+      {
+        "command": "sidecar.setDatabasePassword",
+        "title": "Set / Clear Database Password",
         "category": "SideCar",
         "icon": "$(key)"
       },
