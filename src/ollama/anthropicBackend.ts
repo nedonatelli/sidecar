@@ -17,6 +17,7 @@ import { translateAnthropicStream } from './anthropicStreamTranslate.js';
 import { spendTracker } from './spendTracker.js';
 import { prunePrompt, formatPruneStats } from './promptPruner.js';
 import { estimateRequestTokens } from '../config/tokenEstimation.js';
+import { AGENT_MAX_OUTPUT_TOKENS } from '../config/constants.js';
 
 /** How long we'll wait on a rate-limit reset before telling the user to switch backends. */
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
@@ -53,16 +54,37 @@ const ANTHROPIC_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'claude-3-haiku': 4_096,
 };
 
+/**
+ * Bedrock names Claude models with a provider prefix, and cross-region
+ * inference profiles put a geography before that (`anthropic.claude-…`,
+ * `us.anthropic.claude-…`, `global.anthropic.claude-…`). The tables here are
+ * keyed by the bare Anthropic id, so a Bedrock id matched none of them: it got
+ * the 64,000 fallback and never sent `temperature` (#363).
+ */
+function bareClaudeId(model: string): string {
+  return model.toLowerCase().replace(/^(?:[a-z-]+\.)?anthropic\./, '');
+}
+
 export function maxOutputTokensForModel(model: string): number {
-  const lower = model.toLowerCase();
+  const lower = bareClaudeId(model);
   const match = Object.keys(ANTHROPIC_MAX_OUTPUT_TOKENS)
     .sort((a, b) => b.length - a.length)
     .find((prefix) => lower.startsWith(prefix));
   return match ? ANTHROPIC_MAX_OUTPUT_TOKENS[match] : 64_000;
 }
 
+/**
+ * `max_tokens` for an agent turn: the `sidecar.maxOutputTokens` setting, clamped
+ * to the model's ceiling. Not `agentMaxTokens`, which is the conversation budget
+ * (default 200,000): as a per-response cap it is no cap at all, so the setting
+ * had no effect on Anthropic or Bedrock (#363).
+ */
+export function agentOutputCap(model: string, maxOutputTokens: number | undefined): number {
+  return Math.min(maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS, maxOutputTokensForModel(model));
+}
+
 export function supportsTemperature(model: string): boolean {
-  const lower = model.toLowerCase();
+  const lower = bareClaudeId(model);
   return TEMPERATURE_SUPPORTED_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
 
@@ -319,7 +341,7 @@ export class AnthropicBackend implements ApiBackend {
     // console.info so the SideCar output channel captures it.
     const _pruneLog = formatPruneStats(pruned.stats);
     if (_pruneLog) logger.info(`[SideCar] ${_pruneLog}`);
-    const maxOutputTokens = Math.min(cfg.agentMaxTokens, maxOutputTokensForModel(model));
+    const maxOutputTokens = agentOutputCap(model, cfg.maxOutputTokens);
     const body: Record<string, unknown> = {
       model,
       max_tokens: maxOutputTokens,

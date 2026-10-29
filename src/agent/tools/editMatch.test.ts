@@ -206,6 +206,15 @@ describe('matchToleranceNote', () => {
     expect(note).toContain('f.ts');
   });
 
+  // #161 ML-24: the note read the replacement's line ending after it had been
+  // converted to the file's, so an LF search on a CRLF file "used CRLF".
+  it("names the SEARCH's line ending, not the file's, when given the search", () => {
+    const text = 'a = 1\r\nb = 2\r\nc = 3\r\n';
+    const search = 'a = 1\nb = 2';
+    const note = matchToleranceNote(findEditMatch(text, search, 'a = 1\nb = 3')!, 'x.py', text, search);
+    expect(note).toContain('your search used LF line endings and x.py uses CRLF');
+  });
+
   it('warns that a re-indented edit needs verifying', () => {
     const text = 'class C:\n    def f(self):\n        return 1\n';
     const note = matchToleranceNote(

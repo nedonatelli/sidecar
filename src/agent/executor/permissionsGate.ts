@@ -77,6 +77,12 @@ export interface ResolveApprovalOptions {
    * where the edit stays in a shadow worktree the user reviews afterwards.
    */
   isUnrequestedConfigEdit?: boolean;
+  /**
+   * True when reviewCommit found a problem with what a commit would hold:
+   * copies of gitignored files, or an unusual size, file count or path
+   * length. Asked in every mode.
+   */
+  isFlaggedCommit?: boolean;
 }
 
 /**
@@ -88,9 +94,11 @@ export interface ResolveApprovalOptions {
  *  3. `isPackageInstall` — installing software is the user's call, in every mode
  *  4. `isUnrequestedConfigEdit` — so is changing project config the request did
  *     not ask for, except a file write contained in a sandboxed shadow
- *  5. `explicitPermission: 'allow'` — user opted in; skip approval
- *  6. `explicitPermission: 'ask'`  — user opted in to always-ask
- *  7. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
+ *  5. `isFlaggedCommit` — and committing ignored data or an unusually large
+ *     change, in every mode
+ *  6. `explicitPermission: 'allow'` — user opted in; skip approval
+ *  7. `explicitPermission: 'ask'`  — user opted in to always-ask
+ *  8. Fall back to approvalMode × tool.requiresApproval (review asks like cautious)
  */
 export function resolveApprovalNeeded(opts: ResolveApprovalOptions): boolean {
   const { tool, toolName, approvalMode, explicitPermission, isIrrecoverable } = opts;
@@ -103,6 +111,7 @@ export function resolveApprovalNeeded(opts: ResolveApprovalOptions): boolean {
   if (opts.isUnrequestedConfigEdit && !(approvalMode === 'sandboxed' && SHADOW_CONTAINED_TOOLS.has(toolName ?? ''))) {
     return true;
   }
+  if (opts.isFlaggedCommit) return true;
   if (explicitPermission === 'allow') return false;
   if (explicitPermission === 'ask') return true;
   if (approvalMode === 'sandboxed') return !!tool.requiresApproval && !SHADOW_CONTAINED_TOOLS.has(toolName ?? '');

@@ -440,6 +440,20 @@ const WRITE_INTENT_RE =
  * message with write intent but were never written by the agent. Returns
  * null when no reprompt is needed.
  */
+/** Paths a successful delete_file reported this run ("File deleted: <path>"). */
+function deletedFiles(messages: ChatMessage[]): string[] {
+  const out: string[] = [];
+  for (const msg of messages) {
+    if (msg.role !== 'user' || typeof msg.content === 'string') continue;
+    for (const b of msg.content) {
+      if (b.type !== 'tool_result' || b.is_error) continue;
+      const text = typeof b.content === 'string' ? b.content : '';
+      for (const m of text.matchAll(/File deleted: (\S+)/g)) out.push(m[1].replace(/\\/g, '/'));
+    }
+  }
+  return out;
+}
+
 export async function buildNoFileWriteReprompt(
   messages: ChatMessage[],
   editedFiles: Set<string>,
@@ -460,6 +474,11 @@ export async function buildNoFileWriteReprompt(
   // directory tokens (no extension), collapse to basename for matching so
   // "src/deps/semver.test.ts" matches an editedFiles entry of "semver.test.ts"
   // regardless of how the sandbox rooted it.
+  // A file deleted this run is not on disk and not in editedFiles, so it read
+  // as one the user asked to create: "delete src/legacy.ts" was answered by a
+  // successful delete_file and then "the run finished without writing to
+  // `src/legacy.ts`" (delete-file-when-requested, night-1027 agent eval).
+  const deleted = deletedFiles(messages);
   const unwritten: string[] = [];
   for (const raw of mentioned) {
     const clean = raw.replace(/[`'"]/g, '');
@@ -470,6 +489,7 @@ export async function buildNoFileWriteReprompt(
       editedFiles.has(base) ||
       [...editedFiles].some((f) => f.endsWith('/' + base) || f === base);
     if (wasWritten) continue;
+    if (deleted.some((f) => f === clean || f === base || f.endsWith('/' + base))) continue;
     // Skip files that already exist on disk: the gate's job is to catch a named
     // file the user asked to CREATE that never got created. An existing file is
     // almost always a read-only dependency referenced by the task ("wire to the

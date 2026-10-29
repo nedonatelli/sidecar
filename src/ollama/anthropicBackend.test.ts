@@ -1,11 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { workspace } from 'vscode';
 import {
   AnthropicBackend,
+  agentOutputCap,
   buildSystemBlocks,
+  maxOutputTokensForModel,
+  supportsTemperature,
   prepareMessagesForCache,
   repairDanglingToolUses,
   toAnthropicWire,
 } from './anthropicBackend.js';
+import { invalidateConfigCache } from '../config/settings.js';
+import { AGENT_MAX_OUTPUT_TOKENS } from '../config/constants.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -800,5 +806,44 @@ describe('toAnthropicWire', () => {
       name: 'read_file',
       input: { path: 'a.ts' },
     });
+  });
+});
+
+describe('output cap and Bedrock ids (#363)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    invalidateConfigCache();
+  });
+
+  it('caps a turn with maxOutputTokens, clamped to the model ceiling, not agentMaxTokens', () => {
+    expect(agentOutputCap('claude-sonnet-4-5', 4096)).toBe(4096);
+    expect(agentOutputCap('claude-sonnet-4-5', undefined)).toBe(AGENT_MAX_OUTPUT_TOKENS);
+    expect(agentOutputCap('claude-opus-4-1', 64_000)).toBe(32_000);
+  });
+
+  it('looks up Bedrock ids by their bare Claude id', () => {
+    expect(maxOutputTokensForModel('anthropic.claude-3-5-haiku-20241022-v1:0')).toBe(8_192);
+    expect(maxOutputTokensForModel('us.anthropic.claude-3-5-sonnet-20241022-v2:0')).toBe(8_192);
+    expect(maxOutputTokensForModel('global.anthropic.claude-opus-4-1-20250805-v1:0')).toBe(32_000);
+    expect(supportsTemperature('eu.anthropic.claude-3-haiku-20240307-v1:0')).toBe(true);
+    expect(supportsTemperature('us.anthropic.claude-sonnet-4-20250514-v1:0')).toBe(false);
+  });
+
+  it('sends the maxOutputTokens setting as max_tokens', async () => {
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string) => (key === 'maxOutputTokens' ? 4096 : key === 'agentMaxTokens' ? 200_000 : undefined),
+      inspect: () => undefined,
+    } as never);
+    invalidateConfigCache();
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      body: sseBody([sse({ type: 'message_delta', delta: { stop_reason: 'end_turn' } })]),
+    });
+    const backend = new AnthropicBackend('https://api.anthropic.com', 'test-key');
+    for await (const _ of backend.streamChat('claude-sonnet-4-5', '', [{ role: 'user', content: 'hi' }])) {
+      void _;
+    }
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).max_tokens).toBe(4096);
   });
 });

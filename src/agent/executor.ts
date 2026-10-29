@@ -23,6 +23,7 @@ import {
   configEditQuestion,
   configEditRefusal,
 } from './executor/configEditDetector.js';
+import { commitCallOf, reviewCommit, commitReviewQuestion, commitReviewRefusal } from './executor/commitGuard.js';
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
@@ -35,6 +36,7 @@ import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } fro
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 import { previewEditFile, readCurrentText } from './tools/fs.js';
 import { delegatedMcpToolName } from './tools/mcpDelegate.js';
+import { describeGitPush, describeShellGitPush } from './tools/git.js';
 
 // Re-export ApprovalMode so all existing importers keep working unchanged.
 export type { ApprovalMode } from './executor/permissionsGate.js';
@@ -375,6 +377,11 @@ export async function executeTool(
     detectedConfigEdit && !requestNamesConfigChange(detectedConfigEdit, executorContext?.userRequestText)
       ? detectedConfigEdit
       : null;
+  // What a commit would hold: copies of ignored files, or an unusual size,
+  // file count or path length, are the user's call in every mode.
+  const commitCall = commitCallOf(toolUse);
+  const commitRoot = executorContext?.cwd ?? workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const flaggedCommit = commitCall && commitRoot ? await reviewCommit(commitCall, commitRoot) : null;
   const needsApproval = resolveApprovalNeeded({
     tool,
     toolName: toolUse.name,
@@ -383,6 +390,7 @@ export async function executeTool(
     isIrrecoverable: irrecoverableDescription !== null,
     isPackageInstall: install !== null,
     isUnrequestedConfigEdit: configEdit !== null,
+    isFlaggedCommit: flaggedCommit !== null,
   });
 
   if (needsApproval) {
@@ -472,9 +480,19 @@ export async function executeTool(
       // Non-write tools or no diff preview — use inline confirm. Every
       // argument is shown in full: what the user cannot see, they have not
       // approved.
-      const inputSummary = Object.entries(toolUse.input)
+      const argSummary = Object.entries(toolUse.input)
         .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
         .join('\n');
+      // A push's arguments say nothing about where it goes: approve the
+      // resolved remote, its URL and visibility, and the commits instead.
+      const shellCommand = shellCommandOf(toolUse);
+      const shellPush = shellCommand ? await describeShellGitPush(shellCommand, executorContext?.cwd) : null;
+      const inputSummary =
+        toolUse.name === 'git_push'
+          ? await describeGitPush(toolUse.input, executorContext?.cwd)
+          : shellPush
+            ? `${argSummary}\n\n${shellPush}`
+            : argSummary;
 
       const confirm = confirmFn || (async (_msg: string, _actions: string[]) => 'Deny');
       // Escalate to a native modal ONLY when the inline card would go unseen
@@ -492,15 +510,24 @@ export async function executeTool(
         ? installQuestion(install) + (configEdit ? ` It also changes **${configEdit.file}**.` : '')
         : configEdit
           ? configEditQuestion(configEdit)
-          : `SideCar wants to use **${toolUse.name}**:`;
+          : flaggedCommit
+            ? commitReviewQuestion(flaggedCommit)
+            : `SideCar wants to use **${toolUse.name}**:`;
       const modalTitle = install
         ? `Install ${install.what}?`
         : configEdit
           ? `Allow SideCar to change ${configEdit.file}?`
-          : `Allow SideCar to run ${toolUse.name}?`;
+          : flaggedCommit
+            ? 'Allow SideCar to make this commit?'
+            : `Allow SideCar to run ${toolUse.name}?`;
       const configFile = configEdit ? { configFile: configEdit.file } : undefined;
       const choice = useModal
-        ? await confirm(modalTitle, ['Allow', 'Deny'], { modal: true, detail: inputSummary, ...configFile })
+        ? await confirm(modalTitle, ['Allow', 'Deny'], {
+            modal: true,
+            // The modal shows only its detail: a commit's problems go there too.
+            detail: flaggedCommit ? `${commitReviewQuestion(flaggedCommit)}\n\n${inputSummary}` : inputSummary,
+            ...configFile,
+          })
         : await confirm(`${question}\n${inputSummary}`, ['Allow', 'Deny'], configFile);
 
       if (choice !== 'Allow') {
@@ -514,7 +541,9 @@ export async function executeTool(
             ? installRefusal(install, confirmFn !== undefined)
             : configEdit
               ? configEditRefusal(configEdit, confirmFn !== undefined)
-              : 'Tool call denied by user.',
+              : flaggedCommit
+                ? commitReviewRefusal(flaggedCommit, confirmFn !== undefined)
+                : 'Tool call denied by user.',
           is_error: true,
         };
       }

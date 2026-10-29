@@ -99,7 +99,11 @@ vi.mock('../github/git.js', () => ({
       push: vi.fn().mockResolvedValue('pushed ok'),
       pull: vi.fn().mockResolvedValue('pulled ok'),
       getCurrentBranch: vi.fn().mockResolvedValue('feature/x'),
-      getRemoteUrl: vi.fn().mockResolvedValue(null),
+      // Callers that read origin's URL see none; git_push names its remote
+      // and needs one to push to.
+      getRemoteUrl: vi.fn(async (remote?: string) => (remote ? 'https://git.example.com/repo.git' : null)),
+      getUpstreamRemote: vi.fn().mockResolvedValue(null),
+      refExists: vi.fn().mockResolvedValue(true),
       createBranch: vi.fn().mockResolvedValue('branch created'),
       switchBranch: vi.fn().mockResolvedValue('switched'),
       listBranches: vi.fn().mockResolvedValue(['main', 'feature/x']),

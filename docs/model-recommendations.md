@@ -21,7 +21,7 @@ SideCar works with local Ollama models, Anthropic, OpenAI, OpenRouter, Groq, Fir
 | Low-RAM local                   | `granite4.1:3b`                                       | 73% agent baseline (51/70, 2026-08); 2 GB — the lightweight alternative when 8 GB VRAM isn't available                                                                                                                             |
 | Best cloud                      | `claude-sonnet-5-5`                                   | Current Claude model with the best speed/capability mix; $2 / $10 per 1M tokens, 1M context. The top eval score on record (96%, 88/92) is the now-legacy `claude-haiku-4-5`; Claude 5 models have not been run through the harness |
 | Best budget cloud               | `claude-haiku-5-5`                                    | Cheapest current Claude model (from $0.10 / $0.50 per 1M tokens); SideCar prompt caching cuts input costs further on cache hits                                                                                                    |
-| Best for large codebases        | `claude-sonnet-5-5` or `deepseek-v4-pro`              | 1M context (current Claude models) or 1M context (DeepSeek v4 Pro via Fireworks) — both handle full-repo indexing without truncation                                                                                               |
+| Best for large codebases        | `claude-sonnet-5-5` or `glm-5p3`                      | 1M context (current Claude models) or 1M context (GLM 5.3 via Fireworks) — both handle full-repo indexing without truncation                                                                                                       |
 | Best for speed                  | `granite4.1:3b` (local) or `claude-haiku-5-5` (cloud) | Smallest local model that still supports tool use; Haiku has the lowest latency of the Claude family                                                                                                                               |
 
 ---
@@ -52,15 +52,15 @@ SideCar clamps local context windows to **131,072 tokens** (`LOCAL_CONTEXT_CAP`,
 
 Cloud models are accessed via their respective APIs. SideCar stores backend API keys in VS Code's SecretStorage per provider — switching backends doesn't overwrite keys. Use `SideCar: Switch Backend` or the ☰ menu in the chat header to change providers.
 
-| Model               | Provider  | Context | Best For                                                                                                       | Approx cost / 1M tokens (input / output) |
-| ------------------- | --------- | ------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `claude-sonnet-5-5` | Anthropic | 1M      | Complex multi-step agent tasks; large codebase refactors; best speed/capability mix                            | $2 / $10                                 |
-| `claude-haiku-5-5`  | Anthropic | 1M      | Daily driver for high-volume, latency-sensitive work; fastest Claude model                                     | from $0.10 / $0.50                       |
-| `claude-opus-5-5`   | Anthropic | 1M      | Long-running agentic coding; Anthropic's suggested starting point for most workloads                           | $4 / $20                                 |
-| `claude-fable-5-1`  | Anthropic | 1M      | Demanding reasoning and long-horizon agentic work; most expensive                                              | $10 / $50                                |
-| `gpt-4o`            | OpenAI    | 128K    | The OpenAI backend-menu default; deprecated by OpenAI (shutdown scheduled 2027-01-14) — prefer a current model | ~$2.50 / $10                             |
+| Model               | Provider  | Context | Best For                                                                               | Approx cost / 1M tokens (input / output) |
+| ------------------- | --------- | ------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `claude-sonnet-5-5` | Anthropic | 1M      | Complex multi-step agent tasks; large codebase refactors; best speed/capability mix    | $2 / $10                                 |
+| `claude-haiku-5-5`  | Anthropic | 1M      | Daily driver for high-volume, latency-sensitive work; fastest Claude model             | from $0.10 / $0.50                       |
+| `claude-opus-5-5`   | Anthropic | 1M      | Long-running agentic coding; Anthropic's suggested starting point for most workloads   | $4 / $20                                 |
+| `claude-fable-5-1`  | Anthropic | 1M      | Demanding reasoning and long-horizon agentic work; most expensive                      | $10 / $50                                |
+| `gpt-6-luna`        | OpenAI    | 922K    | The OpenAI backend-menu default; low-cost tier. `gpt-6-sol` is stronger for agent work | ~$0.10 / $0.50                           |
 
-Earlier Claude models (`claude-sonnet-4-6`, `claude-haiku-4-5`, `claude-opus-4-7`) are legacy but still available; the Anthropic backend-menu entry still selects `claude-haiku-4-5`. Prices: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+Earlier Claude models (`claude-sonnet-4-6`, `claude-haiku-4-5`, `claude-opus-4-7`) are legacy but still available; the Anthropic backend-menu entry selects `claude-haiku-5-5`. Prices: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
 
 > **Anthropic prompt caching:** SideCar automatically enables prompt caching for the Anthropic backend. Cache hits reduce input token costs by ~90%. On a typical agent session the system prompt and tool schemas are cached after the first turn, so most of the per-turn cost is output tokens only.
 
@@ -83,7 +83,7 @@ These models pass tool-use cases consistently in the eval harness:
 - `deepseek-coder-v2:16b`
 - `phi4:14b`
 - `codestral:22b`
-- `deepseek-v4-pro` (Fireworks)
+- `deepseek-v4-pro` (Fireworks; retired from serverless 2026-09-25)
 - `gpt-4o`, `gpt-4o-mini` (OpenAI, paid tier)
 
 ### Text-based tool call fallback (qwen3 / Hermes style)

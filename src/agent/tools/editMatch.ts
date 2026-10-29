@@ -579,7 +579,13 @@ function findBlankTolerantMatches(text: string, search: string, replace: string,
  * told what differed so its next search string can be right the first time —
  * silently absorbing the difference would teach it nothing.
  */
-export function matchToleranceNote(match: EditMatch, filePath: string, text: string): string {
+/**
+ * `search` is the model's own text. Without it the eol note read the line ending
+ * of `match.replacement`, which has already been converted to the file's, so
+ * every LF search on a CRLF file was told "your search used CRLF" (#161 ML-24,
+ * 3,794 of 3,909 eol-tier notes).
+ */
+export function matchToleranceNote(match: EditMatch, filePath: string, text: string, search?: string): string {
   if (match.rebasedFromColumnZero) {
     return (
       `[note: your replacement started at column 0, but the code it replaces in ${filePath} is indented. It was ` +
@@ -588,17 +594,22 @@ export function matchToleranceNote(match: EditMatch, filePath: string, text: str
   }
   if (match.tier === 'exact') return '';
   const name = (e: string) => (e === '\r\n' ? 'CRLF' : e === '\r' ? 'CR' : 'LF');
+  const fileEol = detectEol(text).eol;
+  const searchEol = detectEol(search ?? match.replacement).eol;
   switch (match.tier) {
     case 'eol':
       return (
-        `[note: your search used ${name(detectEol(match.replacement).eol)} line endings and ${filePath} uses ` +
-        `${name(detectEol(text).eol)}. It was matched on content, and the replacement was written with the file's ` +
+        `[note: your search used ${name(searchEol)} line endings and ${filePath} uses ` +
+        `${name(fileEol)}. It was matched on content, and the replacement was written with the file's ` +
         `line endings.]\n`
       );
     case 'trailing-space':
       return (
-        `[note: your search differed from ${filePath} in trailing whitespace only. It was matched on content; ` +
-        `copy from read_file (not the 'compact' view, which right-trims) to match byte-for-byte.]\n`
+        `[note: your search differed from ${filePath} in trailing whitespace` +
+        // A single-line search has no line ending to differ in.
+        `${search !== undefined && /[\r\n]/.test(search) && searchEol !== fileEol ? ` and line endings (${name(searchEol)} vs ${name(fileEol)})` : ' only'}. ` +
+        `It was matched on content; copy from read_file (not the 'compact' view, which right-trims) to match ` +
+        `byte-for-byte.]\n`
       );
     case 'indent':
       return (

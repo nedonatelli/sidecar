@@ -80,12 +80,41 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
- * - **5.1.7** (2026-10) — a command that did not run is a tool error.
- *   run_command and run_tests throw on exit 127 / 126 / 9009 and when the
- *   shell itself fails, so the model gets is_error with the shell's message
- *   and a note (python: try py / python3 / the venv). Every other non-zero
- *   exit is still an ordinary result. PATCH: the error flag and text of an
- *   existing tool's result. (Numbered after 5.1.6, git_push's target.)
+ * - **5.1.15** (2026-10) — the eol match note names the search's own line
+ *   ending. It read the replacement after conversion to the file's ending, so
+ *   an LF search on a CRLF file was told it "used CRLF" (3,794 of 3,909 notes).
+ *   The trailing-space note also says when line endings differed. PATCH: text
+ *   of an existing note.
+ * - **5.1.14** (2026-10) — the commit check also asks about files .gitignore
+ *   matches: force-added ones, ones tracked from before the rule, and a
+ *   command that runs `git add -f`. PATCH: two more conditions on the 5.1.9
+ *   approval. (5.1.11 was held for this PR, which merged after 5.1.13.)
+ * - **5.1.13** (2026-10) — a completion-gate nudge no longer counts as the
+ *   user speaking. The action reprompt's "since the user's message" window
+ *   reset at every gate nudge, so a finished run was told it "did not call
+ *   any tools". A text-only user message now opens the window only when it is
+ *   part of the request or a steer. No-file-write skips a file the run
+ *   deleted. PATCH: a narrower trigger on an existing mechanism (agent eval
+ *   reprompt firings 45→13 e4b, 52→25 ministral-3; SWE canary 88→35, F2P and
+ *   resolve unchanged on 150 pairs).
+ * - **5.1.12** (2026-10) — git_push goes where its approval says. It pushes
+ *   to the branch's upstream remote (or a `remote` the call names), not
+ *   always `origin`; `setUpstream` now sets one. The approval for git_push
+ *   and for a shell `git push` names the remote's URL, whether the GitHub
+ *   repo is public, the target branch, and the commits that would go up.
+ *   PATCH: a parameter and description change on an existing tool.
+ * - **5.1.10** (2026-10) — grep runs without grep on PATH. On Windows the
+ *   grep tool falls back to the grep.exe Git for Windows ships in usr/bin
+ *   (beside the git on PATH, then the standard install folders); with no
+ *   grep anywhere it throws "grep is not installed… nothing was searched",
+ *   pointing at `git grep`, instead of "Grep failed" or a false "No matches
+ *   found". PATCH: an existing tool's executable lookup and error.
+ * - **5.1.9** (2026-10) — a commit is looked at before it is made. git_commit
+ *   and a shell `git commit` ask first, in every mode, when the commit would
+ *   add copies of gitignored files, exceed 10 MB (or 5 MB in one file), add
+ *   more than 500 files, or hold a path over 200 characters. PATCH: a new
+ *   approval condition on existing tools. (5.1.6–5.1.8 were held for PRs
+ *   still open when this merged, and are skipped.)
  * - **5.1.5** (2026-10) — project config the request didn't ask for needs
  *   approval (#351). Edits, writes and deletes of package manifests and
  *   compiler, lint, test-runner and Python config, and shell commands that
@@ -227,7 +256,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.7';
+export const SCAFFOLD_VERSION = '5.1.15';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

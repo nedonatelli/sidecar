@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { workspace } from 'vscode';
+import { lm, workspace } from 'vscode';
 
 // Covers the profile-application surface (config writes + SecretStorage copy +
 // Kickstand model probe) and providerDisplayLabel. secrets.js / settings.js /
@@ -17,6 +17,7 @@ vi.mock('../settings.js', () => settings);
 import {
   applyBackendProfile,
   applyCustomEndpoint,
+  BUILT_IN_BACKEND_PROFILES,
   setProfileApiKey,
   providerDisplayLabel,
   type BackendProfile,
@@ -144,6 +145,27 @@ describe('applyBackendProfile', () => {
     // no model → the 'model' key is never written
     expect(updateSpy).not.toHaveBeenCalledWith('model', expect.anything(), true);
     vi.unstubAllGlobals();
+  });
+
+  it('takes the first model Copilot offers, since the Copilot profile has no fixed default', async () => {
+    secrets.getSecretContext.mockReturnValue(fakeCtx());
+    const copilot = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === 'copilot')!;
+    expect(copilot.defaultModel).toBe('');
+    vi.mocked(lm.selectChatModels).mockResolvedValueOnce([{ id: 'gpt-6-luna' }, { id: 'claude-sonnet-5.5' }] as never);
+
+    const result = await applyBackendProfile(copilot);
+
+    expect(lm.selectChatModels).toHaveBeenCalledWith({ vendor: 'copilot' });
+    expect(updateSpy).toHaveBeenCalledWith('model', 'gpt-6-luna', true);
+    expect(result.message).toContain('gpt-6-luna');
+  });
+
+  it('leaves the model alone when Copilot offers none (not installed or signed in)', async () => {
+    secrets.getSecretContext.mockReturnValue(fakeCtx());
+    vi.mocked(lm.selectChatModels).mockResolvedValueOnce([]);
+    const result = await applyBackendProfile(BUILT_IN_BACKEND_PROFILES.find((p) => p.id === 'copilot')!);
+    expect(result.status).toBe('applied');
+    expect(updateSpy).not.toHaveBeenCalledWith('model', expect.anything(), true);
   });
 });
 

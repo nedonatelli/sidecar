@@ -3197,6 +3197,20 @@
     div.appendChild(actions);
   }
 
+  /**
+   * Re-send the last user prompt for an error card's Retry button. Sends the
+   * bubble's stored prompt, not its textContent: the copy/edit/delete buttons
+   * sit inside the bubble, so textContent ends in their glyphs, and a
+   * virtualized bubble has none at all. Either way the host's retry match (an
+   * exact compare against the kept prompt) failed and the Retry became a new
+   * prompt (#360).
+   */
+  function retryLastUserPrompt() {
+    const lastUser = [...messagesContainer.querySelectorAll('.message.user')].pop();
+    const text = lastUser ? lastUser.dataset.rawContent || '' : '';
+    if (text) vscode.postMessage({ command: 'userMessage', text });
+  }
+
   // ------------------------------------------------------------------
   // Inline message editing — replaces a user message bubble with a
   // textarea so the user can edit and resend from that point.
@@ -5767,10 +5781,7 @@
               actionBtn.disabled = true;
               vscode.postMessage({ command: 'restartOllama' });
             } else if (msg.errorActionCommand === 'retry') {
-              const lastUser = [...messagesContainer.querySelectorAll('.message.user')].pop();
-              if (lastUser) {
-                vscode.postMessage({ command: 'userMessage', text: lastUser.textContent || '' });
-              }
+              retryLastUserPrompt();
             } else if (msg.errorType === 'model' && msg.errorModel) {
               actionBtn.textContent = 'Installing...';
               actionBtn.disabled = true;
@@ -5784,12 +5795,7 @@
             const retryBtn = document.createElement('button');
             retryBtn.className = 'error-action-btn';
             retryBtn.textContent = 'Retry';
-            retryBtn.addEventListener('click', () => {
-              const lastUser = [...messagesContainer.querySelectorAll('.message.user')].pop();
-              if (lastUser) {
-                vscode.postMessage({ command: 'userMessage', text: lastUser.textContent || '' });
-              }
-            });
+            retryBtn.addEventListener('click', retryLastUserPrompt);
             actionsRow.appendChild(retryBtn);
           }
           errorDiv.appendChild(actionsRow);
