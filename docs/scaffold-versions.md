@@ -40,6 +40,24 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.9 — a commit is looked at before it is made (2026-10)
+
+PATCH: a new approval condition on existing tools; no mechanism is removed or
+re-defaulted. Numbered after 5.1.8 (grep without grep on PATH).
+
+- **What changed:** nothing looked at what a commit held. In one autonomous
+  run the agent copied two gitignored folders (its own `.sidecar/logs` and
+  `.sidecar/cache`) into a tracked folder and committed 757 files, 70.7 MB,
+  then pushed them. `.gitignore` matches paths, so the copy was an ordinary
+  new file. `git_commit` and a shell `git commit` now ask first, in every
+  mode, when the commit would add copies of gitignored files (same content;
+  dependency folders excluded), exceed 10 MB in total or 5 MB in one file,
+  add more than 500 files, or hold a path over 200 characters. Declined, or
+  with no one to ask, the agent is told not to commit them another way or
+  push.
+- **Measured:** not run through an eval; no eval case commits files like
+  these. An ordinary source change passes every check.
+
 ### 5.1.5 — unrequested project-config changes need approval (2026-10)
 
 PATCH: a new approval guard on the existing write tools and `run_command`; no
