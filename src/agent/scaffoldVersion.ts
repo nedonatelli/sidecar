@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.13** (2026-10) — a completion-gate nudge no longer counts as the
+ *   user speaking. The action reprompt's "since the user's message" window
+ *   reset at every gate nudge, so a finished run was told it "did not call
+ *   any tools". A text-only user message now opens the window only when it is
+ *   part of the request or a steer. No-file-write skips a file the run
+ *   deleted. PATCH: a narrower trigger on an existing mechanism (agent eval
+ *   reprompt firings 45→13 e4b, 52→25 ministral-3; SWE canary 88→35, F2P and
+ *   resolve unchanged on 150 pairs).
  * - **5.1.12** (2026-10) — git_push goes where its approval says. It pushes
  *   to the branch's upstream remote (or a `remote` the call names), not
  *   always `origin`; `setUpstream` now sets one. The approval for git_push
@@ -239,7 +247,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.12';
+export const SCAFFOLD_VERSION = '5.1.13';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
