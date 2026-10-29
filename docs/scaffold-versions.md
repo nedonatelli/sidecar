@@ -54,9 +54,24 @@ added, removed or re-defaulted.
   not staged yet when it looks.
 - **Measured:** not run through an eval; no eval case commits ignored files.
   An ordinary source change passes every check.
+- **Number:** 5.1.11 was held for this change while it was open; it merged
+  after 5.1.13, so 5.1.11 is skipped.
 
-  5.1.11 was held for this change while it was open; it merged after 5.1.12,
-  so 5.1.11 is skipped.
+### 5.1.13 — gate nudges don't reset the reprompt's window (2026-10)
+
+PATCH: a narrower trigger on an existing mechanism; nothing is added, removed
+or re-defaulted.
+
+- **What changed:** the action reprompt is skipped when a change has landed,
+  or a read request was answered, since the user's message. It took any
+  user-role text not starting with `[` as the user's message, so each
+  completion-gate nudge restarted the window and a finished run was
+  re-prompted for not calling tools. A text-only user message now counts only
+  when its text is part of the request or a steer. No-file-write no longer
+  asks for a file the run deleted.
+- **Measured (bundle night, with #350):** agent eval reprompt firings 45→13
+  on gemma4:e4b and 52→25 on ministral-3, pass rate 235→233 and 214→222 of 243. e4b SWE canary, 150 pairs: firings 88→35, F2P 20%→20%, resolve
+  13%→13%, no task changed.
 
 ### 5.1.12 — git_push goes where its approval says (2026-10)
 

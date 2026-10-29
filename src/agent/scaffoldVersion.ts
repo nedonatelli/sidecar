@@ -83,7 +83,15 @@
  * - **5.1.14** (2026-10) — the commit check also asks about files .gitignore
  *   matches: force-added ones, ones tracked from before the rule, and a
  *   command that runs `git add -f`. PATCH: two more conditions on the 5.1.9
- *   approval. (5.1.11 was held for this PR, which merged after 5.1.12.)
+ *   approval. (5.1.11 was held for this PR, which merged after 5.1.13.)
+ * - **5.1.13** (2026-10) — a completion-gate nudge no longer counts as the
+ *   user speaking. The action reprompt's "since the user's message" window
+ *   reset at every gate nudge, so a finished run was told it "did not call
+ *   any tools". A text-only user message now opens the window only when it is
+ *   part of the request or a steer. No-file-write skips a file the run
+ *   deleted. PATCH: a narrower trigger on an existing mechanism (agent eval
+ *   reprompt firings 45→13 e4b, 52→25 ministral-3; SWE canary 88→35, F2P and
+ *   resolve unchanged on 150 pairs).
  * - **5.1.12** (2026-10) — git_push goes where its approval says. It pushes
  *   to the branch's upstream remote (or a `remote` the call names), not
  *   always `origin`; `setUpstream` now sets one. The approval for git_push
