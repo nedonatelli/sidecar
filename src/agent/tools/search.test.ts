@@ -255,6 +255,42 @@ describe('grep', () => {
     });
   });
 
+  describe('no grep executable is an error, not a search result', () => {
+    // A workstation with Git for Windows' default PATH: 114 of 120 grep calls
+    // were ENOENT, reported as "Grep failed" or as "No matches found".
+    const missing = () =>
+      Object.assign(new Error('spawn grep ENOENT'), { code: 'ENOENT', errno: -4058, syscall: 'spawn grep' });
+    const failWith = (err: Error) =>
+      mockExecFile.mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+        cb(err);
+      });
+
+    it('throws, naming git grep, instead of blaming regex syntax', async () => {
+      failWith(missing());
+      const run = grep({ pattern: 'FILE_UPLOAD_PERMISSION' });
+      await expect(run).rejects.toThrow(/grep is not installed on this machine, so nothing was searched/);
+      await expect(run).rejects.toThrow(/git grep -n -E/);
+      await expect(run).rejects.not.toThrow(/Perl-style|No matches found/);
+    });
+
+    it('throws for a path-shaped pattern, which used to read as a zero-hit', async () => {
+      const seen = new Map<string, number>();
+      failWith(missing());
+      await expect(grep({ pattern: 'admin_utils/**' }, { zeroHitPatterns: seen } as never)).rejects.toThrow(
+        /not installed/,
+      );
+      expect(seen.size).toBe(0);
+    });
+
+    it('throws when only the relaxed snippet search finds no grep', async () => {
+      mockExecFile.mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+        cb(Object.assign(new Error('no match'), { code: 1, stdout: '' }));
+      });
+      failWith(missing());
+      await expect(grep({ pattern: 'class ArticleForm(forms.ModelForm):' })).rejects.toThrow(/not installed/);
+    });
+  });
+
   it('returns actionable hint when grep exits with regex error and no stdout/stderr', async () => {
     const err = Object.assign(new Error('grep crashed'), { code: 2 });
     mockExecFile.mockImplementationOnce((_cmd: unknown, _args: unknown, _opts: unknown, cb: (err: Error) => void) => {

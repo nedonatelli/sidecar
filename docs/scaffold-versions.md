@@ -40,7 +40,7 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
-### 5.1.6 — git_push goes where its approval says (2026-10)
+### 5.1.12 — git_push goes where its approval says (2026-10)
 
 PATCH: a new optional parameter and a description change on an existing tool;
 no mechanism is added, removed or re-defaulted.
@@ -53,6 +53,42 @@ no mechanism is added, removed or re-defaulted.
   GitHub repository is public, the target branch (and whether it is new), and
   the commits and diffstat that would go up.
 - **Measured:** not run through an eval: no eval case pushes.
+
+### 5.1.10 — grep without grep on PATH (2026-10)
+
+PATCH: an existing tool's executable lookup and error text; no mechanism is
+added, removed or re-defaulted.
+
+- **What changed:** the `grep` tool ran `grep` from PATH. Git for Windows'
+  default PATH setting adds only its `cmd` folder, so a machine with git and
+  Git Bash could still have no `grep` for the tool to start. Every call then
+  failed with ENOENT, reported as "Grep failed" with a regex hint, or — for a
+  path-shaped pattern, or the relaxed search of a pasted snippet — as "No
+  matches found", a false absence. On Windows the tool now uses the
+  `usr/bin/grep.exe` beside the git on PATH, then the standard install
+  folders. With no grep anywhere it is a tool error that says nothing was
+  searched and points at `git grep`.
+- **Measured:** not run through an eval; the eval machine has grep on PATH.
+  On one Windows workstation 114 of 120 grep calls failed this way.
+
+### 5.1.9 — a commit is looked at before it is made (2026-10)
+
+PATCH: a new approval condition on existing tools; no mechanism is removed or
+re-defaulted. 5.1.6–5.1.8 were held for PRs still open when this merged,
+and are skipped.
+
+- **What changed:** nothing looked at what a commit held. In one autonomous
+  run the agent copied two gitignored folders (its own `.sidecar/logs` and
+  `.sidecar/cache`) into a tracked folder and committed 757 files, 70.7 MB,
+  then pushed them. `.gitignore` matches paths, so the copy was an ordinary
+  new file. `git_commit` and a shell `git commit` now ask first, in every
+  mode, when the commit would add copies of gitignored files (same content;
+  dependency folders excluded), exceed 10 MB in total or 5 MB in one file,
+  add more than 500 files, or hold a path over 200 characters. Declined, or
+  with no one to ask, the agent is told not to commit them another way or
+  push.
+- **Measured:** not run through an eval; no eval case commits files like
+  these. An ordinary source change passes every check.
 
 ### 5.1.5 — unrequested project-config changes need approval (2026-10)
 

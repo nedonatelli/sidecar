@@ -83,6 +83,85 @@ describe('sanitizeText', () => {
   });
 });
 
+// Shapes that got past the exporter in a real handoff: a Windows path at the
+// start of a line of tool output, the short form of a long username, project
+// names in a temp-folder listing, and a value that is only a name's prefix.
+describe('sanitizeText: what a real Windows handoff carried', () => {
+  const USER = [{ value: 'jsmithers', placeholder: '<user>' }];
+
+  it('rewrites a home path that starts a line inside a JSON string', () => {
+    const line = '{"result":"<tool_output>\\nC:\\\\Users\\\\jsmithers\\\\AppData\\\\Local\\\\Temp"}';
+    const { text } = sanitizeText(line, {});
+    expect(text).toBe('{"result":"<tool_output>\\nC:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp"}');
+    expect(findSecrets(line, {}).map((f) => f.detector)).toEqual(['home path']);
+  });
+
+  it('rewrites the Windows short form of a long username, and the scan catches it', () => {
+    const line = '{"result":"C:\\\\Users\\\\JSMITH~1\\\\AppData\\\\Local\\\\Temp\\\\x.py"}';
+    expect(sanitizeText(line, { explicit: USER }).text).not.toMatch(/JSMITH~1/i);
+    expect(findSecrets('cd /c/Users/jsmith~1/tmp', { explicit: USER }).map((f) => f.detector)).toContain(
+      'short user name',
+    );
+    // A name of eight characters or fewer has no short form to look for.
+    const short = findSecrets('JSMITH~1', { explicit: [{ value: 'jsmith', placeholder: '<user>' }] });
+    expect(short.map((f) => f.detector)).not.toContain('short user name');
+  });
+
+  it('omits a run of `ls -l` entries, in raw text and inside a JSON string', () => {
+    const entries = [
+      '-rw-r--r-- 1 jsmithers 197121    120 Oct 22 12:06 acme-billing-tests-3f2a',
+      'drwxr-xr-x 1 jsmithers 197121      0 Oct 22 12:06 acme-radar-sim',
+      '-rw-r--r-- 1 jsmithers 197121   3477 Aug 25  2025 orbit_backup.sim',
+    ];
+    const raw = sanitizeText(`total 12\n${entries.join('\n')}\nnext`, {});
+    expect(raw.text).toBe('total 12\n[3 directory entries omitted]\nnext');
+    expect(raw.counts['directory listing']).toBe(1);
+    const json = sanitizeText(JSON.stringify({ result: `total 12\n${entries.join('\n')}\n` }), {});
+    expect(json.text).toBe('{"result":"total 12\\n[3 directory entries omitted]\\n"}');
+  });
+
+  it('omits a listing flattened onto one line, as the .log files write it', () => {
+    const line =
+      '[+5ms] → run_command ok: total 8 drwxr-xr-x 1 u 197121 0 Oct 22 12:06 acme-a ' +
+      '-rw-r--r-- 1 u 197121 9 Oct 22 12:06 acme-b drwxr-xr-x 1 u 197121 0 Oct 27 09:01 acme-c';
+    expect(sanitizeText(line, {}).text).toBe('[+5ms] → run_command ok: total 8 [3 directory entries omitted]');
+  });
+
+  it('rewrites everything under a temp folder, raw and JSON-escaped', () => {
+    const t =
+      '/tmp/claude/c--Users-u-Documents-Code-acme/1/x.log and ' +
+      '{"p":"C:\\\\Users\\\\u\\\\AppData\\\\Local\\\\Temp\\\\acme-tests-3f\\\\out.txt"}';
+    expect(sanitizeText(t, {}).text).toBe(
+      '/tmp/<tmp-path> and {"p":"C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\<tmp-path>"}',
+    );
+    expect(sanitizeText('see /tmp/acme-x\\nnext', {}).text).toBe('see /tmp/<tmp-path>\\nnext');
+    // A path that starts a line of JSON-escaped tool output.
+    expect(sanitizeText('out\\n/tmp/acme-y/z', {}).text).toBe('out\\n/tmp/<tmp-path>');
+  });
+
+  it('leaves listings and temp paths in a predictions file: the patch is scored as written', () => {
+    const patch = '{"model_patch":"+    path = \\"/tmp/acme-cache\\"\\n"}';
+    const plan = planExport([{ path: 'run/preds.scaffold-on.jsonl', text: patch }]);
+    expect(plan.ok).toBe(true);
+    expect(plan.files[0].text).toBe(patch);
+  });
+
+  it('keeps one or two `ls -l` lines: a file the model checked is not a listing', () => {
+    const two = '-rw-r--r-- 1 u g 10 Oct 22 12:06 setup.py\n-rw-r--r-- 1 u g 20 Oct 22 12:06 setup.cfg';
+    expect(sanitizeText(two, {}).text).toBe(two);
+  });
+
+  it('a token value takes the whole name around it; a plain value only itself', () => {
+    const t = 'ls /work/acme-billing-tests-3f2a and acme-radar-sim.cfg';
+    expect(sanitizeText(t, { explicit: [{ value: 'acme-', placeholder: '<redacted>', token: true }] }).text).toBe(
+      'ls /work/<redacted> and <redacted>',
+    );
+    expect(sanitizeText('a sat_backup.SIM file', { explicit: [{ value: '.sim', token: true }] }).text).toBe(
+      'a <redacted> file',
+    );
+  });
+});
+
 describe('isPrivateHost', () => {
   it('classifies IPs, single labels and private suffixes as private', () => {
     for (const h of ['10.1.2.3', 'localhost', 'dgx-01', 'box.local', 'gpu.corp', '[::1]'])
