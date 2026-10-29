@@ -35,6 +35,7 @@ import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } fro
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 import { previewEditFile, readCurrentText } from './tools/fs.js';
 import { delegatedMcpToolName } from './tools/mcpDelegate.js';
+import { describeGitPush, describeShellGitPush } from './tools/git.js';
 
 // Re-export ApprovalMode so all existing importers keep working unchanged.
 export type { ApprovalMode } from './executor/permissionsGate.js';
@@ -472,9 +473,19 @@ export async function executeTool(
       // Non-write tools or no diff preview — use inline confirm. Every
       // argument is shown in full: what the user cannot see, they have not
       // approved.
-      const inputSummary = Object.entries(toolUse.input)
+      const argSummary = Object.entries(toolUse.input)
         .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
         .join('\n');
+      // A push's arguments say nothing about where it goes: approve the
+      // resolved remote, its URL and visibility, and the commits instead.
+      const shellCommand = shellCommandOf(toolUse);
+      const shellPush = shellCommand ? await describeShellGitPush(shellCommand, executorContext?.cwd) : null;
+      const inputSummary =
+        toolUse.name === 'git_push'
+          ? await describeGitPush(toolUse.input, executorContext?.cwd)
+          : shellPush
+            ? `${argSummary}\n\n${shellPush}`
+            : argSummary;
 
       const confirm = confirmFn || (async (_msg: string, _actions: string[]) => 'Deny');
       // Escalate to a native modal ONLY when the inline card would go unseen

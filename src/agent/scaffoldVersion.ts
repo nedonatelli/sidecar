@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.6** (2026-10) — git_push goes where its approval says. It pushes
+ *   to the branch's upstream remote (or a `remote` the call names), not
+ *   always `origin`; `setUpstream` now sets one. The approval for git_push
+ *   and for a shell `git push` names the remote's URL, whether the GitHub
+ *   repo is public, the target branch, and the commits that would go up.
+ *   PATCH: a parameter and description change on an existing tool.
  * - **5.1.5** (2026-10) — project config the request didn't ask for needs
  *   approval (#351). Edits, writes and deletes of package manifests and
  *   compiler, lint, test-runner and Python config, and shell commands that
@@ -221,7 +227,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.5';
+export const SCAFFOLD_VERSION = '5.1.6';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
