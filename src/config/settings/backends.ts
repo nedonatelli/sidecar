@@ -8,7 +8,7 @@
 // runtime provider when the user leaves `sidecar.provider` on `auto`.
 // ---------------------------------------------------------------------------
 
-import { workspace } from 'vscode';
+import { lm, workspace } from 'vscode';
 import { getSecretContext, storeActiveApiKey } from './secrets.js';
 import { invalidateConfigCache } from '../settings.js';
 
@@ -47,7 +47,7 @@ export const OLLAMA_DEFAULT_MODEL = 'gemma4:e4b';
 
 /** Default model when the resolved provider is Anthropic and no explicit
  *  model has been set. Haiku is chosen over Sonnet/Opus for cost. */
-export const ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-4-5';
+export const ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-5-5';
 
 export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
   {
@@ -73,7 +73,9 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'OpenAI',
     provider: 'openai',
     baseUrl: 'https://api.openai.com',
-    defaultModel: 'gpt-4o',
+    // gpt-4o's snapshots shut down on 2027-01-14; OpenAI names gpt-6-luna as
+    // the replacement. The low-cost tier, like Anthropic's Haiku default.
+    defaultModel: 'gpt-6-luna',
     secretKey: 'sidecar.profileKey.openai',
     description: 'GPT models via the OpenAI API (pay-per-token, requires API key from platform.openai.com)',
   },
@@ -82,7 +84,7 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'OpenRouter',
     provider: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
-    defaultModel: 'anthropic/claude-sonnet-4.5',
+    defaultModel: 'anthropic/claude-sonnet-5.5',
     secretKey: 'sidecar.profileKey.openrouter',
     description:
       'One key unlocks hundreds of models across providers (Anthropic, OpenAI, Google, Mistral, Meta, and more). Requires an API key from openrouter.ai/keys. Per-model pricing pulled live from their catalog.',
@@ -102,10 +104,12 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'Fireworks',
     provider: 'fireworks',
     baseUrl: 'https://api.fireworks.ai/inference/v1',
-    defaultModel: 'accounts/fireworks/models/qwen2p5-coder-32b-instruct',
+    // qwen2p5-coder-32b-instruct, the previous default, is no longer on
+    // serverless (deploy-on-demand only), so requests to it failed.
+    defaultModel: 'accounts/fireworks/models/glm-5p3',
     secretKey: 'sidecar.profileKey.fireworks',
     description:
-      'Fireworks serves open-weight models (DeepSeek V3, Qwen 2.5 Coder, Llama 3.3, Mixtral) via a fast OpenAI-compatible endpoint. Cheaper than OpenAI for comparable capability. Requires an API key from fireworks.ai.',
+      'Fireworks serves open-weight models (GLM, DeepSeek, Kimi, Qwen) via a fast OpenAI-compatible endpoint. Cheaper than OpenAI for comparable capability. Serverless models change often; pick one from the model list. Requires an API key from fireworks.ai.',
   },
   {
     id: 'kickstand',
@@ -145,7 +149,10 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     name: 'GitHub Copilot',
     provider: 'copilot',
     baseUrl: 'vscode://github.copilot',
-    defaultModel: 'gpt-4o',
+    // Empty: which models Copilot offers depends on the user's plan and changes
+    // often (gpt-4o, the previous default, left Copilot Chat on 2025-08-06), so
+    // applyBackendProfile takes the first model Copilot actually offers.
+    defaultModel: '',
     secretKey: null,
     description:
       'Use SideCar with your existing GitHub Copilot subscription — no separate API key needed. Requires GitHub Copilot extension installed and signed in.',
@@ -213,6 +220,20 @@ async function queryKickstandFirstModel(baseUrl: string): Promise<string> {
 }
 
 /**
+ * The first chat model Copilot offers this user. Used when switching to
+ * Copilot, whose profile has no fixed default. Empty when Copilot isn't
+ * installed or signed in; the model setting is then left as it was.
+ */
+async function queryCopilotFirstModel(): Promise<string> {
+  try {
+    const models = await lm.selectChatModels({ vendor: 'copilot' });
+    return models[0]?.id ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Apply a backend profile: write baseUrl / provider / model into workspace
  * config and copy the profile's stored secret (if any) into the active
  * `sidecar.apiKey` secret so runtime picks it up. Returns a status hint
@@ -232,6 +253,9 @@ export async function applyBackendProfile(
   let modelToSet = profile.defaultModel;
   if (!modelToSet && profile.provider === 'kickstand') {
     modelToSet = await queryKickstandFirstModel(profile.baseUrl);
+  }
+  if (!modelToSet && profile.provider === 'copilot') {
+    modelToSet = await queryCopilotFirstModel();
   }
   if (modelToSet) {
     await cfg.update('model', modelToSet, true);

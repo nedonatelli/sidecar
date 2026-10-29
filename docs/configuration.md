@@ -23,19 +23,19 @@ All settings are under the `sidecar.*` prefix. Open VS Code settings (`Cmd+,` / 
 
 You don't have to edit these settings by hand. Click the **☰ menu** in the chat header and pick a backend from the **Backend** submenu — SideCar's built-in profiles flip `baseUrl`, `provider`, and `model` in one click:
 
-| Profile          | Provider     | Base URL                                                  | Default model                                                                   |
-| ---------------- | ------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Local Ollama     | `ollama`     | `http://localhost:11434`                                  | `gemma4:e4b`                                                                    |
-| Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                               | `claude-haiku-4-5`                                                              |
-| OpenAI           | `openai`     | `https://api.openai.com`                                  | `gpt-4o`                                                                        |
-| OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-4.5`                                                   |
-| Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                                                           |
-| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/qwen2p5-coder-32b-instruct`                          |
-| AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-4-20250514-v1:0` (AWS credential chain, no API key) |
-| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash` (shut down by Google — pick a current model after switching) |
-| GitHub Copilot   | `copilot`    | `vscode://github.copilot`                                 | `gpt-4o` (uses your Copilot subscription — no API key)                          |
+| Profile          | Provider     | Base URL                                                  | Default model                                                                |
+| ---------------- | ------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Local Ollama     | `ollama`     | `http://localhost:11434`                                  | `gemma4:e4b`                                                                 |
+| Anthropic Claude | `anthropic`  | `https://api.anthropic.com`                               | `claude-haiku-5-5`                                                           |
+| OpenAI           | `openai`     | `https://api.openai.com`                                  | `gpt-6-luna`                                                                 |
+| OpenRouter       | `openrouter` | `https://openrouter.ai/api/v1`                            | `anthropic/claude-sonnet-5.5`                                                |
+| Groq             | `groq`       | `https://api.groq.com/openai/v1`                          | `openai/gpt-oss-120b`                                                        |
+| Fireworks        | `fireworks`  | `https://api.fireworks.ai/inference/v1`                   | `accounts/fireworks/models/glm-5p3`                                          |
+| AWS Bedrock      | `bedrock`    | `https://bedrock-runtime.us-east-1.amazonaws.com`         | `us.anthropic.claude-sonnet-5-5` (AWS credential chain, no API key)          |
+| Google Gemini    | `gemini`     | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash`                                                           |
+| GitHub Copilot   | `copilot`    | `vscode://github.copilot`                                 | first model Copilot offers you (uses your Copilot subscription — no API key) |
 
-Some profile defaults are older models. The Anthropic entry selects the lowest-cost `claude-haiku-4-5`; current Claude models are `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5`, and `claude-fable-5-1`. Google has shut down `gemini-2.0-flash` and recommends `gemini-3.8-flash`. OpenAI has deprecated `gpt-4o` (shutdown scheduled for 2027-01-14). Set `sidecar.model` after switching if you want a different model. The menu also has a **Custom endpoint** entry for any OpenAI-compatible server: it asks for the URL and then the API key, and sets `sidecar.provider` to `openai-compat`.
+The Anthropic and OpenAI entries select their providers' lowest-cost current models; for agent work, `claude-sonnet-5-5` or `gpt-6-sol` are stronger. The Copilot entry has no fixed default because the models Copilot offers depend on your plan: it picks the first one Copilot lists. Set `sidecar.model` after switching if you want a different model. The menu also has a **Custom endpoint** entry for any OpenAI-compatible server: it asks for the URL and then the API key, and sets `sidecar.provider` to `openai-compat`.
 
 Each profile stores its API key in its own SecretStorage slot (`sidecar.profileKey.<id>`), so switching between profiles preserves keys you've already entered — setting your Anthropic key once won't clobber your OpenAI key, and vice versa. The currently active profile is checkmarked in the menu. The same flow is available from the Command Palette as `SideCar: Switch Backend`.
 
