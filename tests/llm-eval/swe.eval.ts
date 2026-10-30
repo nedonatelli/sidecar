@@ -882,7 +882,9 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // interpreter it started escape the tree kill on Windows.
     if (dir) {
       const swept = sweepTaskSurvivors(venvDir ? [dir, venvDir] : [dir]);
-      if (swept.found > 0)
+      if (swept.listError)
+        console.warn(`[swe]   ${task.instance_id}: survivor sweep could not list processes: ${swept.listError}`);
+      else if (swept.found > 0)
         console.log(
           `[swe]   ${task.instance_id}: killed ${swept.killed}/${swept.found} process(es) left after the task`,
         );
