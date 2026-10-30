@@ -1,0 +1,28 @@
+// Production pass for `npm run deadcode:prod` (#366, docs/deadcode.md).
+// `knip.json` makes every test an entry point, so a module imported only by its
+// own test counts as used. Here only what ships is an entry: a src module that
+// nothing reachable from them imports is reported.
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    // The bundle's only entry (package.json "bundle").
+    "src/extension.ts!",
+    // The public @sidecar/sdk surface; no internal caller by design.
+    "src/sdk/index.ts!",
+  ],
+  "project": ["src/**/*.ts!"],
+  "ignore": [
+    "src/agent/tools/__corpus__/**",
+    // Test support, not shipped.
+    "src/test/**",
+    "src/__tests__/**",
+    "src/**/testHelpers.ts",
+    "src/parsing/grammarsTestSupport.ts",
+    // Used by the eval and SWE harnesses (tests/, bench/), not the extension.
+    "src/agent/ablation.ts",
+    "src/agent/ablationStats.ts",
+    "src/agent/scaffoldVersion.ts",
+    "src/ollama/hostUrl.ts",
+  ],
+  "ignoreExportsUsedInFile": true,
+}

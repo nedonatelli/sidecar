@@ -42,5 +42,6 @@ export default {
   },
   'media/**/*.css': ['prettier --write'],
   'media/**/*.js': ['prettier --write', 'eslint --max-warnings=0'],
+  'scripts/**/*.mjs': ['prettier --write', 'eslint --max-warnings=0'],
   '**/*.{md,json}': ['prettier --write'],
 };

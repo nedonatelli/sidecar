@@ -70,7 +70,12 @@ const ourFiles = new Set(
     .filter((f) => f?.startsWith('src/'))
     .map(relToSrc),
 );
-const refFiles = new Set(ref.nodes.map((n) => n.source_file).filter(Boolean).map(relToSrc));
+const refFiles = new Set(
+  ref.nodes
+    .map((n) => n.source_file)
+    .filter(Boolean)
+    .map(relToSrc),
+);
 
 const missing = [...refFiles]
   .filter((f) => !ourFiles.has(f))
@@ -97,7 +102,11 @@ const realMisses = missing.filter((f) => !barrels.includes(f) && !tests.includes
 console.log('=== symbol-graph differential ===');
 console.log(`  reference : ${ref.nodes.length} nodes / ${(ref.links ?? []).length} edges over ${refFiles.size} files`);
 console.log(`  ours      : ${ours.symbols.length} symbols over ${ourFiles.size} files`);
-console.log(`  by kind   : ${Object.entries(byKind).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+console.log(
+  `  by kind   : ${Object.entries(byKind)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ')}`,
+);
 if (!byKind.variable) {
   console.log('  WARNING: zero `variable` symbols — exported consts are not being indexed.');
   console.log('           symbolIndexer accepts el.type === "variable"; the analyzer never emits it.');

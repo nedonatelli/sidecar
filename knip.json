@@ -6,9 +6,11 @@
     "tests/**/*.test.ts",
     "tests/**/*.eval.ts",
     "bench/**/*.test.ts",
-    "bench/**/*.eval.ts"
+    "bench/**/*.eval.ts",
+    "scripts/*.mjs",
+    "scripts/**/*.test.mjs"
   ],
-  "project": ["src/**/*.ts", "tests/**/*.ts", "bench/**/*.ts"],
+  "project": ["src/**/*.ts", "tests/**/*.ts", "bench/**/*.ts", "scripts/**/*.mjs"],
   "ignore": ["src/agent/tools/__corpus__/**", "tests/llm-eval/fixtures/**"],
   "ignoreExportsUsedInFile": true,
   "ignoreDependencies": ["@types/.*", "mermaid", "tree-sitter-wasms", "@vscode/test-electron", "eslint-config-prettier"]

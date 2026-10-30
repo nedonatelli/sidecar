@@ -18,8 +18,25 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'grammars');
 
 const LANGUAGES = [
-  'typescript', 'tsx', 'javascript', 'python', 'rust', 'go', 'java', 'kotlin',
-  'c_sharp', 'ruby', 'swift', 'c', 'cpp', 'bash', 'php', 'lua', 'scala', 'dart', 'vue',
+  'typescript',
+  'tsx',
+  'javascript',
+  'python',
+  'rust',
+  'go',
+  'java',
+  'kotlin',
+  'c_sharp',
+  'ruby',
+  'swift',
+  'c',
+  'cpp',
+  'bash',
+  'php',
+  'lua',
+  'scala',
+  'dart',
+  'vue',
 ];
 
 const sources = [
