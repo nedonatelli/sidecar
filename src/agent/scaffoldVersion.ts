@@ -80,6 +80,19 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.18** (2026-10) — an inferred edit marks its file as written since
+ *   the last read. The stale-read guard only knew "File edited:/written:", so
+ *   after "Applied inferred edit to …" it still trusted the earlier read.
+ *   PATCH: what an existing guard recognizes.
+ * - **5.1.17** (2026-10) — a "No change needed" edit is not a file mutation.
+ *   It counted, so a run that had changed nothing switched off the action
+ *   reprompt's "already done?" escape and the read-only cycle nudge. PATCH:
+ *   what an existing counter counts.
+ * - **5.1.16** (2026-10) — a command that did not run is a tool error. Exit
+ *   127/126/9009 and a failed shell were returned as ordinary results, so the
+ *   model read them as success; they now carry isError, the shell's message
+ *   and a note naming the program. PATCH: error flag and text of an existing
+ *   result.
  * - **5.1.15** (2026-10) — the eol match note names the search's own line
  *   ending. It read the replacement after conversion to the file's ending, so
  *   an LF search on a CRLF file was told it "used CRLF" (3,794 of 3,909 notes).
@@ -256,7 +269,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.15';
+export const SCAFFOLD_VERSION = '5.1.18';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
