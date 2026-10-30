@@ -2477,11 +2477,18 @@ export async function listDirectory(input: Record<string, unknown>, context?: To
  * bare "not found". Success is the mutation summary line; audit-buffered
  * writes count too, since the model edits against the buffered content.
  */
+/**
+ * A result that wrote the file. An inferred edit's summary takes the place of
+ * the "File edited:" line, so matching only that line left the stale-read guard
+ * treating the model's earlier read as current after an inferred edit (#362).
+ */
+const WROTE_FILE = /File (?:edited|written): |(?:^|\n)Applied inferred edit to /;
+
 function markWrittenSinceRead(exec: ToolExecutor): ToolExecutor {
   return async (input, context) => {
     const result = await exec(input, context);
     const p = typeof input.path === 'string' ? input.path : undefined;
-    if (p && typeof result === 'string' && /File (?:edited|written): /.test(result)) {
+    if (p && typeof result === 'string' && WROTE_FILE.test(result)) {
       context?.editedSinceRead?.add(path.posix.normalize(p.split(path.sep).join('/')));
     }
     return result;

@@ -80,6 +80,10 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.18** (2026-10) — an inferred edit marks its file as written since
+ *   the last read. The stale-read guard only knew "File edited:/written:", so
+ *   after "Applied inferred edit to …" it still trusted the earlier read.
+ *   PATCH: what an existing guard recognizes.
  * - **5.1.17** (2026-10) — a "No change needed" edit is not a file mutation.
  *   It counted, so a run that had changed nothing switched off the action
  *   reprompt's "already done?" escape and the read-only cycle nudge. PATCH:
@@ -265,7 +269,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.17';
+export const SCAFFOLD_VERSION = '5.1.18';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

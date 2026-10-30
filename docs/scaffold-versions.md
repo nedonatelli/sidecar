@@ -40,6 +40,22 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.18 — an inferred edit marks its file as written since the last read (2026-10)
+
+PATCH: what an existing guard recognizes; no mechanism is added, removed or
+re-defaulted.
+
+- **What changed:** the stale-read guard marked a file as written since its
+  last read only when the result said `File edited:` or `File written:`. An
+  inferred edit reports "Applied inferred edit to …" instead, so after one
+  landed the guard still treated the model's earlier read as current. It now
+  recognizes the inferred-edit summary too.
+- **Measured:** bundle canary with #358, #350 and #378 against main
+  `cec4ce23`. Agent eval: ministral-3 215/243 in both arms, gemma4:e4b
+  233 → 236. e4b SWE canary, 50 tasks × 3 seeds: NULL on the primary (F2P
+  progress 19% → 19%, resolve 12% → 12%). One inferred edit occurred, in both
+  arms, and no run first diverged at this change.
+
 ### 5.1.17 — a "No change needed" edit is not a file mutation (2026-10)
 
 PATCH: what an existing counter counts; no mechanism is added, removed or
