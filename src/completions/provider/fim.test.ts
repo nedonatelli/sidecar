@@ -38,18 +38,6 @@ vi.mock('../../config/constants.js', () => ({
   lookupDraftModel: vi.fn(),
 }));
 
-vi.mock('../debounce.js', () => ({
-  Debouncer: class {
-    shouldTrigger() {
-      return true;
-    }
-    getSignal() {
-      return new AbortController().signal;
-    }
-    cancel() {}
-  },
-}));
-
 vi.mock('./shared.js', () => ({
   PredictiveContext: class {
     track() {}

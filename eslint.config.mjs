@@ -132,6 +132,36 @@ export default [
     },
   },
   {
+    // Release and build scripts (bump, verify-release, copy-grammars) were in no
+    // lint target (#366). They are plain Node ESM, outside every tsconfig, so
+    // `no-undef` is the backstop here as it is for the webview.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        structuredClone: 'readonly',
+        fetch: 'readonly',
+        AbortController: 'readonly',
+      },
+    },
+    rules: {
+      'no-undef': 'error',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-var': 'error',
+      'prefer-const': 'warn',
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+    },
+  },
+  {
     // Production code routes diagnostics through the central `logger`
     // (src/system/logger.ts → "SideCar" output channel), never the dev
     // console. Tests and the eval/integration harness under src/test/ may use

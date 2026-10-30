@@ -59,6 +59,11 @@ jobs:
         if: matrix.node-version == 24 && matrix.os == 'ubuntu-latest'
         run: npm run deadcode
 
+      # Modules no shipped code imports, even if their own tests do (#366).
+      - name: Dead code (production)
+        if: matrix.node-version == 24 && matrix.os == 'ubuntu-latest'
+        run: npm run deadcode:prod
+
       - name: Format check
         run: npm run format:check
 

@@ -22,7 +22,8 @@ npm run test      # Run all tests
    change may drop a CI coverage metric below the floor (**70 / 63 / 67 / 71** —
    stmts / branches / funcs / lines, enforced in `vitest.config.ts`).
 5. **Run `npm run check` before every commit** (see [Verification](#verification--the-test-pyramid)).
-   Pre-commit hooks run a narrower subset automatically — don't rely on them alone.
+   Pre-commit hooks run a narrower subset automatically — don't rely on them alone. In a new
+   `git worktree`, run `npx husky` there once, or the hooks don't run at all.
 6. **Conventional commits** (`fix(agent): …`, `refactor(config): …`, `test(eval): …`) with a
    `Co-Authored-By` footer on AI-assisted commits.
 7. **Never push or tag without an explicit request.** Committing when asked is fine; pushing
@@ -81,7 +82,7 @@ tiers before a release.
 npm test              # Run all tests
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage (must stay above the CI floor 70/63/67/71)
-npm run check         # Tier 0 gate: compile + compile:bench + compile:tests + lint + format + test
+npm run check         # Tier 0 gate, the same steps as CI: type checks, lint, deadcode (both passes), format, bundle, grammars, test
 ```
 
 ### Tier 1 — mutation testing ("verify-the-verifier")
@@ -188,7 +189,7 @@ If the headline feature of the release doesn't appear in at least `docs/overview
 
 ### Automated checks (CI)
 
-- `npm run check` (compile + lint + test) must pass on main before the release commit.
+- `npm run check` must pass on main before the release commit.
 - The publish workflow (`.github/workflows/publish.yml`) runs on tag push. Don't push the tag until `npm run check` is green locally.
 - A format drift in a new test file or doc will cause CI's format-check job to fail even if Publish succeeds — run `npx prettier --check 'src/**/*.ts'` locally before committing.
 
