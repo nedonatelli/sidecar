@@ -40,6 +40,27 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.16 — a command that did not run is a tool error (2026-10)
+
+PATCH: the error flag and text of an existing tool's result; no mechanism is
+added, removed or re-defaulted.
+
+- **What changed:** `run_command` and `run_tests` returned "command not found"
+  (exit 127) as an ordinary result ending in `(exit code: 127)`, so the model
+  was told the call succeeded; the shell's own failures came back as
+  `Command failed: …` the same way. Exit 127 (not found), 126 (not executable)
+  and 9009 (cmd.exe: not recognized), and a failed shell, are now tool errors
+  carrying the shell's message, the exit code and a note naming the program —
+  for Python: try `py` or `python3`, or the project's virtualenv. Every other
+  non-zero exit (failing tests, grep with no match) is unchanged.
+- **Measured:** bundle canary with #350, #378 and #379 against main
+  `cec4ce23`. Agent eval: ministral-3 215/243 in both arms, gemma4:e4b
+  233 → 236. e4b SWE canary, 50 tasks × 3 seeds: NULL on the primary (F2P
+  progress 19% → 19%, resolve 12% → 12%). The note fired in 5 results and
+  2 runs first diverged at it, neither changing outcome. On one Windows
+  workstation without Python in Git Bash the case was 56 results across 28
+  SWE runs, every one `isError: false` before this change.
+
 ### 5.1.15 — the eol match note names the search's own line ending (2026-10)
 
 PATCH: the text of an existing note; no mechanism is added, removed or
