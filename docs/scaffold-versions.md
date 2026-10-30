@@ -40,6 +40,23 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.17 — a "No change needed" edit is not a file mutation (2026-10)
+
+PATCH: what an existing counter counts; no mechanism is added, removed or
+re-defaulted.
+
+- **What changed:** the loop counted every `edit_file`, `write_file` or
+  `delete_file` result that wasn't an error as a file mutation. "No change
+  needed" (search equal to replace, or the file already holding the content)
+  isn't an error, so a run that had changed nothing switched off the action
+  reprompt's "already done?" escape and the read-only cycle nudge as if it had
+  changed a file. It no longer counts, alone or after a tolerance note.
+- **Measured:** bundle canary with #358, #350 and #379 against main
+  `cec4ce23`. Agent eval: ministral-3 215/243 in both arms, gemma4:e4b
+  233 → 236. e4b SWE canary, 50 tasks × 3 seeds: NULL on the primary (F2P
+  progress 19% → 19%, resolve 12% → 12%). "No change needed" results came up
+  5–10 times per cell, but no run first diverged at this change.
+
 ### 5.1.16 — a command that did not run is a tool error (2026-10)
 
 PATCH: the error flag and text of an existing tool's result; no mechanism is
