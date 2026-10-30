@@ -1,5 +1,6 @@
 import type { ChatMessage, ToolDefinition, TokenUsage } from '../ollama/types.js';
 import { collapseRepeatedCommandResults } from './loop/commandDedup.js';
+import { countsAsFileMutation } from './loop/fileMutation.js';
 import { shellRoot, workingTreeSignature } from './loop/treeSignature.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
@@ -1058,9 +1059,7 @@ export async function runAgentLoop(
       // Any successful write invalidates every cached shell result: a command
       // that was a no-op repeat a moment ago may now produce something new.
       for (let i = 0; i < pendingToolUses.length; i++) {
-        const name = pendingToolUses[i]?.name;
-        if (name !== 'edit_file' && name !== 'write_file' && name !== 'delete_file') continue;
-        if (!toolResults[i]?.is_error) state.fileMutations++;
+        if (countsAsFileMutation(pendingToolUses[i]?.name, toolResults[i])) state.fileMutations++;
       }
       if (treeBefore !== null) {
         const treeAfter = await workingTreeSignature(treeRoot);

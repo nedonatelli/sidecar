@@ -140,8 +140,50 @@ export function detectMaskedVerification(command: string): string | null {
 }
 
 /**
+ * Exit codes that mean the command never ran: 127 (bash/sh: not found), 126
+ * (found but not executable), 9009 (cmd.exe: not recognized). Every other
+ * non-zero exit is a result the model should read -- a failing test, a grep
+ * with no match -- and stays one.
+ */
+const NOT_RUN_EXIT_CODES = new Set([126, 127, 9009]);
+
+/** The program the shell could not run, from its own message, or null. */
+export function missingProgram(output: string): string | null {
+  const m =
+    output.match(/(?:^|\n|: )([^\s:'"]+): (?:command not found|not found|Permission denied)\b/) ??
+    output.match(/'([^']+)' is not recognized as an internal or external command/);
+  return m ? m[1] : null;
+}
+
+/**
+ * The tool error for a command that did not run. It used to come back as an
+ * ordinary result ending in "(exit code: 127)", is_error false, and models read
+ * "python: command not found" as the command's output: 56 such results across 28
+ * runs on one Windows machine whose Git Bash had no python. The completion and
+ * syntax gates already refused credit for these; the model was still told the
+ * call succeeded.
+ */
+export function notRunError(output: string, exitCode: number): Error {
+  const program = missingProgram(output);
+  const who = program ? `\`${program}\`` : 'The program';
+  const why = exitCode === 126 ? 'was found but cannot be executed' : 'was not found in this shell';
+  const hint =
+    program && /^python(?:3(?:\.\d+)?)?$|^pip3?$|^pytest$/.test(program)
+      ? "Python may be missing from this shell: try `py` or `python3` (Windows), or the project's virtualenv; " +
+        `\`command -v ${program}\` shows what exists.`
+      : program
+        ? `Check that it is installed and on PATH (\`command -v ${program}\`), or do this another way.`
+        : 'Check the command name and that the program is installed.';
+  return new Error(
+    `${output.trim()}\n(exit code: ${exitCode})\n\n${who} ${why}, so the command did not run -- ` +
+      `this is not its output. ${hint}`,
+  );
+}
+
+/**
  * Shared execution helper: run `command` via the composite executor and
- * format the result as a tool-result string.
+ * format the result as a tool-result string. THROWS when the command could not
+ * run at all, so the model gets is_error: true.
  */
 async function executeShell(
   command: string,
@@ -150,35 +192,39 @@ async function executeShell(
   suggestBackgroundOnTimeout = false,
 ): Promise<string> {
   const executor = buildExecutor(context);
+  let result: Awaited<ReturnType<typeof executor.execute>>;
   try {
-    const result = await executor.execute(command, {
+    result = await executor.execute(command, {
       timeout: timeoutMs,
       onOutput: context?.onOutput,
       signal: context?.signal,
     });
-    // A timeout on a foreground command almost always means the process doesn't
-    // exit on its own — a GUI app (tkinter mainloop), a dev server, a file
-    // watcher. We can't tell that from the command string ahead of time, but
-    // the timeout is the unambiguous signal. Steer the model to re-run it in
-    // the background so it doesn't burn another full timeout blocking the loop.
-    // Only for run_command — run_tests has no background option, and a hung
-    // test suite isn't a backgroundable app.
-    if (result.timedOut && suggestBackgroundOnTimeout) {
-      const secs = Math.round(timeoutMs / 1000);
-      return (
-        result.stdout.trim() +
-        `\n\n⏱ Command did not exit within ${secs}s. If this is a long-running process ` +
-        `(GUI app, dev server, file watcher) it won't return on its own — re-run it with ` +
-        `\`background: true\` to launch it without blocking, then check output with \`command_id\`. ` +
-        `If you only needed to confirm it starts, this timeout already shows it launched without crashing.`
-      ).trim();
-    }
-    const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
-    return result.stdout.trim() + status || '(no output)';
   } catch (err) {
+    // The shell itself failed (spawn error, dead session). This was returned
+    // as "Command failed: ..." with is_error false.
     const error = err as { message?: string };
-    return `Command failed:\n${error.message || 'Unknown error'}`;
+    throw new Error(`Command failed: ${error.message || 'Unknown error'}`);
   }
+  // A timeout on a foreground command almost always means the process doesn't
+  // exit on its own — a GUI app (tkinter mainloop), a dev server, a file
+  // watcher. We can't tell that from the command string ahead of time, but
+  // the timeout is the unambiguous signal. Steer the model to re-run it in
+  // the background so it doesn't burn another full timeout blocking the loop.
+  // Only for run_command — run_tests has no background option, and a hung
+  // test suite isn't a backgroundable app.
+  if (result.timedOut && suggestBackgroundOnTimeout) {
+    const secs = Math.round(timeoutMs / 1000);
+    return (
+      result.stdout.trim() +
+      `\n\n⏱ Command did not exit within ${secs}s. If this is a long-running process ` +
+      `(GUI app, dev server, file watcher) it won't return on its own — re-run it with ` +
+      `\`background: true\` to launch it without blocking, then check output with \`command_id\`. ` +
+      `If you only needed to confirm it starts, this timeout already shows it launched without crashing.`
+    ).trim();
+  }
+  if (NOT_RUN_EXIT_CODES.has(result.exitCode)) throw notRunError(result.stdout, result.exitCode);
+  const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
+  return result.stdout.trim() + status || '(no output)';
 }
 
 /**

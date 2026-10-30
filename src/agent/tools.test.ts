@@ -1181,14 +1181,15 @@ describe('tools.ts', () => {
       expect(result).toContain('finished');
     });
 
-    it('should return an error string when command execution throws', async () => {
+    it('should throw, not return, when command execution throws', async () => {
+      // A shell that failed to run the command is a tool error (is_error), not output.
       const tool = TOOL_REGISTRY.find((t) => t.definition.name === 'run_command');
       const { toolRuntime } = makeRuntime({
         execute: vi.fn().mockRejectedValue(new Error('spawn ENOENT')),
       });
-      const result = await tool!.executor({ command: 'nonexistent-cmd' }, { toolRuntime } as any);
-      expect(typeof result).toBe('string');
-      expect(result).toContain('spawn ENOENT');
+      await expect(tool!.executor({ command: 'nonexistent-cmd' }, { toolRuntime } as any)).rejects.toThrow(
+        'Command failed: spawn ENOENT',
+      );
     });
   });
 
