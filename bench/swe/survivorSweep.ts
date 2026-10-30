@@ -107,21 +107,36 @@ function listProcesses(deps: SweepDeps): ProcRow[] {
   return parsePs(deps.run('ps', ['-A', '-o', 'pid=,ppid=,args=']));
 }
 
+export interface SweepResult {
+  found: number;
+  killed: number;
+  /** Why the process listing failed, twice. Set only then; found and killed are 0. */
+  listError?: string;
+}
+
+const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e)).split('\n')[0].slice(0, 300);
+
 /**
  * Kill every process still running from this task's clone or venv. Returns how
- * many were found and how many kills succeeded; never throws (a failed listing
- * returns zeros, and the task's result must not depend on its cleanup).
+ * many were found and how many kills succeeded; never throws, since the task's
+ * result must not depend on its cleanup.
+ *
+ * A failed listing is retried once. If the retry fails too, `listError` says
+ * why: reporting it as "nothing found" hid the failure (#380), and a sweep that
+ * cannot list leaves the survivors running into the next task.
  */
-export function sweepTaskSurvivors(
-  roots: readonly string[],
-  deps: SweepDeps = defaultDeps(),
-): { found: number; killed: number } {
-  let pids: number[];
+export function sweepTaskSurvivors(roots: readonly string[], deps: SweepDeps = defaultDeps()): SweepResult {
+  let rows: ProcRow[];
   try {
-    pids = survivorPids(listProcesses(deps), roots, deps.selfPid);
-  } catch {
-    return { found: 0, killed: 0 };
+    rows = listProcesses(deps);
+  } catch (first) {
+    try {
+      rows = listProcesses(deps);
+    } catch (second) {
+      return { found: 0, killed: 0, listError: `${errorText(first)} (retry: ${errorText(second)})` };
+    }
   }
+  const pids = survivorPids(rows, roots, deps.selfPid);
   let killed = 0;
   for (const pid of pids) {
     try {

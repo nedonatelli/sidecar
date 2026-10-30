@@ -98,17 +98,41 @@ describe('sweepTaskSurvivors', () => {
     expect(killed).toEqual([200, 201, 300]);
   });
 
-  it('never throws: a failed listing reports nothing found', () => {
+  it('never throws: a listing that fails twice reports why, and finds nothing (#380)', () => {
+    let calls = 0;
     expect(
       sweepTaskSurvivors(
         [CLONE],
         deps({
           run: () => {
-            throw new Error('powershell missing');
+            calls++;
+            throw new Error(`powershell missing ${calls}\nstack line`);
           },
         }),
       ),
-    ).toEqual({ found: 0, killed: 0 });
+    ).toEqual({ found: 0, killed: 0, listError: 'powershell missing 1 (retry: powershell missing 2)' });
+    expect(calls).toBe(2);
+  });
+
+  it('retries a failed listing once, and the retry is used', () => {
+    let calls = 0;
+    const res = sweepTaskSurvivors(
+      [CLONE, VENV],
+      deps({
+        run: () => {
+          if (++calls === 1) throw new Error('spawnSync powershell ETIMEDOUT');
+          return ROWS.map((r) => `${r.pid} ${r.ppid} ${r.cmd}`).join('\n');
+        },
+      }),
+    );
+    expect(res).toEqual({ found: 4, killed: 4 });
+    expect(calls).toBe(2);
+  });
+
+  it('a listing that is not JSON counts as a failed listing', () => {
+    const res = sweepTaskSurvivors([CLONE], deps({ platform: 'win32', run: () => 'Get-CimInstance : Access denied' }));
+    expect(res.found).toBe(0);
+    expect(res.listError).toMatch(/JSON/);
   });
 
   it('lists through PowerShell CIM on Windows', () => {
@@ -169,6 +193,9 @@ describe('sweepTaskSurvivors on this machine', () => {
       for (let i = 0; i < 100 && !alive(sleeperPid); i++) await new Promise((r) => setTimeout(r, 100));
       expect(alive(sleeperPid)).toBe(true);
       const res = sweepTaskSurvivors([root]);
+      // Under full-suite load the listing has failed and read as "found 0" (#380):
+      // say which it was.
+      expect(res.listError, 'the process listing failed').toBeUndefined();
       expect(res.found).toBeGreaterThanOrEqual(1);
       for (let i = 0; i < 50 && alive(sleeperPid); i++) await new Promise((r) => setTimeout(r, 100));
       expect(alive(sleeperPid)).toBe(false);
