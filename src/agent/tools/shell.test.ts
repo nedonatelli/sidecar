@@ -345,3 +345,58 @@ describe('shell tool runtime resolution', () => {
     });
   });
 });
+
+describe('a command that did not run is a tool error', () => {
+  function sessionReturning(stdout: string, exitCode: number) {
+    const s = new ShellSessionStub();
+    s.execute = vi.fn(async (_cmd: string, _opts?: unknown) => ({ stdout, exitCode, timedOut: false }));
+    return s;
+  }
+
+  it('throws on exit 127 with the shell message, the exit code and a python hint', async () => {
+    const s = sessionReturning('/usr/bin/bash: line 1: python: command not found\n', 127);
+    const err = await runCommand({ command: 'python script.py' }, makeContext(s)).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    const msg = (err as Error).message;
+    expect(msg).toContain('python: command not found');
+    expect(msg).toContain('(exit code: 127)');
+    expect(msg).toContain('`python` was not found in this shell, so the command did not run');
+    expect(msg).toContain('try `py` or `python3`');
+  });
+
+  it("throws on cmd.exe's 9009 and names the program", async () => {
+    const s = sessionReturning(
+      "'tox' is not recognized as an internal or external command,\noperable program or batch file.",
+      9009,
+    );
+    const msg = ((await runCommand({ command: 'tox -e py' }, makeContext(s)).catch((e: Error) => e)) as Error).message;
+    expect(msg).toContain('`tox` was not found');
+    expect(msg).toContain('command -v tox');
+  });
+
+  it('throws on exit 126: found but not executable', async () => {
+    const s = sessionReturning('bash: ./run.sh: Permission denied', 126);
+    const msg = ((await runCommand({ command: './run.sh' }, makeContext(s)).catch((e: Error) => e)) as Error).message;
+    expect(msg).toContain('`./run.sh` was found but cannot be executed');
+  });
+
+  it('run_tests gets the same treatment', async () => {
+    const s = sessionReturning('bash: pytest: command not found', 127);
+    await expect(runTests({ command: 'pytest -q' }, makeContext(s))).rejects.toThrow('`pytest` was not found');
+  });
+
+  it('keeps every other non-zero exit as an ordinary result: failing tests, grep with no match', async () => {
+    const failing = sessionReturning('1 failed, 3 passed', 1);
+    expect(await runCommand({ command: 'pytest' }, makeContext(failing))).toBe('1 failed, 3 passed\n(exit code: 1)');
+    const noMatch = sessionReturning('', 1);
+    expect((await runCommand({ command: 'grep foo bar.txt' }, makeContext(noMatch))).trim()).toBe('(exit code: 1)');
+  });
+
+  it('throws when the shell itself fails, instead of returning "Command failed" as success', async () => {
+    const s = new ShellSessionStub();
+    s.execute = vi.fn(async () => {
+      throw new Error('shell exited');
+    });
+    await expect(runCommand({ command: 'ls' }, makeContext(s))).rejects.toThrow('Command failed: shell exited');
+  });
+});
