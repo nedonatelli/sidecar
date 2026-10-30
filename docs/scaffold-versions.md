@@ -40,6 +40,28 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.19 — repeated budget refusals escalate, and refused repeats stop (2026-10)
+
+PATCH: the text of an existing refusal and a pass inside existing cycle
+detection; no mechanism is added, removed or re-defaulted.
+
+- **What changed:** of 351 archived canary runs that hit a tool budget, 274
+  (78%) called the refused tool again, about 5 refusals each. From the second
+  refusal of a tool on, the message now says the call didn't run and further
+  calls will be refused the same way, and names offered tools with budget left
+  that can stand in for it (or says to give a final answer). In cycle
+  detection, a turn whose every call goes to a spent budget, after one of those
+  tools was refused 3 times, gets the #222 one-time nudge if no edit has
+  landed, and otherwise stops the run.
+- **Measured:** bundle canary with #358, #378 and #379 against main
+  `cec4ce23`: agent eval ministral-3 215/243 in both arms, gemma4:e4b
+  233 → 236; e4b SWE canary, 50 tasks × 3 seeds, NULL on the primary (F2P
+  progress 19% → 19%, resolve 12% → 12%), runs ending on the cap 3% → 1%. Two
+  runs first diverged at this change. The canary disables cycle detection, so
+  it measures only the message. gemma4:31b agent eval, main `71570fae` vs this
+  branch, 3 trials: 240/243 in both arms, no case changed; no budget refusal
+  repeated in either arm.
+
 ### 5.1.18 — an inferred edit marks its file as written since the last read (2026-10)
 
 PATCH: what an existing guard recognizes; no mechanism is added, removed or

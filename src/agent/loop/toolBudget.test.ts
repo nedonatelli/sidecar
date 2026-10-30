@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { checkToolBudget, recordToolUse, toolBudgetFor, baseToolBudget, FAILED_EDIT_FACTOR } from './toolBudget.js';
+import {
+  checkToolBudget,
+  recordToolUse,
+  toolBudgetFor,
+  baseToolBudget,
+  FAILED_EDIT_FACTOR,
+  isToolBudgetSpent,
+  toolBudgetRefusals,
+} from './toolBudget.js';
 import { resolveScaffoldingProfile } from '../scaffoldingProfile.js';
 import type { LoopState } from './state.js';
 import type { AgentDecision } from '../decisions.js';
@@ -49,7 +57,10 @@ describe('the refusal message only offers ask_user when someone can answer (#236
     expect(msg).not.toContain('ask_user');
     expect(msg).toContain('Work with what you have already gathered');
     // The default is the no-UI wording: a caller that says nothing is not promised a human.
-    expect(checkToolBudget(state as LoopState, 'run_command', { canAskUser: false })).toBe(msg);
+    // (On a fresh run: a second refusal in the same run is worded differently, #268.)
+    const fresh = makeState();
+    spend(fresh, 'run_command', 15);
+    expect(checkToolBudget(fresh as LoopState, 'run_command', { canAskUser: false })).toBe(msg);
   });
 
   it('with a clarification UI it keeps the ask_user route', () => {
@@ -257,5 +268,162 @@ describe('edit_file budget counts applied edits (#268)', () => {
     expect(decisions).toEqual([
       { kind: 'tool_budget', action: 'refused', tool: 'edit_file', count: 2 + budget * FAILED_EDIT_FACTOR, budget },
     ]);
+  });
+});
+
+// #268: 78% of runs that hit a budget called the refused tool again. The second
+// and later refusals say so, and name only tools the model can still call.
+describe('a repeat refusal escalates (#268)', () => {
+  const offering =
+    (...names: string[]) =>
+    (n: string) =>
+      names.includes(n);
+  const spentRunCommand = () => {
+    const state = makeState() as LoopState;
+    spend(state, 'run_command', 15);
+    return state;
+  };
+  const pytest = { command: 'python -m pytest -rA testing/test_junitxml.py' };
+
+  it('the second refusal differs from the first, and later ones keep counting', () => {
+    const state = spentRunCommand();
+    const opts = { isOffered: offering('run_command'), input: pytest };
+    const first = checkToolBudget(state, 'run_command', opts)!;
+    const second = checkToolBudget(state, 'run_command', opts)!;
+    const third = checkToolBudget(state, 'run_command', opts)!;
+    expect(first).not.toContain('refusal');
+    expect(second).not.toBe(first);
+    expect(second).toContain('This is refusal 2 of run_command since its budget ran out: the call did not run');
+    expect(second).toContain('every further run_command call this session will be refused the same way');
+    expect(third).toContain('This is refusal 3 of run_command');
+    expect(toolBudgetRefusals(state, 'run_command')).toBe(3);
+  });
+
+  it("counts refusals per tool: another tool's first refusal is still the plain one", () => {
+    const state = spentRunCommand();
+    spend(state, 'grep', 15);
+    checkToolBudget(state, 'run_command');
+    checkToolBudget(state, 'run_command');
+    expect(checkToolBudget(state, 'grep')).not.toContain('refusal');
+    expect(toolBudgetRefusals(state, 'grep')).toBe(1);
+  });
+
+  it('an allowed call and isToolBudgetSpent count no refusal', () => {
+    const state = makeState() as LoopState;
+    spend(state, 'run_command', 14);
+    expect(checkToolBudget(state, 'run_command')).toBeNull();
+    spend(state, 'run_command', 1);
+    expect(isToolBudgetSpent(state, 'run_command')).toBe(true);
+    expect(toolBudgetRefusals(state, 'run_command')).toBe(0);
+  });
+
+  it('points a test command sent through run_command at run_tests when it is offered', () => {
+    const state = spentRunCommand();
+    const opts = { isOffered: offering('run_command', 'run_tests', 'read_file'), input: pytest };
+    checkToolBudget(state, 'run_command', opts);
+    const msg = checkToolBudget(state, 'run_command', opts)!;
+    expect(msg).toContain('Instead: run the tests with run_tests, which has its own budget.');
+    // A test command is not pointed at file-reading tools.
+    expect(msg).not.toContain('read_file');
+  });
+
+  it('does not name run_tests when it is hidden (the SWE harness) or spent; it says to finish', () => {
+    for (const hidden of [true, false]) {
+      const state = spentRunCommand();
+      if (!hidden) spend(state, 'run_tests', 10);
+      const opts = { isOffered: offering('run_command', ...(hidden ? [] : ['run_tests'])), input: pytest };
+      checkToolBudget(state, 'run_command', opts);
+      const msg = checkToolBudget(state, 'run_command', opts)!;
+      expect(msg).not.toContain('run_tests');
+      expect(msg).toContain('Stop calling run_command and give your final answer from what you have already gathered.');
+    }
+  });
+
+  it('points another shell command at the offered file tools', () => {
+    const state = spentRunCommand();
+    const opts = { isOffered: offering('read_file', 'grep'), input: { command: 'cat src/a.py' } };
+    checkToolBudget(state, 'run_command', opts);
+    const msg = checkToolBudget(state, 'run_command', opts)!;
+    expect(msg).toContain('Instead: to look at files, use read_file or grep rather than a shell command.');
+    expect(msg).toContain('If none of those does what you need, stop calling tools and give your final answer');
+    expect(msg).not.toContain('list_directory');
+  });
+
+  it('names no alternative when the caller does not say what is offered', () => {
+    const state = spentRunCommand();
+    checkToolBudget(state, 'run_command', { input: { command: 'cat a.py' } });
+    const msg = checkToolBudget(state, 'run_command', { input: { command: 'cat a.py' } })!;
+    expect(msg).not.toContain('Instead');
+    expect(msg).toContain('Stop calling run_command');
+  });
+
+  it('after edit_file it offers write_file, and says which files write_file will not overwrite', () => {
+    const budget = baseToolBudget('edit_file');
+    const state = { ...makeState(), filesEditedViaEditTool: new Set(['src/a.py']) } as LoopState;
+    spend(state, 'edit_file', budget);
+    const opts = { isOffered: offering('edit_file', 'write_file') };
+    checkToolBudget(state, 'edit_file', opts);
+    const msg = checkToolBudget(state, 'edit_file', opts)!;
+    expect(msg).toContain(`edit_file has applied ${budget} edits this session`);
+    expect(msg).toContain('This is refusal 2 of edit_file');
+    expect(msg).toContain('write the whole file with write_file, giving its complete new content, not a fragment');
+    expect(msg).toContain('write_file refuses to overwrite a file you already changed with edit_file: `src/a.py`');
+    // Never a smaller edit_file: every edit_file call is refused.
+    expect(msg).not.toMatch(/smaller|another edit_file/);
+  });
+
+  it('after failed edits it still says the file is unchanged, and omits write_file once that is spent', () => {
+    const budget = baseToolBudget('edit_file');
+    const state = makeState() as LoopState;
+    for (let i = 0; i < budget * FAILED_EDIT_FACTOR; i++) recordToolUse(state, 'edit_file', { failed: true });
+    spend(state, 'write_file', baseToolBudget('write_file'));
+    const opts = { isOffered: offering('edit_file', 'write_file') };
+    checkToolBudget(state, 'edit_file', opts);
+    const msg = checkToolBudget(state, 'edit_file', opts)!;
+    expect(msg).toContain('None of your edits applied, so the file is unchanged.');
+    expect(msg).not.toContain('write_file');
+    expect(msg).toContain('Stop calling edit_file and give your final answer');
+  });
+
+  it('after a search tool it offers read_file on a path already found', () => {
+    for (const tool of ['grep', 'search_files', 'list_directory']) {
+      const state = makeState() as LoopState;
+      spend(state, tool, baseToolBudget(tool));
+      const opts = { isOffered: offering('read_file', 'search_files') };
+      checkToolBudget(state, tool, opts);
+      const msg = checkToolBudget(state, tool, opts)!;
+      expect(msg).toContain('open a file your earlier results already named with read_file');
+      expect(msg.includes('find files by name with search_files')).toBe(tool === 'list_directory');
+    }
+  });
+
+  it('after read_file it offers grep', () => {
+    const state = makeState() as LoopState;
+    spend(state, 'read_file', baseToolBudget('read_file'));
+    const opts = { isOffered: offering('grep') };
+    checkToolBudget(state, 'read_file', opts);
+    expect(checkToolBudget(state, 'read_file', opts)).toContain('find the lines you need with grep');
+  });
+
+  it('offers ask_user on a repeat only when someone can answer', () => {
+    const state = spentRunCommand();
+    checkToolBudget(state, 'run_command');
+    expect(checkToolBudget(state, 'run_command', { canAskUser: true })).toContain(
+      'explain why to the user via ask_user',
+    );
+    expect(checkToolBudget(state, 'run_command')).not.toContain('ask_user');
+  });
+
+  it('records every refusal as a decision, first or repeat', () => {
+    const decisions: AgentDecision[] = [];
+    const state = {
+      ...makeState(),
+      logger: { logDecision: (d: AgentDecision) => decisions.push(d) } as unknown as LoopState['logger'],
+    } as LoopState;
+    spend(state, 'grep', 15);
+    checkToolBudget(state, 'grep');
+    checkToolBudget(state, 'grep');
+    expect(decisions).toHaveLength(2);
+    expect(decisions[1]).toEqual({ kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 });
   });
 });

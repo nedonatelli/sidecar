@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.19** (2026-10) — a repeated budget refusal escalates, and a run of
+ *   refused repeats stops. From the second refusal of a tool on, the message
+ *   says further calls will be refused too and names offered tools with budget
+ *   left; a turn whose every call hits a spent budget, after one tool was
+ *   refused 3 times, gets the #222 nudge once, then stops the run. PATCH: the
+ *   text of an existing refusal and a pass inside existing cycle detection.
  * - **5.1.18** (2026-10) — an inferred edit marks its file as written since
  *   the last read. The stale-read guard only knew "File edited:/written:", so
  *   after "Applied inferred edit to …" it still trusted the earlier read.
@@ -269,7 +275,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.18';
+export const SCAFFOLD_VERSION = '5.1.19';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
