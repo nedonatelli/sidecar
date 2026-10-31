@@ -55,7 +55,11 @@ budget size changes.
   budget, about half of it on searches, and 16% of runs ended with the last
   edit never tested. Of 2,538 archived 31b `run_command` calls, 30% are
   search-only.
-- **Measured:** pending (31b SWE A/B).
+- **Measured:** gemma4:31b SWE A/B against main `74bf3743` on a targeted
+  subset (16 tasks at seed 11, plus the 7 that always exhaust at seed 22):
+  NULL on resolve (12/23 in both arms, discordant pairs 1–1). Refusals moved
+  from run_command (42 → 12) to grep (0 → 28); sampled refused commands
+  that would have run code went 9 → 2. No timeouts in either arm, no harm.
 
 ### 5.1.19 — repeated budget refusals escalate, and refused repeats stop (2026-10)
 
