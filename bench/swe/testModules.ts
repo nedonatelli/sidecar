@@ -86,7 +86,7 @@ function exampleTestFile(repoDir: string, family: RunnerFamily): string {
 /**
  * The task prompt's test-scoping instructions for a path-based runner, or null
  * for Django (whose dotted-label instructions stay as they are) and unknown
- * runners. Behind SIDECAR_SWE_TEST_TARGETS=runner until measured (#213).
+ * runners (#213). The default since 2026-10-30; SIDECAR_SWE_TEST_TARGETS=legacy turns it off.
  */
 export function renderPathRunnerInstructions(runner: string, family: RunnerFamily, repoDir: string): string | null {
   if (family === 'django' || family === 'other') return null;
