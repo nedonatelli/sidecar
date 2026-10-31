@@ -129,6 +129,15 @@ export class GitCLI {
     return output || 'Working tree clean.';
   }
 
+  /** Untracked, not-ignored files, relative to the cwd. Rejects outside a git work tree. */
+  async listUntracked(): Promise<string[]> {
+    const output = await this.exec(['ls-files', '--others', '--exclude-standard', '-z'], undefined, {
+      raw: true,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return output.split('\0').filter(Boolean);
+  }
+
   async stage(files?: string[]): Promise<string> {
     if (files && files.length > 0) {
       await this.exec(['add', '--', ...files]);

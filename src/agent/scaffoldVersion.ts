@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.2.0** (2026-10) — scratch cleanup, behind `scaffolding.scratchCleanup`
+ *   (default off). At the end of a run that wasn't stopped, files the run
+ *   created (untracked now, not at the start) that have a scratch name or are
+ *   scripts in the root, and that nothing else in the change refers to, move to
+ *   `.sidecar/scratchpad/<run id>/`, which ignores itself. MINOR: a new
+ *   mechanism behind a flag, default off.
  * - **5.1.19** (2026-10) — a repeated budget refusal escalates, and a run of
  *   refused repeats stops. From the second refusal of a tool on, the message
  *   says further calls will be refused too and names offered tools with budget
@@ -275,7 +281,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.19';
+export const SCAFFOLD_VERSION = '5.2.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
@@ -287,6 +293,7 @@ export interface ScaffoldConfigLike {
   numericalContractGateEnabled?: boolean;
   analyticBoundsGateEnabled?: boolean;
   keepBestRatchetEnabled?: boolean;
+  scratchCleanupEnabled?: boolean;
   injectionGuardEnabled?: boolean;
   diagnosticsReactiveFixEnabled?: boolean;
 }
@@ -317,6 +324,7 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
       numericalContractGate: cfg.numericalContractGateEnabled === true,
       analyticBoundsGate: cfg.analyticBoundsGateEnabled === true,
       keepBestRatchet: cfg.keepBestRatchetEnabled !== false,
+      scratchCleanup: cfg.scratchCleanupEnabled === true,
       injectionGuard: cfg.injectionGuardEnabled !== false,
       diagnosticsReactiveFix: cfg.diagnosticsReactiveFixEnabled === true,
     },

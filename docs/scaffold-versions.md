@@ -40,6 +40,27 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.2.0 — scratch cleanup, default off (2026-10)
+
+MINOR: a new mechanism behind `sidecar.scaffolding.scratchCleanup`, default
+off; with it off, runs are unchanged.
+
+- **What changed:** models that reproduce a bug before fixing it leave
+  `reproduce_issue.py`, `verify_fix.py` and the like behind, mostly written
+  through the shell. With the setting on, the loop records the untracked files
+  at run start; at the end of a run that wasn't stopped, each file the run
+  created that has a scratch name (or is a script in the workspace root) and
+  that no other file in the change refers to moves to
+  `.sidecar/scratchpad/<run id>/`. That folder carries its own `.gitignore`,
+  so the moved files stay out of git status and the SWE patch. A file the
+  user's message names is kept, as is an ordinary-named new file in a test
+  directory. Without git, only files write_file created are known. Off in
+  audit mode. In the SWE eval, `SIDECAR_SWE_SCRATCH_CLEANUP=1` turns it on in
+  every arm; a run that hits the per-task timeout is aborted, so it is not
+  cleaned up.
+- **Measured:** pending (gemma4:31b SWE A/B on the tasks whose patches
+  carried scratch files, and a 31b agent-eval cell).
+
 ### 5.1.19 — repeated budget refusals escalate, and refused repeats stop (2026-10)
 
 PATCH: the text of an existing refusal and a pass inside existing cycle

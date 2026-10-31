@@ -64,6 +64,12 @@ export type AgentDecision =
       projectTestsPassed?: boolean;
     }
   | {
+      /** #387: scratch files the run created, moved to .sidecar/scratchpad/<run id>/ at the end. */
+      kind: 'scratch_cleanup';
+      action: 'moved';
+      files: DecisionFile[];
+    }
+  | {
       /**
        * The outcome of one edit_file call, split into the facts that
        * `File edited: <path>` collapses into a single word.
