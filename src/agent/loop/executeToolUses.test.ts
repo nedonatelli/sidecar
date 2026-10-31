@@ -29,7 +29,9 @@ vi.mock('../subagent.js', () => ({
 vi.mock('../localWorker.js', () => ({
   runLocalWorker: vi.fn(),
 }));
-vi.mock('./toolBudget.js', () => ({
+vi.mock('./toolBudget.js', async (importOriginal) => ({
+  // The real budgetKey: which budget a call spends is what #311 tests here.
+  budgetKey: (await importOriginal<typeof import('./toolBudget.js')>()).budgetKey,
   checkToolBudget: vi.fn(() => null),
   recordToolUse: vi.fn(),
 }));
@@ -361,6 +363,34 @@ describe('executeToolUses — budget check short-circuit', () => {
     vi.mocked(executeTool).mockResolvedValueOnce({ type: 'tool_result', tool_use_id: 'tu-edit_file', content: 'ok' });
     await run();
     expect(recordToolUse).toHaveBeenLastCalledWith(expect.anything(), 'edit_file', { failed: false });
+  });
+
+  // #311: a run_command that only searches spends grep's budget, so test runs
+  // keep run_command's; its refusal says which budget it hit.
+  it("checks and spends a shell search against grep's budget, and a test run against run_command's", async () => {
+    const run = (command: string) =>
+      executeToolUses(
+        stubLoopState({ tools: catalog([...CATALOG_NAMES, 'run_command', 'grep']) }),
+        [use('run_command', { command })],
+        {} as SideCarClient,
+        {} as AgentOptions,
+        stubCallbacks(),
+        new AbortController().signal,
+      );
+    vi.mocked(executeTool).mockResolvedValue({ type: 'tool_result', tool_use_id: 'tu-run_command', content: 'ok' });
+    await run('grep -rn "def refine" sympy/assumptions');
+    expect(vi.mocked(checkToolBudget).mock.lastCall![1]).toBe('grep');
+    expect(recordToolUse).toHaveBeenLastCalledWith(expect.anything(), 'grep', { failed: false });
+    await run('bin/test -C --verbose sympy/assumptions/tests/test_refine.py');
+    expect(vi.mocked(checkToolBudget).mock.lastCall![1]).toBe('run_command');
+    expect(recordToolUse).toHaveBeenLastCalledWith(expect.anything(), 'run_command', { failed: false });
+
+    vi.mocked(checkToolBudget).mockReturnValueOnce('Tool "grep" has been called 15 times this session (budget: 15).');
+    const [refused] = await run('find . -name shell.py');
+    expect(refused.is_error).toBe(true);
+    expect(refused.content).toMatch(
+      /^This run_command call only searches, so it counts against grep's budget\. Tool "grep"/,
+    );
   });
 });
 

@@ -61,6 +61,50 @@ off; with it off, runs are unchanged.
 - **Measured:** pending (gemma4:31b SWE A/B on the tasks whose patches
   carried scratch files, and a 31b agent-eval cell).
 
+### 5.1.21 — run_tests reads a test target sent under another name (2026-10)
+
+PATCH: input handling of an existing tool; no mechanism is added, removed or
+re-defaulted. 5.1.20 is #385.
+
+- **What changed:** in 14,947 archived trajectories, `run_tests` was called
+  with the target as `path` 506 times against 114 as `file`; about 750 calls
+  in 344 runs sent the target under a key the tool doesn't declare, which it
+  dropped silently and ran the whole suite (40 of those ran over 2 minutes).
+  `path`, `test_file`, `test_path`, `module`, `test_module`, `label` and
+  `test_label` are now read as `file`, with a note in the result; any other
+  unknown key is named as ignored; a call with no `command`, no `file` and only
+  unknown keys throws, so it is an error rather than a suite run the completion
+  gate would count. The gate resolves the target the same way (#386).
+- **Measured:** e4b SWE canary, main `74bf3743` vs this change, 50 tasks ×
+  3 seeds: NULL on every outcome, with no discordant pair on the primary or
+  on resolve (F2P progress 18% → 18%, resolve 11% → 11%, P2P regressions
+  23% → 23%). A target sent under another name was read in 6 runs and in
+  none of the base arm's; nothing was ignored or refused. In one pair the
+  base run sent `label` five times, ran the whole Django suite each time and
+  hit the 600 s task timeout; this arm ran the named tests and finished in
+  158 s.
+
+### 5.1.20 — a search-only run_command spends grep's budget (2026-10)
+
+PATCH: calls are re-keyed to an existing budget; no mechanism is added and no
+budget size changes.
+
+- **What changed:** a `run_command` whose every `&&`, `||`, `;` or `|` segment
+  is a read-only search (`grep`, `rg`, `find`, `ls`, `cat`, `head`, `tail`,
+  `wc`, `sed -n`, ...) or a `cd`, with no redirect, `tee`, `find -exec/-delete`
+  or `sed -i`, now counts against `grep`'s budget instead of `run_command`'s.
+  Its refusal says the call counted as a search. Cycle detection's refused-repeat
+  pass keys calls the same way.
+- **Why (#311):** on gemma4:31b, 21% of SWE runs spent the whole `run_command`
+  budget, about half of it on searches, and 16% of runs ended with the last
+  edit never tested. Of 2,538 archived 31b `run_command` calls, 30% are
+  search-only.
+- **Measured:** gemma4:31b SWE A/B against main `74bf3743` on a targeted
+  subset (16 tasks at seed 11, plus the 7 that always exhaust at seed 22):
+  NULL on resolve (12/23 in both arms, discordant pairs 1–1). Refusals moved
+  from run_command (42 → 12) to grep (0 → 28); sampled refused commands
+  that would have run code went 9 → 2. No timeouts in either arm, no harm.
+
 ### 5.1.19 — repeated budget refusals escalate, and refused repeats stop (2026-10)
 
 PATCH: the text of an existing refusal and a pass inside existing cycle

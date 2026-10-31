@@ -86,6 +86,18 @@
  *   scripts in the root, and that nothing else in the change refers to, move to
  *   `.sidecar/scratchpad/<run id>/`, which ignores itself. MINOR: a new
  *   mechanism behind a flag, default off.
+ * - **5.1.21** (2026-10) — run_tests reads a test target sent under another
+ *   name. `path`, `test_file`, `test_path`, `module`, `test_module`, `label`
+ *   and `test_label` are read as `file` (with a note saying so); any other
+ *   unknown key is named as ignored; a call with no `command`, no `file` and
+ *   only unknown keys throws instead of running the whole suite. The completion
+ *   gate records the call against the same target. PATCH: input handling of an
+ *   existing tool.
+ * - **5.1.20** (2026-10) — a run_command that only searches spends grep's
+ *   budget. A command whose every segment is a search (grep, rg, find, ls,
+ *   cat, head, tail, wc, sed -n, ...) or a cd, with no write, counts as a
+ *   grep call; its refusal says why. PATCH: re-keys calls to an existing
+ *   budget; no budget size changes.
  * - **5.1.19** (2026-10) — a repeated budget refusal escalates, and a run of
  *   refused repeats stops. From the second refusal of a tool on, the message
  *   says further calls will be refused too and names offered tools with budget
