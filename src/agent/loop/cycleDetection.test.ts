@@ -1112,4 +1112,15 @@ describe('#268: a turn of calls a spent budget will refuse counts as a cycle', (
     const cb = stubCallbacks();
     for (let i = 0; i < 6; i++) expect(turn(state, cb, runCommand(i))).toBe(false);
   });
+
+  // #311: a shell search spends grep's budget, so with run_command spent it can
+  // still run, and a turn of them is not a refused repeat.
+  it("keys a shell search by grep's budget: run_command being spent does not make it a refused call", () => {
+    const state = spent({ fileMutations: 1 });
+    const cb = stubCallbacks();
+    for (let i = 0; i < 3; i++) turn(state, cb, runCommand(i));
+    const search = [makeToolUse('run_command', { command: 'grep -rn "def refine" sympy/assumptions' })];
+    expect(turn(state, cb, search)).toBe(false);
+    expect(cb.texts.join('')).not.toContain('Agent stopped');
+  });
 });

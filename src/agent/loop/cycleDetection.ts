@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState, NormalizedEntry } from './state.js';
-import { isToolBudgetSpent, toolBudgetRefusals } from './toolBudget.js';
+import { budgetKey, isToolBudgetSpent, toolBudgetRefusals } from './toolBudget.js';
 
 // ---------------------------------------------------------------------------
 // Per-iteration safety checks on tool-use bursts and repeat patterns.
@@ -722,11 +722,13 @@ function refusedRepeat(
   pendingToolUses: ToolUseContentBlock[],
   state: LoopState,
 ): { tool: string; refusals: number } | null {
-  if (pendingToolUses.length === 0 || !pendingToolUses.every((tu) => isToolBudgetSpent(state, tu.name))) return null;
+  // Keyed as executeToolUses spends them: a shell search spends grep's (#311).
+  const key = (tu: ToolUseContentBlock): string => budgetKey(tu.name, tu.input);
+  if (pendingToolUses.length === 0 || !pendingToolUses.every((tu) => isToolBudgetSpent(state, key(tu)))) return null;
   let worst: { tool: string; refusals: number } | null = null;
   for (const tu of pendingToolUses) {
-    const refusals = toolBudgetRefusals(state, tu.name);
-    if (refusals >= REFUSALS_BEFORE_CYCLE && (!worst || refusals > worst.refusals)) worst = { tool: tu.name, refusals };
+    const refusals = toolBudgetRefusals(state, key(tu));
+    if (refusals >= REFUSALS_BEFORE_CYCLE && (!worst || refusals > worst.refusals)) worst = { tool: key(tu), refusals };
   }
   return worst;
 }
