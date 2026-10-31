@@ -144,9 +144,12 @@ const SHELL_GUARD = process.env.SIDECAR_SWE_SHELL_GUARD !== '0';
 // (cells run before 2026-10-29).
 const ISOLATE_SHELL = process.env.SIDECAR_SWE_ISOLATE_SHELL !== '0';
 // #213: path-based runners (pytest, tox, sympy bin/test) were given Django's
-// dotted-label instructions, which select zero tests on them. 'runner' gives
-// each runner its own; unset keeps the old text so the change can be A/B'd.
-const TEST_TARGETS = process.env.SIDECAR_SWE_TEST_TARGETS === 'runner' ? 'runner' : 'legacy';
+// dotted-label instructions, which select zero tests on them. Each runner now
+// gets its own: on the e4b canary A/B (2026-10-21) the agent's test commands
+// that ran zero tests fell from 26% to 5%, with outcomes null and no harm.
+// SIDECAR_SWE_TEST_TARGETS=legacy restores Django's text for every runner
+// (cells run before 2026-10-30).
+const TEST_TARGETS = process.env.SIDECAR_SWE_TEST_TARGETS === 'legacy' ? 'legacy' : 'runner';
 // #197: add files the agent changed through run_command to the patch, not only
 // file-tool targets (bench/swe/captureDiff.ts, #201). Off by default so the
 // change -- scratch files included -- can be A/B'd against the old capture.
