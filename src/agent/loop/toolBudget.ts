@@ -28,6 +28,40 @@ export function baseToolBudget(toolName: string): number {
   return TOOL_CALL_BUDGETS[toolName] ?? DEFAULT_TOOL_CALL_BUDGET;
 }
 
+/** Commands that only search, print or filter. `sed` only as `sed -n`; `find` is checked for -exec/-delete. */
+const SHELL_SEARCH_RE = /^(grep|egrep|fgrep|rg|find|ls|cat|head|tail|wc|tree|awk|sed\s+-n|sort|uniq|cut)(\s|$)/;
+/** Writes a file: a redirect other than to /dev/null or between streams, tee, find's -exec/-delete, sed -i. */
+const SHELL_WRITE_RE = /(^|[^0-9&])>(?!\s*\/dev\/null|&)|\btee\b|\s-(exec|execdir|delete|ok)\b|\bsed\s+(-\w+\s+)*-i/;
+
+/**
+ * True when a shell command only searches or prints files: every segment
+ * (split on `&&`, `||`, `;` and `|`) is a `cd` or one of the search commands,
+ * at least one is a search, and nothing writes a file.
+ */
+export function isShellSearch(command: string): boolean {
+  if (SHELL_WRITE_RE.test(command)) return false;
+  const segments = command
+    .split(/&&|\|\||;|\|/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!segments.some((s) => SHELL_SEARCH_RE.test(s))) return false;
+  return segments.every((s) => SHELL_SEARCH_RE.test(s) || /^cd(\s|$)/.test(s));
+}
+
+/**
+ * The budget a call spends (#311): its own tool's, except a run_command that
+ * only searches, which spends grep's. gemma4:31b searched through the shell:
+ * on the SWE canary 21% of its runs spent all of run_command's budget, about
+ * half of it on grep/find/cat, and 16% of runs ended with the last source edit
+ * untested, because run_command is the only way to run a test there. Searches
+ * now draw on the search budget, so tests keep run_command's.
+ */
+export function budgetKey(toolName: string, input: unknown): string {
+  if (toolName !== 'run_command') return toolName;
+  const command = (input as { command?: unknown } | undefined)?.command;
+  return typeof command === 'string' && isShellSearch(command) ? 'grep' : toolName;
+}
+
 /** What checkToolBudget needs to know about the call and the run. */
 export interface ToolBudgetCheckOptions {
   /** Anyone can answer ask_user: the run has a clarification UI (see checkToolBudget). */

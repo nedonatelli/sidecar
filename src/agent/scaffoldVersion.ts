@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.20** (2026-10) — a run_command that only searches spends grep's
+ *   budget. A command whose every segment is a search (grep, rg, find, ls,
+ *   cat, head, tail, wc, sed -n, ...) or a cd, with no write, counts as a
+ *   grep call; its refusal says why. PATCH: re-keys calls to an existing
+ *   budget; no budget size changes.
  * - **5.1.19** (2026-10) — a repeated budget refusal escalates, and a run of
  *   refused repeats stops. From the second refusal of a tool on, the message
  *   says further calls will be refused too and names offered tools with budget
@@ -275,7 +280,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.19';
+export const SCAFFOLD_VERSION = '5.1.20';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

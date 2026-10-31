@@ -7,6 +7,8 @@ import {
   FAILED_EDIT_FACTOR,
   isToolBudgetSpent,
   toolBudgetRefusals,
+  isShellSearch,
+  budgetKey,
 } from './toolBudget.js';
 import { resolveScaffoldingProfile } from '../scaffoldingProfile.js';
 import type { LoopState } from './state.js';
@@ -425,5 +427,56 @@ describe('a repeat refusal escalates (#268)', () => {
     checkToolBudget(state, 'grep');
     expect(decisions).toHaveLength(2);
     expect(decisions[1]).toEqual({ kind: 'tool_budget', action: 'refused', tool: 'grep', count: 15, budget: 15 });
+  });
+});
+
+// #311: gemma4:31b searched through run_command, so on the SWE canary 21% of its
+// runs spent run_command's budget, about half on searches, and 16% ended with
+// the last source edit untested. Commands below are from those runs.
+describe('a shell search spends the search budget (#311)', () => {
+  it('counts plain searches and file prints, alone or piped', () => {
+    for (const cmd of [
+      'grep -rn "_sympify" sympy/core/expr.py sympy/core/sympify.py',
+      'grep -r "_version" lib/matplotlib | head -n 20',
+      'find sympy -name "*test*"',
+      'cat bin/test',
+      'ls -F lib/matplotlib/',
+      'cd sympy && grep -n "def refine" assumptions/refine.py',
+      'sed -n 100,140p src/_pytest/pathlib.py',
+      'grep -n x a.py 2>/dev/null',
+      'rg -n "foo" src 2>&1 | wc -l',
+      'grep -o "fields.E[0-9]*" django/db/models/fields/related.py | sort -V | tail -n 5',
+    ]) {
+      expect(isShellSearch(cmd), cmd).toBe(true);
+    }
+  });
+
+  it('does not count tests, scripts, installs, or anything that writes a file', () => {
+    for (const cmd of [
+      './tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1 queries',
+      'pytest -rA test_skipping',
+      'python3 reproduce_issue.py',
+      'pip list',
+      'cat <<EOF > reproduce_issue.py\nfrom sympy import Poly\nEOF',
+      'cat a.py > b.py',
+      'grep -l foo src | tee hits.txt',
+      'find . -name "*.pyc" -delete',
+      'find . -name x -exec rm {} \;',
+      'sed -i "s/a/b/" f.py',
+      'mkdir -p tests/roots/x',
+      'cd sympy',
+      'grep -n x a.py && python3 a.py',
+      '',
+    ]) {
+      expect(isShellSearch(cmd), cmd).toBe(false);
+    }
+  });
+
+  it('budgetKey sends a search run_command to grep and leaves every other call alone', () => {
+    expect(budgetKey('run_command', { command: 'grep -n x a.py' })).toBe('grep');
+    expect(budgetKey('run_command', { command: 'pytest -rA t.py' })).toBe('run_command');
+    expect(budgetKey('run_command', {})).toBe('run_command');
+    expect(budgetKey('grep', { command: 'pytest' })).toBe('grep');
+    expect(budgetKey('read_file', { path: 'a.py' })).toBe('read_file');
   });
 });
