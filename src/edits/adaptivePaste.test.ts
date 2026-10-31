@@ -551,6 +551,115 @@ describe('registerAdaptivePasteCommand', () => {
 
     expect(showError).toHaveBeenCalledWith(expect.stringContaining('LLM failed'));
   });
+
+  // #165 ML-62: the transform replaced the paste unseen. With a preview
+  // provider, every mode but autonomous shows the result as a diff first.
+  describe('preview before replacing (#165 ML-62)', () => {
+    // The paste sits between a prefix and a suffix, so the proposal shows
+    // the whole document with only the paste replaced.
+    const DOC = 'const a = 1;\n' + 'x'.repeat(30) + '\nconst b = 2;\n';
+    const PASTE = { ...(fakePaste as object), range: { start: { character: 13 }, end: { character: 43 } } } as never;
+
+    function previewEditor(text = DOC) {
+      const e = fakeEditor(PASTE_URI, 'typescript', text);
+      return {
+        document: {
+          ...e.document,
+          uri: { toString: () => PASTE_URI, fsPath: '/mock-workspace/b.ts' },
+          offsetAt: (p: { character: number }) => p.character,
+          eol: 1,
+        },
+      };
+    }
+
+    function provider() {
+      const added = new Map<string, string>();
+      const removed: string[] = [];
+      return {
+        added,
+        removed,
+        addProposal: vi.fn((key: string, content: string) => {
+          added.set(key, content);
+          return { scheme: 'sidecar-proposed', path: key };
+        }),
+        removeProposal: vi.fn((key: string) => removed.push(key)),
+      };
+    }
+
+    async function run(mode: string, choice: string | undefined, prov = provider(), editor = previewEditor()) {
+      vi.mocked(getConfig).mockReturnValue({ agentMode: mode, customModes: [] } as never);
+      (window as { activeTextEditor: unknown }).activeTextEditor = editor;
+      const applyEdit = vi
+        .spyOn(workspace as typeof workspace & { applyEdit: () => Promise<boolean> }, 'applyEdit')
+        .mockResolvedValue(true);
+      // A shared vi.fn in the vscode mock: clear the calls earlier runs left.
+      const diff = vi.spyOn(commands, 'executeCommand').mockClear().mockResolvedValue(undefined);
+      const ask = vi.spyOn(window, 'showInformationMessage').mockResolvedValue(choice as never);
+      let captured: ((...a: unknown[]) => Promise<unknown>) | null = null;
+      vi.spyOn(commands, 'registerCommand').mockImplementation((_cmd, cb) => {
+        captured = cb as typeof captured;
+        return { dispose: vi.fn() };
+      });
+      registerAdaptivePasteCommand(makeClient('const t = {};'), makeTracker(), prov as never);
+      await captured!({ paste: PASTE, transforms: singleTransform });
+      return { applyEdit, diff, ask, prov };
+    }
+
+    it('in cautious mode, shows the transformed document as a diff and replaces on Accept', async () => {
+      const { applyEdit, diff, prov } = await run('cautious', 'Accept');
+      expect(diff).toHaveBeenCalledWith(
+        'vscode.diff',
+        expect.objectContaining({ fsPath: '/mock-workspace/b.ts' }),
+        expect.objectContaining({ scheme: 'sidecar-proposed' }),
+        expect.any(String),
+        { preview: true },
+      );
+      expect([...prov.added.values()]).toEqual(['const a = 1;\nconst t = {};\nconst b = 2;\n']);
+      expect(applyEdit).toHaveBeenCalledOnce();
+      expect(prov.removed).toEqual([...prov.added.keys()]);
+    });
+
+    it('replaces nothing on Reject, or when the prompt is dismissed, and drops the proposal', async () => {
+      for (const choice of ['Reject', undefined]) {
+        const { applyEdit, prov } = await run('cautious', choice);
+        expect(applyEdit).not.toHaveBeenCalled();
+        expect(prov.removed).toEqual([...prov.added.keys()]);
+      }
+    });
+
+    it('previews in manual, review and plan too: every mode but autonomous', async () => {
+      for (const mode of ['manual', 'review', 'plan']) {
+        const { diff } = await run(mode, 'Accept');
+        expect(diff).toHaveBeenCalledWith('vscode.diff', expect.anything(), expect.anything(), expect.any(String), {
+          preview: true,
+        });
+      }
+    });
+
+    it('in autonomous mode, replaces at once with no diff and no prompt', async () => {
+      const { applyEdit, diff, ask } = await run('autonomous', undefined);
+      expect(diff).not.toHaveBeenCalled();
+      expect(ask).not.toHaveBeenCalled();
+      expect(applyEdit).toHaveBeenCalledOnce();
+    });
+
+    it('replaces nothing when the paste changed while the preview was open', async () => {
+      const editor = previewEditor();
+      let text = DOC;
+      editor.document.getText = (r?: { start: { character: number }; end: { character: number } }) =>
+        r ? text.slice(r.start.character, r.end.character) : text;
+      const warn = vi.spyOn(window, 'showWarningMessage');
+      const prov = provider();
+      prov.addProposal.mockImplementation((key: string, content: string) => {
+        prov.added.set(key, content);
+        text = text.replace('x'.repeat(30), 'y'.repeat(30)); // edited while the diff is open
+        return { scheme: 'sidecar-proposed', path: key };
+      });
+      const { applyEdit } = await run('cautious', 'Accept', prov, editor);
+      expect(applyEdit).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('preview was open'));
+    });
+  });
 });
 
 // #119: the transform replaced the range recorded at paste time, so an edit

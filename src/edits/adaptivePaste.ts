@@ -16,6 +16,8 @@ import { SideCarClient } from '../ollama/client.js';
 import { getConfig } from '../config/settings.js';
 import { detectTransforms, type PasteTransform } from './pasteTransforms.js';
 import { cleanResolution } from '../conflict/conflictResolver.js';
+import { resolveMode } from '../config/settings/agent.js';
+import { previewKey, type ProposedContentProvider } from './proposedContentProvider.js';
 
 const ADAPTIVE_PASTE_COMMAND = 'sidecar.adaptivePaste.transform';
 
@@ -146,12 +148,49 @@ export function currentPasteRange(document: TextDocument, paste: PasteRecord): R
 }
 
 /**
+ * Show the document with the paste replaced as a diff against the live one, and
+ * ask. True only on Accept; closing the prompt counts as Reject. The proposal is
+ * dropped either way.
+ */
+export async function previewReplacement(
+  document: TextDocument,
+  target: Range,
+  replacement: string,
+  provider: ProposedContentProvider,
+): Promise<boolean> {
+  const text = document.getText();
+  const proposed =
+    text.slice(0, document.offsetAt(target.start)) + replacement + text.slice(document.offsetAt(target.end));
+  const key = previewKey(workspace.asRelativePath(document.uri, false));
+  const proposedUri = provider.addProposal(key, proposed);
+  try {
+    await commands.executeCommand('vscode.diff', document.uri, proposedUri, 'SideCar: transformed paste', {
+      preview: true,
+    });
+    const choice = await window.showInformationMessage(
+      'Replace the paste with the transformed version?',
+      'Accept',
+      'Reject',
+    );
+    return choice === 'Accept';
+  } finally {
+    provider.removeProposal(key);
+  }
+}
+
+/**
  * Registers the `sidecar.adaptivePaste.transform` command that drives the
- * interactive transform flow: QuickPick → LLM call → in-place replacement.
+ * interactive transform flow: QuickPick → LLM call → (preview) → in-place
+ * replacement.
+ *
+ * Given a `preview` provider, every mode but autonomous shows the transformed
+ * document as a diff first and replaces the paste only on Accept (#165 ML-62):
+ * the model's answer used to go straight in, unseen.
  */
 export function registerAdaptivePasteCommand(
   clientOrFactory: SideCarClient | (() => SideCarClient),
   tracker: AdaptivePasteTracker,
+  preview?: ProposedContentProvider,
 ): Disposable {
   return commands.registerCommand(
     ADAPTIVE_PASTE_COMMAND,
@@ -187,6 +226,7 @@ export function registerAdaptivePasteCommand(
 
       const config = getConfig();
       const overrideModel = config.adaptivePasteModel || undefined;
+      let pending: { target: Range; replacement: string } | undefined;
 
       await window.withProgress(
         { location: 15 /* ProgressLocation.Notification */, title: `SideCar: Transforming paste (${chosen.name})…` },
@@ -213,12 +253,9 @@ export function registerAdaptivePasteCommand(
               );
               return;
             }
-            const edit = new WorkspaceEdit();
             // EndOfLine.CRLF is 2.
             const eol = editor.document.eol === 2 ? '\r\n' : '\n';
-            edit.replace(editor.document.uri, target, fitTransformed(transformed, paste.text, eol));
-            await workspace.applyEdit(edit);
-            tracker.clearLastPaste();
+            pending = { target, replacement: fitTransformed(transformed, paste.text, eol) };
           } catch (err) {
             void window.showErrorMessage(
               `SideCar: Transform failed — ${err instanceof Error ? err.message : String(err)}`,
@@ -226,6 +263,32 @@ export function registerAdaptivePasteCommand(
           }
         },
       );
+      if (!pending) return;
+
+      // After the progress notification closes, so it does not spin while
+      // the diff is read.
+      if (preview && resolveMode(config.agentMode, config.customModes).approvalBehavior !== 'autonomous') {
+        if (!(await previewReplacement(editor.document, pending.target, pending.replacement, preview))) return;
+        // The document can change while the diff is open, as during the
+        // transform (#119): find the paste again, or replace nothing.
+        const target = currentPasteRange(editor.document, paste);
+        if (!target) {
+          void window.showWarningMessage(
+            'SideCar: The pasted text changed or moved while the preview was open, so nothing was replaced.',
+          );
+          return;
+        }
+        pending.target = target;
+      }
+
+      try {
+        const edit = new WorkspaceEdit();
+        edit.replace(editor.document.uri, pending.target, pending.replacement);
+        await workspace.applyEdit(edit);
+        tracker.clearLastPaste();
+      } catch (err) {
+        void window.showErrorMessage(`SideCar: Transform failed — ${err instanceof Error ? err.message : String(err)}`);
+      }
     },
   );
 }
