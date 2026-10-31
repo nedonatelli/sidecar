@@ -102,6 +102,8 @@ When you paste foreign content into a file, SideCar detects the content type and
 
 Built-in transforms: JSON → TypeScript type, SQL → ORM query, curl → `fetch()`, CSS → Tailwind classes, Python → TypeScript, shell → `child_process`, `.env` → Zod schema.
 
+Before the transformed code replaces your paste, SideCar opens a diff of the file with the change applied and asks you to **Accept** or **Reject**. Nothing changes until you accept. In `autonomous` mode (`sidecar.agentMode`) the transform replaces the paste directly, with no preview.
+
 Enable/disable via `sidecar.adaptivePaste.enabled` (default `true`). Set a minimum paste length with `sidecar.adaptivePaste.minPasteLength` (default `50` chars) to avoid triggering on short snippets.
 
 ---

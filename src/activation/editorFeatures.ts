@@ -98,7 +98,7 @@ export function registerEditorFeatures(
   // backend of that moment -- before SecretStorage loaded, the placeholder.
   context.subscriptions.push(
     pasteTracker,
-    registerAdaptivePasteCommand(() => createClient(), pasteTracker),
+    registerAdaptivePasteCommand(() => createClient(), pasteTracker, proposedContentProvider),
   );
   if (config.adaptivePasteEnabled) {
     context.subscriptions.push(
