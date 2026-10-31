@@ -54,7 +54,14 @@ re-defaulted. 5.1.20 is #385.
   unknown key is named as ignored; a call with no `command`, no `file` and only
   unknown keys throws, so it is an error rather than a suite run the completion
   gate would count. The gate resolves the target the same way (#386).
-- **Measured:** pending — e4b SWE canary.
+- **Measured:** e4b SWE canary, main `74bf3743` vs this change, 50 tasks ×
+  3 seeds: NULL on every outcome, with no discordant pair on the primary or
+  on resolve (F2P progress 18% → 18%, resolve 11% → 11%, P2P regressions
+  23% → 23%). A target sent under another name was read in 6 runs and in
+  none of the base arm's; nothing was ignored or refused. In one pair the
+  base run sent `label` five times, ran the whole Django suite each time and
+  hit the 600 s task timeout; this arm ran the named tests and finished in
+  158 s.
 
 ### 5.1.19 — repeated budget refusals escalate, and refused repeats stop (2026-10)
 
