@@ -40,6 +40,23 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.20 — a search-only run_command spends grep's budget (2026-10)
+
+PATCH: calls are re-keyed to an existing budget; no mechanism is added and no
+budget size changes.
+
+- **What changed:** a `run_command` whose every `&&`, `||`, `;` or `|` segment
+  is a read-only search (`grep`, `rg`, `find`, `ls`, `cat`, `head`, `tail`,
+  `wc`, `sed -n`, ...) or a `cd`, with no redirect, `tee`, `find -exec/-delete`
+  or `sed -i`, now counts against `grep`'s budget instead of `run_command`'s.
+  Its refusal says the call counted as a search. Cycle detection's refused-repeat
+  pass keys calls the same way.
+- **Why (#311):** on gemma4:31b, 21% of SWE runs spent the whole `run_command`
+  budget, about half of it on searches, and 16% of runs ended with the last
+  edit never tested. Of 2,538 archived 31b `run_command` calls, 30% are
+  search-only.
+- **Measured:** pending (31b SWE A/B).
+
 ### 5.1.19 — repeated budget refusals escalate, and refused repeats stop (2026-10)
 
 PATCH: the text of an existing refusal and a pass inside existing cycle

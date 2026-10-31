@@ -8,7 +8,7 @@ import { advancePlanPastWrite } from '../plans/externalPlan.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import type { LoopState } from './state.js';
-import { checkToolBudget, recordToolUse } from './toolBudget.js';
+import { budgetKey, checkToolBudget, recordToolUse } from './toolBudget.js';
 import { resolveIterationTools } from './streamTurn.js';
 import { parseMangledToolName } from './textParsing.js';
 import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
@@ -195,12 +195,18 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
 
   // Per-tool rate limiting: check budget before executing (a refusal is
   // recorded as a tool_budget decision there). ask_user is only suggested when
-  // a clarification UI can answer it.
-  const budgetError = checkToolBudget(state, toolUse.name, {
+  // a clarification UI can answer it. A run_command that only searches spends
+  // grep's budget (#311), and its refusal says so.
+  const budget = budgetKey(toolUse.name, toolUse.input);
+  const refusal = checkToolBudget(state, budget, {
     canAskUser: options.clarifyFn !== undefined,
     isOffered,
     input: toolUse.input,
   });
+  const budgetError =
+    refusal && budget !== toolUse.name
+      ? `This ${toolUse.name} call only searches, so it counts against ${budget}'s budget. ${refusal}`
+      : refusal;
   if (budgetError) {
     callbacks.onToolResult(toolUse.name, budgetError, true, toolUse.id);
     return {
@@ -345,7 +351,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     pendingEdits: options.pendingEdits,
     extraTools: options.extraTools,
   });
-  recordToolUse(state, toolUse.name, { failed: result.is_error === true });
+  recordToolUse(state, budgetKey(toolUse.name, toolUse.input), { failed: result.is_error === true });
   state.logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
   // Record tool use in agent memory — both successes and failures
