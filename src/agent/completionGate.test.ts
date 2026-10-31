@@ -125,6 +125,13 @@ describe('completionGate — recordToolCall', () => {
     expect(state.projectTestsRan).toBe(true);
   });
 
+  it('records run_tests with the target sent as `path` as a run of that file, not the suite (#386)', () => {
+    const state = createGateState();
+    recordToolCall(state, { type: 'tool_use', id: 'id', name: 'run_tests', input: { path: 'src/foo.test.ts' } }, ok());
+    expect([...state.testsRunForFiles]).toEqual(['src/foo.test.ts']);
+    expect(state.projectTestsRan).toBe(false);
+  });
+
   it('detects eslint in run_command as lintObserved', () => {
     const state = createGateState();
     recordToolCall(state, makeRunCommand('npx eslint src/'), ok());

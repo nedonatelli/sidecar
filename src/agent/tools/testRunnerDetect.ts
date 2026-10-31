@@ -143,3 +143,49 @@ export function normalizeTestTarget(command: string, target: string): string {
     .replace(/\.py$/, '');
   return cleaned.split('/').filter(Boolean).join('.');
 }
+
+/**
+ * Names models send the test target under instead of `file` (#386). In 14,947
+ * archived SWE runs, `path` alone outnumbered `file` 506 to 114. The executor's
+ * synonym remap only fills REQUIRED keys, and `file` is optional, so every one
+ * of these was dropped and the unscoped suite ran -- once for 9 minutes, until
+ * the task timed out.
+ */
+const TEST_TARGET_ALIASES: readonly string[] = [
+  'path',
+  'test_file',
+  'test_path',
+  'module',
+  'test_module',
+  'label',
+  'test_label',
+];
+
+export interface TestTarget {
+  file?: string;
+  /** Disclosure for the result: which key was read as `file`, what was ignored. */
+  note: string;
+  /** Keys run_tests neither declares nor reads as `file`. */
+  unknown: string[];
+}
+
+/** Read `file`, or else the first alias that carries a string, from a run_tests input. */
+export function resolveTestTarget(input: Record<string, unknown>): TestTarget {
+  let file = typeof input.file === 'string' ? input.file : undefined;
+  let note = '';
+  const unknown: string[] = [];
+  for (const key of Object.keys(input)) {
+    if (key === 'command' || key === 'file') continue;
+    const value = input[key];
+    if (file === undefined && TEST_TARGET_ALIASES.includes(key) && typeof value === 'string' && value.trim()) {
+      file = value;
+      note += `\n(read \`${key}\` as \`file\`: run_tests takes the test target as \`file\`)`;
+      continue;
+    }
+    unknown.push(key);
+  }
+  if (unknown.length > 0) {
+    note += `\n(ignored ${unknown.map((k) => `\`${k}\``).join(', ')}: run_tests takes only \`command\` and \`file\`)`;
+  }
+  return { file, note, unknown };
+}
