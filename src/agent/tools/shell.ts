@@ -10,7 +10,7 @@ import {
   type RegisteredTool,
 } from './shared.js';
 import { getDefaultToolRuntime } from './runtime.js';
-import { detectTestRunner, manifestFiles, normalizeTestTarget } from './testRunnerDetect.js';
+import { detectTestRunner, manifestFiles, normalizeTestTarget, resolveTestTarget } from './testRunnerDetect.js';
 import type { ShellSession } from '../../terminal/shellSession.js';
 import { AgentTerminalExecutor } from '../../terminal/agentExecutor.js';
 import { CompositeShellExecutor } from '../../terminal/shellExecutor.js';
@@ -373,9 +373,23 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
 
 export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   let command = input.command as string | undefined;
-  const file = input.file as string | undefined;
+  const resolved = resolveTestTarget(input);
+  const file = resolved.file;
 
-  let detectionNote = '';
+  // A key we can't read and nothing else saying what to run: the model meant to
+  // scope the run, and the whole suite can take longer than the task has left.
+  // Say what the tool takes rather than guess.
+  if (!command && file === undefined && resolved.unknown.length > 0) {
+    // Thrown, not returned: a returned string is a successful call, and the
+    // completion gate would count this as a whole-suite test run.
+    throw new Error(
+      `run_tests did not run: it does not take ${resolved.unknown.map((k) => `\`${k}\``).join(', ')}. ` +
+        'Pass the test file or label as `file`, or a full test command as `command`. ' +
+        'Call it with neither to run the whole suite.',
+    );
+  }
+
+  let detectionNote = resolved.note;
   if (!command) {
     // Auto-detect the test runner. Ordering matters and is NOT "package.json
     // first" — see src/agent/tools/testRunnerDetect.ts: that ordering made
@@ -404,7 +418,7 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
     // Say which runner was chosen and why. The defect was not only the wrong
     // pick but the SILENT wrong pick: the model saw `ok` with no indication
     // that a JS linter had run instead of the Python suite.
-    if (command) detectionNote = `\n\n(run_tests auto-detected \`${command}\` from ${decision.reason})`;
+    if (command) detectionNote += `\n\n(run_tests auto-detected \`${command}\` from ${decision.reason})`;
 
     // Python fallback: no pytest/manifest config, but test files exist
     // (test_*.py / *_test.py). Common for small scripts and from-scratch builds.

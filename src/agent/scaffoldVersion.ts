@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.21** (2026-10) — run_tests reads a test target sent under another
+ *   name. `path`, `test_file`, `test_path`, `module`, `test_module`, `label`
+ *   and `test_label` are read as `file` (with a note saying so); any other
+ *   unknown key is named as ignored; a call with no `command`, no `file` and
+ *   only unknown keys throws instead of running the whole suite. The completion
+ *   gate records the call against the same target. PATCH: input handling of an
+ *   existing tool.
  * - **5.1.20** (2026-10) — a run_command that only searches spends grep's
  *   budget. A command whose every segment is a search (grep, rg, find, ls,
  *   cat, head, tail, wc, sed -n, ...) or a cd, with no write, counts as a
@@ -280,7 +287,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.20';
+export const SCAFFOLD_VERSION = '5.1.21';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

@@ -40,6 +40,29 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.21 — run_tests reads a test target sent under another name (2026-10)
+
+PATCH: input handling of an existing tool; no mechanism is added, removed or
+re-defaulted. 5.1.20 is #385.
+
+- **What changed:** in 14,947 archived trajectories, `run_tests` was called
+  with the target as `path` 506 times against 114 as `file`; about 750 calls
+  in 344 runs sent the target under a key the tool doesn't declare, which it
+  dropped silently and ran the whole suite (40 of those ran over 2 minutes).
+  `path`, `test_file`, `test_path`, `module`, `test_module`, `label` and
+  `test_label` are now read as `file`, with a note in the result; any other
+  unknown key is named as ignored; a call with no `command`, no `file` and only
+  unknown keys throws, so it is an error rather than a suite run the completion
+  gate would count. The gate resolves the target the same way (#386).
+- **Measured:** e4b SWE canary, main `74bf3743` vs this change, 50 tasks ×
+  3 seeds: NULL on every outcome, with no discordant pair on the primary or
+  on resolve (F2P progress 18% → 18%, resolve 11% → 11%, P2P regressions
+  23% → 23%). A target sent under another name was read in 6 runs and in
+  none of the base arm's; nothing was ignored or refused. In one pair the
+  base run sent `label` five times, ran the whole Django suite each time and
+  hit the 600 s task timeout; this arm ran the named tests and finished in
+  158 s.
+
 ### 5.1.20 — a search-only run_command spends grep's budget (2026-10)
 
 PATCH: calls are re-keyed to an existing budget; no mechanism is added and no
