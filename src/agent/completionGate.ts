@@ -4,6 +4,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/type
 import { recordDecision, type DecisionSink } from './decisions.js';
 import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE, TEST_RUNNER_RE } from './completionGate/pathUtil.js';
 import { isNoChangeNeededResult, isFailingCheckOutput } from './loop/actionReprompt.js';
+import { resolveTestTarget } from './tools/testRunnerDetect.js';
 
 /**
  * Completion gate — a deterministic verification barrier that fires when the
@@ -468,7 +469,9 @@ export function recordToolCall(
     if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
     else if (outcome === 'pass') state.failedCheckOutput = undefined;
     const passed = outcome === 'pass';
-    const file = tu.input.file as string | undefined;
+    // The target as run_tests read it: a run scoped by `path` or `label` is a
+    // run of that file, not of the whole suite (#386).
+    const file = resolveTestTarget(tu.input).file;
     if (file) {
       const p = normalizePath(file);
       if (p) {

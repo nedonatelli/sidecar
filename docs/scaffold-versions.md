@@ -40,6 +40,22 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 5.1.21 — run_tests reads a test target sent under another name (2026-10)
+
+PATCH: input handling of an existing tool; no mechanism is added, removed or
+re-defaulted. 5.1.20 is #385.
+
+- **What changed:** in 14,947 archived trajectories, `run_tests` was called
+  with the target as `path` 506 times against 114 as `file`; about 750 calls
+  in 344 runs sent the target under a key the tool doesn't declare, which it
+  dropped silently and ran the whole suite (40 of those ran over 2 minutes).
+  `path`, `test_file`, `test_path`, `module`, `test_module`, `label` and
+  `test_label` are now read as `file`, with a note in the result; any other
+  unknown key is named as ignored; a call with no `command`, no `file` and only
+  unknown keys throws, so it is an error rather than a suite run the completion
+  gate would count. The gate resolves the target the same way (#386).
+- **Measured:** pending — e4b SWE canary.
+
 ### 5.1.19 — repeated budget refusals escalate, and refused repeats stop (2026-10)
 
 PATCH: the text of an existing refusal and a pass inside existing cycle

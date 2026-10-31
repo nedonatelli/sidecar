@@ -176,6 +176,71 @@ describe('shell tool runtime resolution', () => {
       expect(defaultRuntimeSpy.getShellSession).toHaveBeenCalledTimes(1);
     });
 
+    // #386: `file` is optional, so the executor's synonym remap never filled
+    // it, and a target sent as `path` (4x as common as `file` in archived SWE
+    // runs) was dropped -- the whole suite ran instead, once for 9 minutes.
+    describe('a test target under another name (#386)', () => {
+      it.each(['path', 'test_file', 'test_path', 'module', 'test_module', 'label', 'test_label'])(
+        'reads `%s` as `file` and says so',
+        async (key) => {
+          const viaFile = new ShellSessionStub();
+          await runTests({ command: 'python3 -m pytest', file: 'pkg/tests/test_a.py' }, makeContext(viaFile));
+          const viaAlias = new ShellSessionStub();
+          const out = await runTests(
+            { command: 'python3 -m pytest', [key]: 'pkg/tests/test_a.py' },
+            makeContext(viaAlias),
+          );
+          expect(viaAlias.execute.mock.calls[0][0]).toBe(viaFile.execute.mock.calls[0][0]);
+          expect(viaAlias.execute.mock.calls[0][0]).toBe('python3 -m pytest "pkg/tests/test_a.py"');
+          expect(out).toContain(`(read \`${key}\` as \`file\``);
+        },
+      );
+
+      it('passes a Django dotted label sent as `label` through unchanged', async () => {
+        const injected = new ShellSessionStub();
+        await runTests(
+          { command: './tests/runtests.py', label: 'forms_tests.tests.test_formsets' },
+          makeContext(injected),
+        );
+        expect(injected.execute.mock.calls[0][0]).toBe('./tests/runtests.py "forms_tests.tests.test_formsets"');
+      });
+
+      it('keeps `file` when both are sent, and names the other as ignored', async () => {
+        const injected = new ShellSessionStub();
+        const out = await runTests(
+          { command: 'python3 -m pytest', file: 'tests/test_a.py', path: 'tests/test_b.py' },
+          makeContext(injected),
+        );
+        expect(injected.execute.mock.calls[0][0]).toBe('python3 -m pytest "tests/test_a.py"');
+        expect(out).toContain('(ignored `path`: run_tests takes only `command` and `file`)');
+      });
+
+      // Thrown so the executor marks the result is_error: a returned string
+      // would read to the completion gate as a whole-suite run.
+      it('runs nothing, as an error, for a key it cannot read when nothing else says what to run', async () => {
+        const injected = new ShellSessionStub();
+        const call = runTests({ filter: 'test_parse' }, makeContext(injected));
+        await expect(call).rejects.toThrow('run_tests did not run: it does not take `filter`');
+        await expect(call).rejects.toThrow(/`file`.*`command`/);
+        expect(injected.execute).not.toHaveBeenCalled();
+      });
+
+      it('does not read a non-string alias as the target', async () => {
+        const injected = new ShellSessionStub();
+        await expect(runTests({ labels: ['a.tests', 'b.tests'] }, makeContext(injected))).rejects.toThrow(
+          'does not take `labels`',
+        );
+        expect(injected.execute).not.toHaveBeenCalled();
+      });
+
+      it('runs an explicit command and notes any key it ignored', async () => {
+        const injected = new ShellSessionStub();
+        const out = await runTests({ command: 'npm test', timeout: 30 }, makeContext(injected));
+        expect(injected.execute.mock.calls[0][0]).toBe('npm test');
+        expect(out).toContain('(ignored `timeout`');
+      });
+    });
+
     it('prefers pytest when the pytest probe succeeds (collects pytest-style AND unittest tests)', async () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
       const injected = new ShellSessionStub(); // execute → exitCode 0 by default → probe "succeeds"

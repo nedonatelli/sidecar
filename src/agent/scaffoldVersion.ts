@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **5.1.21** (2026-10) — run_tests reads a test target sent under another
+ *   name. `path`, `test_file`, `test_path`, `module`, `test_module`, `label`
+ *   and `test_label` are read as `file` (with a note saying so); any other
+ *   unknown key is named as ignored; a call with no `command`, no `file` and
+ *   only unknown keys throws instead of running the whole suite. The completion
+ *   gate records the call against the same target. PATCH: input handling of an
+ *   existing tool.
  * - **5.1.19** (2026-10) — a repeated budget refusal escalates, and a run of
  *   refused repeats stops. From the second refusal of a tool on, the message
  *   says further calls will be refused too and names offered tools with budget
@@ -275,7 +282,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.19';
+export const SCAFFOLD_VERSION = '5.1.21';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
