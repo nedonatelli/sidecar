@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **6.0.0** (2026-11) — scratch cleanup, `scaffolding.scratchCleanup`,
+ *   default ON. At the end of a run that wasn't stopped, files the run
+ *   created (untracked now, not at the start) that have a scratch name or are
+ *   scripts in the root, and that nothing else in the change refers to, move to
+ *   `.sidecar/scratchpad/<run id>/`, which ignores itself. MAJOR: a mechanism
+ *   is added to the default scaffold (measured: gemma4:31b patches carrying
+ *   scratch 15/24 → 2/24, resolve 11 = 11).
  * - **5.1.21** (2026-10) — run_tests reads a test target sent under another
  *   name. `path`, `test_file`, `test_path`, `module`, `test_module`, `label`
  *   and `test_label` are read as `file` (with a note saying so); any other
@@ -287,7 +294,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '5.1.21';
+export const SCAFFOLD_VERSION = '6.0.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
@@ -299,6 +306,7 @@ export interface ScaffoldConfigLike {
   numericalContractGateEnabled?: boolean;
   analyticBoundsGateEnabled?: boolean;
   keepBestRatchetEnabled?: boolean;
+  scratchCleanupEnabled?: boolean;
   injectionGuardEnabled?: boolean;
   diagnosticsReactiveFixEnabled?: boolean;
 }
@@ -310,7 +318,8 @@ export interface ScaffoldDescriptor {
 }
 
 /** Snapshot the active scaffold from a config/arm. `completionGate`,
- *  `injectionGuard`, `adaptiveScaffolding` and `keepBestRatchet` default ON
+ *  `injectionGuard`, `adaptiveScaffolding`, `keepBestRatchet` and
+ *  `scratchCleanup` default ON
  *  (mirroring settings.ts); the rest default OFF.
  *
  *  These defaults MUST track settings.ts. `adaptiveScaffolding` read an absent
@@ -329,6 +338,7 @@ export function describeScaffold(cfg: ScaffoldConfigLike): ScaffoldDescriptor {
       numericalContractGate: cfg.numericalContractGateEnabled === true,
       analyticBoundsGate: cfg.analyticBoundsGateEnabled === true,
       keepBestRatchet: cfg.keepBestRatchetEnabled !== false,
+      scratchCleanup: cfg.scratchCleanupEnabled !== false,
       injectionGuard: cfg.injectionGuardEnabled !== false,
       diagnosticsReactiveFix: cfg.diagnosticsReactiveFixEnabled === true,
     },

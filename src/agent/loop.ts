@@ -61,6 +61,7 @@ import {
   evaluateRatchetAtTermination,
   makeWorkspaceRatchetIo,
 } from './loop/keepBestRatchetWiring.js';
+import { captureScratchBaseline, cleanupScratchAtTermination } from './loop/scratchCleanup.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
@@ -471,6 +472,9 @@ export async function runAgentLoop(
   // working dir (cwdOverride → Shadow Workspace / mounted root). Null when the
   // ratchet is off, so all ratchet touch points below no-op cheaply.
   const ratchetIo = state.ratchet?.enabled ? makeWorkspaceRatchetIo(options.cwdOverride) : null;
+
+  // Scratch cleanup (#387): which files are untracked before the run touches anything.
+  await captureScratchBaseline(state, options.cwdOverride);
 
   // Start from a clean compression cache. The teardown `finally` also clears
   // it, but clearing here guarantees a fresh slate even if a prior run's
@@ -1235,6 +1239,13 @@ export async function runAgentLoop(
   // when the ratchet never armed (scaffolding drove no extra work).
   if (ratchetIo && state.termination !== 'aborted') {
     await evaluateRatchetAtTermination(state, ratchetIo, callbacks);
+  }
+
+  // Scratch cleanup (#387): move the reproduction and check scripts the run
+  // left behind out of the workspace. After the ratchet, which may already have
+  // removed files the scaffold tail created. Skipped on user-abort, like the ratchet.
+  if (state.termination !== 'aborted') {
+    await cleanupScratchAtTermination(state, options.cwdOverride, callbacks);
   }
 
   return finalize(state, callbacks);

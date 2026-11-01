@@ -519,6 +519,11 @@
             "default": true,
             "description": "Pareto-safe scaffolding (keep-best ratchet). The loop snapshots your files at the point scaffolding first drives extra work, then at the end reverts scaffold-driven changes that regressed a passing test OR grew the patch with no test-signal gain (over-engineering). By default ANY unproven growth reverts, not just large bloat — see keepBestOverEngineerBytes. Makes the completion gate / critic unable to turn a good run into a worse one. Every revert is surfaced with the file list. Disabled automatically in audit mode (writes are buffered, not on disk). Default-on since v0.118 (measured: over-engineering roughly halved on a 150-run SWE campaign with no possible resolve harm)."
           },
+          "sidecar.scaffolding.scratchCleanup": {
+            "type": "boolean",
+            "default": true,
+            "description": "At the end of a run, move scratch files the agent created and left behind (reproduce_issue.py, verify_fix.py, a script in the workspace root, ...) to .sidecar/scratchpad/<run id>/, which git ignores, and list them in the reply. Only files the run created are moved, and only when nothing else in the change refers to them; a new file in a test directory with an ordinary name is kept, and so is a file your message names. Skipped when you stop the run and in audit mode."
+          },
           "sidecar.scaffolding.keepBestOverEngineerBytes": {
             "type": "number",
             "default": 0,

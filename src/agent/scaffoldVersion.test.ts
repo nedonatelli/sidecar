@@ -29,6 +29,7 @@ describe('describeScaffold', () => {
       numericalContractGateEnabled: false,
       injectionGuardEnabled: false,
       keepBestRatchetEnabled: false,
+      scratchCleanupEnabled: false,
     });
     expect(Object.values(off.features).every((v) => v === false)).toBe(true);
   });
@@ -65,7 +66,7 @@ describe('scaffoldLabel', () => {
   });
 
   it('shows "bare" when nothing is on', () => {
-    // adaptiveScaffolding and keepBestRatchet default ON now, so "bare"
+    // adaptiveScaffolding, keepBestRatchet and scratchCleanup default ON now, so "bare"
     // means every mechanism explicitly off — an EMPTY config is not bare.
     const label = scaffoldLabel(
       describeScaffold({
@@ -73,6 +74,7 @@ describe('scaffoldLabel', () => {
         injectionGuardEnabled: false,
         adaptiveScaffoldingEnabled: false,
         keepBestRatchetEnabled: false,
+        scratchCleanupEnabled: false,
       }),
     );
     expect(label).toContain('bare');

@@ -40,6 +40,36 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 6.0.0 — scratch cleanup, on by default (2026-11)
+
+MAJOR: a mechanism is added to the default scaffold, as
+`sidecar.scaffolding.scratchCleanup` (default on). Results from 5.x are not
+directly comparable on patch contents; turning the setting off reproduces 5.1.21.
+
+- **What changed:** models that reproduce a bug before fixing it leave
+  `reproduce_issue.py`, `verify_fix.py` and the like behind, mostly written
+  through the shell. The loop records the untracked files at run start; at the
+  end of a run that wasn't stopped, each file the run created that has a
+  scratch name (or is a script in the workspace root) and that no other file in
+  the change refers to moves to `.sidecar/scratchpad/<run id>/`. That folder
+  carries its own `.gitignore`, so the moved files stay out of git status and
+  the SWE patch. A file the user's message names is kept, as is an
+  ordinary-named new file in a test directory. Without git, only files
+  write_file created are known. Off in audit mode. In the SWE eval it is on in
+  `scaffold-on` and off in `scaffold-off`; `SIDECAR_SWE_SCRATCH_CLEANUP=1` or
+  `=0` forces it in every arm. A run that hits the per-task timeout is aborted,
+  so it is not cleaned up.
+- **Measured (2026-11-01):** gemma4:31b SWE A/B, 24 canary tasks whose archived
+  31b patches most often carried scratch, seed 11, same commit, setting off vs
+  on. Patches carrying scratch files 15/24 → 2/24 (13 pairs lost it, 0 gained
+  it; exact McNemar p ≈ 0.0002); scratch files in patches 23 → 5; new files
+  that are not scratch 6 → 6; median patch 2,044 → 1,151 bytes. Resolved 11 vs
+  11, the same tasks. Both leftovers were per-task timeouts. 31b agent eval
+  with the setting on: 240/243 trials against 239/243 at release 0.134.0; the
+  one failing case (`large-file-vague-semantics`, 0/3) was 0–1/3 at the last
+  four releases, and the one cleanup it made (a `test_version.ts` the agent
+  wrote) was in a case that passed 3/3.
+
 ### 5.1.21 — run_tests reads a test target sent under another name (2026-10)
 
 PATCH: input handling of an existing tool; no mechanism is added, removed or

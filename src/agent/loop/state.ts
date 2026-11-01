@@ -8,6 +8,7 @@ import type { ChangeLog } from '../changelog.js';
 import type { MCPManager } from '../mcpManager.js';
 import { createGateState, lastUserText } from '../completionGate.js';
 import { initRatchetRunState } from './keepBestRatchetWiring.js';
+import { initScratchRunState } from './scratchCleanup.js';
 import { lastUserMessageText } from './actionReprompt.js';
 import { getToolDefinitionsForTier } from '../tools.js';
 import type { AgentOptions } from '../loop.js';
@@ -372,6 +373,10 @@ export interface LoopState {
   // otherwise. keepBestRatchetWiring.ts is the only reader/writer.
   ratchet?: import('./keepBestRatchetWiring.js').RatchetRunState;
 
+  // Scratch cleanup state (#387). `enabled=false` when `scaffolding.scratchCleanup`
+  // is off or in audit mode. scratchCleanup.ts is the only reader/writer.
+  scratch?: import('./scratchCleanup.js').ScratchRunState;
+
   // Per-tool call counts for budget enforcement. toolBudget.ts is
   // the only reader; executeToolUses.ts is the only writer.
   toolCallCounts: Map<string, number>;
@@ -508,6 +513,12 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
       (options.config ?? getConfig()).keepBestRatchetEnabled === true &&
         (options.config ?? getConfig()).agentMode !== 'audit',
       (options.config ?? getConfig()).keepBestOverEngineerBytes,
+    ),
+    // Scratch cleanup (#387): off in audit mode for the same reason.
+    scratch: initScratchRunState(
+      (options.config ?? getConfig()).scratchCleanupEnabled === true &&
+        (options.config ?? getConfig()).agentMode !== 'audit',
+      lastUserText(copiedMessages),
     ),
   };
 }
