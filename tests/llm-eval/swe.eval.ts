@@ -123,9 +123,11 @@ const TOOL_BUDGETS = parseToolBudgets(process.env.SIDECAR_SWE_TOOL_BUDGETS);
 const PER_TASK_MS = parseInt(process.env.SIDECAR_SWE_TASK_TIMEOUT ?? '600000', 10);
 // Experiment switch: see the armConfig construction for what it enables.
 const REDCHECK_RATCHETED = process.env.SIDECAR_SWE_REDCHECK_RATCHETED === '1';
-// #387: SIDECAR_SWE_SCRATCH_CLEANUP=1 turns on scratch cleanup (default off) in
-// every arm, for its A/B. Applied on top of the arm, like the switch above.
-const SCRATCH_CLEANUP = process.env.SIDECAR_SWE_SCRATCH_CLEANUP === '1';
+// #387: SIDECAR_SWE_SCRATCH_CLEANUP=1 or =0 forces scratch cleanup on or off in
+// every arm; unset, each arm keeps its own value (on in scaffold-on, as shipped).
+// Applied on top of the arm, like the switch above.
+const SCRATCH_CLEANUP_ENV = process.env.SIDECAR_SWE_SCRATCH_CLEANUP;
+const SCRATCH_CLEANUP: boolean | null = SCRATCH_CLEANUP_ENV === '1' ? true : SCRATCH_CLEANUP_ENV === '0' ? false : null;
 // Reproducible tool output (bench/swe/stableToolOutput.ts): pinned git dates and
 // hash seed for every tool subprocess, and run-to-run volatile numbers (test
 // durations, sympy's random seed) fixed in process output before the model
@@ -741,7 +743,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       sandboxEnabled: false,
       ...armConfigOverrides(arm),
       ...(REDCHECK_RATCHETED ? { redCheckPythonRunnersEnabled: true, redCheckRatchetedEnabled: true } : {}),
-      ...(SCRATCH_CLEANUP ? { scratchCleanupEnabled: true } : {}),
+      ...(SCRATCH_CLEANUP !== null ? { scratchCleanupEnabled: SCRATCH_CLEANUP } : {}),
       ...(TOOL_BUDGETS
         ? { scaffoldingOverrides: withToolBudgets(getConfig().scaffoldingOverrides, TOOL_BUDGETS)! }
         : {}),

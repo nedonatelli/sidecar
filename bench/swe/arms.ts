@@ -40,9 +40,9 @@ const SCAFFOLD_ON: ArmOverrides = {
   // their harm. Isolation now lives in `scaffold-on-noratchet`, the
   // counterfactual, not in the base arm.
   keepBestRatchetEnabled: true,
-  // Shipped default OFF (#387), pinned for the same reason; its A/B turns it on
-  // with SIDECAR_SWE_SCRATCH_CLEANUP=1.
-  scratchCleanupEnabled: false,
+  // Shipped default ON (#387, scaffold 6.0.0), pinned for the same reason;
+  // SIDECAR_SWE_SCRATCH_CLEANUP=0 turns it off for a counterfactual.
+  scratchCleanupEnabled: true,
 };
 
 const SCAFFOLD_OFF: ArmOverrides = {

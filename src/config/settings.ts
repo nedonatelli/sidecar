@@ -660,7 +660,7 @@ function readConfig(): SideCarConfig {
     modelTierOverrides: cfg.get<Record<string, CapabilityTier>>('modelTier', {}),
     scaffoldingOverrides: cfg.get<ScaffoldingOverrides>('scaffolding.overrides', {}),
     keepBestRatchetEnabled: cfg.get<boolean>('scaffolding.keepBest', true),
-    scratchCleanupEnabled: cfg.get<boolean>('scaffolding.scratchCleanup', false),
+    scratchCleanupEnabled: cfg.get<boolean>('scaffolding.scratchCleanup', true),
     planExternalizedEnabled: cfg.get<boolean>('plan.externalized', false),
     summarizerVerbatimUserChars: cfg.get<number>('compaction.verbatimUserChars', 0),
     durableInstructionsEnabled: cfg.get<boolean>('compaction.durableInstructions', true),
