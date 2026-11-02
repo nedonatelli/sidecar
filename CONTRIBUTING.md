@@ -144,6 +144,17 @@ reflect it?). Do the verification first — run [the test pyramid](#verification
 Tiers 0–2 (all green, zero infra errors) and Tier 1 packaging (`.vsix` builds and
 `verify:package` passes). Only then do the doc sync below.
 
+Then install the packaged build and start it the way a user does: **`npm run test:vsix -- --vsix <file>.vsix`**
+(or `-- --build` to package first). It installs the `.vsix` into a clean VS Code with its own
+extensions and user-data directories, opens a fresh `git archive` copy of this repo, and records an
+extension-host CPU profile from the first line of activation. It fails a run that misses a startup
+budget: indexing reaches `ready`, tree-sitter → symbol graph, the documentation index, the longest
+event-loop stall, and no module-load failures. It runs three times, because startup stalls are
+intermittent. The integration suite cannot catch these: it loads SideCar from the source tree,
+with the full `node_modules`, not the pruned package (#396). Attach `report.md` from
+`.vsix-smoke/<run>/` to the release eval. A failing run's `.cpuprofile` names the function that
+held the thread.
+
 After the doc sync, and immediately before tagging, run **`npm run verify:release`**.
 The bump script records test/tool/skill counts at the moment it runs; anything
 committed afterwards silently invalidates them. In 0.122.2 the recorded count was

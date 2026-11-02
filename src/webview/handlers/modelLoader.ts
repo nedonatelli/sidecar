@@ -14,6 +14,7 @@ export function formatContextLength(n: number): string {
 
 export async function loadModels(state: ChatState): Promise<void> {
   const config = getConfig();
+  const t0 = Date.now();
   try {
     const started = await isProviderReachable(state.client.getProviderType());
     if (!started) {
@@ -54,6 +55,7 @@ export async function loadModels(state: ChatState): Promise<void> {
     });
 
     state.postMessage({ command: 'setModels', models: modelsUI, isLocalOllama: state.client.isLocalOllama() });
+    logger.info(`[SideCar] Models listed: ${modelsUI.length} in ${Date.now() - t0}ms`);
 
     // Warn loudly when the persisted model isn't actually installed —
     // a stale HF-style name in sidecar.model would 404 every chat turn
