@@ -114,18 +114,27 @@ export function checkRun(parsed, budgets = DEFAULT_BUDGETS) {
 /**
  * Self time per function in a V8 `.cpuprofile`, highest first. A function's
  * self time is the sampling time spent in it and not in a callee: where the
- * thread actually was.
+ * thread actually was. A native frame is named after its nearest JavaScript
+ * caller too: onnxruntime's inference shows up as `Logger (native)` otherwise.
  */
 export function topSelfTime(profile, limit = 15) {
   const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  const parentOf = new Map();
+  for (const n of profile.nodes) for (const c of n.children ?? []) parentOf.set(c, n);
+  const frameName = ({ functionName, url, lineNumber }) =>
+    `${functionName || '(anonymous)'} ${shortUrl(url)}:${lineNumber + 1}`;
   const self = new Map();
   const samples = profile.samples ?? [];
   const deltas = profile.timeDeltas ?? [];
   for (let i = 0; i < samples.length; i++) {
     const node = byId.get(samples[i]);
     if (!node) continue;
-    const { functionName, url, lineNumber } = node.callFrame;
-    const key = `${functionName || '(anonymous)'} ${shortUrl(url)}:${lineNumber + 1}`;
+    let key = frameName(node.callFrame);
+    if (!node.callFrame.url && !/^\((idle|program|garbage collector)\)$/.test(node.callFrame.functionName)) {
+      let caller = parentOf.get(node.id);
+      while (caller && !caller.callFrame.url) caller = parentOf.get(caller.id);
+      if (caller) key += ` ← ${frameName(caller.callFrame)}`;
+    }
     // A sample's duration is the delta to the next one.
     const us = deltas[i + 1] ?? 0;
     self.set(key, (self.get(key) ?? 0) + us);

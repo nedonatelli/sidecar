@@ -100,6 +100,9 @@ eslint.config.mjs
 stryker.conf.json
 tsconfig.bench.json
 bench/**
+# SWE-bench scoring writes logs/run_evaluation/ into the checkout it runs from;
+# a checkout that had scored evals packed 47,890 log files (810 MB) (#396).
+logs/**
 .husky/**
 .github/**
 

@@ -45,6 +45,10 @@ function parseArgs(argv) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A terminal inside VS Code inherits ELECTRON_RUN_AS_NODE, which starts Code.exe
+// as plain Node, and VSCODE_IPC_HOOK and friends, which reach the parent window.
+const CLEAN_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(ELECTRON|VSCODE)_/.test(k)));
+
 function newestVsix() {
   const found = readdirSync(REPO)
     .filter((f) => f.endsWith('.vsix'))
@@ -59,7 +63,8 @@ function freshWorkspace(dir) {
   mkdirSync(dir, { recursive: true });
   const archive = spawnSync('git', ['-C', REPO, 'archive', '--format=tar', 'HEAD'], { maxBuffer: 1 << 30 });
   if (archive.status !== 0) throw new Error(`git archive failed: ${archive.stderr}`);
-  const untar = spawnSync('tar', ['-x', '-C', dir], { input: archive.stdout, maxBuffer: 1 << 30 });
+  // cwd, not `-C dir`: Git Bash's GNU tar reads `C:\...` as a remote `host:path`.
+  const untar = spawnSync('tar', ['-x'], { cwd: dir, input: archive.stdout, maxBuffer: 1 << 30 });
   if (untar.status !== 0) throw new Error(`tar failed: ${untar.stderr}`);
 }
 
@@ -165,6 +170,7 @@ async function runOnce(n, { vscodeExe, cli, vsix, outDir, timeoutS, port }) {
       {
         stdio: 'ignore',
         shell: process.platform === 'win32',
+        env: CLEAN_ENV,
       },
     );
 
@@ -183,9 +189,12 @@ async function runOnce(n, { vscodeExe, cli, vsix, outDir, timeoutS, port }) {
         '--skip-welcome',
         '--disable-workspace-trust',
       ],
-      { stdio: 'ignore', detached: process.platform !== 'win32' },
+      { stdio: 'ignore', detached: process.platform !== 'win32', env: CLEAN_ENV },
     );
-    const profiler = await attachProfiler(port, started + 60_000);
+    const profiler = await attachProfiler(port, started + 60_000).catch((err) => {
+      killTree(code.pid);
+      throw err;
+    });
 
     // Done when indexing reports ready and the documentation index has finished, or at the timeout.
     let log = '';

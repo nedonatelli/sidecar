@@ -76,6 +76,28 @@ describe('topSelfTime', () => {
     ]);
   });
 
+  it('names a native frame after its nearest JavaScript caller', () => {
+    const frame = (functionName, url, lineNumber) => ({ functionName, url, lineNumber, columnNumber: 0 });
+    const profile = {
+      nodes: [
+        { id: 1, callFrame: frame('(root)', '', -1), children: [2, 4] },
+        {
+          id: 2,
+          callFrame: frame('run', 'file:///x/extensions/sc/node_modules/ort/dist/backend.js', 114),
+          children: [3],
+        },
+        { id: 3, callFrame: frame('Logger', '', -1) },
+        { id: 4, callFrame: frame('(idle)', '', -1) },
+      ],
+      samples: [3, 4],
+      timeDeltas: [0, 1000, 1000],
+    };
+    expect(topSelfTime(profile).map((h) => h.fn)).toEqual([
+      'Logger (native):0 ← run node_modules/ort/dist/backend.js:115',
+      '(idle) (native):0',
+    ]);
+  });
+
   it('names the file, not where it was installed', () => {
     expect(shortUrl('file:///c:/Users/x/.vscode/extensions/nedonatelli.sidecar-ai-0.134.0/dist/extension.js')).toBe(
       'dist/extension.js',
