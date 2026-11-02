@@ -180,11 +180,20 @@ export interface GateState {
    * prompt). Empty string falls back to firstUserText for back-compat.
    */
   currentUserRequest?: string;
+  /**
+   * Where the no-read and no-file-write gates read file names from, when not
+   * `currentUserRequest` (AgentOptions.fileReferenceText, #391).
+   */
+  fileReferenceText?: string;
 }
 
-export function createGateState(currentUserRequest = '', flags: { pythonRedCheck?: boolean } = {}): GateState {
+export function createGateState(
+  currentUserRequest = '',
+  flags: { pythonRedCheck?: boolean; fileReferenceText?: string } = {},
+): GateState {
   return {
     currentUserRequest,
+    ...(flags.fileReferenceText !== undefined ? { fileReferenceText: flags.fileReferenceText } : {}),
     pythonRedCheck: flags.pythonRedCheck ?? false,
     testsRanSinceLastEdit: false,
     editedFiles: new Set(),

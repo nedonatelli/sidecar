@@ -108,4 +108,13 @@ describe('the gates on issue-report text (#317)', () => {
     const r = await buildNoFileWriteReprompt(msgs, new Set(), undefined, async () => false);
     expect(r).toContain('The request mentions `src/hello.ts`');
   });
+
+  it('no-file-write takes the file names from fileReferenceText when given (#391)', async () => {
+    const msgs = [
+      { role: 'user' as const, content: 'Create src/hello.ts. Scope tests like: pytest testing/test_skipping.py' },
+    ];
+    const r = await buildNoFileWriteReprompt(msgs, new Set(), undefined, async () => false, 'Create src/hello.ts.');
+    expect(r).toContain('`src/hello.ts`');
+    expect(r).not.toContain('test_skipping');
+  });
 });

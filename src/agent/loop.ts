@@ -375,6 +375,15 @@ export interface AgentOptions {
    */
   cwdOverride?: string;
   /**
+   * The text the loop reads the user's file references from: the files the
+   * no-read and no-file-write gates expect touched, and the write target the
+   * code-as-text reprompt names. Defaults to the user's request. A harness whose
+   * user message wraps its own instructions around the request passes the
+   * request alone, so a path in those instructions is not taken for one the
+   * user asked about (#391: the SWE prompt's example test file was).
+   */
+  fileReferenceText?: string;
+  /**
    * Human-in-the-Loop steer queue. When provided,
    * the loop drains queued steers into a single synthetic user turn
    * at each iteration boundary and aborts the in-flight stream when

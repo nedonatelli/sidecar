@@ -10,7 +10,7 @@ vi.mock('../../completionGate.js', () => ({
 }));
 
 import { noReadGate, unverifiedClaimGate, noFileWriteGate } from './repromptGates.js';
-import { buildNoReadReprompt, buildUnverifiedClaimReprompt } from '../../completionGate.js';
+import { buildNoReadReprompt, buildNoFileWriteReprompt, buildUnverifiedClaimReprompt } from '../../completionGate.js';
 import type { GateContext } from './types.js';
 import type { LoopState } from '../state.js';
 import type { getConfig } from '../../../config/settings.js';
@@ -71,5 +71,30 @@ describe('reprompt gate behavior (via noReadGate)', () => {
     expect(state.gateState.unverifiedClaimRepromptFired).toBe(true);
     // noFileWriteGate uses a distinct latch; default mock returns null → skip.
     expect(await noFileWriteGate.maybeInject(makeState(), ctx())).toBe('skip');
+  });
+});
+
+// #391: the SWE prompt wraps the issue in harness instructions whose example
+// test path the no-read gate named as if the user had asked about it.
+describe('file references (fileReferenceText)', () => {
+  it('no-read reads file names from fileReferenceText when set, else the request', async () => {
+    // Fresh states: an earlier test's mockReturnValue survives clearAllMocks,
+    // so a shared state would latch on the first call.
+    await noReadGate.maybeInject(makeState(), ctx());
+    expect(vi.mocked(buildNoReadReprompt).mock.calls[0][2]).toBe('do the thing');
+
+    const state = makeState();
+    state.gateState.fileReferenceText = 'the issue text';
+    await noReadGate.maybeInject(state, ctx());
+    expect(vi.mocked(buildNoReadReprompt).mock.calls[1][2]).toBe('the issue text');
+  });
+
+  it('no-file-write keeps the request for write intent and passes fileReferenceText for the names', async () => {
+    const state = makeState();
+    state.gateState.fileReferenceText = 'the issue text';
+    await noFileWriteGate.maybeInject(state, ctx());
+    const args = vi.mocked(buildNoFileWriteReprompt).mock.calls[0];
+    expect(args[2]).toBe('do the thing');
+    expect(args[4]).toBe('the issue text');
   });
 });

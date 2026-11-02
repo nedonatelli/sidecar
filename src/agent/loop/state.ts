@@ -80,6 +80,8 @@ export interface LoopState {
    * readers fall back to scanning.
    */
   userRequestText?: string;
+  /** `options.fileReferenceText`: where file references are read from, when not the request. */
+  readonly fileReferenceText?: string;
   /**
    * Config snapshot captured at loop entry from `options.config ?? getConfig()`.
    * Stored here so every submodule reads the same values for the duration of
@@ -438,6 +440,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     runId: crypto.randomUUID(),
     cwdOverride: options.cwdOverride,
     userRequestText: lastUserMessageText(copiedMessages),
+    fileReferenceText: options.fileReferenceText,
     config: options.config ?? getConfig(),
     maxIterations: options.maxIterations || DEFAULT_MAX_ITERATIONS,
     // 128K, matching LOCAL_CONTEXT_CAP and the default local model's native
@@ -504,6 +507,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(lastUserText(copiedMessages), {
       pythonRedCheck: (options.config ?? getConfig()).redCheckPythonRunnersEnabled,
+      fileReferenceText: options.fileReferenceText,
     }),
     currentEditPlan: null,
     checkpointFired: false,

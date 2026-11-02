@@ -91,15 +91,17 @@ describe('runner-specific test instructions (#213)', () => {
     expect(renderPathRunnerInstructions('make check', 'other', repo)).toBeNull();
   });
 
-  it('tells pytest to target a test file path, with a real example from the repo', () => {
+  it("tells pytest to target a test file path, with a placeholder under the repo's test directory", () => {
     const r = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-pytest-'));
     try {
       fs.mkdirSync(path.join(r, 'testing'));
       fs.writeFileSync(path.join(r, 'testing', 'test_skipping.py'), '');
       const text = renderPathRunnerInstructions(RUNNERS.pytest, 'pytest', r)!;
-      expect(text).toContain('pytest -rA testing/test_skipping.py');
+      expect(text).toContain('pytest -rA testing/test_<module>.py');
+      // Not a real file: a runnable, passing example became e4b's test target (#391).
+      expect(text).not.toContain('test_skipping');
       expect(text).toContain('::TestClass::test_name');
-      expect(text).toContain('`testing.test_skipping`'); // named as the WRONG form
+      expect(text).toContain('`testing.test_<module>`'); // named as the WRONG form
       expect(text).toMatch(/selects NO tests/);
       expect(text).not.toMatch(/use dots, not slashes/);
     } finally {

@@ -461,6 +461,19 @@ describe('maybeInjectActionReprompt', () => {
     expect(text).toContain('write_file(path="calculator.py"');
   });
 
+  // #391: the SWE prompt's test-scoping example came first in the user message,
+  // so the reprompt told the model to write_file the example test file.
+  it('names the write target from fileReferenceText when the harness sets it', () => {
+    const state = makeState('Scope test runs like: pytest -rA testing/test_skipping.py. Create calculator.py.');
+    (state as { fileReferenceText?: string }).fileReferenceText = 'Create calculator.py with add and subtract.';
+    const narrated =
+      "Here is the updated content:\n```python\ndef add(a, b):\n  return a + b\n```\nLet's save the file.";
+    expect(maybeInjectActionReprompt(state, narrated, stubCallbacks())).toBe(true);
+    const text = (state.messages[state.messages.length - 1].content as { text: string }[])[0].text;
+    expect(text).toContain('write_file(path="calculator.py"');
+    expect(text).not.toContain('test_skipping');
+  });
+
   // 2026-10-15 release eval, gemma4:31b: a correct edit_file, then a summary
   // showing the edited lines. "The code you printed was NOT saved" was false,
   // and talked the model into a redundant whole-file write_file.
