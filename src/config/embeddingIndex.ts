@@ -203,8 +203,27 @@ export class EmbeddingIndex implements Disposable {
     this.flushUpdates().catch((err) => logger.warn('[SideCar] Embedding index update failed:', err));
   }
 
+  /** True while a drain runs, including while it waits for the model to load. */
+  private flushing = false;
+
+  /**
+   * One drain at a time (#399). A timer that fires mid-drain returns here:
+   * the running drain re-arms itself while anything is queued. Without this,
+   * every debounce of a cold model load started another drain waiting on it,
+   * and they all resumed together with 4 embeds each.
+   */
   private async flushUpdates(): Promise<void> {
     this.updateTimer = null;
+    if (this.flushing) return;
+    this.flushing = true;
+    try {
+      await this.drainBatch();
+    } finally {
+      this.flushing = false;
+    }
+  }
+
+  private async drainBatch(): Promise<void> {
     if (this.pendingUpdates.size === 0) return;
     if (!(await this.embedder.ensureReady())) return;
 
@@ -239,6 +258,7 @@ export class EmbeddingIndex implements Disposable {
 
     if (this.pendingUpdates.size > 0) {
       const delay = this.pendingUpdates.size >= BATCH_SIZE ? 0 : UPDATE_DEBOUNCE_MS;
+      if (this.updateTimer) clearTimeout(this.updateTimer);
       this.updateTimer = setTimeout(() => this.runFlush(), delay);
     }
   }
