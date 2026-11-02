@@ -8,6 +8,7 @@ import {
 } from 'vscode';
 import type { ShellExecuteOptions, ShellResult } from './shellSession.js';
 import { stripAnsi } from './ansi.js';
+import { rewriteNulRedirects } from './nulRedirect.js';
 
 export interface AgentTerminalOptions {
   /** Display name of the reusable terminal. Default `"SideCar Agent"`. */
@@ -63,10 +64,11 @@ export interface AgentTerminalOptions {
  * Grouped rather than appended because `<cmd> < /dev/null` binds the redirect to
  * the LAST element of a pipeline and would break `echo x | cat`.
  */
-export function guardStdin(command: string, shellPath = env.shell): string {
+export function guardStdin(command: string, shellPath = env.shell, platform = process.platform): string {
   const shell = (shellPath || '').toLowerCase();
   const posix = /(^|\/)(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
-  if (posix) return `{ ${command}\n} < /dev/null`;
+  // Git Bash: a cmd-style `2>nul` would create an undeletable `nul` file (#395).
+  if (posix) return `{ ${platform === 'win32' ? rewriteNulRedirects(command) : command}\n} < /dev/null`;
   if (/cmd\.exe$/.test(shell)) return `(${command}) < NUL`;
   // fish, nushell, PowerShell, or anything unrecognized: leave alone. A command
   // that hangs is recoverable; a command that cannot parse is not.

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { ShellSession } from './shellSession.js';
+import { ShellSession, resolveWindowsShell } from './shellSession.js';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -544,3 +544,29 @@ describe.skipIf(os.platform() === 'win32')('ShellSession kills what the shell st
     expect(await gone(pid)).toBe(true);
   }, 30_000);
 });
+
+// Git Bash turns a cmd-style `2>nul` into a real file named `nul` that Explorer
+// and `git clean` cannot delete (#395).
+describe.skipIf(!isWindows || !/bash\.exe$/i.test(resolveWindowsShell()))(
+  'ShellSession in Git Bash: nul redirects',
+  () => {
+    let session: ShellSession;
+    let dir: string;
+
+    afterEach(() => {
+      session?.dispose();
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it.each(['ls no_such_file_xyz 2>nul', 'echo hi >nul', 'echo hi &> NUL'])(
+      '%s leaves no nul file behind',
+      async (cmd) => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-nul-'));
+        session = new ShellSession(dir);
+        await session.execute(cmd);
+        expect(fs.readdirSync(dir)).toEqual([]);
+      },
+      30_000,
+    );
+  },
+);

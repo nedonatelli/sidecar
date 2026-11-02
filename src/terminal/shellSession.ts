@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { MAX_BACKGROUND_COMMANDS } from '../config/constants.js';
 import { stripAnsi } from './ansi.js';
+import { rewriteNulRedirects } from './nulRedirect.js';
 import { ManagedChildProcess, getProcessRegistry } from '../agent/processLifecycle.js';
 import { isSeatbeltSupported, wrapWithSeatbelt } from './seatbelt.js';
 
@@ -350,6 +351,7 @@ export class ShellSession {
    * Returns the full result when the command completes.
    */
   async execute(command: string, options: ShellExecuteOptions = {}): Promise<ShellResult> {
+    command = this.forShell(command);
     // Serialize commands — one at a time through the shell
     if (this.busy) {
       await new Promise<void>((resolve) => this.commandQueue.push(resolve));
@@ -363,6 +365,11 @@ export class ShellSession {
       const next = this.commandQueue.shift();
       if (next) next();
     }
+  }
+
+  /** A cmd-style `2>nul` in Git Bash creates an undeletable `nul` file (#395). */
+  private forShell(command: string): string {
+    return this.isWindows && this.usesPosixShell ? rewriteNulRedirects(command) : command;
   }
 
   private async executeInternal(command: string, options: ShellExecuteOptions): Promise<ShellResult> {
@@ -679,6 +686,7 @@ export class ShellSession {
       }
     }
 
+    command = this.forShell(command);
     const id = randomBytes(4).toString('hex');
     let bgCmd = this.isWindows && !this.usesPosixShell ? process.env.COMSPEC || 'cmd.exe' : this.shellPath;
     let bgArgs = this.isWindows && !this.usesPosixShell ? ['/C', command] : ['-c', command];
