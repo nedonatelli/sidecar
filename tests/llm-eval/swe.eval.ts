@@ -54,6 +54,7 @@ import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
 import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree, warmLogLine } from '../../bench/swe/warmTree.js';
+import { removeCleanFailures } from '../../bench/swe/cleanFailures.js';
 import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
 import { unloadModelRequest, coldStartPerTask } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
@@ -310,13 +311,20 @@ function prepareRepo(task: SweTask): string {
   // files as the previous task's test process winds down -- `failed to remove
   // sympy/sets/handlers/__pycache__/: Directory not empty` cost sympy-21847
   // with 0 turns. The directory is removable a few seconds later.
+  // Paths git names as unremovable are deleted directly first: a `nul` file from
+  // a model's cmd-style `2>nul` is one git can never remove (#395).
   for (let i = 0; ; i++) {
     try {
       git(['clean', '-fdxq'], dir);
       break;
     } catch (err) {
       if (i >= 2) throw err;
-      console.warn(`[swe] git clean in ${dir} failed (attempt ${i + 1}/3): ${(err as Error).message.split('\n')[0]}`);
+      const message = (err as Error).message;
+      const removed = removeCleanFailures(dir, message);
+      console.warn(
+        `[swe] git clean in ${dir} failed (attempt ${i + 1}/3): ${message.split('\n')[0]}` +
+          (removed.length ? `; removed ${removed.join(', ')}` : ''),
+      );
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3_000 * (i + 1));
     }
   }

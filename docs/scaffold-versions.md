@@ -40,6 +40,23 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 6.0.1 — cmd-style `nul` redirects in Git Bash (2026-11)
+
+PATCH: input handling of an existing tool (run_command); no mechanism is added,
+removed or re-defaulted. Comparable with 6.0.0 except on Windows runs where a
+model writes a `nul` redirect.
+
+- **What changed:** models write cmd's `2>nul` out of habit. In Git Bash, which
+  run_command uses on Windows, `nul` is not the null device: bash creates a
+  real file named `nul`, which Explorer and `git clean` cannot delete. When the
+  shell is a POSIX shell on Windows, unquoted redirect targets of `nul`
+  (`>nul`, `2>nul`, `>>nul`, `&>nul`, `<nul`, any case) now go to `/dev/null`.
+  Quoted text, `null`, `nul.txt` and heredoc delimiters are unchanged. The SWE
+  harness also deletes any path `git clean` reports it could not remove before
+  retrying, so a leftover file can't stop later tasks (#395).
+- **Measured:** not A/B'd; behavior changes only when a model writes a `nul`
+  redirect. One of 57 runs did in the nemotron-3-super run that found it.
+
 ### 6.0.0 — scratch cleanup, on by default (2026-11)
 
 MAJOR: a mechanism is added to the default scaffold, as

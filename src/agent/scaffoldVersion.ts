@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **6.0.1** (2026-11) — run_command rewrites a cmd-style `nul` redirect
+ *   (`>nul`, `2>nul`, `&>nul`, `<nul`, any case) to `/dev/null` when the shell
+ *   is Git Bash on Windows, where it otherwise creates an undeletable `nul`
+ *   file (#395). Quoted text is left alone. PATCH: input handling of an
+ *   existing tool.
  * - **6.0.0** (2026-11) — scratch cleanup, `scaffolding.scratchCleanup`,
  *   default ON. At the end of a run that wasn't stopped, files the run
  *   created (untracked now, not at the start) that have a scratch name or are
@@ -294,7 +299,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '6.0.0';
+export const SCAFFOLD_VERSION = '6.0.1';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

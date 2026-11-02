@@ -27,6 +27,13 @@ describe('guardStdin', () => {
     expect(guardStdin('echo hi # note', '/bin/bash')).toBe('{ echo hi # note\n} < /dev/null');
   });
 
+  it('rewrites a cmd-style nul redirect for a POSIX shell on Windows only (#395)', () => {
+    const bash = 'C:/Program Files/Git/bin/bash.exe';
+    expect(guardStdin('ls x 2>nul', bash, 'win32')).toBe('{ ls x 2>/dev/null\n} < /dev/null');
+    expect(guardStdin('ls x 2>nul', '/bin/bash', 'linux')).toBe('{ ls x 2>nul\n} < /dev/null');
+    expect(guardStdin('dir 2>nul', 'C:\\Windows\\System32\\cmd.exe', 'win32')).toBe('(dir 2>nul) < NUL');
+  });
+
   it('uses cmd.exe syntax on cmd.exe', () => {
     expect(guardStdin('dir', 'C:\\Windows\\System32\\cmd.exe')).toBe('(dir) < NUL');
   });
