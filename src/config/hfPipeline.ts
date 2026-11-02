@@ -77,6 +77,7 @@ export async function loadWorkerPipeline(
     await worker.terminate();
     throw err;
   }
+  logger.info(`[SideCar] Embedding model ${modelId} running in a worker thread`);
 
   const pending = new Map<number, { resolve: (out: { data: Float32Array }) => void; reject: (err: Error) => void }>();
   let nextId = 0;
