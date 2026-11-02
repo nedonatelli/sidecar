@@ -491,7 +491,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
       );
       callbacks.onText('\n\n⚙️ Nothing was changed — checking whether the request is already met...\n');
       const request = userText.length > 300 ? `${userText.slice(0, 300)}…` : userText;
-      const target = extractTargetPath(userText);
+      const target = extractTargetPath(state.fileReferenceText ?? userText);
       state.messages.push({
         role: 'user',
         content: [
@@ -544,7 +544,8 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
 
   let text: string;
   if (codeAsText || fakeOutput) {
-    const target = extractTargetPath(userText);
+    // From the user's own words, not a harness's instructions around them (#391).
+    const target = extractTargetPath(state.fileReferenceText ?? userText);
     const pathArg = target ? `path="${target}"` : 'path=<the file the task names>';
     const fakeNote = fakeOutput
       ? ' The <tool_output>/<tool_response> block you wrote yourself is fiction — real tool results only arrive ' +

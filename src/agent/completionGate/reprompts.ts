@@ -459,6 +459,8 @@ export async function buildNoFileWriteReprompt(
   editedFiles: Set<string>,
   requestText?: string,
   fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
+  // Where the named files are read from, when not the request (#391).
+  fileReferenceText?: string,
 ): Promise<string | null> {
   const userText = requestText ?? firstUserText(messages);
   if (!userText) return null;
@@ -467,7 +469,7 @@ export async function buildNoFileWriteReprompt(
   // Quoted material (a traceback, a shell line, a code block) names files the
   // request never asked to create (#317), and foreign paths can't be workspace
   // files at all.
-  const mentioned = requestedFiles(userText).filter((f) => !isForeignPath(f));
+  const mentioned = requestedFiles(fileReferenceText ?? userText).filter((f) => !isForeignPath(f));
   if (!mentioned.length) return null;
 
   // Normalise mentioned paths: strip leading backticks/quotes, drop pure

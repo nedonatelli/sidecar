@@ -73,14 +73,17 @@ export function runnerFamily(testCmd: string): RunnerFamily {
   return 'other';
 }
 
-/** A real test file from the repo to show as the example, or a generic one. */
+/**
+ * The example test path: a placeholder under the repo's real test directory.
+ * It used to be a real test file, which the example command ran and passed, so
+ * e4b ran it instead of the test for the code it changed (20 of 150 canary runs
+ * never ran any other test), and the gates named it as a file the user asked
+ * about (#391).
+ */
 function exampleTestFile(repoDir: string, family: RunnerFamily): string {
-  const candidates =
-    family === 'sympy'
-      ? ['sympy/core/tests/test_basic.py']
-      : ['testing/test_skipping.py', 'tests/test_ext_autodoc.py', 'test_requests.py', 'tests/test_api.py'];
-  for (const c of candidates) if (fs.existsSync(path.join(repoDir, c))) return c;
-  return family === 'sympy' ? 'sympy/<area>/tests/test_<module>.py' : 'tests/test_<module>.py';
+  if (family === 'sympy') return 'sympy/<area>/tests/test_<module>.py';
+  const dir = ['testing', 'tests'].find((d) => fs.existsSync(path.join(repoDir, d)));
+  return dir ? `${dir}/test_<module>.py` : 'test_<module>.py';
 }
 
 /**

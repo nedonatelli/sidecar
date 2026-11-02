@@ -468,7 +468,9 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       stopReason = 'tool_use';
       fullText = stripRepeatedContent(cleanedText, state.messages);
     } else if (state.config.codeAsTextRecoveryEnabled === true) {
-      const printed = printedCodeTarget(rawText, state.userRequestText ?? lastUserMessageText(state.messages));
+      // Both take only the file references from the text (#391).
+      const refText = state.fileReferenceText ?? state.userRequestText ?? lastUserMessageText(state.messages);
+      const printed = printedCodeTarget(rawText, refText);
       const base = {
         fullText,
         pendingToolUses,
@@ -509,7 +511,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       }
       const synth =
         isMutationRequest(userText) && !looksLikeDeclinedAction(fullText) && !alreadyDone
-          ? synthesizeFenceWrite(rawText, userText, new Set(iterationTools.map((t) => t.name)))
+          ? synthesizeFenceWrite(rawText, refText, new Set(iterationTools.map((t) => t.name)))
           : null;
       // Dispatched (or not) by the loop: see fenceWrite.ts.
       return synth ? { ...base, fenceWrite: synth.input } : base;

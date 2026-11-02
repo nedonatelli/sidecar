@@ -63,10 +63,14 @@ function repromptGate(spec: RepromptSpec): CompletionGate {
 export const noReadGate = repromptGate({
   name: 'no-read',
   firedFlag: 'noReadRepromptFired',
-  // Only for a file that exists in the run's workspace (#317).
+  // Only for a file that exists in the run's workspace (#317), and named by the
+  // user, not by a harness's own instructions (#391).
   build: (s) =>
-    buildNoReadReprompt(s.messages, s.gateState.editedFiles, s.gateState.currentUserRequest, (f) =>
-      existsInWorkspace(runRoot(s), f),
+    buildNoReadReprompt(
+      s.messages,
+      s.gateState.editedFiles,
+      s.gateState.fileReferenceText ?? s.gateState.currentUserRequest,
+      (f) => existsInWorkspace(runRoot(s), f),
     ),
   onText: '\n\n📂 Reading file before answering...\n',
   logMsg: 'No-read gate fired — file mentioned but no read tool called for it',
@@ -110,8 +114,12 @@ export const noFileWriteGate = repromptGate({
   // Existence against the run's root, not the VS Code workspace folder: in a
   // shadow or SWE run those differ (#317).
   build: (s) =>
-    buildNoFileWriteReprompt(s.messages, s.gateState.editedFiles, s.gateState.currentUserRequest, async (rel) =>
-      existsInWorkspace(runRoot(s), rel),
+    buildNoFileWriteReprompt(
+      s.messages,
+      s.gateState.editedFiles,
+      s.gateState.currentUserRequest,
+      async (rel) => existsInWorkspace(runRoot(s), rel),
+      s.gateState.fileReferenceText,
     ),
   onText: '\n\n📝 Checking named files were written...\n',
   logMsg: 'No-file-write gate fired — named file(s) not written',

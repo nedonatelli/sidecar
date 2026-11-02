@@ -761,6 +761,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // and the agent looped until cycle detection bailed. cwdOverride pins
       // every fs tool to the cloned repo (the Shadow Workspace mechanism).
       cwdOverride: dir,
+      // File references come from the issue, not the harness instructions
+      // around it: the no-read gate named the test-scoping example and the
+      // code-as-text reprompt targeted it (#391).
+      fileReferenceText: task.problem_statement,
       confirmFn: async () => 'Allow',
       config: armConfig,
       // The product's catalog minus the tools the benchmark must not offer --
