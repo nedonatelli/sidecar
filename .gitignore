@@ -3,6 +3,8 @@ out/
 dist/
 *.vsix
 sidecar-ai-*.vsix
+# Installed-VSIX smoke test evidence (npm run test:vsix, #396)
+.vsix-smoke/
 .vscode-test/
 .vscode/settings.json
 .DS_Store

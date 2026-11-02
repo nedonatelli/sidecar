@@ -3604,6 +3604,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:mutation": "stryker run",
+    "test:vsix": "node scripts/vsix-smoke.mjs",
     "test:integration": "node scripts/integration-clean.mjs pre && npm run compile && npm run bundle && tsc -p src/test/integration/tsconfig.json && node scripts/integration-clean.mjs post && vscode-test",
     "eval:llm": "vitest run --config vitest.eval.config.ts",
     "eval:smoke": "cross-env SIDECAR_EVAL_TAGS=smoke vitest run --config vitest.eval.config.ts tests/llm-eval/agent.eval.ts",

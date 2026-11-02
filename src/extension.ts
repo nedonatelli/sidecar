@@ -1,5 +1,6 @@
 import { commands, ExtensionContext, workspace } from 'vscode';
 import { logger } from './system/logger.js';
+import { watchEventLoopStalls } from './system/eventLoopStalls.js';
 import * as path from 'path';
 import { ChatViewProvider } from './webview/chatView.js';
 import { registerAutoModeCommands } from './commands/autoModeCommands.js';
@@ -45,6 +46,9 @@ let chatProvider: ChatViewProvider | undefined;
 
 export function activate(context: ExtensionContext) {
   logger.info('SideCar extension activating...');
+  // Startup work shares one thread; a stall here otherwise shows only as a gap in the log (#396).
+  const activationStalls = watchEventLoopStalls('activation');
+  context.subscriptions.push({ dispose: () => activationStalls.stop('deactivated') });
 
   // Set grammars path for tree-sitter (lazy-loaded on first parse)
   const grammarsPath = path.join(context.extensionPath, 'grammars');
@@ -100,9 +104,11 @@ export function activate(context: ExtensionContext) {
   });
   chatProvider = cp;
 
-  initWorkspaceIndex(context, workspaceIndex, symbolIndexer, sidecarDir, config, pkiProvider, (phase, detail) =>
-    chatProvider?.setIndexingStatus(phase, detail),
-  );
+  initWorkspaceIndex(context, workspaceIndex, symbolIndexer, sidecarDir, config, pkiProvider, (phase, detail) => {
+    logger.info(`[SideCar] Indexing status: ${phase}${detail ? ` (${detail})` : ''}`);
+    if (phase === 'ready') activationStalls.stop('indexing ready');
+    chatProvider?.setIndexingStatus(phase, detail);
+  });
 
   registerSettingsCommands(context, {
     getChatProvider: () => chatProvider,
