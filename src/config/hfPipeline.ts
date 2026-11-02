@@ -1,46 +1,113 @@
+import { existsSync } from 'node:fs';
+import * as path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { logger } from '../system/logger.js';
+import {
+  loadInThreadPipeline,
+  MINILM_DIMENSION,
+  MINILM_MODEL_ID,
+  type EmbeddingPipeline,
+  type EmbeddingPipelineEnvOpts,
+  type EmbedRequest,
+  type EmbedResponse,
+  type WorkerInit,
+  type WorkerStatus,
+} from './embeddingModel.js';
 
-/**
- * MiniLM-L6-v2 (384-dim) used for all SideCar feature-extraction tasks.
- * Single source of truth for the model ID so cache-key validation in
- * every embedding store stays in sync.
- */
-export const MINILM_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+export { MINILM_MODEL_ID, MINILM_DIMENSION };
+export type { EmbeddingPipeline, EmbeddingPipelineEnvOpts };
 
-/** Default embedding width for MiniLM-L6-v2. */
-export const MINILM_DIMENSION = 384;
-
-/**
- * Typed calling convention for a loaded feature-extraction pipeline.
- * @huggingface/transformers' `pipeline()` factory returns the base
- * `Pipeline` class — this type + the cast in `loadEmbeddingPipeline`
- * below are the single place we bridge to the concrete signature.
- */
-export type EmbeddingPipeline = (
-  texts: string[],
-  opts?: { pooling?: string; normalize?: boolean },
-) => Promise<{ data: Float32Array }>;
-
-export interface EmbeddingPipelineEnvOpts {
-  cacheDir?: string;
-  allowLocalModels?: boolean;
-  allowRemoteModels?: boolean;
+/** The bundled worker sits next to dist/extension.js; running from source there is none. */
+function workerScript(): string | null {
+  if (typeof __dirname !== 'string') return null;
+  const file = path.join(__dirname, 'embeddingWorker.js');
+  return existsSync(file) ? file : null;
 }
 
 /**
- * Load the feature-extraction pipeline with q8 quantization.
- * The caller supplies per-site env options; all env mutation and the
- * `as unknown as EmbeddingPipeline` cast live here and nowhere else.
+ * Load the feature-extraction pipeline (MiniLM, q8). In the packaged
+ * extension it runs in a worker thread (#399): onnxruntime-node runs each
+ * inference synchronously on its calling thread, and the extension host's
+ * thread is shared by every extension in the window. Without the bundled
+ * worker (running from source) it loads on the calling thread.
  */
 export async function loadEmbeddingPipeline(
   modelId: string,
   envOpts: EmbeddingPipelineEnvOpts = {},
 ): Promise<EmbeddingPipeline> {
-  const { pipeline: createPipeline, env } = await import('@huggingface/transformers');
-  if (envOpts.cacheDir !== undefined) env.cacheDir = envOpts.cacheDir;
-  if (envOpts.allowLocalModels !== undefined) env.allowLocalModels = envOpts.allowLocalModels;
-  if (envOpts.allowRemoteModels !== undefined) env.allowRemoteModels = envOpts.allowRemoteModels;
-  return (await createPipeline('feature-extraction', modelId, { dtype: 'q8' })) as unknown as EmbeddingPipeline;
+  const script = workerScript();
+  return script ? loadWorkerPipeline(script, modelId, envOpts) : loadInThreadPipeline(modelId, envOpts);
+}
+
+/** Exported for tests, which pass a stub worker script and a stub `inThread`. */
+export async function loadWorkerPipeline(
+  script: string,
+  modelId: string,
+  envOpts: EmbeddingPipelineEnvOpts,
+  inThread: typeof loadInThreadPipeline = loadInThreadPipeline,
+): Promise<EmbeddingPipeline> {
+  const worker = new Worker(script, { workerData: { modelId, envOpts } satisfies WorkerInit });
+  // An idle worker must not hold the extension host open on shutdown.
+  worker.unref();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onMessage = (msg: WorkerStatus) => {
+        cleanup();
+        if (msg.type === 'ready') resolve();
+        else reject(new Error(msg.message));
+      };
+      const onError = (err: Error) => {
+        cleanup();
+        reject(err);
+      };
+      const onExit = (code: number) => {
+        cleanup();
+        reject(new Error(`embedding worker exited (code ${code}) before the model loaded`));
+      };
+      const cleanup = () => {
+        worker.off('message', onMessage);
+        worker.off('error', onError);
+        worker.off('exit', onExit);
+      };
+      worker.on('message', onMessage);
+      worker.on('error', onError);
+      worker.on('exit', onExit);
+    });
+  } catch (err) {
+    await worker.terminate();
+    throw err;
+  }
+
+  const pending = new Map<number, { resolve: (out: { data: Float32Array }) => void; reject: (err: Error) => void }>();
+  let nextId = 0;
+  // A worker that dies mid-session falls back to this thread rather than
+  // leaving every later embed to fail: slower for the host, but not silent.
+  let fallback: Promise<EmbeddingPipeline> | null = null;
+  const stopped = (reason: string) => {
+    if (fallback) return;
+    logger.warn(`[SideCar] Embedding worker stopped (${reason}); embedding on the extension host thread from now on`);
+    fallback = inThread(modelId, envOpts);
+    for (const p of pending.values()) p.reject(new Error(`embedding worker stopped: ${reason}`));
+    pending.clear();
+  };
+  worker.on('message', (msg: EmbedResponse) => {
+    const p = pending.get(msg.id);
+    if (!p) return;
+    pending.delete(msg.id);
+    if ('error' in msg) p.reject(new Error(msg.error));
+    else p.resolve({ data: msg.data });
+  });
+  worker.on('error', (err) => stopped(err.message));
+  worker.on('exit', (code) => stopped(`exit code ${code}`));
+
+  return async (texts, opts) => {
+    if (fallback) return (await fallback)(texts, opts);
+    return new Promise((resolve, reject) => {
+      const id = nextId++;
+      pending.set(id, { resolve, reject });
+      worker.postMessage({ id, texts, opts } satisfies EmbedRequest);
+    });
+  };
 }
 
 /**
