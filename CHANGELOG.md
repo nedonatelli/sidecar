@@ -4,6 +4,14 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Closing VS Code stops every agent shell**
+  ([#245](https://github.com/nedonatelli/sidecar/issues/245)). Deactivating the extension used to
+  stop only the main chat's shell. A background agent's or shadow run's shell, and anything it
+  started, could keep running after the window closed. Deactivation now stops all of them, along
+  with their child processes.
+
 ## [0.135.0] - 2026-11-03
 
 SideCar no longer freezes VS Code's extension host on a cold start. It used to block it for

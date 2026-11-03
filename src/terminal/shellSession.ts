@@ -183,6 +183,17 @@ function trackLive(session: ShellSession): void {
   });
 }
 
+/**
+ * Dispose every session that still has a shell or background command. The
+ * extension's deactivate path disposes the default runtime's session itself,
+ * but a background agent or shadow run owns its own and disposes it in a
+ * `finally` that runs only once the aborted run unwinds -- after deactivate has
+ * returned, and not at all if the extension host is gone by then (#245).
+ */
+export function disposeAllShellSessions(): void {
+  for (const s of [...liveSessions]) s.dispose();
+}
+
 export class ShellSession {
   private proc: ChildProcess | null = null;
   private cwd: string;
