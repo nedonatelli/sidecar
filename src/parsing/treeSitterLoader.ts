@@ -71,9 +71,17 @@ export async function initTreeSitter(wasmDir: string): Promise<Awaited<TreeSitte
  * Other grammars import only `__assert_fail` / `abort`, reached only when a
  * scanner's own assertion fails; a parse that throws disables its language
  * (see TreeSitterCodeAnalyzer.parseFileContent).
+ *
+ * dart (#400): tree-sitter-wasms 0.1.13, the first release with a Dart grammar,
+ * builds it at language ABI 15, and web-tree-sitter 0.24 reads 13-14. Every
+ * activation attempted the load and logged it as a failed grammar. Dart files
+ * fall back to the regex analyzer, as they always effectively did.
+ * web-tree-sitter 0.25 loads it; bash still throws there, the same 10 of 400
+ * real scripts as on 0.24.
  */
 export const DISABLED_GRAMMARS: ReadonlyMap<string, string> = new Map([
   ['bash', "its scanner imports isalpha, which web-tree-sitter's runtime does not export"],
+  ['dart', 'it is built for tree-sitter language ABI 15, and web-tree-sitter 0.24 reads 13 through 14'],
 ]);
 
 /**
