@@ -53,8 +53,9 @@ the existing ones changes. Comparable with 6.0.1, noting the patch.
   six published packages), and bash is still disabled (its scanner throws on
   0.25 too) (#400).
 - **Measured:** not A/B'd. The parsing, syntax-check and symbol-indexer suites
-  pass unchanged on 0.25; installed-VSIX smoke and the integration suite ran
-  on the packaged build.
+  pass unchanged on 0.25, and so does the integration suite (from source).
+  Three installed-VSIX smoke runs load 18 grammars (Dart included) and build
+  the same 7,824-symbol graph each time, with no event-loop stalls.
 
 ### 6.0.1 — cmd-style `nul` redirects in Git Bash (2026-11)
 
