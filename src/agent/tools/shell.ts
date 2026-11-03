@@ -513,7 +513,8 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
       // that CAN run here, or say plainly that none exists. And say that the
       // answer is final: told only "no runner", models built one -- ad-hoc
       // test files, `npm init -y && npm install jest` -- and spent most of a
-      // run editing them (#170).
+      // run editing them (#170). The ban is on building the runner, not on
+      // tests: a test file written alongside the change is a good habit (#279).
       const tsFiles = await workspace.findFiles('**/*.{ts,tsx}', '**/node_modules/**', 1);
       if (tsFiles.length > 0) {
         // Recommend the compiler only where it is installed. In a workspace
@@ -529,8 +530,9 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
           'Could not detect test runner: no test script, config, or test files exist in this workspace. ' +
           `${check} ` +
           'Do not guess at npm test or pytest here; neither is configured. ' +
-          'There are no tests to run here. Do not write test files, add a test script or install a test framework ' +
-          'to create some: once that check passes, the change is done, untested beyond it -- say so.'
+          'There are no tests to run here. Do not add a test script, test-framework config or install a test ' +
+          'framework to create a runner; a test file alongside the change is fine, but nothing here can run it. ' +
+          'Once that check passes, the change is done, untested beyond it -- say so.'
         );
       }
       const pyFiles = await workspace.findFiles('**/*.py', '**/node_modules/**', 1);
@@ -539,14 +541,15 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
           'Could not detect test runner: no test files or config exist in this workspace. ' +
           'For these Python sources the available check is the interpreter — run_command with `python3 -m py_compile <file>` ' +
           'or run the script directly. Do not guess at npm test here. ' +
-          'There are no tests to run here. Do not write test files, add a test script or install a test framework ' +
-          'to create some: once that check passes, the change is done, untested beyond it -- say so.'
+          'There are no tests to run here. Do not add a test script, test-framework config or install a test ' +
+          'framework to create a runner; a test file alongside the change is fine if the interpreter can run it ' +
+          'directly. Once that check passes, the change is done -- say what it was verified with.'
         );
       }
       return (
         'Could not detect test runner, and this workspace has no test files or config. ' +
         'If tests exist elsewhere, specify the command explicitly; otherwise state that no automated check is available. ' +
-        'Do not write test files or install a test framework to create one.'
+        'Do not add a test script or install a test framework to create one.'
       );
     }
   }

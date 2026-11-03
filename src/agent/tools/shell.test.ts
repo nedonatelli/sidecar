@@ -303,7 +303,8 @@ describe('shell tool runtime resolution', () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
       const out = await runTests({});
       expect(out).toContain('Could not detect test runner');
-      expect(out).toContain('Do not write test files or install a test framework');
+      expect(out).toContain('Do not add a test script or install a test framework');
+      expect(out).not.toMatch(/Do not write test files/);
     });
 
     // Told only "no runner", models built one: ad-hoc test files, `npm init -y
@@ -318,7 +319,10 @@ describe('shell tool runtime resolution', () => {
       const out = await runTests({});
       expect(out).toContain('npx tsc --noEmit');
       expect(out).toContain('There are no tests to run here');
-      expect(out).toMatch(/once that check passes, the change is done/);
+      expect(out).toMatch(/Once that check passes, the change is done/);
+      // Building a runner is what's ruled out; a test file is not (#279).
+      expect(out).toContain('a test file alongside the change is fine');
+      expect(out).not.toMatch(/Do not write test files/);
     });
   });
 
