@@ -19,6 +19,7 @@ import { dispose as disposeDiagnostics } from './agent/sidecarDiagnostics.js';
 import { setGrammarsPath } from './parsing/registry.js';
 import { configureDuckDbEngine } from './db/duckdbEngine.js';
 import { disposeShellSession, disposeAgentTerminalExecutor } from './agent/tools.js';
+import { disposeAllShellSessions } from './terminal/shellSession.js';
 import { initBaseServices } from './activation/baseSetup.js';
 import { initWorkspaceIndex } from './activation/workspaceIndexer.js';
 import { initCoreServices } from './activation/servicesInit.js';
@@ -197,5 +198,8 @@ export function deactivate() {
   chatProvider?.autoSave();
   chatProvider?.abort();
   disposeShellSession();
+  // Background-agent and shadow-run shells too: their own dispose waits for the
+  // aborted run to unwind, which the host may not live to see (#245).
+  disposeAllShellSessions();
   disposeAgentTerminalExecutor();
 }
