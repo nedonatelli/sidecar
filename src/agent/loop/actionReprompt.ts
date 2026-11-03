@@ -27,6 +27,7 @@ import { hasEditShapedCodeBlock } from './unappliedEdit.js';
 
 import { MAX_ACTION_REPROMPTS } from '../../config/constants.js';
 import { isLibraryName } from '../fileRefs.js';
+import { injectNudge } from './nudge.js';
 
 /**
  * Verbs that MUTATE the workspace. Strictly separate from the read-only verbs
@@ -492,9 +493,10 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
       callbacks.onText('\n\n⚙️ Nothing was changed — checking whether the request is already met...\n');
       const request = userText.length > 300 ? `${userText.slice(0, 300)}…` : userText;
       const target = extractTargetPath(state.fileReferenceText ?? userText);
-      state.messages.push({
-        role: 'user',
-        content: [
+      injectNudge(
+        state,
+        'action-already-done',
+        [
           {
             type: 'text' as const,
             text:
@@ -504,7 +506,8 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
               'lines that satisfy each part of the request, and finish without editing.',
           },
         ],
-      });
+        target ? [target] : undefined,
+      );
       return true;
     }
     state.logger?.info('Action-request reprompt suppressed: the printed code is already in the file');
@@ -564,6 +567,8 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
       'Call the appropriate tools now (read_file, edit_file, run_command, etc.) ' +
       'rather than explaining what you would do.';
   }
-  state.messages.push({ role: 'user', content: [{ type: 'text' as const, text }] });
+  injectNudge(state, codeAsText || fakeOutput ? 'code-not-applied' : 'no-tools-called', [
+    { type: 'text' as const, text },
+  ]);
   return true;
 }

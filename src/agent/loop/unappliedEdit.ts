@@ -1,6 +1,7 @@
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
+import { injectNudge } from './nudge.js';
 
 // ---------------------------------------------------------------------------
 // Unapplied-edit nudge — post-turn policy (mirror of isolateRewrite).
@@ -112,18 +113,15 @@ export function applyUnappliedEditNudge(
 
   state.unappliedEditNudged = true;
   callbacks.onText('\n💡 You wrote code but never applied it — use edit_file/write_file to change the file.\n');
-  state.messages.push({
-    role: 'user',
-    content: [
-      {
-        type: 'text' as const,
-        text:
-          'You wrote code in a ``` block but did not call edit_file or write_file, so the file on disk is ' +
-          'UNCHANGED — describing a change never modifies a file. That is why re-running produced the same result. ' +
-          'Apply your change now with a tool call: use edit_file to replace the specific broken lines (preferred), ' +
-          'or write_file to replace the whole file. Then re-run to verify.',
-      },
-    ],
-  });
+  injectNudge(state, 'unapplied-edit', [
+    {
+      type: 'text' as const,
+      text:
+        'You wrote code in a ``` block but did not call edit_file or write_file, so the file on disk is ' +
+        'UNCHANGED — describing a change never modifies a file. That is why re-running produced the same result. ' +
+        'Apply your change now with a tool call: use edit_file to replace the specific broken lines (preferred), ' +
+        'or write_file to replace the whole file. Then re-run to verify.',
+    },
+  ]);
   return true;
 }

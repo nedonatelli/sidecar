@@ -68,6 +68,7 @@ import type { PendingEditStore } from './pendingEdits.js';
 import type { EditTimelineStore } from './editTimeline.js';
 import { resolveModelCapability } from '../ollama/modelCapability.js';
 import { resolveScaffoldingProfile } from './scaffoldingProfile.js';
+import { injectNudge, recordNudge, type NudgeTarget } from './loop/nudge.js';
 
 /** Returns a signal that fires when either `a` or `b` fires. */
 function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
@@ -119,19 +120,20 @@ export function toolCallParseErrorDetail(err: unknown): string | null {
 }
 
 /** Tell the model its last tool call was not run, and why, before re-asking. */
-function pushToolCallParseNudge(messages: ChatMessage[], detail: string): void {
+function pushToolCallParseNudge(state: NudgeTarget, detail: string): void {
   const text =
     `[Tool call not parsed] Your last tool call could not be parsed as JSON (${detail}), so it was NOT run. ` +
     'Send it again with valid JSON arguments. Inside a JSON string a backslash must be written as \\\\; the only ' +
     'valid escapes are \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t and \\uXXXX.';
-  const last = messages[messages.length - 1];
+  const last = state.messages[state.messages.length - 1];
   // Two user messages in a row are rejected by some chat templates: append to
   // the last user message instead of adding another.
   if (last && last.role === 'user') {
     const blocks = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
     last.content = [...blocks, { type: 'text' as const, text }];
+    recordNudge(state, 'tool-call-parse', text);
   } else {
-    messages.push({ role: 'user', content: [{ type: 'text' as const, text }] });
+    injectNudge(state, 'tool-call-parse', [{ type: 'text' as const, text }]);
   }
 }
 
@@ -663,7 +665,7 @@ export async function runAgentLoop(
                 `\n\n⚠️ The model wrote a tool call that could not be parsed — asking it to send it again ` +
                   `(${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}); any partial response above is discarded...\n`,
               );
-              pushToolCallParseNudge(state.messages, parseDetail);
+              pushToolCallParseNudge(state, parseDetail);
               continue;
             }
             if (
@@ -801,15 +803,12 @@ export async function runAgentLoop(
           if (state.degenerateTurns <= 1) {
             state.logger?.warn('Degenerate model output discarded — retrying');
             callbacks.onText('\n\n⚠️ Discarded corrupted model output — retrying.\n');
-            state.messages.push({
-              role: 'user',
-              content: [
-                {
-                  type: 'text' as const,
-                  text: 'Your previous output was corrupted (repeated or invalid tokens) and has been discarded. Continue the task from the previous step.',
-                },
-              ],
-            });
+            injectNudge(state, 'degenerate-output', [
+              {
+                type: 'text' as const,
+                text: 'Your previous output was corrupted (repeated or invalid tokens) and has been discarded. Continue the task from the previous step.',
+              },
+            ]);
             continue;
           }
           state.logger?.warn('Degenerate model output recurred — terminating run');
@@ -832,18 +831,15 @@ export async function runAgentLoop(
           if (fullText.trim()) pushAssistantMessage(state, fullText, []);
           state.logger?.warn('Turn hit the output limit — asking the model to continue');
           callbacks.onText('\n\n⚙️ Response reached the output limit — asking the model to continue...\n');
-          state.messages.push({
-            role: 'user',
-            content: [
-              {
-                type: 'text' as const,
-                text:
-                  '[Output limit] Your previous response was cut off at the output-token limit before it finished. ' +
-                  'Continue from exactly where it stopped, without repeating what you already wrote. Keep your ' +
-                  'reasoning short and act; if you were writing a large file, write it in smaller parts.',
-              },
-            ],
-          });
+          injectNudge(state, 'output-limit', [
+            {
+              type: 'text' as const,
+              text:
+                '[Output limit] Your previous response was cut off at the output-token limit before it finished. ' +
+                'Continue from exactly where it stopped, without repeating what you already wrote. Keep your ' +
+                'reasoning short and act; if you were writing a large file, write it in smaller parts.',
+            },
+          ]);
           continue;
         }
 
@@ -859,17 +855,14 @@ export async function runAgentLoop(
           state.emptyTurnReprompts += 1;
           state.logger?.info('Empty turn (no text, no tool calls) — injecting continue reprompt');
           callbacks.onText('\n\n⚙️ Empty model turn — re-prompting to continue...\n');
-          state.messages.push({
-            role: 'user',
-            content: [
-              {
-                type: 'text' as const,
-                text:
-                  '[Empty response] Your last turn contained no answer and no tool call. Continue the task: ' +
-                  'take the next action with a tool call, or state your final answer as plain text.',
-              },
-            ],
-          });
+          injectNudge(state, 'empty-response', [
+            {
+              type: 'text' as const,
+              text:
+                '[Empty response] Your last turn contained no answer and no tool call. Continue the task: ' +
+                'take the next action with a tool call, or state your final answer as plain text.',
+            },
+          ]);
           continue;
         }
 
@@ -997,7 +990,7 @@ export async function runAgentLoop(
         const nudge = state.pendingCycleNudge;
         state.pendingCycleNudge = undefined;
         callbacks.onText('\n\n🔁 Same lookup repeated with the same result — asking the agent to act on it...\n');
-        state.messages.push({ role: 'user', content: nudge });
+        injectNudge(state, 'cycle-nudge', nudge);
         continue;
       }
 

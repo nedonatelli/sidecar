@@ -1,6 +1,7 @@
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
+import { injectNudge } from './nudge.js';
 
 // ---------------------------------------------------------------------------
 // Isolate-don't-regenerate nudge — post-turn policy.
@@ -104,9 +105,10 @@ export function applyIsolateRewriteNudge(
 
   callbacks.onText(`\n💡 Switch to targeted edits: ${overwritten.map((f) => f.split('/').pop()).join(', ')}\n`);
   const fileList = overwritten.join(', ');
-  state.messages.push({
-    role: 'user',
-    content: [
+  injectNudge(
+    state,
+    'isolate-rewrite',
+    [
       {
         type: 'text' as const,
         text:
@@ -117,6 +119,7 @@ export function applyIsolateRewriteNudge(
           `and edit just the code that assertion points to.`,
       },
     ],
-  });
+    overwritten,
+  );
   return true;
 }

@@ -1,6 +1,7 @@
 import type { AgentCallbacks } from '../loop.js';
 import { buildStubReprompt } from '../stubValidator.js';
 import type { LoopState } from './state.js';
+import { injectNudge } from './nudge.js';
 
 // ---------------------------------------------------------------------------
 // Stub validator reprompt — post-turn policy.
@@ -51,9 +52,6 @@ export function applyStubCheck(
     `Stub validator: found placeholders, reprompting (attempt ${state.stubFixRetries}/${MAX_STUB_RETRIES})`,
   );
   callbacks.onText('\n⚠️ Incomplete code detected — requesting full implementation...\n');
-  state.messages.push({
-    role: 'user',
-    content: [{ type: 'text' as const, text: reprompt }],
-  });
+  injectNudge(state, 'stub-check', [{ type: 'text' as const, text: reprompt }]);
   return true;
 }
