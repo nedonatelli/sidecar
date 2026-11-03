@@ -5,10 +5,11 @@
 
 import * as path from 'path';
 
-// web-tree-sitter types
+// web-tree-sitter types. 0.25 exports { Parser, Language, ... } by name; 0.24
+// exported Parser as the default, with Language hanging off it.
 type TreeSitterModule = typeof import('web-tree-sitter');
-type Parser = InstanceType<Awaited<TreeSitterModule>>;
-type Language = Awaited<ReturnType<Awaited<TreeSitterModule>['Language']['load']>>;
+type Parser = import('web-tree-sitter').Parser;
+type Language = import('web-tree-sitter').Language;
 
 export type { Parser, Language };
 
@@ -24,7 +25,7 @@ export type { Parser, Language };
  * and every grammar failed in both.
  */
 interface SharedTreeSitterState {
-  init: Promise<Awaited<TreeSitterModule>> | null;
+  init: Promise<TreeSitterModule> | null;
   languages: Map<string, Promise<Language>>;
   /** Tail of the queue every `Language.load` runs through, one at a time. */
   loadChain: Promise<unknown>;
@@ -41,11 +42,11 @@ function shared(): SharedTreeSitterState {
  * Initialize the web-tree-sitter WASM runtime. Called once per process;
  * subsequent calls return the cached module.
  */
-export async function initTreeSitter(wasmDir: string): Promise<Awaited<TreeSitterModule>> {
+export async function initTreeSitter(wasmDir: string): Promise<TreeSitterModule> {
   const state = shared();
   state.init ??= (async () => {
-    const TreeSitter = (await import('web-tree-sitter')).default;
-    await TreeSitter.init({
+    const TreeSitter = await import('web-tree-sitter');
+    await TreeSitter.Parser.init({
       locateFile: () => path.join(wasmDir, 'tree-sitter.wasm'),
     });
     return TreeSitter;
@@ -61,7 +62,8 @@ export async function initTreeSitter(wasmDir: string): Promise<Awaited<TreeSitte
  *
  * A grammar's external scanner is C compiled to WASM, and the functions it
  * imports must be exported by web-tree-sitter's runtime. bash's scanner calls
- * `isalpha`, which web-tree-sitter 0.24 does not export: scanning ordinary
+ * `isalpha`, which web-tree-sitter 0.24 and 0.25 do not export (0.25 throws on
+ * the same 10 of 400 real scripts as 0.24): scanning ordinary
  * shell (3 of this repo's 7 scripts) throws "resolved is not a function" from
  * inside a parse. An exception unwound through the runtime leaves it corrupt,
  * and in the extension host every later parse, in every language, then failed
@@ -111,7 +113,7 @@ export async function loadLanguage(wasmDir: string, languageName: string): Promi
 export async function createParser(wasmDir: string, languageName: string): Promise<Parser> {
   const TreeSitter = await initTreeSitter(wasmDir);
   const lang = await loadLanguage(wasmDir, languageName);
-  const parser = new TreeSitter();
+  const parser = new TreeSitter.Parser();
   parser.setLanguage(lang);
   return parser;
 }

@@ -40,6 +40,22 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 6.0.2 — web-tree-sitter 0.25 (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted; the parser runtime under
+the existing ones changes. Comparable with 6.0.1, noting the patch.
+
+- **What changed:** web-tree-sitter 0.24.7 → 0.25.10. The edit-time syntax
+  check, the symbol graph and the tools built on it parse with the new
+  runtime. The Dart grammar (language ABI 15, which 0.24 could not load) now
+  loads, so Dart symbols come from tree-sitter instead of the regex fallback.
+  Dart is still not syntax-checked (the grammar misparses 33 of 226 files from
+  six published packages), and bash is still disabled (its scanner throws on
+  0.25 too) (#400).
+- **Measured:** not A/B'd. The parsing, syntax-check and symbol-indexer suites
+  pass unchanged on 0.25; installed-VSIX smoke and the integration suite ran
+  on the packaged build.
+
 ### 6.0.1 — cmd-style `nul` redirects in Git Bash (2026-11)
 
 PATCH: input handling of an existing tool (run_command); no mechanism is added,

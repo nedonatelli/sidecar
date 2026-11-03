@@ -7,7 +7,15 @@ internal/**
 src/**
 out/**
 node_modules/**
-!node_modules/web-tree-sitter/**
+# web-tree-sitter 0.25 is 5.7 MB (debug/ and lib/ builds, sources, maps). The
+# extension bundle's import('web-tree-sitter') resolves package.json's "import"
+# export, tree-sitter.js, which needs only Node built-ins; the runtime WASM
+# loads from grammars/ (copy-grammars). Shipping only tree-sitter.cjs left every
+# grammar unloadable in the installed build (caught by test:vsix). Listed file
+# by file: a later exclude cannot undo a negation in vsce 3.9.
+!node_modules/web-tree-sitter/package.json
+!node_modules/web-tree-sitter/tree-sitter.js
+!node_modules/web-tree-sitter/LICENSE
 # playwright-core -- externalized from the esbuild bundle and require()d at
 # runtime by the visual-verify tools (screenshot_page). It used to be a
 # devDependency that never shipped, so in every installed SideCar the tool

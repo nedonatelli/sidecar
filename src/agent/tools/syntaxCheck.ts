@@ -48,10 +48,12 @@ import { scanPythonIndent } from './pythonIndent.js';
 //
 // Sibling extensions map to the same grammar (#157 ML-47). `.h` is read with
 // the C++ grammar, which parses C too; the C grammar would count a C++
-// header's classes as errors. Dart is NOT listed (ML-39): the shipped grammar
-// is ABI 15 and the runtime reads 13-14, so it never loads -- listing it only
-// made canParseSyntax claim a check that could not run. Re-add it with a
-// runtime that loads it.
+// header's classes as errors. Dart is NOT listed (ML-39, #400). web-tree-sitter
+// 0.25 loads the shipped grammar, and its symbols are indexed, but the grammar
+// predates Dart's unnamed `library;` directive and `abstract final` fields: 33
+// of 226 files from six published pub.dev packages (http, collection, async,
+// args, path, meta) parse with errors. A check that reports valid files as
+// broken would refuse correct edits to them.
 const EXT_TO_GRAMMAR: Record<string, string> = {
   ts: 'typescript',
   mts: 'typescript',

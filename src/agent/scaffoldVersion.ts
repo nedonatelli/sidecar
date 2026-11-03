@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **6.0.2** (2026-11) — web-tree-sitter 0.24.7 → 0.25.10 (#400). Every
+ *   grammar the agent's tools parse with (the edit-time syntax check, the
+ *   symbol graph, find_references) now runs on the newer runtime, and Dart
+ *   symbols come from its grammar instead of the regex fallback. Dart is still
+ *   not syntax-checked; bash is still disabled. PATCH: same mechanisms, new
+ *   parser runtime under them.
  * - **6.0.1** (2026-11) — run_command rewrites a cmd-style `nul` redirect
  *   (`>nul`, `2>nul`, `&>nul`, `<nul`, any case) to `/dev/null` when the shell
  *   is Git Bash on Windows, where it otherwise creates an undeletable `nul`
@@ -299,7 +305,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '6.0.1';
+export const SCAFFOLD_VERSION = '6.0.2';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

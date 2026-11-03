@@ -3675,7 +3675,7 @@
     "mermaid": "^11.14.0",
     "pdf-parse": "^2.4.5",
     "playwright-core": "^1.59.1",
-    "web-tree-sitter": "^0.24.7"
+    "web-tree-sitter": "^0.25.10"
   },
   "optionalDependencies": {
     "@lancedb/lancedb": "^0.27.2"
