@@ -111,7 +111,7 @@ describe('ML-09: the guard refuses an edit that orphans a Python else', () => {
 });
 
 describe('ML-39: no coverage is claimed for a grammar that cannot run', () => {
-  it('.dart is not claimed (its grammar is ABI 15; the runtime reads 13-14)', () => {
+  it('.dart is not claimed (its grammar misparses 15% of published Dart; #400)', () => {
     expect(canParseSyntax('main.dart')).toBe(false);
   });
 

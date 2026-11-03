@@ -5,7 +5,7 @@ import { loadLanguage } from './treeSitterLoader.js';
 import type { Parser } from './treeSitterLoader.js';
 import { logger } from '../system/logger.js';
 
-// bash's scanner imports isalpha, which web-tree-sitter 0.24's runtime does not
+// bash's scanner imports isalpha, which web-tree-sitter's runtime (0.24 and 0.25) does not
 // export: a `case` statement threw "resolved is not a function" mid-parse, the
 // runtime was left corrupt, and in the extension host every later parse in
 // every language failed -- 102 of this repo's 3,449 files silently dropped out
@@ -18,13 +18,12 @@ describe.skipIf(!hasGrammars)('tree-sitter grammars that cannot run safely', () 
     await expect(loadLanguage(grammarsDir, 'bash')).rejects.toThrow(/disabled.*isalpha/);
   });
 
-  it('never loads the dart grammar, and never reports it as a load failure (#400)', async () => {
-    await expect(loadLanguage(grammarsDir, 'dart')).rejects.toThrow(/disabled.*ABI 15/);
+  it('loads the dart grammar on web-tree-sitter 0.25, and reports no load failure (#400)', async () => {
+    await expect(loadLanguage(grammarsDir, 'dart')).resolves.toBeDefined();
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
       const analyzer = await createTreeSitterAnalyzer(grammarsDir);
       expect(warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes("grammar 'dart'"))).toEqual([]);
-      // Dart still gets regex-level symbols.
       const dart = analyzer.parseFileContent('lib/a.dart', 'class Greeter {\n  void greet() {}\n}\n');
       expect(dart.elements.map((e) => e.name)).toContain('Greeter');
     } finally {

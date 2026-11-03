@@ -216,11 +216,15 @@ const LANGUAGE_MAPPINGS: Record<string, ElementMapping[]> = {
     { nodeType: 'trait_definition', elementType: 'interface', nameField: 'name' },
     { nodeType: 'import_declaration', elementType: 'import' },
   ],
+  // Checked against the grammar once web-tree-sitter 0.25 could load it (#400):
+  // mixins and typedefs carry their name as a child, not a `name` field.
   dart: [
     { nodeType: 'function_signature', elementType: 'function', nameField: 'name' },
     { nodeType: 'function_declaration', elementType: 'function', nameField: 'name' },
     { nodeType: 'class_definition', elementType: 'class', nameField: 'name' },
-    { nodeType: 'mixin_declaration', elementType: 'interface', nameField: 'name' },
+    { nodeType: 'mixin_declaration', elementType: 'interface', nameNodeType: 'identifier' },
+    { nodeType: 'enum_declaration', elementType: 'enum', nameField: 'name' },
+    { nodeType: 'type_alias', elementType: 'type', nameNodeType: 'type_identifier' },
     { nodeType: 'import_specification', elementType: 'import' },
   ],
   // Vue SFCs: function/class nodes inside <script> blocks use the same types as JavaScript
@@ -376,6 +380,12 @@ export class TreeSitterCodeAnalyzer implements CodeAnalyzer {
               if (nameNode) {
                 name = nameNode.text;
               }
+            }
+
+            // No name field: the name is the node's first child of this type.
+            if (!name && mapping.nameNodeType) {
+              const nameNode = node.namedChildren.find((c) => c?.type === mapping.nameNodeType);
+              if (nameNode) name = nameNode.text;
             }
 
             // C/C++ function names are buried in a declarator chain:

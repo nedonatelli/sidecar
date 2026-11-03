@@ -10,24 +10,25 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 
 const runtime = vi.hoisted(() => ({ inits: 0, loads: [] as string[], inFlight: 0, maxInFlight: 0 }));
 
+// The 0.25 module shape: named { Parser, Language }.
 vi.mock('web-tree-sitter', () => {
   class Parser {
     static async init(): Promise<void> {
       runtime.inits++;
     }
-    static Language = {
-      async load(wasmPath: string): Promise<object> {
-        runtime.loads.push(wasmPath);
-        runtime.inFlight++;
-        runtime.maxInFlight = Math.max(runtime.maxInFlight, runtime.inFlight);
-        await new Promise((r) => setTimeout(r, 5));
-        runtime.inFlight--;
-        return { wasmPath };
-      },
-    };
     setLanguage(): void {}
   }
-  return { default: Parser };
+  const Language = {
+    async load(wasmPath: string): Promise<object> {
+      runtime.loads.push(wasmPath);
+      runtime.inFlight++;
+      runtime.maxInFlight = Math.max(runtime.maxInFlight, runtime.inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      runtime.inFlight--;
+      return { wasmPath };
+    },
+  };
+  return { Parser, Language };
 });
 
 afterEach(() => {

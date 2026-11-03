@@ -76,7 +76,9 @@ const platform = target ? targetToPlatformDir(target).split('/')[0] : process.pl
 const hostSharp = new RegExp(`@img[/\\\\]sharp-${platform}-`);
 
 const checks = [
-  ['web-tree-sitter runtime', /web-tree-sitter[/\\]/],
+  // The file the bundle's import() resolves, not just any file in the package:
+  // a VSIX with only tree-sitter.cjs passed the old check and loaded no grammar.
+  ['web-tree-sitter runtime', /web-tree-sitter[/\\]tree-sitter\.js\b/],
   ['tree-sitter grammars', /grammars[/\\]tree-sitter-typescript\.wasm/],
   ['@huggingface/transformers dist', /@huggingface[/\\]transformers[/\\]dist[/\\]/],
   // Without it, embedding falls back to the extension host's own thread, which
