@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
+import type { ToolOutcome } from './tools/toolOutcome.js';
 import {
   createGateState,
   recordToolCall,
@@ -51,6 +52,10 @@ const mockWorkspace = vscode.workspace as any;
 function makeEdit(file: string): ToolUseContentBlock {
   return { type: 'tool_use', id: 'id', name: 'write_file', input: { path: file, content: 'x' } };
 }
+/** The executor's outcome for an edit that changed `file` (ADR-008). Without one, an edit changed nothing. */
+function landed(file: string): ToolOutcome {
+  return { kind: 'mutated', paths: [file] };
+}
 function makeRunTests(file?: string): ToolUseContentBlock {
   return { type: 'tool_use', id: 'id', name: 'run_tests', input: file ? { file } : {} };
 }
@@ -84,7 +89,7 @@ describe('completionGate — recordToolCall', () => {
 
   it('records a successful edit as an edited file', () => {
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
     expect([...state.editedFiles]).toEqual(['src/foo.ts']);
   });
 
@@ -96,19 +101,26 @@ describe('completionGate — recordToolCall', () => {
 
   it('accepts both `path` and `file_path` input fields for edits', () => {
     const state = createGateState();
-    recordToolCall(state, { type: 'tool_use', id: 'id', name: 'edit_file', input: { file_path: 'src/bar.ts' } }, ok());
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: 'id', name: 'edit_file', input: { file_path: 'src/bar.ts' } },
+      ok(),
+      undefined,
+      undefined,
+      landed('src/bar.ts'),
+    );
     expect([...state.editedFiles]).toEqual(['src/bar.ts']);
   });
 
   it('normalizes absolute paths to workspace-relative', () => {
     const state = createGateState();
-    recordToolCall(state, makeEdit('/test/src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('/test/src/foo.ts'), ok(), undefined, undefined, landed('/test/src/foo.ts'));
     expect([...state.editedFiles]).toEqual(['src/foo.ts']);
   });
 
   it('drops paths outside the workspace', () => {
     const state = createGateState();
-    recordToolCall(state, makeEdit('/etc/passwd'), ok());
+    recordToolCall(state, makeEdit('/etc/passwd'), ok(), undefined, undefined, landed('/etc/passwd'));
     expect(state.editedFiles.size).toBe(0);
   });
 
@@ -187,7 +199,14 @@ describe('completionGate — recordToolCall', () => {
     const diag: ToolUseContentBlock = { type: 'tool_use', id: 'id', name: 'get_diagnostics', input: {} };
     recordToolCall(state, diag, diagResult('No diagnostics for src/a.ts'));
     expect(state.emptyDiagnosticsObserved).toBe(true);
-    recordToolCall(state, { type: 'tool_use', id: 'e', name: 'edit_file', input: { path: 'src/a.ts' } }, ok());
+    recordToolCall(
+      state,
+      { type: 'tool_use', id: 'e', name: 'edit_file', input: { path: 'src/a.ts' } },
+      ok(),
+      undefined,
+      undefined,
+      landed('src/a.ts'),
+    );
     expect(state.emptyDiagnosticsObserved).toBe(false);
   });
 
@@ -846,6 +865,9 @@ describe('completionGate — checkCompletionGate', () => {
       state,
       { type: 'tool_use', id: 'e', name: 'edit_file', input: { path: 'django/utils/http.py' } },
       { type: 'tool_result', tool_use_id: 'e', content: 'File edited: django/utils/http.py', is_error: false },
+      undefined,
+      undefined,
+      landed('django/utils/http.py'),
     );
     state.syntaxCleanFiles = new Set(['django/utils/http.py']);
     expect(state.testsRanSinceLastEdit).toBe(false); // the run BEFORE the edit does not count
@@ -912,7 +934,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('accepts a clean parse once a checker the model tried failed to launch', async () => {
     statOnly('/node_modules/.bin/tsc'); // looks installed, but the run says otherwise
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/a.ts'), ok());
+    recordToolCall(state, makeEdit('src/a.ts'), ok(), undefined, undefined, landed('src/a.ts'));
     recordToolCall(state, makeRunCommand('npx tsc --noEmit'), {
       type: 'tool_result',
       tool_use_id: 'id',
@@ -983,6 +1005,9 @@ describe('completionGate — checkCompletionGate', () => {
       state,
       { type: 'tool_use', id: 'e', name: 'edit_file', input: { path: 'django/utils/http.py' } },
       { type: 'tool_result', tool_use_id: 'e', content: 'File edited: django/utils/http.py', is_error: false },
+      undefined,
+      undefined,
+      landed('django/utils/http.py'),
     );
     expect(state.syntaxCleanFiles.size).toBe(0);
   });
@@ -998,7 +1023,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('flags an edited source file with no lint run as needsLint', async () => {
     (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
     const findings = await checkCompletionGate(state);
     expect(findings).toEqual([{ file: 'src/foo.ts', needsLint: true }]);
   });
@@ -1010,7 +1035,7 @@ describe('completionGate — checkCompletionGate', () => {
       throw new Error('not found');
     });
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
     recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
     const findings = await checkCompletionGate(state);
     expect(findings).toEqual([{ file: 'src/foo.ts', missingTest: 'src/foo.test.ts' }]);
@@ -1023,8 +1048,8 @@ describe('completionGate — checkCompletionGate', () => {
       throw new Error('not found');
     });
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
-    recordToolCall(state, makeEdit('src/foo.test.ts'), ok()); // test file was also updated
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
+    recordToolCall(state, makeEdit('src/foo.test.ts'), ok(), undefined, undefined, landed('src/foo.test.ts')); // test file was also updated
     recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
     recordToolCall(state, makeRunTests('src/foo.test.ts'), ok());
     const findings = await checkCompletionGate(state);
@@ -1041,7 +1066,7 @@ describe('completionGate — checkCompletionGate', () => {
       throw new Error('not found');
     });
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
     recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
     recordToolCall(state, makeRunTests('src/foo.test.ts'), ok()); // ran but didn't edit
     const findings = await checkCompletionGate(state);
@@ -1055,8 +1080,8 @@ describe('completionGate — checkCompletionGate', () => {
       throw new Error('not found');
     });
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
-    recordToolCall(state, makeEdit('src/foo.test.ts'), ok()); // updated!
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
+    recordToolCall(state, makeEdit('src/foo.test.ts'), ok(), undefined, undefined, landed('src/foo.test.ts')); // updated!
     recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
     recordToolCall(state, makeRunTests('src/foo.test.ts'), ok());
     const findings = await checkCompletionGate(state);
@@ -1070,7 +1095,7 @@ describe('completionGate — checkCompletionGate', () => {
       throw new Error('not found');
     });
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
     recordToolCall(state, makeRunCommand('npx eslint src/foo.ts'), ok());
     // No run_tests call — missingTest fires, not testNotUpdated
     const findings = await checkCompletionGate(state);
@@ -1085,7 +1110,7 @@ describe('completionGate — checkCompletionGate', () => {
       throw new Error('not found');
     });
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
     recordToolCall(state, makeRunCommand('npx eslint .'), ok());
     recordToolCall(state, makeRunCommand('npm test'), ok());
     const findings = await checkCompletionGate(state);
@@ -1095,7 +1120,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('does not require a test for a file that has no colocated test', async () => {
     (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.ts'), ok(), undefined, undefined, landed('src/foo.ts'));
     recordToolCall(state, makeRunCommand('npx eslint .'), ok());
     const findings = await checkCompletionGate(state);
     expect(findings).toEqual([]);
@@ -1103,15 +1128,15 @@ describe('completionGate — checkCompletionGate', () => {
 
   it('skips non-source files', async () => {
     const state = createGateState();
-    recordToolCall(state, makeEdit('README.md'), ok());
-    recordToolCall(state, makeEdit('config.json'), ok());
+    recordToolCall(state, makeEdit('README.md'), ok(), undefined, undefined, landed('README.md'));
+    recordToolCall(state, makeEdit('config.json'), ok(), undefined, undefined, landed('config.json'));
     const findings = await checkCompletionGate(state);
     expect(findings).toEqual([]);
   });
 
   it('skips .d.ts declaration files', async () => {
     const state = createGateState();
-    recordToolCall(state, makeEdit('types/foo.d.ts'), ok());
+    recordToolCall(state, makeEdit('types/foo.d.ts'), ok(), undefined, undefined, landed('types/foo.d.ts'));
     const findings = await checkCompletionGate(state);
     expect(findings).toEqual([]);
   });
@@ -1119,7 +1144,7 @@ describe('completionGate — checkCompletionGate', () => {
   it('does not require a test for an edited test file itself', async () => {
     (mockWorkspace.fs.stat as any).mockRejectedValue(new Error('not found'));
     const state = createGateState();
-    recordToolCall(state, makeEdit('src/foo.test.ts'), ok());
+    recordToolCall(state, makeEdit('src/foo.test.ts'), ok(), undefined, undefined, landed('src/foo.test.ts'));
     recordToolCall(state, makeRunCommand('npx eslint src/foo.test.ts'), ok());
     const findings = await checkCompletionGate(state);
     expect(findings).toEqual([]);
@@ -2618,6 +2643,9 @@ describe('no-op edits are not mutations (completion recognition)', () => {
         tool_use_id: '1',
         content: 'No change needed: src/greeter.ts already contains the result of this edit.',
       },
+      undefined,
+      undefined,
+      { kind: 'noop', paths: ['src/greeter.ts'] },
     );
 
     expect(state.editedFiles.size).toBe(0);
@@ -2632,6 +2660,9 @@ describe('no-op edits are not mutations (completion recognition)', () => {
       state,
       { type: 'tool_use', id: '2', name: 'edit_file', input: { path: 'src/greeter.ts' } },
       { type: 'tool_result', tool_use_id: '2', content: 'File edited: src/greeter.ts' },
+      undefined,
+      undefined,
+      landed('src/greeter.ts'),
     );
 
     expect(state.editedFiles.size).toBe(1);
@@ -2731,6 +2762,9 @@ describe('completionGate — red-check recording (scaffold 5.0.0)', () => {
       state,
       { type: 'tool_use', id: 'id', name: 'edit_file', input: { path: 'src/calc.ts' } },
       result('<tool_output tool="edit_file">\nFile edited: src/calc.ts\n</tool_output>'),
+      undefined,
+      undefined,
+      landed('src/calc.ts'),
     );
     expect(state.failedCheckOutput).toBeUndefined();
     expect(state.lintObserved).toBe(false); // re-verification demanded as before

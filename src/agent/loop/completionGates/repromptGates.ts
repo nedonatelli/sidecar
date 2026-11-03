@@ -120,6 +120,7 @@ export const noFileWriteGate = repromptGate({
       s.gateState.currentUserRequest,
       async (rel) => existsInWorkspace(runRoot(s), rel),
       s.gateState.fileReferenceText,
+      s.toolOutcomes,
     ),
   onText: '\n\n📝 Checking named files were written...\n',
   logMsg: 'No-file-write gate fired — named file(s) not written',

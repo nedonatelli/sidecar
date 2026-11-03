@@ -84,23 +84,40 @@ describe('the gates on issue-report text (#317)', () => {
     expect(await buildNoFileWriteReprompt(msgs, new Set(), undefined, async () => false)).toBeNull();
   });
 
-  it('no-file-write does not ask about a file the run deleted (delete-file-when-requested)', async () => {
-    const msgs = [
-      { role: 'user' as const, content: 'Delete src/legacy.ts. Do not touch src/modern.ts.' },
+  // The delete is known from the call's outcome (ADR-008), not its result text.
+  const deleteRun = (request: string, target: string) => ({
+    msgs: [
+      { role: 'user' as const, content: request },
+      {
+        role: 'assistant' as const,
+        content: [{ type: 'tool_use' as const, id: 't1', name: 'delete_file', input: { path: target } }],
+      },
       {
         role: 'user' as const,
         content: [
           {
             type: 'tool_result' as const,
             tool_use_id: 't1',
-            content: '<tool_output tool="delete_file">\nFile deleted: src/legacy.ts\n</tool_output>',
+            content: `<tool_output tool="delete_file">\nFile deleted: ${target}\n</tool_output>`,
           },
         ],
       },
-    ];
+    ],
+    outcomes: new Map([['t1', { kind: 'mutated' as const, paths: [target] }]]),
+  });
+
+  it('no-file-write does not ask about a file the run deleted (delete-file-when-requested)', async () => {
+    const { msgs, outcomes } = deleteRun('Delete src/legacy.ts. Do not touch src/modern.ts.', 'src/legacy.ts');
     // Neither file is in editedFiles; legacy.ts is gone from disk, modern.ts exists.
     const exists = async (p: string) => p.endsWith('modern.ts');
-    expect(await buildNoFileWriteReprompt(msgs, new Set(), undefined, exists)).toBeNull();
+    expect(await buildNoFileWriteReprompt(msgs, new Set(), undefined, exists, undefined, outcomes)).toBeNull();
+  });
+
+  it('no-file-write does not treat a failed delete as a delete', async () => {
+    const { msgs } = deleteRun('Delete src/legacy.ts.', 'src/legacy.ts');
+    const failed = new Map([['t1', { kind: 'failed' as const, paths: ['src/legacy.ts'] }]]);
+    const r = await buildNoFileWriteReprompt(msgs, new Set(), undefined, async () => false, undefined, failed);
+    expect(r).toContain('src/legacy.ts');
   });
 
   it('no-file-write still asks about a file the request asks to create', async () => {

@@ -21,6 +21,7 @@ import { DIFF_STREAM_PREFIX } from './diffStream.js';
 import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
 import { findSkippedLinesMatch, skippedLinesError } from './skippedLines.js';
 import { droppedUsedImports, droppedImportError } from './droppedImports.js';
+import { changedFiles, mutated, noop, type ToolOutcome } from './toolOutcome.js';
 import {
   findEditMatch,
   findEditMatches,
@@ -959,6 +960,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
       : await readDiskViaWorkspace(context, filePath);
     const norm = (s: string) => s.replace(/\r\n/g, '\n').replace(/\n$/, '');
     if (currentText !== undefined && norm(currentText) === norm(content)) {
+      context?.recordOutcome?.(noop(filePath));
       return (
         `No change needed: \`${filePath}\` already matches this content exactly — your earlier edit is in place ` +
         `and the file is in the state you want. Do NOT rewrite it or repeat the edit. If the task is complete, ` +
@@ -1012,6 +1014,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // changed and points it at edit_file; cycleDetection skips blocked circular
   // writes so the run continues. Identical content is never progress.
   if (writeHistory && contentHash !== undefined && writeHistory.get(filePath)?.has(contentHash)) {
+    context?.recordOutcome?.(noop(filePath));
     return (
       `No change written — the content is byte-identical to a version you already wrote to \`${filePath}\` ` +
       `this session, so the file is unchanged. Stop rewriting the whole file: if you need to change something, ` +
@@ -1060,6 +1063,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     recordWrite();
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
+    context?.recordOutcome?.(mutated(filePath, 'audit'));
     return `File written: ${filePath} (buffered for audit review)`;
   }
 
@@ -1146,6 +1150,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     if (patch) context.onOutput(DIFF_PREFIX + patch);
   }
 
+  context?.recordOutcome?.(mutated(filePath));
   return `File written: ${filePath}` + escapeRecoveryNote;
 }
 
@@ -1460,7 +1465,10 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       stalePrefix: buildStalePrefix(filePath, context),
       context,
     });
-    if (resolvedAudit.newText === null) return resolvedAudit.message;
+    if (resolvedAudit.newText === null) {
+      context?.recordOutcome?.(noop(filePath));
+      return resolvedAudit.message;
+    }
     const auditDropped = droppedUsedImports(filePath, currentText, resolvedAudit.newText);
     if (auditDropped.length > 0) {
       const repeat = recordEditFailure(context, filePath, search ?? '', replace ?? '');
@@ -1472,6 +1480,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     clearEditFailure(context, filePath);
     const auditLine =
       resolvedAudit.summary ?? `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
+    context?.recordOutcome?.(mutated(filePath, 'audit'));
     return `${resolvedAudit.prefixNote}${auditLine}${resolvedAudit.suffixNote}${editDiffSuffix(auditPatch, context)}`;
   }
 
@@ -1571,6 +1580,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     // Nothing is written, so nothing can have broken: 'ok' would claim the gate
     // ran when it never had a new text to check.
     reportOutcome(false, 'unchecked');
+    context?.recordOutcome?.(noop(filePath));
     return resolved.message;
   }
   const newText = resolved.newText;
@@ -1600,6 +1610,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       `No change needed: ${filePath} already has this text — your replacement is identical to what is ` +
       `there now, so nothing was written.\n\nIf you meant to change something, read the file and make ` +
       `'replace' differ from the current text; otherwise this part is already done.`;
+    context?.recordOutcome?.(noop(filePath));
     return noChangeAnswer(context, filePath, search, replace, same);
   }
 
@@ -1635,6 +1646,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // can overwhelm a weak model (LOCAL_MAX_SYSTEM_CHARS); the char cap is the config
   // value, and the A/B decides whether it helps or is just noise.
   const successLine = resolved.summary ?? `File edited: ${filePath}${partialReplaceWarning}`;
+  context?.recordOutcome?.(mutated(filePath));
   return `${resolved.prefixNote}${successLine}${resolved.suffixNote}${editDiffSuffix(patch, context)}`;
 }
 
@@ -2438,6 +2450,7 @@ export async function deleteFile(input: Record<string, unknown>, context?: ToolE
   if (isAuditModeActive(context)) {
     await getDefaultAuditBuffer().deleteFile(filePath, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
+    context?.recordOutcome?.(mutated(filePath, 'audit'));
     return `File deleted: ${filePath} (buffered for audit review)`;
   }
 
@@ -2449,6 +2462,7 @@ export async function deleteFile(input: Record<string, unknown>, context?: ToolE
   }
 
   await workspace.fs.delete(fileUri, { useTrash: true });
+  context?.recordOutcome?.(mutated(filePath));
   return `File deleted: ${filePath}`;
 }
 
@@ -2478,19 +2492,24 @@ export async function listDirectory(input: Record<string, unknown>, context?: To
  * writes count too, since the model edits against the buffered content.
  */
 /**
- * A result that wrote the file. An inferred edit's summary takes the place of
- * the "File edited:" line, so matching only that line left the stale-read guard
- * treating the model's earlier read as current after an inferred edit (#362).
+ * A call that changed the file makes the model's earlier read stale. Decided
+ * from the call's outcome (ADR-008): matching the "File edited:" line missed
+ * inferred edits, whose summary replaces it (#362).
  */
-const WROTE_FILE = /File (?:edited|written): |(?:^|\n)Applied inferred edit to /;
-
 function markWrittenSinceRead(exec: ToolExecutor): ToolExecutor {
   return async (input, context) => {
-    const result = await exec(input, context);
-    const p = typeof input.path === 'string' ? input.path : undefined;
-    if (p && typeof result === 'string' && WROTE_FILE.test(result)) {
-      context?.editedSinceRead?.add(path.posix.normalize(p.split(path.sep).join('/')));
-    }
+    if (!context?.editedSinceRead) return exec(input, context);
+    let outcome: ToolOutcome | undefined;
+    const inner = context.recordOutcome;
+    const ctx: ToolExecutorContext = {
+      ...context,
+      recordOutcome: (o) => {
+        outcome = o;
+        inner?.(o);
+      },
+    };
+    const result = await exec(input, ctx);
+    for (const p of changedFiles(outcome)) context.editedSinceRead.add(p);
     return result;
   };
 }

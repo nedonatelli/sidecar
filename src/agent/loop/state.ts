@@ -1,5 +1,6 @@
 import type { ChatMessage, ToolDefinition } from '../../ollama/types.js';
 import type { CommandRunRecord } from './commandDedup.js';
+import type { ToolOutcome } from '../tools/toolOutcome.js';
 import { LOCAL_CONTEXT_CAP, DEFAULT_MAX_ITERATIONS } from '../../config/constants.js';
 import { getContentLength } from '../../ollama/types.js';
 import type { ApprovalMode } from '../executor.js';
@@ -247,6 +248,12 @@ export interface LoopState {
   // edit_file had just fixed. circularRewrite.ts records; fs.ts writeFile reads.
   filesEditedViaEditTool: Set<string>;
 
+  // What each file tool call did, keyed by tool_use_id (ADR-008). The executor
+  // writes it; every "did this change a file?" check reads it through
+  // changedFiles() instead of matching the result's wording. Run-scoped: a
+  // result with no entry (a resumed session, an MCP tool) changed nothing.
+  toolOutcomes: Map<string, ToolOutcome>;
+
   // Per-path signature of the most recent edit_file call that failed with
   // "search and replace identical" or "search not found" (both are
   // unrecoverable-without-more-info failures — the tool can only show a hint,
@@ -488,6 +495,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     writesSinceVerifyByFile: new Map<string, number>(),
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
+    toolOutcomes: new Map<string, ToolOutcome>(),
     editFailureSignatures: new Map<string, string>(),
     zeroHitPatterns: new Map<string, number>(),
     bounceCounts: new Map<string, number>(),

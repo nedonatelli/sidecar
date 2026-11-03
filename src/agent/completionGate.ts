@@ -3,7 +3,8 @@ import * as path from 'path';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/types.js';
 import { recordDecision, type DecisionSink } from './decisions.js';
 import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE, TEST_RUNNER_RE } from './completionGate/pathUtil.js';
-import { isNoChangeNeededResult, isFailingCheckOutput } from './loop/actionReprompt.js';
+import { isFailingCheckOutput } from './loop/actionReprompt.js';
+import { changedFiles, fileToolName, type ToolOutcome } from './tools/toolOutcome.js';
 import { resolveTestTarget } from './tools/testRunnerDetect.js';
 
 /**
@@ -394,6 +395,8 @@ export function recordToolCall(
    * numbers were defensible and nothing revealed they disagreed.
    */
   logger?: DecisionSink,
+  /** What the call did to the workspace (ADR-008). An edit tool without one changed nothing. */
+  outcome?: ToolOutcome,
 ): void {
   if (result.is_error) return;
   const resultText = typeof result.content === 'string' ? result.content : '';
@@ -442,14 +445,17 @@ export function recordToolCall(
   // Edit tools — track the path(s) they mutated.
   // Reset lintObserved so any lint run before this edit doesn't satisfy
   // the gate for the new change — the model must re-verify after editing.
-  if (EDIT_TOOL_NAMES.has(tu.name)) {
-    // A no-op edit is not a mutation. edit_file reports "No change needed"
-    // when the change it was asked to make is ALREADY APPLIED (the tokens it
-    // would remove are gone, the ones it would add are present). Counting that
-    // as an edit would reset lintObserved and demand re-verification of work
-    // already verified — feeding the very post-success edit loop the
-    // already-applied message exists to end (v0.119 dogfood).
-    if (isNoChangeNeededResult(resultText)) {
+  // delete_file is not one of them: these checks lint and test the file, and a
+  // deleted file has neither.
+  if (EDIT_TOOL_NAMES.has(fileToolName(tu.name) ?? tu.name)) {
+    // A no-op edit is not a mutation. edit_file answers "No change needed" when
+    // the change it was asked to make is ALREADY APPLIED (the tokens it would
+    // remove are gone, the ones it would add are present). Counting that as an
+    // edit would reset lintObserved and demand re-verification of work already
+    // verified — feeding the very post-success edit loop the already-applied
+    // message exists to end (v0.119 dogfood). Decided from the outcome, not the
+    // wording (ADR-008).
+    if (changedFiles(outcome).length === 0) {
       return;
     }
     const raw = (tu.input.path ?? tu.input.file_path) as string | undefined;

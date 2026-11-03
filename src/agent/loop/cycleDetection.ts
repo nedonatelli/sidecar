@@ -3,6 +3,7 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState, NormalizedEntry } from './state.js';
 import { budgetKey, isToolBudgetSpent, toolBudgetRefusals } from './toolBudget.js';
+import { fileToolName } from '../tools/toolOutcome.js';
 
 // ---------------------------------------------------------------------------
 // Per-iteration safety checks on tool-use bursts and repeat patterns.
@@ -90,19 +91,12 @@ const DEFAULT_WRITE_TARGET_THRESHOLD = 6;
 // The first matching non-empty string value becomes the normalized key.
 const PRIMARY_RESOURCE_KEYS = ['path', 'file_path', 'directory', 'command', 'query', 'pattern', 'url'] as const;
 
-// Tools that mutate workspace files. A repeated file target across these
-// tools across multiple iterations is the "same semantic action, different
-// tool or wording" loop the third-pass thrash detector catches.
-const MUTATION_TOOLS = new Set([
-  'write_file',
-  'edit_file',
-  'delete_file',
-  'create_file',
-  'rename_file',
-  'move_file',
-  'apply_edit',
-  'apply_patch',
-]);
+// Calls to a file tool, or an alias of one (fileToolName). A repeated file
+// target across these across multiple iterations is the "same semantic action,
+// different tool or wording" loop the third-pass thrash detector catches. These
+// are ATTEMPTS, failed ones included -- repeating a failing edit is the loop --
+// so this is by name, not by outcome (ADR-008).
+const isMutationCall = (name: string): boolean => fileToolName(name) !== null;
 
 // Read-only tools: repeated calls on the same resource with any secondary-arg
 // variation (e.g. different line ranges) still indicate a stuck loop. The
@@ -236,7 +230,7 @@ export function detectCycleAndBail(
   }
 
   const mutationSigs = pendingToolUses
-    .filter((tu) => MUTATION_TOOLS.has(tu.name))
+    .filter((tu) => isMutationCall(tu.name))
     .map((tu) => `${tu.name}:${sortedStringify(tu.input)}`);
   const mutationWindow = windowFor(MIN_IDENTICAL_MUTATION_CALLS);
   for (const sig of mutationSigs) {
@@ -488,7 +482,7 @@ export function detectCycleAndBail(
 function extractWriteTargets(pendingToolUses: ToolUseContentBlock[]): string[] {
   const seen = new Set<string>();
   for (const tu of pendingToolUses) {
-    if (!MUTATION_TOOLS.has(tu.name)) continue;
+    if (!isMutationCall(tu.name)) continue;
     const input = tu.input as Record<string, unknown>;
     for (const key of PRIMARY_RESOURCE_KEYS) {
       const v = input[key];

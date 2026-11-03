@@ -10,6 +10,7 @@ import {
   isUserRequestMessage,
 } from './actionReprompt.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
+import type { ToolOutcome } from '../tools/toolOutcome.js';
 
 describe('looksLikeDeclinedAction', () => {
   // The inverse of looksLikeDeferredAction. That one catches "I will now edit…"
@@ -552,6 +553,7 @@ describe('maybeInjectActionReprompt', () => {
           content: [{ type: 'tool_result', tool_use_id: 't1', content: 'File edited: src/greeter.ts' }],
         },
       );
+      state.toolOutcomes.set('t1', { kind: 'mutated', paths: ['src/greeter.ts'] });
       state.printedCodeAlreadyInFile = true;
       expect(maybeInjectActionReprompt(state, reprint, stubCallbacks())).toBe(false);
     });
@@ -662,19 +664,24 @@ describe('recentResultsShowWorkAlreadyDone', () => {
     '<tool_output tool="edit_file">\nNo change needed: src/minmax.ts already contains the result of this edit.\n</tool_output>';
   const EDITED = '<tool_output tool="edit_file">\nFile edited: src/minmax.ts\n</tool_output>';
   const READ = '<tool_output tool="read_file">\nexport function max() {}\n</tool_output>';
+  // What the executor reported (ADR-008): only a call in the map changed a file.
+  const none = new Map<string, ToolOutcome>();
+  const editedAs = (id: string) => new Map<string, ToolOutcome>([[id, { kind: 'mutated', paths: ['src/minmax.ts'] }]]);
 
   it('is true when the latest tool result reports the change already applied', () => {
-    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(ALREADY)] as never)).toBe(true);
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(ALREADY)] as never, none)).toBe(true);
   });
 
   it("is true for write_file's identical-content confirmation", () => {
     const confirm =
       '<tool_output tool="write_file">\nNo change needed: `src/minmax.ts` already matches this content exactly.\n</tool_output>';
-    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(confirm)] as never)).toBe(true);
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(confirm)] as never, none)).toBe(true);
   });
 
   it('is false when the latest result is a real mutation — work is progressing', () => {
-    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(EDITED)] as never)).toBe(false);
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, result(EDITED)] as never, editedAs('t1'))).toBe(
+      false,
+    );
   });
 
   it('mutation wins inside a mixed batch (edited fileA + no-change fileB)', () => {
@@ -685,28 +692,28 @@ describe('recentResultsShowWorkAlreadyDone', () => {
         { type: 'tool_result' as const, tool_use_id: 't2', content: EDITED },
       ],
     };
-    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, mixed] as never)).toBe(false);
+    expect(recentResultsShowWorkAlreadyDone([request, assistantCall, mixed] as never, editedAs('t2'))).toBe(false);
   });
 
   it('keeps walking past read-only batches — re-checking then finishing is the ideal path', () => {
     const msgs = [request, assistantCall, result(ALREADY), assistantCall, result(READ)];
-    expect(recentResultsShowWorkAlreadyDone(msgs as never)).toBe(true);
+    expect(recentResultsShowWorkAlreadyDone(msgs as never, none)).toBe(true);
   });
 
   it('keeps walking past synthetic loop injections', () => {
     const injection = { role: 'user' as const, content: '[No tools called] Your last response was text only...' };
     const msgs = [request, assistantCall, result(ALREADY), injection];
-    expect(recentResultsShowWorkAlreadyDone(msgs as never)).toBe(true);
+    expect(recentResultsShowWorkAlreadyDone(msgs as never, none)).toBe(true);
   });
 
   it('stops at the real user message — an old no-change does not license skipping new work', () => {
     const newRequest = { role: 'user' as const, content: 'now rename greet in src/greeter.ts' };
     const msgs = [request, assistantCall, result(ALREADY), newRequest];
-    expect(recentResultsShowWorkAlreadyDone(msgs as never)).toBe(false);
+    expect(recentResultsShowWorkAlreadyDone(msgs as never, none)).toBe(false);
   });
 
   it('is false when no tool has run at all', () => {
-    expect(recentResultsShowWorkAlreadyDone([request] as never)).toBe(false);
+    expect(recentResultsShowWorkAlreadyDone([request] as never, none)).toBe(false);
   });
 
   it('suppresses the action reprompt after an already-applied result', () => {
@@ -737,10 +744,19 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
   // legitimate END of the work: a read request already answered from real
   // reads, and a mutation that landed and verified clean.
   const asst = { role: 'assistant' as const, content: [{ type: 'tool_use', id: 't', name: 'x', input: {} }] };
+  // Result ids are unique across the block, so `outcomes` (what the executor
+  // reported, ADR-008) can be shared: only a result built by `changed` changed a file.
+  let nextId = 0;
+  const outcomes = new Map<string, ToolOutcome>();
   const res = (...texts: string[]) => ({
     role: 'user' as const,
-    content: texts.map((t, i) => ({ type: 'tool_result' as const, tool_use_id: 't' + i, content: t })),
+    content: texts.map((t) => ({ type: 'tool_result' as const, tool_use_id: `t${nextId++}`, content: t })),
   });
+  const changed = (text: string, path: string) => {
+    const m = res(text);
+    outcomes.set(m.content[0].tool_use_id, { kind: 'mutated', paths: [path] });
+    return m;
+  };
   const READ_OK = '<tool_output tool="read_file">\nexport function clamp() {}\n</tool_output>';
   const EDIT_OK = '<tool_output tool="edit_file">\nFile edited: src/minmax.ts\n</tool_output>';
   const TSC_CLEAN = '<tool_output tool="run_command">\n(no output)\n</tool_output>';
@@ -749,6 +765,7 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
 
   it('does not reprompt a read request that was answered from real reads', () => {
     const state = stubLoopState({
+      toolOutcomes: outcomes,
       tools: [{ name: 'read_file' }] as never,
       messages: [
         { role: 'user', content: 'Read src/utils.ts and tell me what clamp does.' },
@@ -763,6 +780,7 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
 
   it('still reprompts a read request answered from THIN AIR — no reads happened', () => {
     const state = stubLoopState({
+      toolOutcomes: outcomes,
       tools: [{ name: 'read_file' }] as never,
       messages: [{ role: 'user', content: 'Read src/utils.ts and tell me what clamp does.' }] as never,
       config: { codeAsTextRecoveryEnabled: true } as never,
@@ -772,11 +790,12 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
 
   it('does not reprompt a completion summary after edit + clean verification', () => {
     const state = stubLoopState({
+      toolOutcomes: outcomes,
       tools: [{ name: 'edit_file' }] as never,
       messages: [
         { role: 'user', content: 'fix the max function in src/minmax.ts' },
         asst,
-        res(EDIT_OK),
+        changed(EDIT_OK, 'src/minmax.ts'),
         asst,
         res(TSC_CLEAN),
       ] as never,
@@ -795,11 +814,12 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
   // unverified edit.
   it('a RED check after the edit is left to the red-check gate, not this reprompt', () => {
     const state = stubLoopState({
+      toolOutcomes: outcomes,
       tools: [{ name: 'edit_file' }] as never,
       messages: [
         { role: 'user', content: 'fix the max function in src/minmax.ts' },
         asst,
-        res(EDIT_OK),
+        changed(EDIT_OK, 'src/minmax.ts'),
         asst,
         res(TSC_RED),
       ] as never,
@@ -810,8 +830,13 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
 
   it('an unverified edit is left to the completion gate, not this reprompt', () => {
     const state = stubLoopState({
+      toolOutcomes: outcomes,
       tools: [{ name: 'edit_file' }] as never,
-      messages: [{ role: 'user', content: 'fix the max function in src/minmax.ts' }, asst, res(EDIT_OK)] as never,
+      messages: [
+        { role: 'user', content: 'fix the max function in src/minmax.ts' },
+        asst,
+        changed(EDIT_OK, 'src/minmax.ts'),
+      ] as never,
       config: { codeAsTextRecoveryEnabled: true } as never,
     });
     expect(maybeInjectActionReprompt(state, 'The max function has been fixed.', stubCallbacks())).toBe(false);
@@ -822,6 +847,7 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
     const RENAME_OK = '<tool_output tool="edit_file">\nFile edited: src/math.ts\n</tool_output>';
     const run = (messages: unknown[], text: string) => {
       const state = stubLoopState({
+        toolOutcomes: outcomes,
         tools: [{ name: 'edit_file' }] as never,
         messages: messages as never,
         config: { codeAsTextRecoveryEnabled: true } as never,
@@ -832,7 +858,7 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
     it('the release-eval rename: edit landed, summary ends with an offer', () => {
       expect(
         run(
-          [RENAME_REQ, asst, res(RENAME_OK)],
+          [RENAME_REQ, asst, changed(RENAME_OK, 'src/math.ts')],
           'The function has been renamed from `addNumbers` to `sum` in `src/math.ts`. Would you like me to verify this with a test?',
         ),
       ).toBe(false);
@@ -841,7 +867,7 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
     it('"Let me know if…" is a courtesy, not an intent', () => {
       expect(
         run(
-          [RENAME_REQ, asst, res(RENAME_OK)],
+          [RENAME_REQ, asst, changed(RENAME_OK, 'src/math.ts')],
           'Renamed in src/math.ts. Let me know if you would like me to run the tests.',
         ),
       ).toBe(false);
@@ -853,7 +879,7 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
           [
             { role: 'user', content: 'delete src/old.ts' },
             asst,
-            res('<tool_output tool="delete_file">\nFile deleted: src/old.ts\n</tool_output>'),
+            changed('<tool_output tool="delete_file">\nFile deleted: src/old.ts\n</tool_output>', 'src/old.ts'),
           ],
           'Deleted src/old.ts as requested.',
         ),
@@ -866,7 +892,10 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
       // sentence, and the reprompt then fired three times on a finished run --
       // each nudge looked like a new user message with no change after it.
       const REQ = 'Delete src/legacy.ts. Do not touch src/modern.ts.';
-      const DELETED = res('<tool_output tool="delete_file">\nFile deleted: src/legacy.ts\n</tool_output>');
+      const DELETED = changed(
+        '<tool_output tool="delete_file">\nFile deleted: src/legacy.ts\n</tool_output>',
+        'src/legacy.ts',
+      );
       const nudge = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
       const NO_READ = nudge(
         'The request mentions `src/modern.ts`, but no read_file, grep, or other file-reading tool has been called on it.',
@@ -874,6 +903,7 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
       const fires = (messages: unknown[], userRequestText: string | undefined, text: string) =>
         maybeInjectActionReprompt(
           stubLoopState({
+            toolOutcomes: outcomes,
             tools: [{ name: 'edit_file' }] as never,
             messages: messages as never,
             userRequestText,
@@ -926,7 +956,12 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
       const failed = {
         role: 'user' as const,
         content: [
-          { type: 'tool_result' as const, tool_use_id: 't0', content: 'search string not found', is_error: true },
+          {
+            type: 'tool_result' as const,
+            tool_use_id: 'failed-edit',
+            content: 'search string not found',
+            is_error: true,
+          },
         ],
       };
       expect(run([RENAME_REQ, asst, failed], 'The function has been renamed.')).toBe(true);
@@ -938,17 +973,20 @@ describe('intent-aware reprompt escapes (state over phrasing)', () => {
     });
 
     it('STILL fires on an intent stall after a partial change', () => {
-      expect(run([RENAME_REQ, asst, res(RENAME_OK)], 'Next, I will update the callers in src/app.ts.')).toBe(true);
+      expect(
+        run([RENAME_REQ, asst, changed(RENAME_OK, 'src/math.ts')], 'Next, I will update the callers in src/app.ts.'),
+      ).toBe(true);
     });
   });
 
   it('deferred-intent text keeps the reprompt even when prior work exists', () => {
     const state = stubLoopState({
+      toolOutcomes: outcomes,
       tools: [{ name: 'edit_file' }] as never,
       messages: [
         { role: 'user', content: 'fix the max function in src/minmax.ts' },
         asst,
-        res(EDIT_OK),
+        changed(EDIT_OK, 'src/minmax.ts'),
         asst,
         res(TSC_CLEAN),
       ] as never,

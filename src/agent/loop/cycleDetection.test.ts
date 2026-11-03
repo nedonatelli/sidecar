@@ -602,7 +602,7 @@ describe('detectCycleAndBail — write-target thrash pass', () => {
     const muts = [
       makeToolUse('write_file', { path: 'src/foo.ts', content: 'v1' }),
       makeToolUse('edit_file', { file_path: 'src/foo.ts', search: 'a' }),
-      makeToolUse('apply_edit', { path: 'src/foo.ts', patch: 'p1' }),
+      makeToolUse('str_replace', { path: 'src/foo.ts', old_str: 'p1' }), // an alias of edit_file
       makeToolUse('write_file', { path: 'src/foo.ts', content: 'v2' }),
       makeToolUse('edit_file', { file_path: 'src/foo.ts', search: 'b' }),
     ];

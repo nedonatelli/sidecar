@@ -4,6 +4,19 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **The agent knows which edits changed a file**
+  ([#367](https://github.com/nedonatelli/sidecar/issues/367),
+  [ADR-008](docs/adr/008-structured-tool-outcomes.md)). `write_file`, `edit_file` and
+  `delete_file` now report what they did: changed a file, changed nothing, or failed. The checks
+  that decide whether to ask for verification, nudge the model or run a regression guard read that
+  report instead of matching the tool's message, and they now agree with each other:
+  - An inferred edit counts as a change everywhere.
+  - A failed or no-op edit no longer triggers a `post-write` regression guard.
+  - In review mode, a queued edit counts as a change everywhere.
+  - A call under another tool's name (`str_replace`, `create_file`) is treated as the tool it runs as.
+
 ### Fixed
 
 - **Closing VS Code stops every agent shell**

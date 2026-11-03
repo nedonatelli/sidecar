@@ -1,6 +1,7 @@
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
+import { fileToolName } from '../tools/toolOutcome.js';
 
 // ---------------------------------------------------------------------------
 // Unapplied-edit nudge — post-turn policy (mirror of isolateRewrite).
@@ -24,16 +25,10 @@ import type { LoopState } from './state.js';
 // a loop. Returns `true` when a nudge was injected.
 // ---------------------------------------------------------------------------
 
-const MUTATION_TOOLS = new Set([
-  'write_file',
-  'edit_file',
-  'delete_file',
-  'create_file',
-  'rename_file',
-  'move_file',
-  'apply_edit',
-  'apply_patch',
-]);
+// Whether the model CALLED a file tool (or an alias of one), not whether the
+// call landed: after a failed edit_file, "you never applied it — use edit_file"
+// would be wrong, and the edit's own error already says what to fix (ADR-008).
+const isMutationCall = (name: string): boolean => fileToolName(name) !== null;
 
 // Tools that signal the model THINKS it's checking an edit it believes it made —
 // re-running the script, re-reading the file, checking diagnostics. Their
@@ -104,7 +99,7 @@ export function applyUnappliedEditNudge(
   if (state.unappliedEditNudged) return false;
   if (!fullText || !hasEditShapedCodeBlock(fullText)) return false;
 
-  const appliedAnEdit = pendingToolUses.some((tu) => MUTATION_TOOLS.has(tu.name));
+  const appliedAnEdit = pendingToolUses.some((tu) => isMutationCall(tu.name));
   if (appliedAnEdit) return false; // the model did apply something — nothing to nudge
 
   const verified = pendingToolUses.some((tu) => VERIFY_TOOLS.has(tu.name));

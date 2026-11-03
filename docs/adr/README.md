@@ -20,7 +20,7 @@ Format based on [Michael Nygard's ADR template](https://github.com/joelparkerhen
 | [ADR-005](005-typed-facets.md)               | Typed sub-agent facets for specialist dispatch                             | Accepted | 2025-03 |
 | [ADR-006](006-external-benchmarks.md)        | External standard benchmarks (BFCL / SWE-bench) for tool-use + coding loop | Proposed | 2026-06 |
 | [ADR-007](007-bench-run-isolation.md)        | Process-level isolation for benchmark runs, no OS sandbox                  | Accepted | 2026-10 |
-| [ADR-008](008-structured-tool-outcomes.md)   | Structured tool outcomes instead of matching result text                   | Proposed | 2026-11 |
+| [ADR-008](008-structured-tool-outcomes.md)   | Structured tool outcomes instead of matching result text                   | Accepted | 2026-11 |
 
 ## Template
 

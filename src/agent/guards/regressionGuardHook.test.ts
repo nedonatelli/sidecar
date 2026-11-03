@@ -4,6 +4,7 @@ import * as path from 'path';
 import type { LoopState } from '../loop/state.js';
 import type { HookContext } from '../loop/policyHook.js';
 import type { ToolUseContentBlock, ChatMessage } from '../../ollama/types.js';
+import type { ToolOutcome } from '../tools/toolOutcome.js';
 
 // Mock ShellSession so these tests don't actually spawn shells or
 // depend on bash/zsh being present. Each test configures what the
@@ -44,8 +45,12 @@ import {
 // afterToolResults / onEmptyResponse expect.
 // ---------------------------------------------------------------------------
 
+// What the executor reported for each call (ADR-008). writeFileToolUse records
+// a change; a test that wants a failed write overwrites its entry.
+const outcomes = new Map<string, ToolOutcome>();
+
 function makeState(messages: ChatMessage[] = []): LoopState {
-  return { messages, logger: { warn: vi.fn() } } as unknown as LoopState;
+  return { messages, logger: { warn: vi.fn() }, toolOutcomes: outcomes } as unknown as LoopState;
 }
 
 function makeCtx(pendingToolUses: ToolUseContentBlock[] = []): HookContext {
@@ -61,7 +66,9 @@ function makeCtx(pendingToolUses: ToolUseContentBlock[] = []): HookContext {
 }
 
 function writeFileToolUse(path: string): ToolUseContentBlock {
-  return { type: 'tool_use', id: 't1', name: 'write_file', input: { path, content: 'x' } } as ToolUseContentBlock;
+  const id = `w-${path}`;
+  outcomes.set(id, { kind: 'mutated', paths: [path] });
+  return { type: 'tool_use', id, name: 'write_file', input: { path, content: 'x' } } as ToolUseContentBlock;
 }
 
 function grepToolUse(query: string): ToolUseContentBlock {
@@ -150,6 +157,14 @@ describe('RegressionGuardHook.afterToolResults', () => {
       await hook.afterToolResults(state, makeCtx([grepToolUse('needle')]));
       expect(shellExecuteMock).not.toHaveBeenCalled();
       expect(state.messages).toHaveLength(0);
+    });
+
+    it.each(['failed', 'noop'] as const)('skips when the only write_file call was %s', async (kind) => {
+      const hook = new RegressionGuardHook({ name: 'physics', command: 'python v.py', trigger: 'post-write' });
+      const write = writeFileToolUse('src/foo.ts');
+      outcomes.set(write.id, { kind, paths: ['src/foo.ts'] });
+      await hook.afterToolResults(makeState(), makeCtx([write]));
+      expect(shellExecuteMock).not.toHaveBeenCalled();
     });
 
     it('runs when at least one write_file tool_use is present and exit is 0 (no injection)', async () => {

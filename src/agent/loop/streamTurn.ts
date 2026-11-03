@@ -504,8 +504,8 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       const alreadyDone =
         isMutationRequest(userText) &&
         !looksLikeDeclinedAction(fullText) &&
-        (recentResultsShowWorkAlreadyDone(state.messages, state.userRequestText) ||
-          verifiedMutationSinceUserMessage(state.messages, state.userRequestText));
+        (recentResultsShowWorkAlreadyDone(state.messages, state.toolOutcomes, state.userRequestText) ||
+          verifiedMutationSinceUserMessage(state.messages, state.toolOutcomes, state.userRequestText));
       if (alreadyDone) {
         state.logger?.info('Fence-write coercion suppressed: work already applied or verified done');
       }
