@@ -5,8 +5,10 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    // The bundle's only entry (package.json "bundle").
+    // The bundle's entries (package.json "bundle"): the extension, and the
+    // embedding worker it starts as a thread by path, never imports (#399).
     "src/extension.ts!",
+    "src/config/embeddingWorker.ts!",
     // The public @sidecar/sdk surface; no internal caller by design.
     "src/sdk/index.ts!",
   ],
