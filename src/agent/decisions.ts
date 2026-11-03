@@ -121,6 +121,23 @@ export type AgentDecision =
       recognized: boolean;
       runner?: string;
       exitCode?: number;
+    }
+  | {
+      /**
+       * A message the loop injected into the conversation: a gate's demand, a
+       * reprompt, a steer (#390). Before this record a nudge reached the
+       * trajectory only when the model quoted it back in its thinking, so a
+       * count was a lower bound that broke whenever the wording changed.
+       */
+      kind: 'reprompt';
+      action: 'injected';
+      /** Stable per injection site, independent of the wording (`NudgeSource`). */
+      source: string;
+      iteration: number;
+      /** Files the nudge names, when it names any. */
+      files?: string[];
+      /** The first 200 characters, for reading a trajectory by eye. */
+      text: string;
     };
 
 /** Minimal logger surface this module needs (AgentLogger satisfies it). */
@@ -180,6 +197,7 @@ export function summarizeDecisions(decisions: readonly AgentDecision[]): Record<
     bump(`${d.kind}.${d.action}`);
     if (d.kind === 'completion_gate') for (const f of d.findings ?? []) bump(`completion_gate.finding.${f}`);
     if (d.kind === 'tool_budget') bump(`tool_budget.tool.${d.tool}`);
+    if (d.kind === 'reprompt') bump(`reprompt.source.${d.source}`);
     if (d.kind === 'keep_best_ratchet' && d.action === 'reverted' && d.reason) {
       bump(`keep_best_ratchet.reason.${d.reason}`);
     }

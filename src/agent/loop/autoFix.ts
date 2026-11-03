@@ -3,6 +3,7 @@ import type { getConfig } from '../../config/settings.js';
 import type { AgentCallbacks } from '../loop.js';
 import { getDiagnostics } from '../tools.js';
 import type { LoopState } from './state.js';
+import { injectNudge } from './nudge.js';
 
 // ---------------------------------------------------------------------------
 // Auto-fix on diagnostics — post-turn policy.
@@ -83,14 +84,16 @@ export async function applyAutoFix(
     .map(({ file }) => `${file} (${state.autoFixRetriesByFile.get(file)}/${config.autoFixMaxRetries})`)
     .join(', ');
   callbacks.onText(`\n⚠️ Auto-fixing errors: ${attemptSummary}\n`);
-  state.messages.push({
-    role: 'user',
-    content: [
+  injectNudge(
+    state,
+    'auto-fix',
+    [
       {
         type: 'text' as const,
         text: `Errors detected after your edits. Please fix them:\n${fileErrors.map((fe) => fe.errors).join('\n')}`,
       },
     ],
-  });
+    fileErrors.map((fe) => fe.file),
+  );
   return true;
 }

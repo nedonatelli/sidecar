@@ -1,5 +1,6 @@
 import { buildBehavioralVerificationReprompt } from '../../completionGate.js';
 import type { CompletionGate } from './types.js';
+import { injectNudge } from '../nudge.js';
 
 // Bounded re-fire: a model that games the gate with a hollow test gets told
 // once more, then the gate stands down.
@@ -40,7 +41,7 @@ export const behavioralVerificationGate: CompletionGate = {
     gateState.behavioralVerificationInjections = (gateState.behavioralVerificationInjections ?? 0) + 1;
     logger?.info('Behavioral-verification gate fired — no test that actually exercises the edited behavior');
     ctx.callbacks.onText('\n\n🧪 Writing a test to confirm the fix actually works...\n');
-    state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+    injectNudge(state, 'behavioral-verification', [{ type: 'text' as const, text: reprompt }]);
     return 'injected';
   },
 };

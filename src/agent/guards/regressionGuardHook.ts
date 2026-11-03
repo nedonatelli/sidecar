@@ -8,6 +8,7 @@ import { getConfig } from '../../config/settings.js';
 import { matchGlob } from '../../config/structuredContextRules.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
+import { injectNudge } from '../loop/nudge.js';
 
 /**
  * Shape of a single entry in `sidecar.regressionGuards`. Loaded from
@@ -192,10 +193,11 @@ export class RegressionGuardHook implements PolicyHook {
           ? !(already?.content as string)?.includes(`${this.guard.name}\` exceeded`)
           : false
       ) {
-        state.messages.push({
-          role: 'user',
-          content: `Regression guard \`${this.guard.name}\` exceeded ${maxAttempts} failed attempts — giving up and proceeding without it. Review the last guard output manually.`,
-        });
+        injectNudge(
+          state,
+          'regression-guard-exhausted',
+          `Regression guard \`${this.guard.name}\` exceeded ${maxAttempts} failed attempts — giving up and proceeding without it. Review the last guard output manually.`,
+        );
         return { mutated: true, reason: `${this.name} budget exhausted` };
       }
       return;
@@ -248,10 +250,7 @@ export class RegressionGuardHook implements PolicyHook {
 
     // Blocking: inject a synthetic user message so the agent must
     // address it on the next iteration.
-    state.messages.push({
-      role: 'user',
-      content: formatGuardFailure(this.guard, exitCode, stdout),
-    });
+    injectNudge(state, 'regression-guard', formatGuardFailure(this.guard, exitCode, stdout));
     return { mutated: true, reason: `${this.name} failed (attempt ${this.attempts})` };
   }
 }

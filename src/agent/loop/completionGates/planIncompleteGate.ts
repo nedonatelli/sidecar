@@ -1,5 +1,6 @@
 import { planStepWriteTargetsNotWritten } from '../../plans/externalPlan.js';
 import type { CompletionGate } from './types.js';
+import { injectNudge } from '../nudge.js';
 
 // A long plan legitimately needs more than one nudge, but an unbounded gate
 // would loop a model that cannot comply.
@@ -52,10 +53,7 @@ export const planIncompleteGate: CompletionGate = {
         ? `\n\n📋 Plan shows step ${plan.current}/${plan.steps.length} — continuing remaining steps...\n`
         : `\n\n📋 Plan claims done but ${unwritten.length} planned file(s) missing — finishing them...\n`,
     );
-    state.messages.push({
-      role: 'user',
-      content: [{ type: 'text' as const, text: `Your plan is not complete: ${detail}` }],
-    });
+    injectNudge(state, 'plan-incomplete', [{ type: 'text' as const, text: `Your plan is not complete: ${detail}` }]);
     return 'injected';
   },
 };

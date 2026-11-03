@@ -14,6 +14,7 @@ import { findUnenforcedBoundsInFiles, type FileBoundFinding } from '../../analyt
 import { checkShapeConsistency, type ShapeIssue } from '../../shapePropagation.js';
 import type { SymbolGraph, ImpactedItem } from '../../../config/symbolGraph.js';
 import type { CompletionGate } from './types.js';
+import { injectNudge } from '../nudge.js';
 
 const IMPACT_REASON_NOUNS: Record<ImpactedItem['reason'], [string, string]> = {
   calls: ['caller', 'callers'],
@@ -262,10 +263,7 @@ export const impactGate: CompletionGate = {
                 `Change-impact gate fired — ${impact.length} edited exported symbol(s) with unverified dependents`,
               );
               callbacks.onText('\n\n🌐 Verifying downstream dependents before completion...\n');
-              state.messages.push({
-                role: 'user',
-                content: [{ type: 'text' as const, text: buildImpactGateReprompt(impact) }],
-              });
+              injectNudge(state, 'change-impact', [{ type: 'text' as const, text: buildImpactGateReprompt(impact) }]);
               return 'injected';
             }
           } catch (err) {
@@ -316,10 +314,9 @@ export const numericalContractGate: CompletionGate = {
                 `Numerical-contract gate fired — ${findings.conflicts.length} shape conflict(s), ${findings.bare.length} uncontracted kernel(s)`,
               );
               callbacks.onText('\n\n📐 Resolving numerical-contract issues before completion...\n');
-              state.messages.push({
-                role: 'user',
-                content: [{ type: 'text' as const, text: buildNumericalGateReprompt(findings) }],
-              });
+              injectNudge(state, 'numerical-contract', [
+                { type: 'text' as const, text: buildNumericalGateReprompt(findings) },
+              ]);
               return 'injected';
             }
             gateState.numericalContractAdvisoryFired = true;
@@ -357,10 +354,7 @@ export const analyticBoundGate: CompletionGate = {
               gateState.analyticBoundAdvisoryFired = true; // the block carries the same info
               logger?.info(`Analytic-bound gate fired — ${findings.length} declared-but-unenforced bound(s)`);
               callbacks.onText('\n\n📊 Enforcing declared analytic bounds before completion...\n');
-              state.messages.push({
-                role: 'user',
-                content: [{ type: 'text' as const, text: buildBoundGateReprompt(findings) }],
-              });
+              injectNudge(state, 'analytic-bound', [{ type: 'text' as const, text: buildBoundGateReprompt(findings) }]);
               return 'injected';
             }
             gateState.analyticBoundAdvisoryFired = true;

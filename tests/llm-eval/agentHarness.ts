@@ -13,6 +13,7 @@ import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js'
 import { getConfig } from '../../src/config/settings.js';
 import { needsColdStart, hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
 import { startSuspendWatch } from '../../bench/swe/hostSuspend.js';
+import type { AgentDecision } from '../../src/agent/decisions.js';
 
 // ---------------------------------------------------------------------------
 // Agent-loop eval runner.
@@ -527,6 +528,10 @@ function dumpTrajectory(
   result: AgentCaseResult,
   configOverrides?: AgentEvalCase['configOverrides'],
   surface?: EffectiveSurface,
+  // The loop's structured decisions, as swe.eval.ts writes them: which gate or
+  // reprompt fired and about which file (#390). Kept apart from `trajectory`,
+  // which the case assertions read.
+  decisions?: readonly AgentDecision[],
 ): void {
   // Capture by DEFAULT. This used to require SIDECAR_EVAL_TRAJECTORY_DIR to be
   // set, so the question the comment above promises to answer — "do models
@@ -554,6 +559,7 @@ function dumpTrajectory(
       durationMs: result.durationMs,
       iterationsUsed: result.iterationsUsed,
       trajectory: result.trajectory,
+      ...(decisions && decisions.length > 0 ? { decisions } : {}),
     });
     fs.appendFileSync(path.join(dir, 'trajectories.jsonl'), line + '\n');
   } catch {
@@ -860,7 +866,15 @@ export async function runAgentCase(
       },
       suspendWatch,
     );
-    dumpTrajectory(evalCase.id, model, backend.name, errorResult, evalCase.configOverrides, surface);
+    dumpTrajectory(
+      evalCase.id,
+      model,
+      backend.name,
+      errorResult,
+      evalCase.configOverrides,
+      surface,
+      session.loopDecisions,
+    );
     return errorResult;
   }
 
@@ -879,7 +893,15 @@ export async function runAgentCase(
     iterationsUsed,
   });
   const finalResult = withSuspend(apiUnavailable ? { ...scored, apiUnavailable: true } : scored, suspendWatch);
-  dumpTrajectory(evalCase.id, model, backend.name, finalResult, evalCase.configOverrides, surface);
+  dumpTrajectory(
+    evalCase.id,
+    model,
+    backend.name,
+    finalResult,
+    evalCase.configOverrides,
+    surface,
+    session.loopDecisions,
+  );
   return finalResult;
 }
 

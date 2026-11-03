@@ -11,6 +11,7 @@ import type { getConfig } from '../../../config/settings.js';
 import type { AgentCallbacks } from '../../loop.js';
 import type { LoopState } from '../state.js';
 import type { CompletionGate } from './types.js';
+import { injectNudge } from '../nudge.js';
 
 const MAX_SYNTAX_GATE_INJECTIONS = 2;
 
@@ -97,10 +98,12 @@ export async function maybeInjectSyntaxGate(
       gateState.syntaxGateFixTargets = new Set(failures.map((f) => f.file));
       logger?.info(`Syntax gate fired — ${failures.length} edited file(s) fail to parse`);
       callbacks.onText('\n\n🧩 Edited code fails to parse — fixing syntax errors...\n');
-      state.messages.push({
-        role: 'user',
-        content: [{ type: 'text' as const, text: buildSyntaxReprompt(failures) }],
-      });
+      injectNudge(
+        state,
+        'syntax',
+        [{ type: 'text' as const, text: buildSyntaxReprompt(failures) }],
+        failures.map((f) => f.file),
+      );
       return 'injected';
     }
     logger?.info('Syntax gate: all checked files parse cleanly');
