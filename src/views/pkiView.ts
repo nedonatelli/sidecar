@@ -150,6 +150,8 @@ export class PkiTreeProvider implements TreeDataProvider<PkiItem>, Disposable {
       void window.showWarningMessage('SideCar PKI: index not ready yet.');
       return;
     }
+    // A rebuild is also the user's retry when the model failed to load (#401).
+    this.symbolEmbeddings.retryModelLoad();
     await this.symbolEmbeddings.clearAll();
     this.refresh();
     // Re-embed every symbol the graph already holds. queueUpdate alone rebuilt

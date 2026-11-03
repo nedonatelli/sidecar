@@ -220,6 +220,11 @@ export class SymbolEmbeddingIndex implements Disposable {
     return this.embedder.ready;
   }
 
+  /** Let the model load be attempted again after the embedder gave up (#401). */
+  retryModelLoad(): void {
+    this.embedder.retryModelLoad();
+  }
+
   /**
    * Restore cache from disk + start the model load in the background.
    * Returns immediately — callers that need the model ready must check
@@ -522,9 +527,11 @@ export class SymbolEmbeddingIndex implements Disposable {
   private async drainBatch(): Promise<void> {
     if (this.pendingQueue.size === 0) return;
     if (!(await this.embedder.ensureReady())) {
-      // Model not ready — ensureReady already re-attempts a failed load, so just
-      // schedule another flush to pick it up once loading finishes.
-      this.scheduleFlush(SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+      // Come back when the embedder will next try a load, not every 250 ms
+      // (#401); once it has given up, the queue waits for retryModelLoad().
+      if (!this.embedder.gaveUp) {
+        this.scheduleFlush(Math.max(SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS, this.embedder.msUntilNextAttempt()));
+      }
       return;
     }
 

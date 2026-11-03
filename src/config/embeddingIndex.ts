@@ -225,7 +225,19 @@ export class EmbeddingIndex implements Disposable {
 
   private async drainBatch(): Promise<void> {
     if (this.pendingUpdates.size === 0) return;
-    if (!(await this.embedder.ensureReady())) return;
+    if (!(await this.embedder.ensureReady())) {
+      // Same rule as the symbol index (#401): come back for the embedder's next
+      // load attempt. Returning without one left the queued files waiting for
+      // the next file change to start a drain.
+      if (!this.embedder.gaveUp) {
+        if (this.updateTimer) clearTimeout(this.updateTimer);
+        this.updateTimer = setTimeout(
+          () => this.runFlush(),
+          Math.max(UPDATE_DEBOUNCE_MS, this.embedder.msUntilNextAttempt()),
+        );
+      }
+      return;
+    }
 
     const batch = Array.from(this.pendingUpdates.entries()).slice(0, BATCH_SIZE);
     for (const [relPath] of batch) {

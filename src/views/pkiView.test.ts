@@ -8,6 +8,7 @@ describe('PkiTreeProvider.rebuild (#113)', () => {
   it('re-embeds the symbols the graph holds after clearing, instead of leaving the index empty', async () => {
     const order: string[] = [];
     const embeddings = {
+      retryModelLoad: vi.fn(() => void order.push('retry')),
       clearAll: vi.fn(async () => void order.push('clear')),
       setOnDrained: vi.fn(),
       getDiskBytes: vi.fn(async () => 0),
@@ -28,7 +29,8 @@ describe('PkiTreeProvider.rebuild (#113)', () => {
     await view.rebuild();
 
     expect(indexer.replaySymbolsToEmbeddingIndex).toHaveBeenCalledTimes(1);
-    // Cleared first, then refilled; changed files are still re-parsed after.
-    expect(order).toEqual(['clear', 'replay', 'queue']);
+    // A model that gave up loading may try again (#401); then cleared, then
+    // refilled; changed files are still re-parsed after.
+    expect(order).toEqual(['retry', 'clear', 'replay', 'queue']);
   });
 });
