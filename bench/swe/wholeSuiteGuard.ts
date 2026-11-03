@@ -27,6 +27,7 @@
 // ---------------------------------------------------------------------------
 
 import type { PolicyHook } from '../../src/agent/loop/policyHook.js';
+import { injectNudge } from '../../src/agent/loop/nudge.js';
 
 /** Runner scripts whose bare invocation executes a whole project suite. */
 // `bin/test` is sympy's (#260): bare `python bin/test -C --verbose` runs the whole
@@ -158,7 +159,7 @@ export function wholeSuiteGuard(): PolicyHook {
 
       if (!firedBareSuite && (autoWholeSuite || commands.some(isWholeSuiteInvocation))) {
         firedBareSuite = true;
-        state.messages.push({ role: 'user', content: BARE_SUITE_REPROMPT });
+        injectNudge(state, 'whole-suite', BARE_SUITE_REPROMPT);
         return { mutated: true, reason: 'whole-suite test invocation' };
       }
 
@@ -169,7 +170,7 @@ export function wholeSuiteGuard(): PolicyHook {
         const output = (ctx.toolResults ?? []).map((r) => r.content).join('\n');
         if (output && isBadTestLabelOutput(output)) {
           firedBadLabel = true;
-          state.messages.push({ role: 'user', content: BAD_LABEL_REPROMPT });
+          injectNudge(state, 'bad-test-label', BAD_LABEL_REPROMPT);
           return { mutated: true, reason: 'invalid test label' };
         }
       }

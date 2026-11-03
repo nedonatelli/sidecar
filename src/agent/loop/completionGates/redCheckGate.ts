@@ -1,5 +1,6 @@
 import { recordDecision } from '../../decisions.js';
 import type { CompletionGate } from './types.js';
+import { injectNudge } from '../nudge.js';
 
 // Fires at most twice; the wording explicitly allows an honest could-not-complete
 // report to exit, so a model in an unfixable workspace is not trapped.
@@ -43,20 +44,17 @@ export const redCheckGate: CompletionGate = {
     ctx.callbacks.onText(
       '\n\n🔴 The last check FAILED — completion refused until it passes or the failure is reported.\n',
     );
-    state.messages.push({
-      role: 'user',
-      content: [
-        {
-          type: 'text' as const,
-          text:
-            `[Completion gate] The last verification you ran FAILED:\n${gateState.failedCheckOutput}\n\n` +
-            `Do not declare the task done while your own check is failing, and do not explain the failure away ` +
-            `as stale or expected — re-run the check if you believe it is outdated. Either fix the cause and ` +
-            `re-run the check until it passes, or state plainly that the task could not be completed and quote ` +
-            `the failing output.`,
-        },
-      ],
-    });
+    injectNudge(state, 'red-check', [
+      {
+        type: 'text' as const,
+        text:
+          `[Completion gate] The last verification you ran FAILED:\n${gateState.failedCheckOutput}\n\n` +
+          `Do not declare the task done while your own check is failing, and do not explain the failure away ` +
+          `as stale or expected — re-run the check if you believe it is outdated. Either fix the cause and ` +
+          `re-run the check until it passes, or state plainly that the task could not be completed and quote ` +
+          `the failing output.`,
+      },
+    ]);
     return 'injected';
   },
 };

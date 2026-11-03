@@ -5,16 +5,19 @@
 // by the completion-gate master (no individual flags yet — they're minor
 // nudges; give one its own flag if a reason to study it in isolation appears).
 import {
-  buildNoReadReprompt,
   buildNoShellReprompt,
   buildNoGroundingReprompt,
   buildUnverifiedClaimReprompt,
   buildMcpMutationVerifyReprompt,
-  buildNoFileWriteReprompt,
+  unreadMention,
+  noReadReprompt,
+  unwrittenMentions,
+  noFileWriteReprompt,
 } from '../../completionGate.js';
 import { existsInWorkspace } from '../../completionGate/mentions.js';
 import { getRoot } from '../../tools/shared.js';
 import type { LoopState } from '../state.js';
+import { injectNudge, type NudgeSource } from '../nudge.js';
 
 /** The run's working root: a shadow or SWE run works under cwdOverride, not the workspace folder. */
 function runRoot(s: LoopState): string {
@@ -31,11 +34,15 @@ type RepromptFiredFlag =
   | 'mcpMutationRepromptFired'
   | 'noFileWriteRepromptFired';
 
+/** A reprompt, and the files it names when the trajectory should record them (#390). */
+type Reprompt = string | { text: string; files: string[] };
+
 interface RepromptSpec {
-  name: string;
+  /** Also the nudge's `source` in the trajectory. */
+  name: NudgeSource;
   firedFlag: RepromptFiredFlag;
   /** Build the reprompt from the run state, or null when the gate shouldn't fire. */
-  build(state: LoopState): string | null | Promise<string | null>;
+  build(state: LoopState): Reprompt | null | Promise<Reprompt | null>;
   /** User-visible status line emitted when the gate fires. */
   onText: string;
   /** Output-channel log line when the gate fires. */
@@ -54,7 +61,8 @@ function repromptGate(spec: RepromptSpec): CompletionGate {
       gateState[spec.firedFlag] = true;
       logger?.info(spec.logMsg);
       ctx.callbacks.onText(spec.onText);
-      state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: reprompt }] });
+      const { text, files } = typeof reprompt === 'string' ? { text: reprompt, files: undefined } : reprompt;
+      injectNudge(state, spec.name, [{ type: 'text' as const, text }], files);
       return 'injected';
     },
   };
@@ -65,13 +73,15 @@ export const noReadGate = repromptGate({
   firedFlag: 'noReadRepromptFired',
   // Only for a file that exists in the run's workspace (#317), and named by the
   // user, not by a harness's own instructions (#391).
-  build: (s) =>
-    buildNoReadReprompt(
+  build: (s) => {
+    const file = unreadMention(
       s.messages,
       s.gateState.editedFiles,
       s.gateState.fileReferenceText ?? s.gateState.currentUserRequest,
       (f) => existsInWorkspace(runRoot(s), f),
-    ),
+    );
+    return file ? { text: noReadReprompt(file), files: [file] } : null;
+  },
   onText: '\n\n📂 Reading file before answering...\n',
   logMsg: 'No-read gate fired — file mentioned but no read tool called for it',
 });
@@ -113,15 +123,17 @@ export const noFileWriteGate = repromptGate({
   firedFlag: 'noFileWriteRepromptFired',
   // Existence against the run's root, not the VS Code workspace folder: in a
   // shadow or SWE run those differ (#317).
-  build: (s) =>
-    buildNoFileWriteReprompt(
+  build: async (s) => {
+    const unwritten = await unwrittenMentions(
       s.messages,
       s.gateState.editedFiles,
       s.gateState.currentUserRequest,
       async (rel) => existsInWorkspace(runRoot(s), rel),
       s.gateState.fileReferenceText,
       s.toolOutcomes,
-    ),
+    );
+    return unwritten.length > 0 ? { text: noFileWriteReprompt(unwritten), files: unwritten } : null;
+  },
   onText: '\n\n📝 Checking named files were written...\n',
   logMsg: 'No-file-write gate fired — named file(s) not written',
 });

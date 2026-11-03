@@ -171,6 +171,24 @@ export function buildNoReadReprompt(
   messages: ChatMessage[],
   editedFiles?: ReadonlySet<string>,
   requestText?: string,
+  fileExists?: (file: string) => boolean,
+): string | null {
+  const file = unreadMention(messages, editedFiles, requestText, fileExists);
+  return file ? noReadReprompt(file) : null;
+}
+
+export function noReadReprompt(file: string): string {
+  return (
+    `The request mentions \`${file}\`, but no read_file, grep, or other file-reading tool has been called on it. ` +
+    `Call \`read_file(path="${file}")\` now and answer from its actual contents — do not infer from the filename or training data.`
+  );
+}
+
+/** The file the no-read gate asks the model to read, or null. Exported so the gate can record it (#390). */
+export function unreadMention(
+  messages: ChatMessage[],
+  editedFiles?: ReadonlySet<string>,
+  requestText?: string,
   // Whether a mentioned file is in the workspace. The gate passes a real check
   // (existsInWorkspace under the run's root); the default keeps the old
   // behaviour for callers that have no workspace.
@@ -198,12 +216,7 @@ export function buildNoReadReprompt(
     // Not a file in this workspace (#317): nothing to read, and demanding it
     // reads to the model as an instruction it can't follow.
     if (!fileExists(file)) continue;
-    if (!hasReadToolCallForFile(messages, file)) {
-      return (
-        `The request mentions \`${file}\`, but no read_file, grep, or other file-reading tool has been called on it. ` +
-        `Call \`read_file(path="${file}")\` now and answer from its actual contents — do not infer from the filename or training data.`
-      );
-    }
+    if (!hasReadToolCallForFile(messages, file)) return file;
   }
   return null;
 }
@@ -461,20 +474,49 @@ export async function buildNoFileWriteReprompt(
   messages: ChatMessage[],
   editedFiles: Set<string>,
   requestText?: string,
+  fileExists?: (relPath: string) => Promise<boolean>,
+  fileReferenceText?: string,
+  toolOutcomes?: ReadonlyMap<string, ToolOutcome>,
+): Promise<string | null> {
+  const unwritten = await unwrittenMentions(
+    messages,
+    editedFiles,
+    requestText,
+    fileExists,
+    fileReferenceText,
+    toolOutcomes,
+  );
+  return unwritten.length > 0 ? noFileWriteReprompt(unwritten) : null;
+}
+
+export function noFileWriteReprompt(unwritten: string[]): string {
+  const fileList = unwritten.map((f) => `\`${f}\``).join(', ');
+  return (
+    `The request mentions ${fileList}, but the run finished without writing to ${unwritten.length === 1 ? 'it' : 'any of them'}. ` +
+    `If the task required changes to ${unwritten.length === 1 ? 'that file' : 'those files'}, make them now. ` +
+    `If you already completed everything the task asked for, ignore this and finish with a plain text answer (no tool calls).`
+  );
+}
+
+/** The named files the no-file-write gate says were never written. Exported so the gate can record them (#390). */
+export async function unwrittenMentions(
+  messages: ChatMessage[],
+  editedFiles: Set<string>,
+  requestText?: string,
   fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
   // Where the named files are read from, when not the request (#391).
   fileReferenceText?: string,
   toolOutcomes: ReadonlyMap<string, ToolOutcome> = new Map(),
-): Promise<string | null> {
+): Promise<string[]> {
   const userText = requestText ?? firstUserText(messages);
-  if (!userText) return null;
-  if (!WRITE_INTENT_RE.test(userText)) return null;
+  if (!userText) return [];
+  if (!WRITE_INTENT_RE.test(userText)) return [];
 
   // Quoted material (a traceback, a shell line, a code block) names files the
   // request never asked to create (#317), and foreign paths can't be workspace
   // files at all.
   const mentioned = requestedFiles(fileReferenceText ?? userText).filter((f) => !isForeignPath(f));
-  if (!mentioned.length) return null;
+  if (!mentioned.length) return [];
 
   // Normalise mentioned paths: strip leading backticks/quotes, drop pure
   // directory tokens (no extension), collapse to basename for matching so
@@ -505,13 +547,5 @@ export async function buildNoFileWriteReprompt(
     if (await fileExists(clean)) continue;
     unwritten.push(clean);
   }
-
-  if (unwritten.length === 0) return null;
-
-  const fileList = unwritten.map((f) => `\`${f}\``).join(', ');
-  return (
-    `The request mentions ${fileList}, but the run finished without writing to ${unwritten.length === 1 ? 'it' : 'any of them'}. ` +
-    `If the task required changes to ${unwritten.length === 1 ? 'that file' : 'those files'}, make them now. ` +
-    `If you already completed everything the task asked for, ignore this and finish with a plain text answer (no tool calls).`
-  );
+  return unwritten;
 }

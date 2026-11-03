@@ -2,6 +2,7 @@ import { MAX_GATE_INJECTIONS } from '../../../config/constants.js';
 import { checkCompletionGate, buildGateInjection, describeFindingKinds } from '../../completionGate.js';
 import { recordDecision } from '../../decisions.js';
 import type { CompletionGate } from './types.js';
+import { injectNudge } from '../nudge.js';
 
 /**
  * The base completion gate: the original "you edited files but never verified
@@ -49,7 +50,12 @@ export const baseCompletionGate: CompletionGate = {
       `Completion gate fired (#${gateState.gateInjections}/${maxGateInjections}): ${findings.length} unverified edit(s)`,
     );
     ctx.callbacks.onText('\n\n🔒 Verifying changes before completion...\n');
-    state.messages.push({ role: 'user', content: [{ type: 'text' as const, text: injection }] });
+    injectNudge(
+      state,
+      'completion',
+      [{ type: 'text' as const, text: injection }],
+      [...new Set(findings.map((f) => f.file))],
+    );
     return 'injected';
   },
 };

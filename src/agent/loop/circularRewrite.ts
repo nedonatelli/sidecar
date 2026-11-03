@@ -5,6 +5,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { MAX_UNVERIFIED_REWRITES } from '../tools/fs.js';
 import { changedFiles, fileToolName } from '../tools/toolOutcome.js';
+import { injectNudge } from './nudge.js';
 
 /** Times the loop will defer a write-thrash bail per file to force a verify first. */
 const MAX_FORCE_VERIFY_BEFORE_BAIL = 2;
@@ -244,9 +245,10 @@ export function maybeEscalateBlockedRewrite(
       ? `\n\nYour most recent test/diagnostic output (fix what this points to):\n\`\`\`\n${state.lastFailureOutput}\n\`\`\`\n`
       : '';
     callbacks.onText(`\n🛑 Stop rewriting ${filePath.split('/').pop()} — make a targeted edit instead.\n`);
-    state.messages.push({
-      role: 'user',
-      content: [
+    injectNudge(
+      state,
+      'rewrite-escalation',
+      [
         {
           type: 'text' as const,
           text:
@@ -257,7 +259,8 @@ export function maybeEscalateBlockedRewrite(
             `small edit, then run the test again. Do not call write_file on this file again.`,
         },
       ],
-    });
+      [filePath],
+    );
     return true;
   }
   return false;
@@ -312,9 +315,10 @@ export function maybeSteerEditToWrite(
     state.escalatedEditToWriteByFile.add(filePath);
     const base = filePath.split('/').pop();
     callbacks.onText(`\n🛑 edit_file keeps failing on ${base} — rewrite the whole file with write_file instead.\n`);
-    state.messages.push({
-      role: 'user',
-      content: [
+    injectNudge(
+      state,
+      'edit-to-write',
+      [
         {
           type: 'text' as const,
           text:
@@ -325,7 +329,8 @@ export function maybeSteerEditToWrite(
             `write_file with everything. Put ALL the code in \`content\`; do not use edit_file for this file again.`,
         },
       ],
-    });
+      [filePath],
+    );
     return true;
   }
   return false;
