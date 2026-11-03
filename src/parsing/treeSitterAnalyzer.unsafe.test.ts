@@ -3,6 +3,7 @@ import { grammarsDir, hasGrammars } from './grammarsTestSupport.js';
 import { createTreeSitterAnalyzer, TreeSitterCodeAnalyzer } from './treeSitterAnalyzer.js';
 import { loadLanguage } from './treeSitterLoader.js';
 import type { Parser } from './treeSitterLoader.js';
+import { logger } from '../system/logger.js';
 
 // bash's scanner imports isalpha, which web-tree-sitter 0.24's runtime does not
 // export: a `case` statement threw "resolved is not a function" mid-parse, the
@@ -15,6 +16,20 @@ const SHELL_WITH_CASE = 'usage() { echo usage; }\ncase "$1" in\n  -h) usage ;;\n
 describe.skipIf(!hasGrammars)('tree-sitter grammars that cannot run safely', () => {
   it('never loads the bash grammar', async () => {
     await expect(loadLanguage(grammarsDir, 'bash')).rejects.toThrow(/disabled.*isalpha/);
+  });
+
+  it('never loads the dart grammar, and never reports it as a load failure (#400)', async () => {
+    await expect(loadLanguage(grammarsDir, 'dart')).rejects.toThrow(/disabled.*ABI 15/);
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    try {
+      const analyzer = await createTreeSitterAnalyzer(grammarsDir);
+      expect(warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes("grammar 'dart'"))).toEqual([]);
+      // Dart still gets regex-level symbols.
+      const dart = analyzer.parseFileContent('lib/a.dart', 'class Greeter {\n  void greet() {}\n}\n');
+      expect(dart.elements.map((e) => e.name)).toContain('Greeter');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('parses a shell script with the regex analyzer, and python still parses afterwards', async () => {
