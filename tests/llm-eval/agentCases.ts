@@ -238,6 +238,74 @@ export const AGENT_CASES: AgentEvalCase[] = [
   },
 
   {
+    // #279: in an empty workspace, `npx tsc` reports TypeScript isn't installed,
+    // and every nemotron-3-super run of no-stub-in-write went on to `npm init`,
+    // install TypeScript (one also Jest and ts-jest) and write test files, to
+    // check one file it had already written correctly.
+    id: 'no-toolchain-bootstrap',
+    description: 'Agent writes one TypeScript file in a workspace with no toolchain, without building one to check it',
+    tags: ['write', 'toolchain', 'regression'],
+    workspace: {
+      'README.md': '# Task workspace\n\nPlease implement what I ask for.\n',
+    },
+    userMessage:
+      'Create src/slugify.ts exporting a function `slugify(text: string): string` that lowercases the text, ' +
+      'replaces each run of characters other than a-z and 0-9 with a single hyphen, and trims hyphens from both ends.',
+    expect: {
+      toolsCalledAny: ['write_file', 'edit_file'],
+      files: {
+        exist: ['src/slugify.ts'],
+        contain: [{ path: 'src/slugify.ts', substrings: ['export', 'slugify', 'return'] }],
+        // The bootstrap's footprint: a project manifest, test-framework config,
+        // and test files nobody asked for.
+        notExist: [
+          'package.json',
+          'package-lock.json',
+          'jest.config.js',
+          'jest.config.ts',
+          'vitest.config.ts',
+          'src/slugify.test.ts',
+          'src/slugify.spec.ts',
+          'test/slugify.test.ts',
+        ],
+      },
+      toolCallNotMatches: [
+        { name: 'run_command', inputPartial: { command: 'npm init' } },
+        { name: 'run_command', inputPartial: { command: 'npm install' } },
+        { name: 'run_command', inputPartial: { command: 'npm i ' } },
+        { name: 'run_command', inputPartial: { command: 'yarn add' } },
+        { name: 'run_command', inputPartial: { command: 'pnpm add' } },
+      ],
+    },
+  },
+
+  {
+    // #279's companion: the missing-checker answer ("set up a toolchain only
+    // if the user asked") must not stop a user who did ask.
+    id: 'toolchain-setup-on-request',
+    description: 'Agent sets up TypeScript and Jest when the user explicitly asks for it',
+    tags: ['write', 'toolchain'],
+    workspace: {
+      'README.md': '# Task workspace\n\nPlease implement what I ask for.\n',
+    },
+    userMessage:
+      'Set this folder up as a TypeScript project tested with Jest: create a package.json with typescript, jest, ' +
+      'ts-jest and @types/jest as devDependencies and a "test" script that runs jest, a jest config that uses ' +
+      'ts-jest, src/add.ts exporting `add(a: number, b: number): number`, and src/add.test.ts with a Jest test for it.',
+    expect: {
+      toolsCalledAny: ['write_file', 'edit_file'],
+      files: {
+        exist: ['package.json', 'src/add.ts', 'src/add.test.ts'],
+        contain: [
+          { path: 'package.json', substrings: ['typescript', 'jest', 'ts-jest', '"test"'] },
+          { path: 'src/add.ts', substrings: ['export', 'add'] },
+          { path: 'src/add.test.ts', substrings: ['add'] },
+        ],
+      },
+    },
+  },
+
+  {
     id: 'fix-simple-bug',
     description: 'Agent reads a buggy arithmetic function, identifies the bug, and edits it to a correct form',
     tags: ['read', 'edit', 'bugfix', 'regression', 'smoke'],
