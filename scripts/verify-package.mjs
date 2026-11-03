@@ -79,6 +79,9 @@ const checks = [
   ['web-tree-sitter runtime', /web-tree-sitter[/\\]/],
   ['tree-sitter grammars', /grammars[/\\]tree-sitter-typescript\.wasm/],
   ['@huggingface/transformers dist', /@huggingface[/\\]transformers[/\\]dist[/\\]/],
+  // Without it, embedding falls back to the extension host's own thread, which
+  // every extension in the window shares (#399).
+  ['embedding worker', /(^|[/\\])dist[/\\]embeddingWorker\.js\b/],
   [`host sharp native binary (${platform})`, hostSharp],
   ['onnxruntime native binary', /onnxruntime-node[/\\]bin[/\\]napi-v6[/\\].+\.(node|dylib|so|dll)/],
   // screenshot_page require()s it at runtime. It was a devDependency and never

@@ -3593,7 +3593,7 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --external:@lancedb/lancedb --external:esbuild --format=cjs --platform=node --sourcemap --minify --tree-shaking=true",
+    "bundle": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --external:@lancedb/lancedb --external:esbuild --format=cjs --platform=node --sourcemap --minify --tree-shaking=true && esbuild ./src/config/embeddingWorker.ts --bundle --outfile=dist/embeddingWorker.js --external:@huggingface/transformers --format=cjs --platform=node --sourcemap --minify",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:web-tree-sitter --external:@huggingface/transformers --external:better-sqlite3 --external:@duckdb/node-api --external:playwright-core --external:@lancedb/lancedb --external:esbuild --format=cjs --platform=node --sourcemap --watch",
     "copy-grammars": "node scripts/copy-grammars.mjs",
     "build": "npm run compile && npm run bundle && npm run copy-grammars",

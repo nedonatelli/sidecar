@@ -119,6 +119,19 @@ async function attachProfiler(port, deadline) {
     if (msg.id && pending.has(msg.id)) {
       pending.get(msg.id)(msg);
       pending.delete(msg.id);
+    } else if (msg.method === 'NodeWorker.attachedToWorker' && msg.params.waitingForDebugger) {
+      // Under a break-on-start inspector every new worker thread waits for a
+      // debugger too; without this SideCar's embedding worker (#399) never runs.
+      ws.send(
+        JSON.stringify({
+          id: nextId++,
+          method: 'NodeWorker.sendMessageToWorker',
+          params: {
+            sessionId: msg.params.sessionId,
+            message: JSON.stringify({ id: 1, method: 'Runtime.runIfWaitingForDebugger' }),
+          },
+        }),
+      );
     }
   };
   const send = (method, params = {}) =>
@@ -130,6 +143,8 @@ async function attachProfiler(port, deadline) {
   await send('Profiler.enable');
   await send('Profiler.setSamplingInterval', { interval: 1000 });
   await send('Profiler.start');
+  // Announce each new worker (paused) so onmessage above can start it.
+  await send('NodeWorker.enable', { waitForDebuggerOnStart: true });
   // --inspect-brk-extensions holds the host at its first line until this.
   await send('Runtime.runIfWaitingForDebugger');
   return {

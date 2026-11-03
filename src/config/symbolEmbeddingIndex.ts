@@ -492,15 +492,39 @@ export class SymbolEmbeddingIndex implements Disposable {
     this.flushQueue().catch((err) => logger.warn('[SideCar] Symbol index flush failed:', err));
   }
 
+  /** True while a drain runs, including while it waits for the model to load. */
+  private flushing = false;
+
+  /**
+   * One drain at a time (#399). A timer that fires mid-drain returns here:
+   * the running drain re-arms itself while anything is queued. Without this,
+   * every 250 ms of a cold model load started another drain waiting on it,
+   * and they all resumed together — 80 embeds in flight after a 10 s load,
+   * each run from its own setImmediate, so the extension host blocked for
+   * seconds per event-loop turn.
+   */
   private async flushQueue(): Promise<void> {
     this.flushTimer = null;
+    if (this.flushing) return;
+    this.flushing = true;
+    try {
+      await this.drainBatch();
+    } finally {
+      this.flushing = false;
+    }
+  }
+
+  private scheduleFlush(delay: number): void {
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = setTimeout(() => this.runFlush(), delay);
+  }
+
+  private async drainBatch(): Promise<void> {
     if (this.pendingQueue.size === 0) return;
     if (!(await this.embedder.ensureReady())) {
       // Model not ready — ensureReady already re-attempts a failed load, so just
       // schedule another flush to pick it up once loading finishes.
-      this.flushTimer = setTimeout(() => {
-        this.flushQueue().catch((err) => logger.warn('[SideCar] flushQueue retry error:', err?.message || err));
-      }, SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
+      this.scheduleFlush(SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS);
       return;
     }
 
@@ -547,11 +571,9 @@ export class SymbolEmbeddingIndex implements Disposable {
     }
 
     if (this.pendingQueue.size > 0) {
-      const delay =
-        this.pendingQueue.size >= SymbolEmbeddingIndex.FLUSH_BATCH_SIZE ? 0 : SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS;
-      this.flushTimer = setTimeout(() => {
-        this.flushQueue().catch((err) => logger.warn('[SideCar] flushQueue error:', err?.message || err));
-      }, delay);
+      this.scheduleFlush(
+        this.pendingQueue.size >= SymbolEmbeddingIndex.FLUSH_BATCH_SIZE ? 0 : SymbolEmbeddingIndex.FLUSH_DEBOUNCE_MS,
+      );
     } else {
       this.lastUpdatedMs = Date.now();
       logger.debug(`[PKI] embed drain complete${kv({ indexed: this.getCount() })}`);

@@ -44,6 +44,8 @@ const CACHE_FILE = 'cache/symbol-graph.json';
  * almost certainly generated or minified and its symbols would be noise.
  */
 const MAX_FILE_SIZE = 500 * 1024; // 500KB
+/** Files read and parsed at once in a full index; see `initialize` (#399). */
+const PARSE_CONCURRENCY = 8;
 const MAX_JSON_SIZE = 50 * 1024 * 1024; // 50MB persistence limit
 
 /** Outcome of `replaySymbolsToEmbeddingIndex` — used to log real numbers (and
@@ -189,40 +191,54 @@ export class SymbolIndexer implements Disposable {
       return CODE_EXTENSIONS.has(ext);
     });
 
-    // Stat + read + parse all files concurrently. Each callback is
-    // synchronous after its awaits, so graph mutations don't race.
+    // Stat + read + parse through a small pool, yielding before each parse
+    // (#399). Started all at once, the reads resolved together and every
+    // parse ran back to back in one event-loop turn: 1,243 files blocked the
+    // extension host for 6.5 s, and every other extension with it. Each
+    // callback is synchronous after its awaits, so graph mutations don't race.
     let parsed = 0;
-    const settled = await Promise.allSettled(
-      codeUris.map(async (uri) => {
-        const relativePath = this.relKey(uri.fsPath);
-        const stat = await workspace.fs.stat(uri);
-        const hash = `${stat.size}:${stat.mtime}`;
-        if (restored && this.graph.getFileHash(relativePath) === hash) return;
-        const bytes = await workspace.fs.readFile(uri);
-        const content = Buffer.from(bytes).toString('utf-8');
-        if (content.length > MAX_FILE_SIZE) {
-          // Say so. The skip used to be silent, so a user whose file was
-          // invisible to find_references had no way to discover why — the same
-          // shape as the scan truncation in #40, just smaller. Raising the cap
-          // only moves the cliff; naming it is what makes falling off it
-          // observable.
-          logger.warn(
-            `[SideCar] Not indexing ${relativePath} — ${Math.round(content.length / 1024)} KB exceeds the ` +
-              `${MAX_FILE_SIZE / 1024} KB limit. Its symbols will be absent from find_references, ` +
-              `analyze_impact and PKI retrieval.`,
-          );
-          return;
+    const indexOne = async (uri: Uri): Promise<void> => {
+      const relativePath = this.relKey(uri.fsPath);
+      const stat = await workspace.fs.stat(uri);
+      const hash = `${stat.size}:${stat.mtime}`;
+      if (restored && this.graph.getFileHash(relativePath) === hash) return;
+      const bytes = await workspace.fs.readFile(uri);
+      const content = Buffer.from(bytes).toString('utf-8');
+      if (content.length > MAX_FILE_SIZE) {
+        // Say so. The skip used to be silent, so a user whose file was
+        // invisible to find_references had no way to discover why — the same
+        // shape as the scan truncation in #40, just smaller. Raising the cap
+        // only moves the cliff; naming it is what makes falling off it
+        // observable.
+        logger.warn(
+          `[SideCar] Not indexing ${relativePath} — ${Math.round(content.length / 1024)} KB exceeds the ` +
+            `${MAX_FILE_SIZE / 1024} KB limit. Its symbols will be absent from find_references, ` +
+            `analyze_impact and PKI retrieval.`,
+        );
+        return;
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await this.indexFile(relativePath, content, hash);
+      parsed++;
+    };
+    const failed: unknown[] = [];
+    let nextUri = 0;
+    const lane = async (): Promise<void> => {
+      while (nextUri < codeUris.length) {
+        const uri = codeUris[nextUri++];
+        try {
+          await indexOne(uri);
+        } catch (err) {
+          failed.push(err);
         }
-        await this.indexFile(relativePath, content, hash);
-        parsed++;
-      }),
-    );
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PARSE_CONCURRENCY, codeUris.length) }, lane));
     // A file that failed to index is absent from find_references,
     // analyze_impact and PKI retrieval. These failures were discarded: 102
     // files missing from this repo's graph left no trace in any log.
-    const failed = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
     if (failed.length > 0) {
-      const first = failed[0].reason instanceof Error ? failed[0].reason.message : String(failed[0].reason);
+      const first = failed[0] instanceof Error ? failed[0].message : String(failed[0]);
       logger.warn(
         `[SideCar] ${failed.length} of ${codeUris.length} files could not be indexed and are missing from the ` +
           `symbol graph (first error: ${first}).`,
