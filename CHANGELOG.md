@@ -4,6 +4,110 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.135.0] - 2026-11-03
+
+SideCar no longer freezes VS Code's extension host on a cold start. It used to block it for
+46–49 seconds, stalling every other extension in the window; the longest block is now about a
+second, and SideCar is ready about 25 seconds sooner. Dart files get tree-sitter symbols again.
+At the end of a run, scratch files the agent left in your workspace are moved to
+`.sidecar/scratchpad/` and listed in the reply. Adaptive paste shows a diff before it replaces
+anything. Database tools connect with stored passwords, and DuckDB can be installed on demand.
+
+### Changed
+
+- **Scratch files are moved out of the workspace**
+  ([#387](https://github.com/nedonatelli/sidecar/issues/387)). At the end of a run that wasn't
+  stopped, files the run created and left untracked move to `.sidecar/scratchpad/<run id>/`, and
+  the reply lists them. `sidecar.scaffolding.scratchCleanup` (on by default) turns this off.
+- **Adaptive paste previews its replacement**
+  ([#165](https://github.com/nedonatelli/sidecar/issues/165)). The transformed paste opens as a
+  diff with **Accept / Reject** before anything is replaced, in every approval mode except
+  autonomous. If you edit the pasted text while the preview is open, nothing is replaced.
+- **DuckDB is opt-in** ([#375](https://github.com/nedonatelli/sidecar/pull/375)). **SideCar:
+  Install DuckDB Engine** installs the engine into SideCar's own storage after asking, or you can
+  point SideCar at an existing install. The .vsix doesn't carry the ~40 MB native module.
+- **Repeated budget refusals escalate**
+  ([#268](https://github.com/nedonatelli/sidecar/issues/268)). From the second refusal of a tool,
+  the agent is told the call didn't run and further calls will be refused the same way; a run
+  that keeps repeating a refused call stops.
+- **A search through `run_command` spends the search budget**
+  ([#311](https://github.com/nedonatelli/sidecar/issues/311)). A shell command that only searches
+  (`grep`, `find`, `ls`, `cat` and the like, with nothing written) counts against `grep`'s budget,
+  not `run_command`'s.
+
+### Fixed
+
+- **Cold starts no longer block the extension host**
+  ([#399](https://github.com/nedonatelli/sidecar/issues/399)). Embedding work no longer piles up
+  while the model loads, the symbol graph is parsed in small batches, and the embedding model runs
+  in a worker thread.
+- **A failed embedding model load stops retrying**
+  ([#401](https://github.com/nedonatelli/sidecar/issues/401)). It retries after 1, 5 and 30
+  seconds, then stops, instead of every 250 ms for as long as the window is open. Rebuilding the
+  index from the PKI view tries again.
+- **Dart symbols from tree-sitter again**
+  ([#400](https://github.com/nedonatelli/sidecar/issues/400)). web-tree-sitter 0.25 loads the Dart
+  grammar that 0.24 rejected with "Incompatible language version 15" on every activation, and
+  Dart mixins, typedefs and enums are now named.
+- **A cmd-style `2>nul` no longer leaves an undeletable file**
+  ([#395](https://github.com/nedonatelli/sidecar/issues/395)). In Git Bash on Windows, `nul`
+  created a real file that Explorer and `git clean` can't remove. `run_command` now rewrites
+  `>nul`, `2>nul` and similar redirects to `/dev/null`; quoted text is left alone.
+- **A command that didn't run is reported as an error**
+  ([#358](https://github.com/nedonatelli/sidecar/pull/358)). `run_command` and `run_tests` returned
+  a failed or missing command as ordinary output, so the agent could read it as success.
+- **`run_tests` reads a test target sent as `path`**
+  ([#386](https://github.com/nedonatelli/sidecar/issues/386)). Models often name the target `path`
+  instead of `file`; it was dropped and the whole suite ran instead.
+- **A "No change needed" edit no longer counts as a change**
+  ([#361](https://github.com/nedonatelli/sidecar/issues/361)), so checks that run only after a
+  file changed are no longer switched off by an edit that changed nothing.
+- **An inferred edit marks its file as changed**
+  ([#362](https://github.com/nedonatelli/sidecar/issues/362)), so the stale-read guard no longer
+  trusts a read from before the edit.
+- **The line-ending note names the search's own line ending**
+  ([#161](https://github.com/nedonatelli/sidecar/issues/161)). An LF search on a CRLF file was told
+  its search used CRLF.
+- **Retry re-sends your prompt**
+  ([#360](https://github.com/nedonatelli/sidecar/issues/360)). Both Retry buttons sent the bubble's
+  text with its copy, edit and delete glyphs on the end, which started a new turn instead of
+  retrying.
+- **`sidecar.maxOutputTokens` applies to Anthropic and Bedrock**
+  ([#363](https://github.com/nedonatelli/sidecar/issues/363)). Both used the model's maximum
+  instead. Bedrock model ids now get the right output ceiling and temperature.
+- **Database tools connect with a stored password, and SQLite works in an installed build**
+  ([#364](https://github.com/nedonatelli/sidecar/issues/364)). SQLite now runs on `node:sqlite`.
+- **Copilot models are stored by id**
+  ([#230](https://github.com/nedonatelli/sidecar/issues/230)). Switching to the GitHub Copilot
+  profile stored the model's display name, which the first request then rejected. A stored
+  display name is still accepted.
+
+### Documentation
+
+- **ADR-007** ([#376](https://github.com/nedonatelli/sidecar/pull/376)): benchmark prediction runs
+  use process-level isolation; scoring stays in containers.
+
+### Development
+
+- **`npm run test:vsix`** ([#396](https://github.com/nedonatelli/sidecar/issues/396)) installs a
+  built .vsix into a clean VS Code, opens a cold copy of the repo and checks activation, grammar
+  loading, the symbol graph and event-loop stalls. Stalls over a threshold are logged at runtime.
+- `npm run check` runs the same steps as CI, plus a production dead-code pass
+  ([#366](https://github.com/nedonatelli/sidecar/issues/366)).
+
+### Benchmark tooling
+
+- SWE target tests run through each repo's own test runner by default
+  ([#213](https://github.com/nedonatelli/sidecar/issues/213)).
+- The example test path in the SWE prompt is no longer treated as the task's target
+  ([#391](https://github.com/nedonatelli/sidecar/issues/391)).
+- The survivor sweep says when it could not list processes
+  ([#380](https://github.com/nedonatelli/sidecar/issues/380)).
+
+### Stats
+- 10731 total tests (598 test files)
+- 87 built-in tools, 11 skills
+
 ## [0.134.0] - 2026-10-29
 
 SideCar now asks before commits and pushes that could publish the wrong thing, in every approval
