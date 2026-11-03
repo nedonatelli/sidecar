@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getSharedPipeline, setLoaderForTests, LazyEmbedder } from './hfPipeline.js';
+import { getSharedPipeline, setLoaderForTests, LazyEmbedder, MODEL_LOAD_RETRY_DELAYS_MS } from './hfPipeline.js';
 import type { EmbeddingPipeline } from './hfPipeline.js';
 
 afterEach(() => {
@@ -82,16 +82,23 @@ describe('LazyEmbedder', () => {
     });
     const emb = new LazyEmbedder({ label: 'Test', modelId: 'm', dimension: 4 });
 
-    // First attempt fails and must NOT latch the index off permanently.
-    expect(await emb.ensureReady()).toBe(false);
-    expect(emb.ready).toBe(false);
+    vi.useFakeTimers();
+    try {
+      // First attempt fails and must NOT latch the index off permanently.
+      expect(await emb.ensureReady()).toBe(false);
+      expect(emb.ready).toBe(false);
 
-    // A later call re-attempts and succeeds — the divergent semantics that
-    // left the rejected promise cached would have returned false forever here.
-    const vec = await emb.embed('hello');
-    expect(vec).toEqual(new Float32Array([1, 2, 3, 4]));
-    expect(emb.ready).toBe(true);
-    expect(calls).toBe(2);
+      // A call after the first retry delay (#401) re-attempts and succeeds —
+      // the divergent semantics that left the rejected promise cached would
+      // have returned false forever here.
+      vi.advanceTimersByTime(MODEL_LOAD_RETRY_DELAYS_MS[0]);
+      const vec = await emb.embed('hello');
+      expect(vec).toEqual(new Float32Array([1, 2, 3, 4]));
+      expect(emb.ready).toBe(true);
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('truncates input to maxChars and slices output to dimension', async () => {

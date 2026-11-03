@@ -148,9 +148,10 @@ export function setLoaderForTests(loader: PipelineLoader | null): void {
 // Consolidates the load-once / retry-on-failure / embed logic that was copy
 // pasted (with divergent retry semantics) into EmbeddingIndex,
 // SymbolEmbeddingIndex, EpisodicMemoryStore, and SidecarMdIndex. The unified
-// rule is retry-allowed: a transient load failure nulls the in-flight promise
-// so the next call re-attempts (EmbeddingIndex previously cached the rejected
-// promise and stayed disabled for the whole session).
+// rule is bounded retry: a failed load is re-attempted after each delay in
+// MODEL_LOAD_RETRY_DELAYS_MS, then not until retryModelLoad() (EmbeddingIndex
+// once cached the rejected promise and stayed disabled for the whole session;
+// the later retry-allowed rule re-attempted on every call, without limit).
 //
 // Supports both consumption styles: lazy-first-use (call `embed`/`ensureReady`)
 // and eager-background-start (call `start()` in the owner's constructor).
@@ -168,9 +169,19 @@ export interface LazyEmbedderOpts {
   envOpts?: () => EmbeddingPipelineEnvOpts;
 }
 
+/**
+ * Wait before each retry of a failed model load. After the last one fails,
+ * loading stops until `retryModelLoad()` (#401): offline on a first run, or
+ * with a corrupt cache, the symbol index used to re-attempt the whole load
+ * every 250 ms, with a warning each time, for as long as the window was open.
+ */
+export const MODEL_LOAD_RETRY_DELAYS_MS = [1_000, 5_000, 30_000] as const;
+
 export class LazyEmbedder {
   private pipeline: EmbeddingPipeline | null = null;
   private loading: Promise<boolean> | null = null;
+  private failures = 0;
+  private nextAttemptAt = 0;
 
   constructor(private readonly opts: LazyEmbedderOpts) {}
 
@@ -179,23 +190,55 @@ export class LazyEmbedder {
     return this.pipeline !== null;
   }
 
+  /** True once every retry has failed: nothing loads until `retryModelLoad()`. */
+  get gaveUp(): boolean {
+    return this.failures > MODEL_LOAD_RETRY_DELAYS_MS.length;
+  }
+
+  /** Milliseconds until a load may be attempted again; 0 when one may start now. */
+  msUntilNextAttempt(): number {
+    return Math.max(0, this.nextAttemptAt - Date.now());
+  }
+
+  /** Forget past failures, so the next `ensureReady` attempts a load (an explicit user retry). */
+  retryModelLoad(): void {
+    this.failures = 0;
+    this.nextAttemptAt = 0;
+  }
+
   /** Kick off loading in the background. Safe to call repeatedly. */
   start(): void {
     void this.ensureReady();
   }
 
-  /** Load the model if needed. Returns false (not throwing) when unavailable. */
+  /**
+   * Load the model if needed. Returns false (not throwing) when unavailable:
+   * immediately, without a new attempt, while a retry delay is pending or
+   * after every retry has failed.
+   */
   async ensureReady(): Promise<boolean> {
     if (this.pipeline) return true;
     if (this.loading) return this.loading;
+    if (this.gaveUp || this.msUntilNextAttempt() > 0) return false;
     this.loading = (async () => {
       try {
         this.pipeline = await getSharedPipeline(this.opts.modelId ?? MINILM_MODEL_ID, this.opts.envOpts?.() ?? {});
         logger.info(`[${this.opts.label}] Embedding model loaded`);
         return true;
       } catch (err) {
-        logger.warn(`[${this.opts.label}] Embedding model failed to load:`, err instanceof Error ? err.message : err);
-        this.loading = null; // retry-allowed: let the next call re-attempt
+        const reason = err instanceof Error ? err.message : String(err);
+        this.failures += 1;
+        const delay = MODEL_LOAD_RETRY_DELAYS_MS[this.failures - 1];
+        if (delay === undefined) {
+          logger.warn(
+            `[${this.opts.label}] Embedding model failed to load ${this.failures} times (${reason}); not retrying. ` +
+              `Its semantic search is off until the window is reloaded.`,
+          );
+        } else {
+          this.nextAttemptAt = Date.now() + delay;
+          logger.warn(`[${this.opts.label}] Embedding model failed to load (${reason}); retrying in ${delay / 1000} s`);
+        }
+        this.loading = null;
         return false;
       }
     })();
