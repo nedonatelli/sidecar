@@ -225,7 +225,7 @@ export function missingChecker(output: string, command = ''): string | null {
 export function missingCheckerNote(checker: string): string {
   return (
     `\n\n\`${checker}\` is not installed in this workspace, so this check cannot run here, and that is final. ` +
-    'Do not create a project (`npm init`), install a toolchain, or write test files or config to make it run. ' +
+    'Do not create a project (`npm init`), install a toolchain, or write config to make it run. ' +
     'Use the checks that exist -- get_diagnostics, and the syntax check edits already get -- and say the change ' +
     'is unverified beyond them. Set up a toolchain only if the user asked for one.'
   );

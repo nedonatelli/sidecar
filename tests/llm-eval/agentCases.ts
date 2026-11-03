@@ -256,18 +256,9 @@ export const AGENT_CASES: AgentEvalCase[] = [
       files: {
         exist: ['src/slugify.ts'],
         contain: [{ path: 'src/slugify.ts', substrings: ['export', 'slugify', 'return'] }],
-        // The bootstrap's footprint: a project manifest, test-framework config,
-        // and test files nobody asked for.
-        notExist: [
-          'package.json',
-          'package-lock.json',
-          'jest.config.js',
-          'jest.config.ts',
-          'vitest.config.ts',
-          'src/slugify.test.ts',
-          'src/slugify.spec.ts',
-          'test/slugify.test.ts',
-        ],
+        // The bootstrap's footprint: a project manifest and test-framework
+        // config. A test file on its own is fine -- writing tests is a good habit.
+        notExist: ['package.json', 'package-lock.json', 'jest.config.js', 'jest.config.ts', 'vitest.config.ts'],
       },
       toolCallNotMatches: [
         { name: 'run_command', inputPartial: { command: 'npm init' } },
