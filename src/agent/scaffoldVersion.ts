@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.1** (2026-11) — escalate only a repeated call; decline a wrong
+ *   inferred write (#161 ML-72, #163 ML-20/ML-71). The tool-error streak behind
+ *   "N consecutive ... rejected for the same reason" keys on a hash of the
+ *   call's arguments, so only a resubmitted identical call escalates. The
+ *   not-found APPLY tier declines a region that stops short, sits at another
+ *   indentation, or lacks the literal `\n` escapes of a one-line replace; an
+ *   applied inferred edit records tier `inferred` and the syntax verdict.
+ *   PATCH: tuning within edit_file and the tool-error suffix.
  * - **7.0.0** (2026-11) — structured tool outcomes (#367, ADR-008). write_file,
  *   edit_file and delete_file report what each call did (mutated, noop,
  *   failed, plus staged), and the action reprompt, completion gate, regression
@@ -322,7 +330,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.0';
+export const SCAFFOLD_VERSION = '7.0.1';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

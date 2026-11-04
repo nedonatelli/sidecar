@@ -30,7 +30,7 @@ import { validateToolInput } from './executor/inputValidator.js';
 import { remapParamSynonyms, coerceParamTypes, stripEchoedCarriageReturns } from './executor/paramRemap.js';
 import { resolveToolNameAlias } from './executor/toolNameAlias.js';
 import { isExampleReplay, buildExampleReplayError } from './executor/exampleReplayGuard.js';
-import { recordBounce, clearBounces, escalationSuffix } from './executor/bounceEscalation.js';
+import { recordBounce, recordToolError, clearBounces, escalationSuffix } from './executor/bounceEscalation.js';
 import { isGenericClarification, CANNED_CLARIFICATION } from './executor/genericClarification.js';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
@@ -744,7 +744,8 @@ async function runTool(toolUse: ToolUseContentBlock, opts: ExecuteToolOptions): 
     // call just repeats itself forever: live v0.119 dogfood — edit_file
     // rejected nine IDENTICAL "missing search" calls with nine identical
     // messages, and nothing ever told the model to stop resubmitting. The
-    // streak is keyed per tool and cleared by any successful call of it.
+    // streak counts resubmissions of the same call (#161 ML-72) and is cleared
+    // by any successful call of the tool.
     // This is the one place that labels a failure, so strip a leading "Error:"
     // the tool already wrote. Many tool messages carry one — a leftover from
     // when they RETURNED "Error: …" as a success string instead of throwing —
@@ -753,7 +754,7 @@ async function runTool(toolUse: ToolUseContentBlock, opts: ExecuteToolOptions): 
     // messages exist to be read and acted on by a weak model.
     const raw = err instanceof Error ? err.message : String(err);
     const message = raw.replace(/^Error:\s*/i, '');
-    const bounces = recordBounce(bounceCounts, toolUse.name, 'tool-error');
+    const bounces = recordToolError(bounceCounts, toolUse.name, toolUse.input);
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,

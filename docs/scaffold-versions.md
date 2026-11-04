@@ -40,6 +40,29 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.1 — escalate only a repeated call; decline a wrong inferred write (2026-11)
+
+PATCH: tuning within `edit_file` and the tool-error suffix; no mechanism is
+added, removed or re-defaulted. Comparable with 7.0.0, noting the patch.
+
+- **What changed:** the "N consecutive … rejected for the same reason" streak
+  keys on a hash of the call's arguments, so only a resubmitted identical call
+  escalates (#161 ML-72). When `search` is not found, the inferred APPLY tier
+  declines, and the suggest tier quotes the region instead, when the region
+  stops short of `replace`, sits at a different indentation, or lacks the
+  literal `\n` escapes of a one-line `replace` (#163 ML-20). An applied
+  inferred edit records tier `inferred` and the syntax guard's verdict in
+  `edit_outcome` (ML-71).
+- **Measured:** SWE canary, gemma4:e4b, 50 tasks × seeds 11/22/33, against a
+  7.0.0 control, bundled with 7.0.2. F2P progress 20% = 20%, resolve 13% =
+  13%, P2P regress 20% vs 18%. Localize 59% vs 55% (0 fixed, 6 broke,
+  p = 0.031): three pairs diverge on volatile tool output, three on this
+  change dropping a false "2nd consecutive" suffix; none changed F2P.
+  Escalation suffixes after a call with different arguments went from 217
+  to 0. The inferred APPLY tier was reached once in 300 runs (django-15902 seed
+  22): the control wrote the misindented, duplicated line, and 7.0.1 declined
+  it. `tier: inferred` was not exercised.
+
 ### 7.0.0 — structured tool outcomes (2026-11)
 
 MAJOR: the triggers of the completion gate, the action reprompt and the

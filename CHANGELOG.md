@@ -24,6 +24,18 @@ All notable changes to the SideCar extension will be documented in this file.
   stop only the main chat's shell. A background agent's or shadow run's shell, and anything it
   started, could keep running after the window closed. Deactivation now stops all of them, along
   with their child processes.
+- **An inferred edit no longer writes a region it got wrong**
+  ([#163](https://github.com/nedonatelli/sidecar/issues/163)). When an edit's search text wasn't
+  in the file, `edit_file` could guess the region from the replacement alone and write it. It now
+  shows the model the region instead, and writes nothing, in three cases:
+  - the region stopped short of a string or block that continues on the next line, so the rest
+    would have been left in the file twice;
+  - the replacement started at a different indentation;
+  - the replacement held escaped newlines.
+- **"Rejected for the same reason" means the same call**
+  ([#161](https://github.com/nedonatelli/sidecar/issues/161)). After two or three unrelated
+  `edit_file` errors, the agent was told its calls kept failing "for the same reason" and to stop
+  retrying. That warning now appears only when the agent resends the identical call.
 
 ## [0.135.0] - 2026-11-03
 

@@ -438,6 +438,55 @@ export function findIntentTarget(
 }
 
 /**
+ * Why splicing `replace` over an inferred `region` would write wrong bytes, or
+ * null when it would not (#163 ML-20). The region is chosen from `replace`
+ * alone, as many lines tall as replace, and replace goes in as written. Manual
+ * review of recorded inferred writes found wrong bytes in 8 of 20, in three
+ * shapes, each checked here:
+ *
+ * - The region stops short: a string or block continues on the next line, and
+ *   its tail is left in place, so the file has it twice (django-15902,
+ *   formsets.py). Seen as a distinctive word of `replace` that the region lacks
+ *   and that occurs in the file ONLY on the line just before or after it.
+ *   Common words (`return`, `self`) occur elsewhere and do not count.
+ * - Replace starts at a different indentation from the region, so its lines
+ *   land at the model's indentation, not the file's.
+ * - Replace is one line holding literal `\n` escapes the region does not: the
+ *   model escaped its newlines, and they would be written as backslashes.
+ *
+ * The caller then falls through to the suggest tier, which quotes the region
+ * to the model and writes nothing.
+ */
+function inferredWriteProblem(fileText: string, region: string, replace: string): string | null {
+  const firstLine = (s: string) => s.split('\n').find((l) => l.trim()) ?? '';
+  const indent = (l: string) => /^[ \t]*/.exec(l)![0];
+  if (indent(firstLine(replace)) !== indent(firstLine(region))) return 'indentation';
+
+  if (!replace.includes('\n') && /\\n/.test(replace) && !/\\n/.test(region)) return 'escaped newlines';
+
+  const lines = fileText.split('\n');
+  const start = fileText.slice(0, fileText.indexOf(region)).split('\n').length - 1;
+  const end = start + region.split('\n').length; // first line after the region
+  const neighbour = (from: number, step: number): string => {
+    for (let i = from; i >= 0 && i < lines.length; i += step) if (lines[i].trim()) return lines[i];
+    return '';
+  };
+  const adjacent = [neighbour(start - 1, -1), neighbour(end, 1)].map((l) => l.toLowerCase());
+  const regionLower = region.toLowerCase();
+  const fileLower = fileText.toLowerCase();
+  for (const w of new Set(replace.toLowerCase().split(/\W+/))) {
+    if (w.length < 4) continue;
+    const re = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    if (new RegExp(re.source).test(regionLower)) continue; // not `re`: a global regex keeps lastIndex
+    for (const line of adjacent) {
+      const here = line.match(re)?.length ?? 0;
+      if (here > 0 && here === (fileLower.match(re)?.length ?? 0)) return 'region cut short';
+    }
+  }
+  return null;
+}
+
+/**
  * Like findNearestMatch but returns a wider window (up to maxLines).
  * Used for the "file not read this turn" injection where we want to
  * show enough context that the model can see the full code block
@@ -2033,7 +2082,12 @@ export async function resolveEditedText(params: {
     //             parse is silent corruption the syntax guard cannot see, so a
     //             merely-plausible guess never touches disk.
     const applyTarget = findIntentTarget(text, replace, 0.4, APPLY_MARGIN);
-    if (applyTarget && text.includes(applyTarget) && applyTarget !== replace) {
+    if (
+      applyTarget &&
+      text.includes(applyTarget) &&
+      applyTarget !== replace &&
+      !inferredWriteProblem(text, applyTarget, replace)
+    ) {
       // Splice by offset with the replacement in the file's line endings — the
       // string form of String.replace would expand `$&`/`$1` in model text, and
       // an LF replacement dropped into a CRLF file leaves mixed endings.
@@ -2052,6 +2106,10 @@ export async function resolveEditedText(params: {
             `Pass 'search' explicitly next time — it is the exact current text to replace.`,
           prefixNote: '',
           suffixNote: '',
+          // Recorded in edit_outcome like any other write: the guard ran and
+          // decided, and the tier says how the region was found (#163 ML-71).
+          syntax: inferSyntax.verdict,
+          tier: 'inferred',
         };
       }
     }
