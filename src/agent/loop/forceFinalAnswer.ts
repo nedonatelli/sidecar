@@ -2,6 +2,7 @@ import type { SideCarClient } from '../../ollama/client.js';
 import type { ChatMessage } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
+import { recordNudge } from './nudge.js';
 
 // Answer-forcing on non-voluntary termination.
 //
@@ -42,6 +43,8 @@ export async function maybeForceFinalAnswer(
   if (state.messages.length === 0) return;
 
   const synthMessages: ChatMessage[] = [...state.messages, { role: 'user', content: FINAL_ANSWER_PROMPT }];
+  // Only the copy carries the prompt, so record it here (#390).
+  recordNudge(state, 'final-answer', FINAL_ANSWER_PROMPT);
 
   let answer = '';
   try {

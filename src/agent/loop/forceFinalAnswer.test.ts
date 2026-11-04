@@ -67,6 +67,35 @@ describe('maybeForceFinalAnswer', () => {
     expect(state.messages.at(-1)!.content).toBe('done');
   });
 
+  // The prompt goes on a copy of the conversation, so the trajectory only
+  // sees it through this decision (#390).
+  it('records the forcing prompt as one final-answer reprompt, only when it fires', async () => {
+    const fired = makeState({ iteration: 50 } as Partial<LoopState>);
+    const logDecision = vi.fn();
+    Object.assign(fired.logger!, { logDecision });
+    await maybeForceFinalAnswer(
+      fired,
+      mockClient([text('done')]),
+      { onText: vi.fn() } as unknown as AgentCallbacks,
+      signal,
+    );
+    expect(logDecision.mock.calls).toEqual([
+      [expect.objectContaining({ kind: 'reprompt', action: 'injected', source: 'final-answer', iteration: 50 })],
+    ]);
+    expect(logDecision.mock.calls[0][0].text).toMatch(/^You've reached the step limit/);
+
+    const natural = makeState({ termination: 'natural' });
+    const quiet = vi.fn();
+    Object.assign(natural.logger!, { logDecision: quiet });
+    await maybeForceFinalAnswer(
+      natural,
+      mockClient([text('x')]),
+      { onText: vi.fn() } as unknown as AgentCallbacks,
+      signal,
+    );
+    expect(quiet).not.toHaveBeenCalled();
+  });
+
   it.each(['natural', 'aborted', 'out-of-resources'] as const)(
     'is a no-op on %s termination (model answered / user stopped / no budget)',
     async (termination) => {

@@ -214,6 +214,26 @@ describe('dispatchPendingToolUses — gate decisions', () => {
     expect(cb.onEditPlan).not.toHaveBeenCalled();
     expect(state.logger?.warn).toHaveBeenCalledWith(expect.stringContaining('no valid plan'));
   });
+
+  it("records the planner's prompts as edit-plan and edit-plan-revise reprompts (#390)", async () => {
+    vi.mocked(shouldRunPlannerPass).mockReturnValue(true);
+    vi.mocked(requestEditPlan).mockImplementation(async (_c, _m, _p, opts) => {
+      opts?.onPrompt?.('plan', 'Plan these edits.');
+      opts?.onPrompt?.('revise', 'That plan has a cycle.');
+      return { plan: null, rawText: '', retried: true };
+    });
+    const logDecision = vi.fn();
+    const state = stubLoopState({
+      logger: { info: vi.fn(), warn: vi.fn(), logDecision } as unknown as LoopState['logger'],
+      messages: [{ role: 'user', content: 'refactor auth' }],
+    });
+    const pending = [tu('write_file', 'a.ts'), tu('write_file', 'b.ts'), tu('write_file', 'c.ts')];
+    await dispatchPendingToolUses(state, pending, client, options, stubCallbacks(), signal, config());
+    expect(logDecision.mock.calls.map(([d]) => [d.source, d.text])).toEqual([
+      ['edit-plan', 'Plan these edits.'],
+      ['edit-plan-revise', 'That plan has a cycle.'],
+    ]);
+  });
 });
 
 describe('dispatchPendingToolUses — user prompt sentinel scan', () => {

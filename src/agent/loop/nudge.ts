@@ -11,6 +11,10 @@ import type { DecisionSink } from '../decisions.js';
  * no-file-write). `nudge.test.ts` fails on a new `messages.push` of a user
  * message that bypasses this module.
  *
+ * A prompt sent on a one-off copy of the conversation -- the final-answer turn
+ * and the edit planner's turns -- never joins `state.messages`, but the model
+ * still reads it, so it is recorded with {@link recordNudge}.
+ *
  * Each id names one injection site and never changes with the wording. The
  * completion gates use their gate `name`.
  */
@@ -36,6 +40,10 @@ export const NUDGE_SOURCES = [
   'output-limit',
   'empty-response',
   'cycle-nudge',
+  'final-answer',
+  // the multi-file edit planner's turn (editPlanner.ts, recorded by dispatchToolUses)
+  'edit-plan',
+  'edit-plan-revise',
   // post-turn policies
   'action-already-done',
   'code-not-applied',

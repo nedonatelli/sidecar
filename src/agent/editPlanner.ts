@@ -76,6 +76,12 @@ export interface RequestEditPlanOptions {
   readonly plannerModel?: string;
   /** Logger passthrough for traceability — used on validation errors. */
   readonly log?: (line: string) => void;
+  /**
+   * Called with each prompt just before its planner turn is sent: `plan` for
+   * the first, `revise` for the validation-feedback retry. The prompts go on a
+   * copy of the conversation, so the caller records them (#390).
+   */
+  readonly onPrompt?: (kind: 'plan' | 'revise', text: string) => void;
 }
 
 export interface RequestEditPlanResult {
@@ -110,13 +116,15 @@ export async function requestEditPlan(
     client.setTurnOverride(options.plannerModel);
   }
 
-  const convo: ChatMessage[] = [...messages, { role: 'user', content: buildPlannerPrompt(distinctWrites) }];
+  const plannerPrompt = buildPlannerPrompt(distinctWrites);
+  const convo: ChatMessage[] = [...messages, { role: 'user', content: plannerPrompt }];
   let rawText = '';
   let plan: EditPlan | null = null;
   let retried = false;
   let firstError: EditPlanValidationError | null = null;
 
   try {
+    options.onPrompt?.('plan', plannerPrompt);
     rawText = await runPlannerTurn(client, convo, options.signal);
     try {
       plan = parsePlanFromText(rawText);
@@ -126,7 +134,9 @@ export async function requestEditPlan(
       options.log?.(`Planner turn returned invalid plan (${err.reason}): ${err.message}`);
       retried = true;
       convo.push({ role: 'assistant', content: rawText });
-      convo.push({ role: 'user', content: buildReviseMessage(err) });
+      const revise = buildReviseMessage(err);
+      convo.push({ role: 'user', content: revise });
+      options.onPrompt?.('revise', revise);
       const retryText = await runPlannerTurn(client, convo, options.signal);
       rawText = `${rawText}\n\n---RETRY---\n\n${retryText}`;
       try {
