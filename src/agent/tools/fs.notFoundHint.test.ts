@@ -72,6 +72,30 @@ describe('a multi-line search that was not found (#161 ML-07)', () => {
   });
 });
 
+// #161 ML-31: the locator was matched byte-exact, so a multi-line `within`
+// written with LF never resolved in a CRLF file -- 73 of 77 recorded failures
+// of such a locator were this.
+describe('a multi-line within in a CRLF file (#161 ML-31)', () => {
+  const AB =
+    'class A:\r\n    def run(self):\r\n        return 1\r\n\r\nclass B:\r\n    def run(self):\r\n        return 1\r\n';
+
+  it('resolves, and the edit lands at the occurrence it names', async () => {
+    const write = mount(AB);
+    const result = await editFile(
+      {
+        path: 'ab.py',
+        search: '        return 1',
+        replace: '        return 2',
+        within: 'class B:\n    def run(self):',
+      },
+      ctx('ab.py'),
+    );
+    expect(result).not.toMatch(/Error/);
+    const written = Buffer.from(write.mock.calls[0][1] as Uint8Array).toString();
+    expect(written).toBe(AB.replace(/return 1\r\n$/, 'return 2\r\n'));
+  });
+});
+
 describe('the grep hint', () => {
   it('offers a read_file range as tall as the search, not a fixed 5 lines', async () => {
     // Grep hits the header; no 13-line window holds enough of the search for a region.

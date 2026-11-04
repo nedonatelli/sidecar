@@ -1832,6 +1832,12 @@ const WITHIN_MAX_LINES = 40;
  * Throws the teaching error; returns the offset to search from.
  */
 function resolveWithin(text: string, within: string, filePath: string): number {
+  // A multi-line locator written with LF never matched a CRLF file byte for
+  // byte: 73 of 77 recorded failures of such a locator were this (#161 ML-31).
+  // The search is already matched across line endings; so is the locator now.
+  if (within.includes('\n') && text.includes('\r\n') && !text.includes(within)) {
+    within = within.replace(/\r?\n/g, '\r\n');
+  }
   const count = text.split(within).length - 1;
   if (count === 0) {
     throw new Error(
