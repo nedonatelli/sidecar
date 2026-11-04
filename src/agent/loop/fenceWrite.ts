@@ -22,6 +22,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import type { TurnResult } from './streamTurn.js';
 import { FENCE_WRITE_ID_PREFIX } from './textParsing.js';
+import { claimToolUseId } from './toolUseIds.js';
 
 /** Non-blank-trimmed lines of `fence`, compared trailing-whitespace-insensitive, appear as one contiguous run in `file`. */
 export function fenceAlreadyInFile(fence: string, file: string): boolean {
@@ -73,6 +74,8 @@ export async function applyFenceWrite(
     name: 'write_file',
     input: { path: fence.path, content: fence.content },
   };
+  // The counter is per run, but a chat's earlier runs counted from 1 too (#417).
+  claimToolUseId(state.toolUseIds, tu);
   resolved.pendingToolUses.push(tu);
   resolved.stopReason = 'tool_use';
   state.logger?.info(

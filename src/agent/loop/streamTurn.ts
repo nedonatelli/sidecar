@@ -23,6 +23,7 @@ import { renderPlanState, planStepWriteTargetsNotWritten } from '../plans/extern
 import type { ToolDefinition } from '../../ollama/types.js';
 import { ThinkingStore } from '../thinking/thinkingStore.js';
 import { logApiCall } from '../apiAuditLog.js';
+import { claimToolUseId } from './toolUseIds.js';
 // getConfig removed — thinkingMode now read from state.config (injected at loop entry)
 
 const thinkingStore = new ThinkingStore();
@@ -303,6 +304,8 @@ export async function streamOneTurn(
           callbacks.onText(`\n⚠️ ${event.message}\n`);
           break;
         case 'tool_use':
+          // Before onToolCall: the UI matches the result to this id (#417).
+          claimToolUseId(state.toolUseIds, event.toolUse);
           pendingToolUses.push(event.toolUse);
           state.logger?.logToolCall(event.toolUse.name, event.toolUse.input);
           callbacks.onToolCall(event.toolUse.name, event.toolUse.input, event.toolUse.id);
@@ -460,6 +463,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
       }
     }
     for (const tu of parsed) {
+      claimToolUseId(state.toolUseIds, tu);
       pendingToolUses.push(tu);
       state.logger?.logToolCall(tu.name, tu.input);
       callbacks.onToolCall(tu.name, tu.input, tu.id);

@@ -19,6 +19,14 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Each tool call's result is read for that call only**
+  ([#417](https://github.com/nedonatelli/sidecar/issues/417)). Ollama numbers its tool calls
+  from `ollama_tc_0` on every request, and SideCar's text-form parsers do the same. The record of
+  what each file tool did is kept per call id for the whole run. So a later call with a reused id
+  read an earlier call's result: a `read_file` after an edit counted as a file change, and a
+  no-op edit could hide an earlier real one. On today's e4b SWE canary, 136 of 150 runs had at
+  least one such read. Every call now gets an id unique within the chat before anything records
+  it.
 - **Closing VS Code stops every agent shell**
   ([#245](https://github.com/nedonatelli/sidecar/issues/245)). Deactivating the extension used to
   stop only the main chat's shell. A background agent's or shadow run's shell, and anything it
