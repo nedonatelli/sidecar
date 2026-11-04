@@ -134,7 +134,10 @@ function buildGrepHint(fileText: string, searchOrReplace: string): string | null
 
   const top = hits.slice(0, 3); // show at most 3 matching lines
   const lineList = top.map((h) => `  line ${h.lineNo}: ${h.line.trim().slice(0, 80)}`).join('\n');
-  const readCall = `read_file(path="${'<file>'}", start_line=${Math.max(1, top[0].lineNo - 2)}, end_line=${top[0].lineNo + 2})`;
+  // Tall enough to hold the search: a fixed 5 lines was shorter than the search
+  // in 739/1,117 recorded "failed AGAIN" messages (#161 ML-07).
+  const height = searchOrReplace.split('\n').length;
+  const readCall = `read_file(path="${'<file>'}", start_line=${Math.max(1, top[0].lineNo - 2)}, end_line=${top[0].lineNo + height + 1})`;
   return `Grep for [${keywords.slice(0, 2).join(', ')}] found these lines:\n${lineList}\n→ Call \`${readCall}\` to get the exact text, then use it verbatim as your search string.`;
 }
 function findNearestMatch(fileText: string, search: string): string | null {
@@ -2196,11 +2199,19 @@ export async function resolveEditedText(params: {
 
     const grepHint2 = buildGrepHint(text, search) ?? buildGrepHint(text, replace);
     const nearest = findNearestMatch(text, search);
-    const hint = grepHint2
-      ? `\n\n${grepHint2.replace('<file>', filePath)}`
-      : nearest
-        ? `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``
-        : '\n\nCall read_file to see the exact current content.';
+    const regionHint = `\n\nNearest matching region in the file (use this as your search string):\n\`\`\`\n${nearest}\n\`\`\``;
+    // A multi-line search gets the region it most resembles first. The grep
+    // hint keys on its first two long words, usually generic, and pointed
+    // above the copied block: its range overlapped the intended region in
+    // 103/563 recorded cases, the region it pre-empted in 526 (#161 ML-07).
+    const hint =
+      nearest && search.includes('\n')
+        ? regionHint
+        : grepHint2
+          ? `\n\n${grepHint2.replace('<file>', filePath)}`
+          : nearest
+            ? regionHint
+            : '\n\nCall read_file to see the exact current content.';
     if (failureCount >= 2) {
       throw new Error(
         `${stalePrefix}${unreadPrefix}Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace ` +
