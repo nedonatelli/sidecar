@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.2** (2026-11) — edit_file refuses fewer edits that were fine (#162
+ *   ML-42/43/44/70). The dropped-definition guard reads a changed definition
+ *   line as still there and allows deleting a whole block or a lone decorator;
+ *   the shadow-definition guard checks code files only, skips Python
+ *   triple-quoted strings, and allows a reassignment built on the prior value.
+ *   PATCH: tuning within edit_file's guards.
  * - **7.0.1** (2026-11) — escalate only a repeated call; decline a wrong
  *   inferred write (#161 ML-72, #163 ML-20/ML-71). The tool-error streak behind
  *   "N consecutive ... rejected for the same reason" keys on a hash of the
@@ -330,7 +336,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.1';
+export const SCAFFOLD_VERSION = '7.0.2';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

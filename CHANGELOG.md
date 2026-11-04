@@ -36,6 +36,20 @@ All notable changes to the SideCar extension will be documented in this file.
   ([#161](https://github.com/nedonatelli/sidecar/issues/161)). After two or three unrelated
   `edit_file` errors, the agent was told its calls kept failing "for the same reason" and to stop
   retrying. That warning now appears only when the agent resends the identical call.
+- **`edit_file` refuses fewer edits that were fine**
+  ([#162](https://github.com/nedonatelli/sidecar/issues/162)). Two of its guards misread edits:
+  - Changing a definition without removing it was refused as deleting it: an arrow function
+    gaining a return type, a decorator gaining a nested call, or a line of prose that starts with
+    `class` or `def`.
+  - A definition or decorator could not be deleted at all. Searching for its whole block and
+    sending an empty replacement now deletes it, and the refusal says so. An empty replacement that
+    would leave the body or a closing bracket behind is still refused.
+  - The guard against adding a second top-level definition now checks only Python, JavaScript and
+    TypeScript files. It ignores lines inside Python triple-quoted strings and allows reassignments
+    built on the old value, like `x = f(x)`. Markdown, TOML, shell and Makefile lines are no longer
+    refused.
+  - When the added definition comes after the existing one, the refusal now says the earlier line
+    is left as dead code, instead of claiming the new line would be overridden.
 
 ## [0.135.0] - 2026-11-03
 
