@@ -40,6 +40,23 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.2 — edit_file refuses fewer edits that were fine (2026-11)
+
+PATCH: tuning within `edit_file`'s definition guards; no mechanism is added,
+removed or re-defaulted. Comparable with 7.0.1, noting the patch.
+
+- **What changed:** the dropped-definition guard reads a definition line that
+  gains a return type or a nested decorator call as still present, and no
+  longer reads prose that starts with a keyword as a definition (#162 ML-42).
+  An empty `replace` over a definition's whole block, or a lone decorator,
+  applies (ML-43). The shadow-definition guard runs on Python and JS/TS files
+  only and skips lines inside a Python triple-quoted string (ML-44); a
+  reassignment that reads its own prior value is allowed, and when the added
+  line comes last the refusal names the earlier line as the dead one (ML-70).
+- **Measured:** bundled with 7.0.1 in the same SWE canary (see 7.0.1):
+  outcomes equal. These guards fired rarely in it: "drops the line" refusals
+  13 vs 9, shadow-definition refusals 2 vs 2, over 150 runs per arm.
+
 ### 7.0.1 — escalate only a repeated call; decline a wrong inferred write (2026-11)
 
 PATCH: tuning within `edit_file` and the tool-error suffix; no mechanism is
