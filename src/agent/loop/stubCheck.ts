@@ -2,6 +2,8 @@ import type { AgentCallbacks } from '../loop.js';
 import { buildStubReprompt } from '../stubValidator.js';
 import type { LoopState } from './state.js';
 import { injectNudge } from './nudge.js';
+import { changedFiles } from '../tools/toolOutcome.js';
+import type { ToolUseContentBlock } from '../../ollama/types.js';
 
 // ---------------------------------------------------------------------------
 // Stub validator reprompt — post-turn policy.
@@ -35,12 +37,15 @@ const MAX_STUB_RETRIES = 1;
  */
 export function applyStubCheck(
   state: LoopState,
-  pendingToolUses: Parameters<typeof buildStubReprompt>[0],
+  pendingToolUses: readonly ToolUseContentBlock[],
   callbacks: AgentCallbacks,
 ): boolean {
   if (state.stubFixRetries >= MAX_STUB_RETRIES) return false;
 
-  const reprompt = buildStubReprompt(pendingToolUses);
+  // Only a call that changed its file wrote anything to finish. A refused or
+  // no-op edit drew the reprompt in 114 recorded runs (#161 ML-08).
+  const landed = pendingToolUses.filter((tu) => changedFiles(state.toolOutcomes.get(tu.id)).length > 0);
+  const reprompt = buildStubReprompt(landed);
   if (!reprompt) return false;
 
   state.stubFixRetries++;

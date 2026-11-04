@@ -230,6 +230,26 @@ describe('detectStubs', () => {
 });
 
 describe('buildStubReprompt', () => {
+  // The issue's case: the search restates an abstract method that raises
+  // NotImplementedError, and only describe() changes (#161 ML-08).
+  const SHAPES_SEARCH =
+    'class Shape:\n    def area(self):\n        raise NotImplementedError\n\n    def describe(self):\n        return "shape"';
+  const shapesEdit = (replace: string) => [
+    { name: 'edit_file', input: { path: 'shapes.py', search: SHAPES_SEARCH, replace } },
+  ];
+
+  it('ignores a placeholder the edit only restated from its search', () => {
+    const replace = SHAPES_SEARCH.replace('return "shape"', 'return f"shape with area {self.area()}"');
+    expect(buildStubReprompt(shapesEdit(replace))).toBeNull();
+  });
+
+  it('still flags a placeholder the edit added', () => {
+    const replace = SHAPES_SEARCH.replace('return "shape"', '# TODO: describe properly\n        return "shape"');
+    const r = buildStubReprompt(shapesEdit(replace));
+    expect(r).toContain('# TODO: describe properly');
+    expect(r).not.toContain('raise NotImplementedError');
+  });
+
   it('returns null when no file-writing tools are present', () => {
     const result = buildStubReprompt([{ name: 'read_file', input: { path: 'file.ts' } }]);
     expect(result).toBeNull();

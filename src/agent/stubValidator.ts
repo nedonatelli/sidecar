@@ -155,6 +155,19 @@ export function detectStubs(file: string, content: string): StubMatch[] {
 }
 
 /**
+ * Whether a flagged line was already in the edit's `search`: context the edit
+ * restates, not a placeholder it wrote. An abstract `raise NotImplementedError`,
+ * an existing `# TODO` or a Protocol's `...` body kept around a real change
+ * drew "Replace every placeholder" in 111 recorded runs (#161 ML-08).
+ */
+function restatedFromSearch(m: StubMatch, search: unknown): boolean {
+  if (typeof search !== 'string' || !search) return false;
+  if (search.split('\n').some((l) => l.trim() === m.match)) return true;
+  // The multi-line empty-body match is whitespace-collapsed.
+  return search.replace(/\s+/g, ' ').includes(m.match);
+}
+
+/**
  * Scan tool calls from the current iteration for stubs in written code.
  * Returns a reprompt message if stubs were found, or null if clean.
  */
@@ -172,7 +185,7 @@ export function buildStubReprompt(toolUses: Array<{ name: string; input: Record<
       const file = (tu.input.path || tu.input.file_path) as string;
       const replacement = tu.input.replace as string;
       if (file && replacement) {
-        allMatches.push(...detectStubs(file, replacement));
+        allMatches.push(...detectStubs(file, replacement).filter((m) => !restatedFromSearch(m, tu.input.search)));
       }
     }
   }
