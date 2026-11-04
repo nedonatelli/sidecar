@@ -211,6 +211,22 @@ describe('requestEditPlan — end-to-end', () => {
     expect(result.plan!.edits).toHaveLength(2);
   });
 
+  // Both prompts go on a copy of the conversation, so the caller records them
+  // from here (#390).
+  it('reports each prompt to onPrompt before its turn: plan, then revise on a retry', async () => {
+    const cyclePlan = JSON.stringify({
+      edits: [
+        { path: 'a.ts', op: 'edit', rationale: 'a', dependsOn: ['b.ts'] },
+        { path: 'b.ts', op: 'edit', rationale: 'b', dependsOn: ['a.ts'] },
+      ],
+    });
+    const onPrompt = vi.fn();
+    const client = mockClient([`\`\`\`json\n${cyclePlan}\n\`\`\``, `\`\`\`json\n${cyclePlan}\n\`\`\``]);
+    await requestEditPlan(client, messages, pending, { onPrompt });
+    expect(onPrompt.mock.calls.map((c) => c[0])).toEqual(['plan', 'revise']);
+    expect(onPrompt.mock.calls[0][1]).toContain('a.ts');
+  });
+
   it('returns plan=null when both initial and retry fail validation', async () => {
     const cyclePlan = JSON.stringify({
       edits: [

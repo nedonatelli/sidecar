@@ -6,6 +6,7 @@ import type { SideCarConfig } from '../../config/settings.js';
 import { shouldRunPlannerPass, requestEditPlan } from '../editPlanner.js';
 import { executeMultiFilePlan } from './multiFileEdit.js';
 import { executeToolUses } from './executeToolUses.js';
+import { recordNudge } from './nudge.js';
 
 // ---------------------------------------------------------------------------
 // Dispatch orchestration for a turn's tool_uses .
@@ -60,6 +61,7 @@ export async function dispatchPendingToolUses(
         signal,
         plannerModel: config.multiFileEditsPlannerModel || undefined,
         log: (line) => state.logger?.info(line),
+        onPrompt: (kind, text) => recordNudge(state, kind === 'plan' ? 'edit-plan' : 'edit-plan-revise', text),
       });
     } catch (err) {
       // Network / abort error from the planner call. Fall back to direct

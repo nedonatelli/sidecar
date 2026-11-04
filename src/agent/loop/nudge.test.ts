@@ -62,9 +62,9 @@ describe('injectNudge', () => {
 });
 
 // Every nudge records exactly one decision because every nudge goes through
-// injectNudge. These keep it that way: a new injection that pushes a user
-// message directly fails the first test, and a source id nothing uses fails the
-// second.
+// injectNudge or recordNudge. These keep it that way: a new injection that
+// sends a user message without recording it fails the first test, and a source
+// id nothing uses fails the second.
 describe('every injection goes through injectNudge', () => {
   const ROOT = path.resolve(__dirname, '../../..');
   const sourceFiles = (dir: string): string[] =>
@@ -75,13 +75,25 @@ describe('every injection goes through injectNudge', () => {
   const files = [...sourceFiles('src/agent'), ...sourceFiles('bench')];
   const read = (f: string) => fs.readFileSync(f, 'utf8');
 
-  // Not nudges: the tool-results turn, the sub-agent's first prompt, and this module.
-  const ALLOWED = ['src/agent/loop/messageBuild.ts', 'src/agent/subagent.ts', 'src/agent/loop/nudge.ts'];
+  // Not nudges: the tool-results turn, the sub-agent's first prompt, compaction's
+  // summary (it replaces earlier turns rather than adding a prompt), and this module.
+  const ALLOWED = [
+    'src/agent/loop/messageBuild.ts',
+    'src/agent/subagent.ts',
+    'src/agent/conversationSummarizer.ts',
+    'src/agent/loop/nudge.ts',
+  ];
+  // A user message pushed onto any array, or built into a copy of one
+  // (`[...messages, { role: 'user' ... }]`). The copy form is how the
+  // final-answer prompt went unrecorded: it never touches `messages.push`.
+  const USER_MESSAGE = /\b\w+\.push\(\s*\{\s*role:\s*'user'|\[\s*\.\.\.[\w.]+\s*,\s*\{\s*role:\s*'user'/;
+  // A one-off turn records its prompt itself, or hands it to a caller that does.
+  const RECORDS = /\brecordNudge\(|\bonPrompt\?\.\(/;
 
-  it('no other code pushes a user message onto the conversation', () => {
+  it('no other code sends the model a user message without recording it', () => {
     const offenders = files
       .filter((f) => !ALLOWED.some((a) => f.replace(/\\/g, '/').endsWith(a)))
-      .filter((f) => /\bmessages\.push\(\s*\{\s*role:\s*'user'/.test(read(f)));
+      .filter((f) => USER_MESSAGE.test(read(f)) && !RECORDS.test(read(f)));
     expect(offenders.map((f) => path.relative(ROOT, f).replace(/\\/g, '/'))).toEqual([]);
   });
 
