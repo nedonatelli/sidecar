@@ -40,6 +40,28 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.0 — structured tool outcomes (2026-11)
+
+MAJOR: the triggers of the completion gate, the action reprompt and the
+regression guard change. Not directly comparable with 6.0.x.
+
+- **What changed:** `write_file`, `edit_file` and `delete_file` report what
+  each call did to the workspace — `mutated`, `noop` or `failed`, plus
+  `staged` for audit-buffer and review-store writes — and every check that
+  asks "did this call change a file?" reads that report instead of matching
+  the result's wording (#367,
+  [ADR-008](adr/008-structured-tool-outcomes.md)). An inferred edit counts as
+  a change everywhere; a failed or no-op edit no longer runs a `post-write`
+  regression guard; a queued review-mode edit counts as a change everywhere;
+  an aliased call (`str_replace`, `create_file`, `rm`) is treated as the tool
+  it runs as; an identical rewrite is a `noop`.
+- **Measured:** agent eval ×3 against a 6.0.2 control on the same base.
+  gemma4:31b 241 vs 240/243. ministral-3 ran twice: 214 vs 222/243, then,
+  with the arms in the opposite order, 218 vs 219/243. No case dropped in
+  both runs; each run's leads (−2 per case) were different cases, and the
+  first run's four traced to sampling (identical prompts, catalog and first
+  gate nudge in both arms).
+
 ### 6.0.2 — web-tree-sitter 0.25 (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted; the parser runtime under
