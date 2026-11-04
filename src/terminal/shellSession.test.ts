@@ -545,6 +545,88 @@ describe.skipIf(os.platform() === 'win32')('ShellSession kills what the shell st
   }, 30_000);
 });
 
+// The Windows side of the same leak (#245). A shell script -- `npx` is one --
+// runs in a forked bash whose Windows parent has already exited, so taskkill /T
+// from the shell never reached what it started: an agent's `npx vitest --watch`
+// outlived its eval case with bash, cmd, node and vitest's workers. The script
+// here starts a node that never exits and writes its Windows PID to a file.
+describe.skipIf(!isWindows || !/bash\.exe$/i.test(resolveWindowsShell()))(
+  'ShellSession in Git Bash kills what a shell script started (#245)',
+  () => {
+    let session: ShellSession;
+    let dir: string;
+    afterEach(() => {
+      session?.dispose();
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    const alive = (pid: number): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const gone = async (pid: number): Promise<boolean> => {
+      for (let i = 0; i < 40 && alive(pid); i++) await new Promise((r) => setTimeout(r, 100));
+      return !alive(pid);
+    };
+    /** A script that starts a never-exiting node; resolves with that node's Windows PID. */
+    const setup = () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-245-'));
+      // The `echo` after node keeps sh from exec-ing it as its last command:
+      // sh has to fork for node, which is what breaks the Windows parent link.
+      fs.writeFileSync(
+        path.join(dir, 'w.sh'),
+        `node -e "require('fs').writeFileSync('node.pid', String(process.pid)); setInterval(() => {}, 1000)"\necho done\n`,
+      );
+      session = new ShellSession(dir);
+    };
+    const nodePid = async (): Promise<number> => {
+      const f = path.join(dir, 'node.pid');
+      for (let i = 0; i < 100 && !fs.existsSync(f); i++) await new Promise((r) => setTimeout(r, 100));
+      return Number(fs.readFileSync(f, 'utf8'));
+    };
+
+    it('dispose kills what a script in the shell started', async () => {
+      setup();
+      await session.execute('sh ./w.sh > /dev/null 2>&1 &');
+      const pid = await nodePid();
+      expect(alive(pid)).toBe(true);
+      session.dispose();
+      expect(await gone(pid)).toBe(true);
+    }, 30_000);
+
+    // A background command's bash execs a lone last command, which keeps the
+    // Windows parent link; a command list makes it fork, as `npx ...; ...` does.
+    it('dispose kills what a background command started', async () => {
+      setup();
+      session.executeBackground('sh ./w.sh; true');
+      const pid = await nodePid();
+      expect(alive(pid)).toBe(true);
+      session.dispose();
+      expect(await gone(pid)).toBe(true);
+    }, 30_000);
+
+    it('the exit-time kill takes it, synchronously', async () => {
+      setup();
+      session.executeBackground('sh ./w.sh & wait');
+      const pid = await nodePid();
+      session.killNowForExit();
+      expect(await gone(pid)).toBe(true);
+    }, 30_000);
+
+    it('a run_command timeout takes it', async () => {
+      setup();
+      const run = session.execute('sh ./w.sh', { timeout: 3000 });
+      const pid = await nodePid();
+      await run;
+      expect(await gone(pid)).toBe(true);
+    }, 30_000);
+  },
+);
+
 // Git Bash turns a cmd-style `2>nul` into a real file named `nul` that Explorer
 // and `git clean` cannot delete (#395).
 describe.skipIf(!isWindows || !/bash\.exe$/i.test(resolveWindowsShell()))(

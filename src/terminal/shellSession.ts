@@ -164,7 +164,7 @@ function hardeningPrefixFor(shellPath: string): string {
 // Lives in system/killProcessTree.ts so processLifecycle can use it without an
 // import cycle; re-exported here for existing importers.
 export { killProcessTree } from '../system/killProcessTree.js';
-import { killProcessTree, signalProcessGroup } from '../system/killProcessTree.js';
+import { killProcessTree, signalProcessGroup, msysPsPath, killMsysProcessGroup } from '../system/killProcessTree.js';
 
 /**
  * Sessions with a live shell or background command, killed when the Node
@@ -210,6 +210,10 @@ export class ShellSession {
   /** Captured at construction time so the hardening prefix knows which
    *  shell dialect to emit (bash vs zsh vs windows). */
   private shellPath: string;
+  /** Windows + Git Bash: the MSYS `ps.exe`, and the file each shell this
+   *  session spawned writes its MSYS PID to. See killMsysGroup. */
+  private msysPs: string | undefined;
+  private msysPidFiles = new Map<ChildProcess, string>();
 
   /**
    * @param sandboxEnabled  When true and on macOS, wraps shell spawns in
@@ -235,6 +239,7 @@ export class ShellSession {
     // The PROTOCOL follows the shell, not the platform: on Windows running Git
     // Bash we need POSIX quoting and redirection, not cmd's.
     this.usesPosixShell = isPosixShell(this.shellPath);
+    this.msysPs = this.isWindows && this.usesPosixShell ? msysPsPath(this.shellPath) : undefined;
     if (this.isWindows && !this.usesPosixShell) {
       // cmd.exe writes its prompt before each command's output, so every
       // captured result arrived prefixed with `C:\path>`. POSIX shells print no
@@ -292,11 +297,17 @@ export class ShellSession {
       stdio: ['pipe', 'pipe', 'pipe'],
       // POSIX: lead a process group of its own, so a kill reaches everything
       // the shell starts (#260). Not on Windows, where it opens a console
-      // window and taskkill /T already takes the tree.
+      // window; taskkill /T and, for Git Bash, the MSYS group kill take the
+      // tree there (#245).
       detached: !this.isWindows,
     });
     this.proc = proc;
     trackLive(this);
+    const pidFile = this.newMsysPidFile();
+    if (pidFile) {
+      this.msysPidFiles.set(proc, pidFile);
+      proc.stdin?.write(`echo $$ > '${pidFile}'\n`);
+    }
 
     // Only forget the shell if it is still the CURRENT one. A timed-out shell
     // is replaced at once; its late 'exit' used to null this.proc anyway,
@@ -700,7 +711,11 @@ export class ShellSession {
     command = this.forShell(command);
     const id = randomBytes(4).toString('hex');
     let bgCmd = this.isWindows && !this.usesPosixShell ? process.env.COMSPEC || 'cmd.exe' : this.shellPath;
-    let bgArgs = this.isWindows && !this.usesPosixShell ? ['/C', command] : ['-c', command];
+    const pidFile = this.newMsysPidFile();
+    let bgArgs =
+      this.isWindows && !this.usesPosixShell
+        ? ['/C', command]
+        : ['-c', pidFile ? `echo $$ > '${pidFile}'; ${command}` : command];
     if (!this.isWindows && this.sandboxEnabled && isSeatbeltSupported()) {
       ({ cmd: bgCmd, args: bgArgs } = wrapWithSeatbelt(bgCmd, bgArgs, this.cwd));
     }
@@ -711,6 +726,7 @@ export class ShellSession {
       detached: !this.isWindows, // its own process group; see ensureProcess
     });
     trackLive(this);
+    if (pidFile) this.msysPidFiles.set(rawProc, pidFile);
 
     // Wrap in ManagedChildProcess for lifecycle tracking. It leads its own
     // process group on POSIX, so the registry's kill takes the group too.
@@ -788,6 +804,7 @@ export class ShellSession {
    * - Otherwise (no group, e.g. already reaped): signal the process alone.
    */
   private terminateTree(proc: ChildProcess, graceMs = 3000): void {
+    this.killMsysGroup(proc);
     if (killProcessTree(proc.pid, this.isWindows)) return;
     if (!this.isWindows && signalProcessGroup(proc.pid, 'SIGTERM')) {
       const pid = proc.pid;
@@ -812,13 +829,47 @@ export class ShellSession {
   }
 
   /**
+   * A file for a shell about to be spawned to write its MSYS PID to (`echo $$`),
+   * or undefined when this is not Git Bash on Windows. A non-interactive bash
+   * leads its own MSYS process group, so the PID is the group id.
+   */
+  private newMsysPidFile(): string | undefined {
+    if (!this.msysPs) return undefined;
+    const file = path.join(os.tmpdir(), `sidecar-msys-${randomBytes(6).toString('hex')}.pid`).replace(/\\/g, '/');
+    return file.includes("'") ? undefined : file;
+  }
+
+  /**
+   * Windows + Git Bash: kill the MSYS process group `proc` leads, with every
+   * native process under it (#245). taskkill /T from the shell misses whatever
+   * a shell script started, because the script runs in a forked bash whose
+   * Windows parent has already exited; see killMsysProcessGroup. Runs at most
+   * once per shell, and removes its PID file.
+   */
+  private killMsysGroup(proc: ChildProcess): void {
+    const file = this.msysPidFiles.get(proc);
+    if (!file || !this.msysPs) return;
+    this.msysPidFiles.delete(proc);
+    try {
+      const pgid = parseInt(fs.readFileSync(file, 'utf8'), 10);
+      if (pgid > 0) killMsysProcessGroup(pgid, this.msysPs);
+    } catch {
+      // The shell never wrote it (killed at once); taskkill /T still runs.
+    }
+    fs.rmSync(file, { force: true });
+  }
+
+  /**
    * The process is exiting: kill the shell and background commands now,
    * synchronously, with no grace period (timers won't run). See liveSessions.
    */
   killNowForExit(): void {
     const procs = [this.proc, ...[...this.backgroundCommands.values()].map((e) => e.proc.getProc())];
     for (const p of procs) {
-      if (!p || p.exitCode !== null) continue;
+      if (!p) continue;
+      // Before the exit check: a shell that exited can leave its group running.
+      this.killMsysGroup(p);
+      if (p.exitCode !== null) continue;
       if (killProcessTree(p.pid, this.isWindows)) continue;
       if (!this.isWindows && signalProcessGroup(p.pid, 'SIGKILL')) continue;
       try {
@@ -827,6 +878,16 @@ export class ShellSession {
         /* already gone */
       }
     }
+    this.killExitedShellGroups();
+  }
+
+  /**
+   * Git Bash shells this session no longer holds -- one that exited on its
+   * own, or a background command already dropped -- can still lead a running
+   * group. Kill those too, and clear their PID files.
+   */
+  private killExitedShellGroups(): void {
+    for (const p of [...this.msysPidFiles.keys()]) this.killMsysGroup(p);
   }
 
   /**
@@ -842,6 +903,7 @@ export class ShellSession {
     for (const [, entry] of this.backgroundCommands) {
       this.terminateTree(entry.proc.getProc());
     }
+    this.killExitedShellGroups();
     this.backgroundCommands.clear();
     this.commandQueue = [];
     this.busy = false;

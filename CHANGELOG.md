@@ -24,6 +24,12 @@ All notable changes to the SideCar extension will be documented in this file.
   stop only the main chat's shell. A background agent's or shadow run's shell, and anything it
   started, could keep running after the window closed. Deactivation now stops all of them, along
   with their child processes.
+- **Stopping a shell on Windows stops what its scripts started**
+  ([#245](https://github.com/nedonatelli/sidecar/issues/245)). With Git Bash, anything a shell
+  script launched survived when the agent's shell was stopped: an `npx vitest --watch` the agent
+  ran stayed alive, with its node, cmd and worker processes, and kept the workspace folder locked.
+  This applied when a run finished, when a command timed out, and when the window closed. Those
+  processes are now stopped too.
 - **An inferred edit no longer writes a region it got wrong**
   ([#163](https://github.com/nedonatelli/sidecar/issues/163)). When an edit's search text wasn't
   in the file, `edit_file` could guess the region from the replacement alone and write it. It now
