@@ -54,7 +54,8 @@ export function recordGateToolUses(
     // `state.logger` is the decision sink: without it recordToolCall still
     // works but emits no verification_run records, so the feature would be
     // silently dead. A test pins that it is passed.
-    if (tr) recordGateToolCall(state.gateState, pendingToolUses[idx], tr, mcpToolMeta, state.logger);
+    const tu = pendingToolUses[idx];
+    if (tr) recordGateToolCall(state.gateState, tu, tr, mcpToolMeta, state.logger, state.toolOutcomes.get(tu.id));
   }
 }
 

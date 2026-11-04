@@ -35,6 +35,7 @@ import { isGenericClarification, CANNED_CLARIFICATION } from './executor/generic
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './executor/reviewModeHandler.js';
 import { getActivePolicy, mergePermLevel } from './policy/policyLoader.js';
 import { previewEditFile, readCurrentText } from './tools/fs.js';
+import { fileToolName, failed, type ToolOutcome } from './tools/toolOutcome.js';
 import { delegatedMcpToolName } from './tools/mcpDelegate.js';
 import { describeGitPush, describeShellGitPush } from './tools/git.js';
 
@@ -92,12 +93,45 @@ export interface ExecuteToolOptions {
    * registry mutation. Empty or undefined preserves pre-v0.66 lookup.
    */
   extraTools?: readonly import('./tools/shared.js').RegisteredTool[];
+  /**
+   * Where the call's file outcome is kept, keyed by `tool_use_id` (ADR-008).
+   * The loop passes `state.toolOutcomes`; without it nothing is recorded.
+   */
+  toolOutcomes?: Map<string, ToolOutcome>;
 }
 
 export async function executeTool(
   toolUse: ToolUseContentBlock,
   opts: ExecuteToolOptions = {},
 ): Promise<ToolResultContentBlock> {
+  const outcomes = opts.toolOutcomes;
+  if (!outcomes) return runTool(toolUse, opts);
+  // Installed for every call, not only by name: an aliased call (a model's
+  // `create_file`) resolves to a file tool inside runTool.
+  let outcome: ToolOutcome | undefined;
+  const inner = opts.executorContext?.recordOutcome;
+  const executorContext: ToolExecutorContext = {
+    ...opts.executorContext,
+    recordOutcome: (o) => {
+      outcome = o;
+      inner?.(o);
+    },
+  };
+  const result = await runTool(toolUse, { ...opts, executorContext });
+  // A reported outcome stands even when a later step errored: a post-hook that
+  // fails after the write does not un-write the file. Without one, an error
+  // from a file tool is a failure — refused before it ran, or thrown.
+  if (!outcome && fileToolName(toolUse.name)) {
+    if (!result.is_error) opts.logger?.warn(`[outcome] ${toolUse.name} returned without reporting an outcome`);
+    outcome = result.is_error
+      ? failed(typeof toolUse.input.path === 'string' ? toolUse.input.path : undefined)
+      : undefined;
+  }
+  if (outcome) outcomes.set(toolUse.id, outcome);
+  return result;
+}
+
+async function runTool(toolUse: ToolUseContentBlock, opts: ExecuteToolOptions): Promise<ToolResultContentBlock> {
   const {
     approvalMode = 'cautious',
     changelog,

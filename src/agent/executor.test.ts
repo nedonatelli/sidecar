@@ -1624,3 +1624,90 @@ describe('commit review gate', () => {
     expect(executor).toHaveBeenCalled();
   });
 });
+
+describe('tool outcomes (ADR-008)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig();
+  });
+
+  function register(name: string, executor: (input: Record<string, unknown>, ctx?: unknown) => Promise<string>) {
+    mockedFindTool.mockImplementation((n: string) =>
+      n === name
+        ? {
+            definition: { name, description: '', input_schema: { type: 'object', properties: {} } },
+            executor: executor as never,
+            requiresApproval: true,
+          }
+        : undefined,
+    );
+  }
+
+  it('keeps the outcome a file tool reports, under the call id', async () => {
+    register('delete_file', async (_input, ctx) => {
+      (ctx as { recordOutcome?: (o: unknown) => void }).recordOutcome?.({ kind: 'mutated', paths: ['src/a.ts'] });
+      return 'File deleted: src/a.ts';
+    });
+    const toolOutcomes = new Map();
+    await executeTool(makeToolUse('delete_file', { path: 'src/a.ts' }), { approvalMode: 'autonomous', toolOutcomes });
+    expect(toolOutcomes.get('test_1')).toEqual({ kind: 'mutated', paths: ['src/a.ts'] });
+  });
+
+  it('records a thrown file tool as failed', async () => {
+    register('edit_file', async () => {
+      throw new Error('search string not found');
+    });
+    const toolOutcomes = new Map();
+    const result = await executeTool(makeToolUse('edit_file', { path: 'src/a.ts', search: 'x', replace: 'y' }), {
+      approvalMode: 'autonomous',
+      toolOutcomes,
+    });
+    expect(result.is_error).toBe(true);
+    expect(toolOutcomes.get('test_1')).toEqual({ kind: 'failed', paths: ['src/a.ts'] });
+  });
+
+  it('records an aliased call under the name the model used', async () => {
+    register('delete_file', async (_input, ctx) => {
+      (ctx as { recordOutcome?: (o: unknown) => void }).recordOutcome?.({ kind: 'mutated', paths: ['src/a.ts'] });
+      return 'File deleted: src/a.ts';
+    });
+    const toolOutcomes = new Map();
+    await executeTool(makeToolUse('remove_file', { path: 'src/a.ts' }), { approvalMode: 'autonomous', toolOutcomes });
+    expect(toolOutcomes.get('test_1')).toEqual({ kind: 'mutated', paths: ['src/a.ts'] });
+  });
+
+  it('records nothing for a tool that does not change files', async () => {
+    register('read_file', async () => 'contents');
+    const toolOutcomes = new Map();
+    await executeTool(makeToolUse('read_file', { path: 'src/a.ts' }), { approvalMode: 'autonomous', toolOutcomes });
+    expect(toolOutcomes.size).toBe(0);
+  });
+
+  it('warns, and records nothing, when a file tool returns without reporting', async () => {
+    register('delete_file', async () => 'File deleted: src/a.ts');
+    const toolOutcomes = new Map();
+    const logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    await executeTool(makeToolUse('delete_file', { path: 'src/a.ts' }), {
+      approvalMode: 'autonomous',
+      toolOutcomes,
+      logger: logger as never,
+    });
+    expect(toolOutcomes.size).toBe(0);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('without reporting an outcome'));
+  });
+
+  it('passes the caller context through, alongside the sink', async () => {
+    let seen: Record<string, unknown> | undefined;
+    register('delete_file', async (_input, ctx) => {
+      seen = ctx as Record<string, unknown>;
+      return 'File deleted: src/a.ts';
+    });
+    await executeTool(makeToolUse('delete_file', { path: 'src/a.ts' }), {
+      approvalMode: 'autonomous',
+      toolOutcomes: new Map(),
+      executorContext: { cwd: '/shadow' },
+    });
+    expect(seen?.cwd).toBe('/shadow');
+    expect(typeof seen?.recordOutcome).toBe('function');
+  });
+});

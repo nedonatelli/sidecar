@@ -33,6 +33,14 @@ export interface ToolExecutorContext {
    * agent loop (direct unit calls), so every emit site must be optional.
    */
   logDecision?: (decision: import('../decisions.js').AgentDecision) => void;
+  /**
+   * Where a file tool reports what it did to the workspace (ADR-008). Every
+   * exit of write_file / edit_file / delete_file that returns calls it; the
+   * executor installs it per call and turns a throw into `failed`. A nested
+   * call (edit_file delegating to write_file, or to itself for an inferred
+   * edit) reports through the same sink, and the last report wins.
+   */
+  recordOutcome?: (outcome: import('./toolOutcome.js').ToolOutcome) => void;
   signal?: AbortSignal;
   /**
    * Config snapshot injected from the agent loop's `state.config`. When

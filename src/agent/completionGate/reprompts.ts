@@ -2,6 +2,7 @@ import { workspace, Uri } from 'vscode';
 import type { ChatMessage } from '../../ollama/types.js';
 import { extractCitedPaths, pathVariants, hasUnverifiedHedge } from '../citationCheck.js';
 import { normalizePath } from './pathUtil.js';
+import { changedFiles, fileToolName, type ToolOutcome } from '../tools/toolOutcome.js';
 import { isLibraryName } from '../fileRefs.js';
 import { fileMentions, isQuotedMention } from './mentions.js';
 
@@ -453,15 +454,17 @@ const WRITE_INTENT_RE =
  * message with write intent but were never written by the agent. Returns
  * null when no reprompt is needed.
  */
-/** Paths a successful delete_file reported this run ("File deleted: <path>"). */
-function deletedFiles(messages: ChatMessage[]): string[] {
+/**
+ * Paths a delete_file call removed this run, by its outcome (ADR-008). Reading
+ * them back out of "File deleted: <path>" cut a path at its first space.
+ */
+function deletedFiles(messages: ChatMessage[], outcomes: ReadonlyMap<string, ToolOutcome>): string[] {
   const out: string[] = [];
   for (const msg of messages) {
-    if (msg.role !== 'user' || typeof msg.content === 'string') continue;
+    if (msg.role !== 'assistant' || typeof msg.content === 'string') continue;
     for (const b of msg.content) {
-      if (b.type !== 'tool_result' || b.is_error) continue;
-      const text = typeof b.content === 'string' ? b.content : '';
-      for (const m of text.matchAll(/File deleted: (\S+)/g)) out.push(m[1].replace(/\\/g, '/'));
+      if (b.type === 'tool_use' && fileToolName(b.name) === 'delete_file')
+        out.push(...changedFiles(outcomes.get(b.id)));
     }
   }
   return out;
@@ -473,8 +476,16 @@ export async function buildNoFileWriteReprompt(
   requestText?: string,
   fileExists?: (relPath: string) => Promise<boolean>,
   fileReferenceText?: string,
+  toolOutcomes?: ReadonlyMap<string, ToolOutcome>,
 ): Promise<string | null> {
-  const unwritten = await unwrittenMentions(messages, editedFiles, requestText, fileExists, fileReferenceText);
+  const unwritten = await unwrittenMentions(
+    messages,
+    editedFiles,
+    requestText,
+    fileExists,
+    fileReferenceText,
+    toolOutcomes,
+  );
   return unwritten.length > 0 ? noFileWriteReprompt(unwritten) : null;
 }
 
@@ -495,6 +506,7 @@ export async function unwrittenMentions(
   fileExists: (relPath: string) => Promise<boolean> = defaultFileExists,
   // Where the named files are read from, when not the request (#391).
   fileReferenceText?: string,
+  toolOutcomes: ReadonlyMap<string, ToolOutcome> = new Map(),
 ): Promise<string[]> {
   const userText = requestText ?? firstUserText(messages);
   if (!userText) return [];
@@ -514,7 +526,7 @@ export async function unwrittenMentions(
   // as one the user asked to create: "delete src/legacy.ts" was answered by a
   // successful delete_file and then "the run finished without writing to
   // `src/legacy.ts`" (delete-file-when-requested, night-1027 agent eval).
-  const deleted = deletedFiles(messages);
+  const deleted = deletedFiles(messages, toolOutcomes);
   const unwritten: string[] = [];
   for (const raw of mentioned) {
     const clean = raw.replace(/[`'"]/g, '');

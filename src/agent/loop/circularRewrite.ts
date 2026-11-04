@@ -4,6 +4,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { MAX_UNVERIFIED_REWRITES } from '../tools/fs.js';
+import { changedFiles, fileToolName } from '../tools/toolOutcome.js';
 import { injectNudge } from './nudge.js';
 
 /** Times the loop will defer a write-thrash bail per file to force a verify first. */
@@ -99,30 +100,18 @@ export function excludeBlockedCircularRewrites(
  * `state.filesEditedViaEditTool`. Once a file is there, write_file soft-blocks a
  * full rewrite of it (forcing continued targeted edits) — dogfooding caught the
  * model fixing a syntax bug with edit_file, then regenerating the whole file
- * with write_file and re-introducing it. Detected by POSITIVE success markers,
- * not by the absence of "Error:": editFile prepends an "[You have not read X…]"
- * notice to a search-not-found failure, which pushes "Error:" off the front, so
- * a negative check would wrongly record a FAILED edit and deadlock the recovery
- * write_file against the enforce-edit lock.
+ * with write_file and re-introducing it. Decided from the call's outcome
+ * (ADR-008): a failed edit recorded here would deadlock the recovery write_file
+ * against the enforce-edit lock, and a no-op edit changed nothing to protect.
  */
-function isSuccessfulEdit(res: ToolResultContentBlock | undefined): boolean {
-  if (!res || res.is_error) return false;
-  const text = typeof res.content === 'string' ? res.content : '';
-  return text.includes('File edited:') || text.includes('Applied inferred edit');
+function editChanged(tu: ToolUseContentBlock, state: LoopState): string[] {
+  return changedFiles(state.toolOutcomes.get(tu.id));
 }
 
-export function recordSuccessfulEdits(
-  pendingToolUses: ToolUseContentBlock[],
-  toolResults: ToolResultContentBlock[],
-  state: LoopState,
-): void {
-  for (let i = 0; i < pendingToolUses.length; i++) {
-    const tu = pendingToolUses[i];
-    if (tu.name !== 'edit_file') continue;
-    if (!isSuccessfulEdit(toolResults[i])) continue;
-    const input = tu.input as Record<string, unknown>;
-    const p = (input.path ?? input.file_path) as string | undefined;
-    if (p) state.filesEditedViaEditTool.add(p);
+export function recordSuccessfulEdits(pendingToolUses: ToolUseContentBlock[], state: LoopState): void {
+  for (const tu of pendingToolUses) {
+    if (fileToolName(tu.name) !== 'edit_file') continue;
+    for (const p of editChanged(tu, state)) state.filesEditedViaEditTool.add(p);
   }
 }
 
@@ -305,14 +294,14 @@ export function maybeSteerEditToWrite(
 
   for (let i = 0; i < pendingToolUses.length; i++) {
     const tu = pendingToolUses[i];
-    if (tu.name !== 'edit_file') continue;
+    if (fileToolName(tu.name) !== 'edit_file') continue;
     const input = tu.input as Record<string, unknown>;
     const filePath = (input.path ?? input.file_path) as string | undefined;
     if (!filePath) continue;
 
     // A success anywhere this turn resets the file's failure streak and clears
     // any prior steer, so a later genuine failure is judged fresh.
-    if (isSuccessfulEdit(toolResults[i])) {
+    if (editChanged(tu, state).length > 0) {
       state.editFailureCountByFile.delete(filePath);
       state.escalatedEditToWriteByFile.delete(filePath);
       continue;
@@ -365,35 +354,27 @@ function purgeByBasename(
  * is still blocked and the model is trapped (dogfooding: it deleted a mangled
  * test helper to rewrite it and the recreate write stayed enforce-edit-blocked).
  */
-export function clearTrackingForDeletedFiles(
-  pendingToolUses: ToolUseContentBlock[],
-  toolResults: ToolResultContentBlock[],
-  state: LoopState,
-): void {
-  for (let i = 0; i < pendingToolUses.length; i++) {
-    const tu = pendingToolUses[i];
-    if (tu.name !== 'delete_file') continue;
-    const res = toolResults[i];
-    if (!res || res.is_error) continue;
-    const text = typeof res.content === 'string' ? res.content : '';
-    if (!text.includes('File deleted:')) continue; // positive marker — see isSuccessfulEdit
-    const input = tu.input as Record<string, unknown>;
-    const p = (input.path ?? input.file_path) as string | undefined;
-    if (!p) continue;
-    purgeByBasename(state.filesEditedViaEditTool, p);
-    purgeByBasename(state.writeHistoryByFile, p);
-    purgeByBasename(state.writesSinceVerifyByFile, p);
-    purgeByBasename(state.circularRewriteBlocksByFile, p);
-    purgeByBasename(state.forceVerifyBeforeBailByFile, p);
-    // Also reset the enforce-edit block counter + the one-shot escalation flag,
-    // else a delete-to-restart leaves them poisoned: the recreated file's lock
-    // would release after one block instead of three, and the escalation reprompt
-    // would never re-fire.
-    purgeByBasename(state.enforceEditBlocksByFile, p);
-    purgeByBasename(state.escalatedRewriteByFile, p);
-    purgeByBasename(state.editFailureCountByFile, p);
-    purgeByBasename(state.escalatedEditToWriteByFile, p);
+export function clearTrackingForDeletedFiles(pendingToolUses: ToolUseContentBlock[], state: LoopState): void {
+  for (const tu of pendingToolUses) {
+    if (fileToolName(tu.name) !== 'delete_file') continue;
+    for (const p of editChanged(tu, state)) clearTrackingFor(p, state);
   }
+}
+
+function clearTrackingFor(p: string, state: LoopState): void {
+  purgeByBasename(state.filesEditedViaEditTool, p);
+  purgeByBasename(state.writeHistoryByFile, p);
+  purgeByBasename(state.writesSinceVerifyByFile, p);
+  purgeByBasename(state.circularRewriteBlocksByFile, p);
+  purgeByBasename(state.forceVerifyBeforeBailByFile, p);
+  // Also reset the enforce-edit block counter + the one-shot escalation flag,
+  // else a delete-to-restart leaves them poisoned: the recreated file's lock
+  // would release after one block instead of three, and the escalation reprompt
+  // would never re-fire.
+  purgeByBasename(state.enforceEditBlocksByFile, p);
+  purgeByBasename(state.escalatedRewriteByFile, p);
+  purgeByBasename(state.editFailureCountByFile, p);
+  purgeByBasename(state.escalatedEditToWriteByFile, p);
 }
 
 /**

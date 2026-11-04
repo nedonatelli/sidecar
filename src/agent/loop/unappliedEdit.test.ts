@@ -112,23 +112,34 @@ describe('applyUnappliedEditNudge', () => {
     expect(state.messages).toHaveLength(0);
   });
 
-  // Every mutation tool must suppress the nudge — pins each MUTATION_TOOLS entry
-  // (paired with a verify tool + code block, which would otherwise fire).
-  it.each([
-    'write_file',
-    'edit_file',
-    'delete_file',
-    'create_file',
-    'rename_file',
-    'move_file',
-    'apply_edit',
-    'apply_patch',
-  ])('does NOT fire when %s applied a change this turn', (mutTool) => {
+  // Every file tool, and an alias of each, must suppress the nudge (paired with a
+  // verify tool + code block, which would otherwise fire).
+  it.each(['write_file', 'edit_file', 'delete_file', 'create_file', 'str_replace', 'remove_file'])(
+    'does NOT fire when %s was called this turn',
+    (mutTool) => {
+      const state = stubLoopState();
+      expect(applyUnappliedEditNudge(state, [tu(mutTool, { path: 'src/stats.js' }), RUN], JS_FIX, callbacks())).toBe(
+        false,
+      );
+      expect(state.messages).toHaveLength(0);
+    },
+  );
+
+  // A call that failed still suppresses it: the model did use edit_file, and
+  // "never applied it — use edit_file" would contradict the edit's own error.
+  it('does NOT fire when an edit_file call failed this turn', () => {
     const state = stubLoopState();
-    expect(applyUnappliedEditNudge(state, [tu(mutTool, { path: 'src/stats.js' }), RUN], JS_FIX, callbacks())).toBe(
-      false,
-    );
-    expect(state.messages).toHaveLength(0);
+    const edit = tu('edit_file', { path: 'src/stats.js' });
+    state.toolOutcomes.set(edit.id, { kind: 'failed', paths: ['src/stats.js'] });
+    expect(applyUnappliedEditNudge(state, [edit, RUN], JS_FIX, callbacks())).toBe(false);
+  });
+
+  // A name that is neither a tool nor an alias of one is not a file change.
+  it('fires when the only "mutation" was a tool that does not exist', () => {
+    const state = stubLoopState();
+    expect(
+      applyUnappliedEditNudge(state, [tu('apply_patch', { path: 'src/stats.js' }), RUN], JS_FIX, callbacks()),
+    ).toBe(true);
   });
 
   // Every verify tool must enable the nudge — pins each VERIFY_TOOLS entry.

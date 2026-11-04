@@ -8,6 +8,7 @@ import { getConfig } from '../../config/settings.js';
 import { matchGlob } from '../../config/structuredContextRules.js';
 import { checkWorkspaceConfigTrust } from '../../config/workspaceTrust.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
+import { changedFiles, type ToolOutcome } from '../tools/toolOutcome.js';
 import { injectNudge } from '../loop/nudge.js';
 
 /**
@@ -69,48 +70,18 @@ export function guardWorkingDir(
   return dir;
 }
 
-/** Tool names that contribute to the "post-write" trigger's "did this
- *  turn change files?" check. Same shape as the list in
- *  conversationSummarizer's `extractCodeChanges` so post-write fires
- *  on every mutation surface, not just write_file. */
-const MUTATION_TOOLS = new Set([
-  'write_file',
-  'edit_file',
-  'delete_file',
-  'create_file',
-  'rename_file',
-  'move_file',
-  'apply_edit',
-  'apply_patch',
-]);
-
-/** Keys on a `tool_use` input record that commonly carry a file path. */
-const PATH_KEYS = ['path', 'filePath', 'file_path', 'file', 'target', 'source'] as const;
-
-function pathFromToolInput(input: unknown): string | null {
-  if (!input || typeof input !== 'object') return null;
-  const obj = input as Record<string, unknown>;
-  for (const key of PATH_KEYS) {
-    const v = obj[key];
-    if (typeof v === 'string' && v.length > 0) return v;
-  }
-  return null;
-}
-
 /**
- * Collect paths that this turn's `tool_use` blocks mutated. Used by
- * both the "post-write" trigger filter (did any mutation happen?) and
- * the scope glob filter (did a mutation match the guard's scope?).
+ * Paths this turn's calls changed, by their outcomes (ADR-008). Used by both
+ * the "post-write" trigger filter (did any change happen?) and the scope glob
+ * filter (did a change match the guard's scope?). A failed or no-op edit
+ * changed nothing, so it no longer runs a post-write guard.
  */
-function mutatedFiles(toolUses: ToolUseContentBlock[] | undefined): string[] {
+function mutatedFiles(
+  toolUses: ToolUseContentBlock[] | undefined,
+  outcomes: ReadonlyMap<string, ToolOutcome>,
+): string[] {
   if (!toolUses) return [];
-  const paths: string[] = [];
-  for (const use of toolUses) {
-    if (!MUTATION_TOOLS.has(use.name)) continue;
-    const p = pathFromToolInput(use.input);
-    if (p) paths.push(p);
-  }
-  return paths;
+  return toolUses.flatMap((use) => changedFiles(outcomes.get(use.id)));
 }
 
 /**
@@ -173,7 +144,7 @@ export class RegressionGuardHook implements PolicyHook {
 
   private async runGuard(state: LoopState, ctx: HookContext): Promise<HookResult | void> {
     // Trigger + scope filtering.
-    const touched = mutatedFiles(ctx.pendingToolUses);
+    const touched = mutatedFiles(ctx.pendingToolUses, state.toolOutcomes);
     if (this.guard.trigger === 'post-write' && touched.length === 0) return;
     if (this.guard.scope && this.guard.scope.length > 0) {
       const anyInScope = touched.some((p) => this.guard.scope!.some((pat) => matchGlob(pat, p)));

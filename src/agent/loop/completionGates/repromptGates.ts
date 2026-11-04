@@ -130,6 +130,7 @@ export const noFileWriteGate = repromptGate({
       s.gateState.currentUserRequest,
       async (rel) => existsInWorkspace(runRoot(s), rel),
       s.gateState.fileReferenceText,
+      s.toolOutcomes,
     );
     return unwritten.length > 0 ? { text: noFileWriteReprompt(unwritten), files: unwritten } : null;
   },

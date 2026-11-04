@@ -13,6 +13,7 @@ import {
 } from './circularRewrite.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
+import type { ToolOutcome } from '../tools/toolOutcome.js';
 
 const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
@@ -337,7 +338,10 @@ describe('maybeSteerEditToWrite', () => {
     const cb = stubCallbacks();
     maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
     maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb);
-    maybeSteerEditToWrite([edit('calculator.py')], [editOk()], state, cb); // reset
+    const landed = edit('calculator.py');
+    state.toolOutcomes.set(landed.id, { kind: 'mutated', paths: ['calculator.py'] });
+    maybeSteerEditToWrite([landed], [editOk()], state, cb); // reset
+    state.toolOutcomes.clear();
     expect(state.editFailureCountByFile.has('calculator.py')).toBe(false);
     expect(maybeSteerEditToWrite([edit('calculator.py')], [editErr()], state, cb)).toBe(false); // count=1 again
   });
@@ -412,61 +416,39 @@ describe('maybeReleaseEnforceLock', () => {
 });
 
 describe('recordSuccessfulEdits', () => {
-  const okResult = (text = 'File edited: x'): ToolResultContentBlock => ({
-    type: 'tool_result',
-    tool_use_id: 'id',
-    content: text,
-  });
-  const errResult = (text = 'boom'): ToolResultContentBlock => ({
-    type: 'tool_result',
-    tool_use_id: 'id',
-    content: text,
-    is_error: true,
-  });
+  // Outcomes are what the executor reports for each call (ADR-008); the result
+  // text is for the model and is not read here.
+  const outcome = (
+    state: ReturnType<typeof stubLoopState>,
+    tu: ToolUseContentBlock,
+    kind: ToolOutcome['kind'],
+  ): ToolUseContentBlock => {
+    const p = String(tu.input.path ?? tu.input.file_path ?? '');
+    state.toolOutcomes.set(tu.id, { kind, paths: p ? [p] : [] });
+    return tu;
+  };
 
-  it('records a file successfully edited via edit_file', () => {
+  it('records a file whose edit_file call changed it', () => {
     const state = stubLoopState();
-    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py', search: 'a', replace: 'b' })], [okResult()], state);
+    recordSuccessfulEdits([outcome(state, tool('edit_file', { path: 'gui.py' }), 'mutated')], state);
     expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true);
   });
 
-  it('does NOT record a failed edit (is_error result)', () => {
+  it.each(['failed', 'noop'] as const)('does NOT record an edit whose outcome is %s', (kind) => {
     const state = stubLoopState();
-    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [errResult()], state);
+    recordSuccessfulEdits([outcome(state, tool('edit_file', { path: 'gui.py' }), kind)], state);
     expect(state.filesEditedViaEditTool.size).toBe(0);
   });
 
-  it('does NOT record an edit whose result is a soft "Error:" string (search-not-found)', () => {
+  it('does NOT record an edit with no outcome (nothing reported it changed a file)', () => {
     const state = stubLoopState();
-    const soft = okResult('Error: edit_file failed — search string not found in gui.py.');
-    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [soft], state);
+    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], state);
     expect(state.filesEditedViaEditTool.size).toBe(0);
   });
 
-  it('does NOT record a failed edit whose Error is behind an "[You have not read…]" prefix (Bug 1)', () => {
+  it('records an aliased edit (str_replace runs as edit_file)', () => {
     const state = stubLoopState();
-    // editFile prepends unreadPrefix, so the result does NOT start with "Error:".
-    const prefixed = okResult(
-      '[You have not read gui.py this turn. …]\n\nError: edit_file failed — search string not found in gui.py. The file was NOT modified.',
-    );
-    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [prefixed], state);
-    expect(state.filesEditedViaEditTool.size).toBe(0);
-  });
-
-  it('DOES record a real edit whose "File edited:" success is behind an unread prefix', () => {
-    const state = stubLoopState();
-    const prefixed = okResult('[You have not read gui.py this turn. …]\n\nFile edited: gui.py');
-    recordSuccessfulEdits([tool('edit_file', { path: 'gui.py' })], [prefixed], state);
-    expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true);
-  });
-
-  it('records an inferred-edit success', () => {
-    const state = stubLoopState();
-    recordSuccessfulEdits(
-      [tool('edit_file', { path: 'gui.py' })],
-      [okResult('Applied inferred edit to gui.py: …')],
-      state,
-    );
+    recordSuccessfulEdits([outcome(state, tool('str_replace', { path: 'gui.py' }), 'mutated')], state);
     expect(state.filesEditedViaEditTool.has('gui.py')).toBe(true);
   });
 
@@ -480,11 +462,7 @@ describe('recordSuccessfulEdits', () => {
     // an unrelated file's tracking must survive
     state.filesEditedViaEditTool.add('gui.py');
 
-    clearTrackingForDeletedFiles(
-      [tool('delete_file', { path: 'test_gui.py' })],
-      [okResult('File deleted: test_gui.py')],
-      state,
-    );
+    clearTrackingForDeletedFiles([outcome(state, tool('delete_file', { path: 'test_gui.py' }), 'mutated')], state);
 
     expect(state.filesEditedViaEditTool.has('test_gui.py')).toBe(false);
     expect(state.writeHistoryByFile.has('test_gui.py')).toBe(false);
@@ -498,11 +476,7 @@ describe('recordSuccessfulEdits', () => {
     const state = stubLoopState();
     state.enforceEditBlocksByFile.set('test_gui.py', 2);
     state.escalatedRewriteByFile.add('test_gui.py');
-    clearTrackingForDeletedFiles(
-      [tool('delete_file', { path: 'test_gui.py' })],
-      [okResult('File deleted: test_gui.py')],
-      state,
-    );
+    clearTrackingForDeletedFiles([outcome(state, tool('delete_file', { path: 'test_gui.py' }), 'mutated')], state);
     expect(state.enforceEditBlocksByFile.has('test_gui.py')).toBe(false);
     expect(state.escalatedRewriteByFile.has('test_gui.py')).toBe(false);
   });
@@ -511,11 +485,7 @@ describe('recordSuccessfulEdits', () => {
     const state = stubLoopState();
     state.filesEditedViaEditTool.add('src/util.py');
     state.filesEditedViaEditTool.add('test/util.py');
-    clearTrackingForDeletedFiles(
-      [tool('delete_file', { path: 'test/util.py' })],
-      [okResult('File deleted: test/util.py')],
-      state,
-    );
+    clearTrackingForDeletedFiles([outcome(state, tool('delete_file', { path: 'test/util.py' }), 'mutated')], state);
     expect(state.filesEditedViaEditTool.has('src/util.py')).toBe(true); // untouched
     expect(state.filesEditedViaEditTool.has('test/util.py')).toBe(false);
   });
@@ -523,17 +493,13 @@ describe('recordSuccessfulEdits', () => {
   it('does NOT clear tracking on a failed delete_file', () => {
     const state = stubLoopState();
     state.filesEditedViaEditTool.add('test_gui.py');
-    clearTrackingForDeletedFiles([tool('delete_file', { path: 'test_gui.py' })], [errResult()], state);
+    clearTrackingForDeletedFiles([outcome(state, tool('delete_file', { path: 'test_gui.py' }), 'failed')], state);
     expect(state.filesEditedViaEditTool.has('test_gui.py')).toBe(true);
   });
 
   it('ignores write_file and other tools', () => {
     const state = stubLoopState();
-    recordSuccessfulEdits(
-      [tool('write_file', { path: 'gui.py', content: 'x' })],
-      [okResult('File written: gui.py')],
-      state,
-    );
+    recordSuccessfulEdits([outcome(state, tool('write_file', { path: 'gui.py', content: 'x' }), 'mutated')], state);
     expect(state.filesEditedViaEditTool.size).toBe(0);
   });
 });

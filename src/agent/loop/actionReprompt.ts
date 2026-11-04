@@ -2,6 +2,7 @@ import type { ChatMessage, ToolResultContentBlock } from '../../ollama/types.js'
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { hasEditShapedCodeBlock } from './unappliedEdit.js';
+import { changedFiles, type ToolOutcome } from '../tools/toolOutcome.js';
 
 // ---------------------------------------------------------------------------
 // Action-request reprompt — onEmptyResponse policy.
@@ -178,7 +179,7 @@ function textOf(msg: ChatMessage): string {
 /**
  * True when the newest tool evidence says the work is already done: walking
  * back from the latest message, a "No change needed" result is found before
- * any successful mutation ("File edited/written") and before the user's real
+ * any call that changed a file (by its outcome) and before the user's real
  * request. Read-only results (read_file, grep, tsc) and synthetic loop
  * injections ('['-prefixed) don't break the scan — a model that re-checks and
  * then finishes is the ideal path.
@@ -191,7 +192,11 @@ function textOf(msg: ChatMessage): string {
  * wasted iterations. The tool layer's "already done" signal must also disarm
  * the loop's act-now machinery, or the two fight each other.
  */
-export function recentResultsShowWorkAlreadyDone(messages: ChatMessage[], requestText?: string): boolean {
+export function recentResultsShowWorkAlreadyDone(
+  messages: ChatMessage[],
+  outcomes: ReadonlyMap<string, ToolOutcome>,
+  requestText?: string,
+): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'user') continue;
@@ -205,7 +210,7 @@ export function recentResultsShowWorkAlreadyDone(messages: ChatMessage[], reques
     // progress, not completion.
     let sawNoChange = false;
     for (const r of results) {
-      if (/File (?:edited|written): /.test(r.content)) return false;
+      if (changedAFile(r, outcomes)) return false;
       if (isNoChangeNeededResult(r.content)) sawNoChange = true;
     }
     if (sawNoChange) return true;
@@ -283,8 +288,10 @@ const FAILING_CHECK_RE =
 export function isFailingCheckOutput(text: string): boolean {
   return FAILING_CHECK_RE.test(text);
 }
-/** Successful mutation results. A deletion is a change too (#284). */
-const MUTATION_OK_RE = /File (?:edited|written|deleted): /;
+/** A result whose call changed a file: an edit, write or delete (#284), by its outcome (ADR-008). */
+function changedAFile(r: ToolResultContentBlock, outcomes: ReadonlyMap<string, ToolOutcome>): boolean {
+  return changedFiles(outcomes.get(r.tool_use_id)).length > 0;
+}
 
 /**
  * Intent-aware escapes for the act-now machinery, keyed on what has ACTUALLY
@@ -316,7 +323,11 @@ export function answeredFromReadsSinceUserMessage(messages: ChatMessage[], reque
   return false;
 }
 
-export function verifiedMutationSinceUserMessage(messages: ChatMessage[], requestText?: string): boolean {
+export function verifiedMutationSinceUserMessage(
+  messages: ChatMessage[],
+  outcomes: ReadonlyMap<string, ToolOutcome>,
+  requestText?: string,
+): boolean {
   let sawCleanVerify = false;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -335,7 +346,7 @@ export function verifiedMutationSinceUserMessage(messages: ChatMessage[], reques
       }
       // Walking newest-first: the mutation must have a clean verify NEWER than
       // it (already seen) for the work to count as verified-done.
-      if (MUTATION_OK_RE.test(r.content)) return sawCleanVerify;
+      if (changedAFile(r, outcomes)) return sawCleanVerify;
     }
   }
   return false;
@@ -346,7 +357,11 @@ export function verifiedMutationSinceUserMessage(messages: ChatMessage[], reques
  * edit, write or delete result. Whether it was verified is not asked here;
  * that is the completion gate's job (#284).
  */
-export function changeLandedSinceUserMessage(messages: ChatMessage[], requestText?: string): boolean {
+export function changeLandedSinceUserMessage(
+  messages: ChatMessage[],
+  outcomes: ReadonlyMap<string, ToolOutcome>,
+  requestText?: string,
+): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'user') continue;
@@ -356,7 +371,7 @@ export function changeLandedSinceUserMessage(messages: ChatMessage[], requestTex
       if (!isUserRequestMessage(textOf(msg), requestText)) continue;
       return false;
     }
-    if (results.some((r) => !r.is_error && MUTATION_OK_RE.test(r.content))) return true;
+    if (results.some((r) => changedAFile(r, outcomes))) return true;
   }
   return false;
 }
@@ -457,7 +472,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
   // kept the post-success edit loop alive. Let the narration stand; the
   // completion gate still decides whether verification evidence suffices.
   const requestText = state.userRequestText;
-  if (recentResultsShowWorkAlreadyDone(state.messages, requestText)) {
+  if (recentResultsShowWorkAlreadyDone(state.messages, state.toolOutcomes, requestText)) {
     state.logger?.info('Action-request reprompt suppressed: latest tool results reported the change already applied');
     return false;
   }
@@ -482,7 +497,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
     const changed =
       state.fileMutations > 0 ||
       state.shellRanUnchecked === true ||
-      changeLandedSinceUserMessage(state.messages, requestText);
+      changeLandedSinceUserMessage(state.messages, state.toolOutcomes, requestText);
     if (!changed && !state.alreadyDoneChecked && isMutationRequest(userText)) {
       state.alreadyDoneChecked = true;
       state.actionRepromptCount++;
@@ -531,7 +546,7 @@ export function maybeInjectActionReprompt(state: LoopState, fullText: string, ca
     // as well, so a model that edited and then summarized was told it "did not
     // call any tools" — in 3 of 4 firings in the v0.131.0 release eval (#284).
     // Verification is the completion gate's job, and it still enforces it.
-    if (changeLandedSinceUserMessage(state.messages, requestText)) {
+    if (changeLandedSinceUserMessage(state.messages, state.toolOutcomes, requestText)) {
       state.logger?.info('Action-request reprompt suppressed: a change already landed this turn');
       return false;
     }

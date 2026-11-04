@@ -11,6 +11,7 @@ import {
 } from '../tools/shared.js';
 import { resolveEditedText, editDiffSuffix, type ResolvedEdit } from '../tools/fs.js';
 import { computeLineDiff } from '../tools/diffUtils.js';
+import { mutated, noop } from '../tools/toolOutcome.js';
 import { withFileLock } from '../fileLock.js';
 
 /**
@@ -92,6 +93,7 @@ export async function handleReviewModeTool(
     const diskBaseline = await readDiskOrNull(root, relPath);
     pendingEdits.record(absPath, diskBaseline, content, 'write_file');
     logger?.info(`[REVIEW] Captured write_file for ${relPath} (${content.length} bytes pending)`);
+    context?.recordOutcome?.(mutated(relPath, 'review'));
     return {
       type: 'tool_result',
       tool_use_id: toolUse.id,
@@ -128,6 +130,7 @@ export async function handleReviewModeTool(
       }
       pendingEdits.record(absPathC, null, content, 'write_file');
       logger?.info(`[REVIEW] Coerced creation-intent edit_file into pending write for ${relPath}`);
+      context?.recordOutcome?.(mutated(relPath, 'review'));
       return {
         type: 'tool_result',
         tool_use_id: toolUse.id,
@@ -184,6 +187,7 @@ export async function handleReviewModeTool(
         };
       }
       if (resolved.newText === null) {
+        context?.recordOutcome?.(noop(relPath));
         return { type: 'tool_result', tool_use_id: toolUse.id, content: resolved.message };
       }
       const newContent = resolved.newText;
@@ -192,6 +196,7 @@ export async function handleReviewModeTool(
       const baselineForRecord = existing ? null : base;
       pendingEdits.record(absPath, baselineForRecord, newContent, 'edit_file');
       logger?.info(`[REVIEW] Captured edit_file for ${relPath}`);
+      context?.recordOutcome?.(newContent === base ? noop(relPath) : mutated(relPath, 'review'));
       const queuedLine = resolved.summary ?? `Pending edit queued for review: ${relPath}`;
       const patch = computeLineDiff(base, newContent, relPath);
       return {

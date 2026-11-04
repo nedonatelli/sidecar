@@ -1,6 +1,6 @@
 import type { ChatMessage, ToolDefinition, TokenUsage } from '../ollama/types.js';
 import { collapseRepeatedCommandResults } from './loop/commandDedup.js';
-import { countsAsFileMutation } from './loop/fileMutation.js';
+import { changedFiles } from './tools/toolOutcome.js';
 import { shellRoot, workingTreeSignature } from './loop/treeSignature.js';
 import { SideCarClient } from '../ollama/client.js';
 import { recordToolSuccess, recordToolFailure } from '../ollama/ollamaBackend.js';
@@ -1061,11 +1061,12 @@ export async function runAgentLoop(
 
       // Record files successfully edited via edit_file so write_file blocks a
       // full rewrite that would clobber those targeted fixes.
-      recordSuccessfulEdits(pendingToolUses, toolResults, state);
-      // Any successful write invalidates every cached shell result: a command
-      // that was a no-op repeat a moment ago may now produce something new.
-      for (let i = 0; i < pendingToolUses.length; i++) {
-        if (countsAsFileMutation(pendingToolUses[i]?.name, toolResults[i])) state.fileMutations++;
+      recordSuccessfulEdits(pendingToolUses, state);
+      // Any write that changed a file invalidates every cached shell result: a
+      // command that was a no-op repeat a moment ago may now produce something
+      // new. A no-op edit is not a change (#361).
+      for (const tu of pendingToolUses) {
+        if (changedFiles(state.toolOutcomes.get(tu.id)).length > 0) state.fileMutations++;
       }
       if (treeBefore !== null) {
         const treeAfter = await workingTreeSignature(treeRoot);
@@ -1080,7 +1081,7 @@ export async function runAgentLoop(
       // A deleted file is a clean slate — clear its rewrite-thrash tracking so a
       // delete-then-recreate (the natural "start this file over" move) isn't
       // blocked by the enforce-edit lock left over from before the delete.
-      clearTrackingForDeletedFiles(pendingToolUses, toolResults, state);
+      clearTrackingForDeletedFiles(pendingToolUses, state);
 
       // Capture the latest failing verification output, then — if the model just
       // looped on an enforce-blocked rewrite — escalate with a strong "edit, don't
