@@ -80,6 +80,23 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.0** (2026-11) — structured tool outcomes (#367, ADR-008). write_file,
+ *   edit_file and delete_file report what each call did (mutated, noop,
+ *   failed, plus staged), and the action reprompt, completion gate, regression
+ *   guard, circularRewrite, stale-read mark and no-file-write gate read that
+ *   report instead of the result text. An inferred edit counts as a change
+ *   everywhere; a failed or no-op edit no longer triggers a post-write
+ *   regression guard; a review-mode queued edit counts as a change; aliased
+ *   calls are treated as the tool they run as. MAJOR: changed gate and guard
+ *   trigger logic.
+ * - **6.0.3** (2026-11) — a missing checker is a final answer (#279).
+ *   run_command appends a note when a checker (tsc, eslint, jest, ts-node,
+ *   ...) can't run because it isn't installed: don't create a project, install
+ *   a toolchain or write config to make it run; use get_diagnostics and say the
+ *   change is unverified beyond it. run_tests recommends `npx tsc --noEmit`
+ *   only where TypeScript is installed, and its no-runner answers now forbid
+ *   building a runner rather than writing a test file. PATCH: tool-result
+ *   wording within existing tools.
  * - **6.0.2** (2026-11) — web-tree-sitter 0.24.7 → 0.25.10 (#400). Every
  *   grammar the agent's tools parse with (the edit-time syntax check, the
  *   symbol graph, find_references) now runs on the newer runtime, and Dart
@@ -305,7 +322,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '6.0.2';
+export const SCAFFOLD_VERSION = '7.0.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
