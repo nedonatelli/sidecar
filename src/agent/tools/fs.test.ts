@@ -2117,7 +2117,9 @@ describe('edit_file — search must not double as the locator', () => {
         replace: '    def is_within_bounds(self, value):  # checked',
       });
 
-      expect(msg).toMatch(/not found|appears/i);
+      // Not "search string not found": the search is fine, the locator is
+      // below it (#161 ML-74).
+      expect(msg).toMatch(/occurs 2 times .* all above your 'within' locator/);
       expect(writeSpy).not.toHaveBeenCalled();
     });
 

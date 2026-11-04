@@ -2027,6 +2027,24 @@ export async function resolveEditedText(params: {
   };
   if (within && !match) fallBackToWholeFile();
 
+  // The search is in the file more than once, but only above the locator, so
+  // the slice below it holds none and the fallback (one occurrence only) does
+  // not apply. "Search string not found" sent the model to rewrite a search
+  // that was fine; the locator is what has to move (#161 ML-74).
+  if (within && !locatorError && !match) {
+    const above = findEditMatches(text, search, replace, matchOptions);
+    if (above.length > 1) {
+      const lineOf = (offset: number) => text.slice(0, offset).split('\n').length;
+      recordEditFailure(context, filePath, search, replace);
+      throw new Error(
+        `${unreadPrefix}Error: edit_file did not apply this edit to ${filePath} — your search occurs ` +
+          `${above.length} times in the file (lines ${above.map((m) => lineOf(m.start)).join(', ')}), all above ` +
+          `your 'within' locator (line ${lineOf(anchorAt)}). 'within' marks where the search begins, so only text ` +
+          `below it is searched. The file was NOT modified. Set 'within' to a line just above the occurrence you mean.`,
+      );
+    }
+  }
+
   /**
    * A locator that could not be resolved gets the SAME treatment as one that
    * turned out to be redundant, and for the same reason: `within` only decides
