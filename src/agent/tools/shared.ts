@@ -141,6 +141,13 @@ export interface ToolExecutorContext {
    */
   editedSinceRead?: Set<string>;
   /**
+   * For a path in `editedSinceRead`, the 1-based lines its edits changed (in
+   * the file as it now is). A read that shows those lines clears the path; one
+   * that does not -- another range, an outline -- leaves it (#161 ML-75). No
+   * span (a write_file) means only a full read clears it.
+   */
+  editedSpans?: Map<string, { from: number; to: number }>;
+  /**
    * Workspace index for the current session. When set, `write_file` and
    * `edit_file` call `invalidateFile` after each successful disk write so
    * the next `loadFileContent` call gets fresh content rather than the

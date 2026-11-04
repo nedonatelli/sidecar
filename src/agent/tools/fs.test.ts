@@ -530,6 +530,51 @@ describe('editFile audit mode', () => {
     expect(editedSinceRead.size).toBe(0);
   });
 
+  // #161 ML-75: any read cleared the flag, even of an unrelated range or an
+  // outline, so a later miss on text quoted from before the edit lost the
+  // "changed since you read it" prefix.
+  describe('only a read that shows the edited lines clears "edited since read" (#161 ML-75)', () => {
+    const SRC = Array.from({ length: 30 }, (_, i) => `line_${i + 1} = ${i + 1}`).join('\n') + '\n';
+    async function editedLine20() {
+      await buf.write('c.py', SRC, async () => undefined);
+      const editedSinceRead = new Set<string>();
+      const context = {
+        config: { agentMode: 'audit' } as never,
+        filesReadThisTurn: new Set(['c.py']),
+        editedSinceRead,
+        editedSpans: new Map(),
+      } as never;
+      const edit = fsTools.find((t) => t.definition.name === 'edit_file')!;
+      await edit.executor({ path: 'c.py', search: 'line_20 = 20', replace: 'line_20 = 200' }, context);
+      expect([...editedSinceRead]).toEqual(['c.py']);
+      const read = fsTools.find((t) => t.definition.name === 'read_file')!;
+      return {
+        editedSinceRead,
+        read: (input: Record<string, unknown>) => read.executor({ path: 'c.py', ...input }, context),
+      };
+    }
+
+    it.each([
+      ['a range that misses the edit', { start_line: 1, end_line: 10 }],
+      ['an outline', { mode: 'outline' }],
+      ['a compact read', { mode: 'compact' }],
+    ])('keeps the flag after %s', async (_label, input) => {
+      const { editedSinceRead, read } = await editedLine20();
+      await read(input);
+      expect([...editedSinceRead]).toEqual(['c.py']);
+    });
+
+    it.each([
+      ['a range that covers the edit', { start_line: 15, end_line: 25 }],
+      ['an open-ended range from above it', { start_line: 18 }],
+      ['a full read', {}],
+    ])('clears it after %s', async (_label, input) => {
+      const { editedSinceRead, read } = await editedLine20();
+      await read(input);
+      expect(editedSinceRead.size).toBe(0);
+    });
+  });
+
   it('records an inferred edit as "edited since read" too (#362)', async () => {
     const source =
       'def compute_total(prices, tax_rate):\n' +

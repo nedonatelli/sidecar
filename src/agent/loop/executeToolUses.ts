@@ -57,6 +57,7 @@ interface ExecutionContext {
   signal: AbortSignal;
   filesReadThisTurn: Set<string>;
   editedSinceRead: Set<string>;
+  editedSpans: Map<string, { from: number; to: number }>;
 }
 
 /**
@@ -96,6 +97,7 @@ export async function executeToolUses(
     signal: batchSignal,
     filesReadThisTurn: state.filesReadThisRun,
     editedSinceRead: state.editedSinceRead,
+    editedSpans: state.editedSpans,
   };
 
   // Snapshot the plan object identity so a successful update_plan in this
@@ -330,6 +332,7 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       testController: options.testController,
       filesReadThisTurn: ctx.filesReadThisTurn,
       editedSinceRead: ctx.editedSinceRead,
+      editedSpans: ctx.editedSpans,
       workspaceIndex: options.workspaceIndex,
       // Structured tool outcomes land in the same record stream the scaffold
       // decisions use, so an experiment can read what an edit actually did

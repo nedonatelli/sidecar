@@ -74,6 +74,7 @@ function makeState(logger?: AgentLogger): LoopState {
     alreadyDoneChecked: false,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),
+    editedSpans: new Map(),
     unappliedEditNudged: false,
     toolCallCounts: new Map(),
     gateState: null as any,

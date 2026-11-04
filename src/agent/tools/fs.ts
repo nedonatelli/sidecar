@@ -876,9 +876,9 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   // Track this file as read so editFile knows the model has current content.
   const readKey = path.posix.normalize(filePath.split(path.sep).join('/'));
   context?.filesReadThisTurn?.add(readKey);
-  // A read refreshes the model's memory of the file: it is no longer stale
-  // with respect to its own earlier edits.
-  context?.editedSinceRead?.delete(readKey);
+  // A read that shows the edited lines refreshes the model's memory of the
+  // file: it is no longer stale with respect to its own earlier edits.
+  refreshStaleRead(context, readKey, mode, startLine, endLine);
   return applyReadView(text, mode, startLine, endLine, filePath);
 }
 
@@ -1115,6 +1115,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     recordWrite();
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
+    forgetEditedSpan(context, filePath);
     context?.recordOutcome?.(mutated(filePath, 'audit'));
     return `File written: ${filePath} (buffered for audit review)`;
   }
@@ -1202,6 +1203,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     if (patch) context.onOutput(DIFF_PREFIX + patch);
   }
 
+  forgetEditedSpan(context, filePath);
   context?.recordOutcome?.(mutated(filePath));
   return `File written: ${filePath}` + escapeRecoveryNote;
 }
@@ -1532,6 +1534,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     clearEditFailure(context, filePath);
     const auditLine =
       resolvedAudit.summary ?? `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
+    recordEditedSpan(context, filePath, currentText, resolvedAudit.newText);
     context?.recordOutcome?.(mutated(filePath, 'audit'));
     return `${resolvedAudit.prefixNote}${auditLine}${resolvedAudit.suffixNote}${editDiffSuffix(auditPatch, context)}`;
   }
@@ -1698,6 +1701,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // can overwhelm a weak model (LOCAL_MAX_SYSTEM_CHARS); the char cap is the config
   // value, and the A/B decides whether it helps or is just noise.
   const successLine = resolved.summary ?? `File edited: ${filePath}${partialReplaceWarning}`;
+  recordEditedSpan(context, filePath, text, newText);
   context?.recordOutcome?.(mutated(filePath));
   return `${resolved.prefixNote}${successLine}${resolved.suffixNote}${editDiffSuffix(patch, context)}`;
 }
@@ -1854,6 +1858,65 @@ function resolveWithin(text: string, within: string, filePath: string): number {
     );
   }
   return text.indexOf(within);
+}
+
+/** The 1-based lines of `newText` that differ from `oldText`. */
+function changedLineSpan(oldText: string, newText: string): { from: number; to: number } {
+  const a = oldText.split('\n');
+  const b = newText.split('\n');
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+  return { from: head + 1, to: Math.max(head + 1, b.length - tail) };
+}
+
+const staleKey = (filePath: string) => path.posix.normalize(filePath.split(path.sep).join('/'));
+
+/** Note the lines an edit changed, so a read can tell whether it showed them (#161 ML-75). */
+function recordEditedSpan(
+  context: ToolExecutorContext | undefined,
+  filePath: string,
+  oldText: string,
+  newText: string,
+) {
+  const spans = context?.editedSpans;
+  if (!spans) return;
+  const key = staleKey(filePath);
+  const span = changedLineSpan(oldText, newText);
+  const prev = spans.get(key);
+  spans.set(key, prev ? { from: Math.min(prev.from, span.from), to: Math.max(prev.to, span.to) } : span);
+}
+
+/** A whole-file write has no span: only a full read refreshes it. */
+function forgetEditedSpan(context: ToolExecutorContext | undefined, filePath: string) {
+  context?.editedSpans?.delete(staleKey(filePath));
+}
+
+/**
+ * Clear "edited since read" for a read that showed the edited lines. Any read
+ * used to clear it -- another range, an outline -- so a later miss on text
+ * quoted from before the edit lost the "changed since you read it" prefix
+ * (#161 ML-75). A full read clears it; compact and outline never do (they are
+ * not the verbatim text); a line range does when it covers every edited line.
+ */
+function refreshStaleRead(
+  context: ToolExecutorContext | undefined,
+  key: string,
+  mode: string | undefined,
+  startLine: number | undefined,
+  endLine: number | undefined,
+): void {
+  if (!context?.editedSinceRead?.has(key)) return;
+  if (startLine !== undefined || endLine !== undefined) {
+    // A line range takes precedence over mode, as in applyReadView.
+    const span = context.editedSpans?.get(key);
+    if (!span || (startLine ?? 1) > span.from || (endLine !== undefined && endLine < span.to)) return;
+  } else if (mode && mode !== 'full') {
+    return;
+  }
+  context.editedSinceRead.delete(key);
+  context.editedSpans?.delete(key);
 }
 
 /**
@@ -2704,7 +2767,13 @@ function markRead(exec: ToolExecutor): ToolExecutor {
     if (p) {
       const key = path.posix.normalize(p.split(path.sep).join('/'));
       context?.filesReadThisTurn?.add(key);
-      context?.editedSinceRead?.delete(key);
+      refreshStaleRead(
+        context,
+        key,
+        input.mode as string | undefined,
+        toLineNum(input.start_line),
+        toLineNum(input.end_line),
+      );
     }
     return result;
   };
