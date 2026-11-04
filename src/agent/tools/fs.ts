@@ -1733,9 +1733,18 @@ export type ResolvedEdit =
  * Lines that introduce a named definition, across the languages the edit tools
  * see most. Deliberately shallow: this feeds a COUNT comparison, not a parse,
  * and a pattern that misses a definition only makes the guard quieter.
+ *
+ * A miss on one side of an edit is not quiet, though: a definition the pattern
+ * reads in `search` but not in its modified form in `replace` counts as
+ * dropped (#162 ML-42). So each form takes what follows the name -- a call or
+ * parameter list, a return type, a nested call in a decorator -- and a keyword
+ * starting a line of prose (`class attributes are ...`) is not a definition.
  */
 const DEFINITION_LINE =
-  /^\s*(?:@\w[\w.]*\s*(?:\([^)]*\))?\s*$|(?:async\s+)?def\s+\w|class\s+\w|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*\w|(?:export\s+)?(?:const|let|var)\s+\w[\w$]*\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>|(?:public|private|protected|static)\s+\w)/;
+  /^\s*(?:@\w[\w.]*\s*(?:\(.*\))?\s*$|(?:async\s+)?def\s+\w+\s*[([]|class\s+\w+\s*(?:[(:{<]|extends\b|implements\b|$)|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*[\w$]*\s*[(<]|(?:export\s+)?(?:const|let|var)\s+\w[\w$]*\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*(?::[^=]+)?=>|(?:public|private|protected|static)\s+(?:[\w$<>[\],?.]+\s+)*[\w$]+\s*[(=;:<{])/;
+
+/** A decorator line: removing one leaves no body behind. */
+const DECORATOR_LINE = /^\s*@\w[\w.]*\s*(?:\(.*\))?\s*$/;
 
 function countDefinitions(text: string): number {
   return text.split('\n').filter((l) => DEFINITION_LINE.test(l)).length;
@@ -1757,6 +1766,35 @@ function droppedDefinition(search: string, replace: string): string | null {
   if (countDefinitions(replace) >= countDefinitions(search)) return null;
   const kept = new Set(replace.split('\n').map((l) => l.trim()));
   return search.split('\n').find((l) => DEFINITION_LINE.test(l) && !kept.has(l.trim())) ?? null;
+}
+
+/**
+ * An empty `replace` over whole lines that deletes each definition in them
+ * entirely -- header, body, and a closing bracket -- or deletes only
+ * decorators. Nothing is left to attach to the code above, which is the
+ * corruption the dropped-definition guard exists for, so the deletion is
+ * allowed (#162 ML-43). Bodies are found by indentation.
+ */
+function deletesWholeDefinitions(text: string, start: number, end: number, replace: string): boolean {
+  if (replace.trim() !== '') return false;
+  // Whole lines only: a span ending in its newline ends its line.
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  const lineEndAt = text.indexOf('\n', end);
+  const rest = text[end - 1] === '\n' ? '' : text.slice(end, lineEndAt === -1 ? text.length : lineEndAt);
+  if (text.slice(lineStart, start).trim() !== '' || rest.trim() !== '') return false;
+  const lines = text.split('\n');
+  const first = text.slice(0, lineStart).split('\n').length - 1;
+  const last = text.slice(0, Math.max(start, end - 1)).split('\n').length - 1;
+  const indent = (l: string) => l.length - l.trimStart().length;
+  for (let i = first; i <= last; i++) {
+    if (!DEFINITION_LINE.test(lines[i]) || DECORATOR_LINE.test(lines[i])) continue;
+    const next = lines.slice(last + 1).find((l) => l.trim() !== '');
+    const h = indent(lines[i]);
+    // A deeper line is the rest of the body; a bracket at the header's own
+    // indentation is its closing line.
+    if (next !== undefined && (indent(next) > h || (indent(next) === h && /^\s*[)\]}]/.test(next)))) return false;
+  }
+  return true;
 }
 
 /**
@@ -1906,7 +1944,9 @@ export async function resolveEditedText(params: {
         `edit_file substitutes: everything in 'search' and missing from 'replace' is DELETED, and deleting a ` +
         `definition leaves its body attached to whatever precedes it — which still parses, so nothing downstream ` +
         `would catch it. Either repeat that line inside 'replace' alongside your change, or shorten 'search' to ` +
-        `just the line you are changing and pass the enclosing definition in 'within' to disambiguate.`,
+        `just the line you are changing and pass the enclosing definition in 'within' to disambiguate. To ` +
+        `delete the definition, put its whole block in 'search' -- decorators, header, body, and any closing ` +
+        `bracket -- and send an empty 'replace'.`,
     );
   };
 
@@ -2173,8 +2213,11 @@ export async function resolveEditedText(params: {
       `${stalePrefix}${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
     );
   }
-  // The search matched: this edit would write, so a dropped definition is real.
-  if (dropped) refuseDropped();
+  // The search matched: this edit would write, so a dropped definition is real
+  // -- unless the edit deletes it whole.
+  if (dropped && !(match.count === 1 && deletesWholeDefinitions(text, match.start, match.end, replace))) {
+    refuseDropped();
+  }
   if (match.count > 1) {
     // replace_all: the caller wants EVERY occurrence changed. Each occurrence
     // is spliced at its own span with its own adapted replacement (a tolerance
@@ -2216,7 +2259,7 @@ export async function resolveEditedText(params: {
         recordEditFailure(context, filePath, search, replace);
         throw new Error(`${unreadPrefix}${allSyntax.message}`);
       }
-      const dupAll = introducedTopLevelDuplicate(text, newTextAll);
+      const dupAll = introducedTopLevelDuplicate(filePath, text, newTextAll);
       if (dupAll) {
         recordEditFailure(context, filePath, search, replace);
         throw new Error(`${unreadPrefix}${shadowDefinitionError(filePath, dupAll)}`);
@@ -2375,7 +2418,7 @@ export async function resolveEditedText(params: {
   // see it). Live: gemma4 on django-10914 added `FILE_UPLOAD_PERMISSIONS = 0o644`
   // above the existing `= None`, read the diff, declared success, and committed a
   // patch that changed nothing. Refuse the edit and point at the real target.
-  const dup = introducedTopLevelDuplicate(text, newText);
+  const dup = introducedTopLevelDuplicate(filePath, text, newText);
   if (dup) {
     recordEditFailure(context, filePath, search, replace);
     throw new Error(`${unreadPrefix}${shadowDefinitionError(filePath, dup)}`);
@@ -2394,11 +2437,22 @@ export async function resolveEditedText(params: {
 }
 
 /**
+ * Files where a second top-level definition silently replaces the first.
+ * Elsewhere a repeated `NAME =` at column 0 is something else: Markdown prose,
+ * a TOML key under another table, a shell or Makefile reassignment (#162 ML-44).
+ */
+const SHADOW_GUARDED = /\.(?:py|pyi|js|jsx|mjs|cjs|ts|tsx|mts|cts)$/i;
+
+/**
  * Top-level (column-0) definitions in `text`: assignments (`X =`, `X: T =`),
  * Python `def`/`class`, and JS/TS `function`/`class`/`const`/`let`/`var`. Maps
  * name → the 1-based lines it's defined on. Column-0-only keeps it to module
  * scope (indented = inside a function/class/block, a different namespace) and
  * dodges the tree-sitter-scope ambiguity of the flat symbol list.
+ *
+ * Not definitions: a line inside a Python triple-quoted string, and an
+ * assignment built on the name's prior value (`x = f(x)`), which needs the
+ * earlier one to exist (#162 ML-44, ML-70).
  */
 function topLevelDefs(text: string): Map<string, number[]> {
   const defs = new Map<string, number[]>();
@@ -2408,13 +2462,25 @@ function topLevelDefs(text: string): Map<string, number[]> {
     else defs.set(name, [line]);
   };
   const lines = text.split('\n');
+  let inString: string | null = null;
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
-    if (ln.length === 0 || /^\s/.test(ln)) continue; // module scope only
+    const startsInString = inString !== null;
+    for (const q of ln.match(/"{3}|'{3}/g) ?? []) {
+      if (inString === null) inString = q;
+      else if (q === inString) inString = null;
+    }
+    if (startsInString || ln.length === 0 || /^\s/.test(ln)) continue; // module scope only
     let m: RegExpMatchArray | null;
     // NAME = ... or NAME: Type = ...  (excludes ==, +=, <=, etc. via the =(?![=]) tail)
-    if ((m = ln.match(/^([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=(?!=)/))) add(m[1], i + 1);
-    else if ((m = ln.match(/^(?:async\s+)?def\s+([A-Za-z_]\w*)/))) add(m[1], i + 1);
+    if ((m = ln.match(/^([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=(?!=)/))) {
+      // `x` or `x.attr` on the right reads the prior value; `obj.x` does not.
+      const reads = ln
+        .slice(m[0].length)
+        .split(/[^\w$.]+/)
+        .some((tok) => tok === m![1] || tok.startsWith(`${m![1]}.`));
+      if (!reads) add(m[1], i + 1);
+    } else if ((m = ln.match(/^(?:async\s+)?def\s+([A-Za-z_]\w*)/))) add(m[1], i + 1);
     else if ((m = ln.match(/^class\s+([A-Za-z_]\w*)/))) add(m[1], i + 1);
     else if (
       (m = ln.match(/^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/))
@@ -2442,24 +2508,44 @@ function wordAround(text: string, m: { start: number; end: number }): string {
   return text.slice(s, e).trim();
 }
 
+interface ShadowDuplicate {
+  name: string;
+  lines: number[];
+  /** Whether the line the edit added is the last definition, so the one that wins. */
+  addedLast: boolean;
+}
+
 /** The refusal for an edit that would add a second top-level definition. */
-function shadowDefinitionError(filePath: string, dup: { name: string; lines: number[] }): string {
+function shadowDefinitionError(filePath: string, dup: ShadowDuplicate): string {
+  // Which line wins depends on where the edit put its line (#162 ML-70).
+  const earlier = dup.lines.slice(0, -1);
+  const effect = dup.addedLast
+    ? `Your line comes last, so it takes effect, but it leaves the earlier definition (line` +
+      `${earlier.length > 1 ? 's' : ''} ${earlier.join(', ')}) as dead code that still reads as the value.`
+    : `The LAST top-level definition wins, so adding a second \`${dup.name}\` is usually a no-op — the existing ` +
+      `line overrides the one you added.`;
   return (
     `Error: edit_file refused this edit to ${filePath} — it would define \`${dup.name}\` at the ` +
     `top level ${dup.lines.length} times (lines ${dup.lines.join(', ')}), which it isn't in the current file. ` +
-    `The LAST top-level definition wins, so adding a second \`${dup.name}\` is usually a no-op — the existing ` +
-    `line overrides the one you added. To CHANGE an existing top-level \`${dup.name}\`, put its CURRENT line ` +
+    `${effect} To CHANGE an existing top-level \`${dup.name}\`, put its CURRENT line ` +
     `in \`search\` and the new version in \`replace\` (do not add a second definition). The file was NOT modified.`
   );
 }
 
 /** A top-level name the edit newly duplicated: present ≥2× in `newText` and more
- *  times than in `oldText`. Null when the edit introduced no such shadow. */
-function introducedTopLevelDuplicate(oldText: string, newText: string): { name: string; lines: number[] } | null {
+ *  times than in `oldText`. Null when the edit introduced no such shadow, or the
+ *  file is not one where a later definition replaces an earlier one. */
+function introducedTopLevelDuplicate(filePath: string, oldText: string, newText: string): ShadowDuplicate | null {
+  if (!SHADOW_GUARDED.test(filePath)) return null;
   const before = topLevelDefs(oldText);
   const after = topLevelDefs(newText);
   for (const [name, lines] of after) {
-    if (lines.length >= 2 && lines.length > (before.get(name)?.length ?? 0)) return { name, lines };
+    if (lines.length >= 2 && lines.length > (before.get(name)?.length ?? 0)) {
+      const oldLines = oldText.split('\n');
+      const kept = new Set((before.get(name) ?? []).map((n) => oldLines[n - 1]));
+      const newLines = newText.split('\n');
+      return { name, lines, addedLast: !kept.has(newLines[lines[lines.length - 1] - 1]) };
+    }
   }
   return null;
 }
