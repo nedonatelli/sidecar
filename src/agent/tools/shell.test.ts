@@ -50,7 +50,14 @@ vi.mock('./runtime.js', () => ({
   getDefaultToolRuntime: () => defaultRuntimeSpy,
 }));
 
-import { runCommand, runTests, detectLanguageMismatchedLint, detectMaskedVerification } from './shell.js';
+import {
+  runCommand,
+  runTests,
+  detectLanguageMismatchedLint,
+  detectMaskedVerification,
+  missingChecker,
+  notRunError,
+} from './shell.js';
 import { workspace } from 'vscode';
 
 function makeContext(session: InstanceType<typeof ShellSessionStub>): ToolExecutorContext {
@@ -139,12 +146,29 @@ describe('shell tool runtime resolution', () => {
       // TypeScript, llama burned its whole command budget chasing runners
       // that cannot exist (replace-todo-body-with-implementation).
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockImplementation(async (pattern: unknown) =>
-        String(pattern) === '**/*.{ts,tsx}' ? [{ fsPath: '/mock/src/clamp.ts' }] : [],
+        String(pattern) === '**/*.{ts,tsx}'
+          ? [{ fsPath: '/mock/src/clamp.ts' }]
+          : String(pattern) === 'node_modules/typescript/package.json'
+            ? [{ fsPath: '/mock/node_modules/typescript/package.json' }]
+            : [],
       );
       const out = await runTests({}, makeContext(new ShellSessionStub()));
       expect(out).toContain('npx tsc --noEmit');
       expect(out).toContain('Do not guess');
       expect(out).not.toContain('e.g. "npm test", "pytest"');
+    });
+
+    it('points at get_diagnostics, not tsc, when TypeScript is not installed (#279)', async () => {
+      // `npx tsc` here prints npm's placeholder package, and that is where
+      // models began installing a toolchain to check one file.
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockImplementation(async (pattern: unknown) =>
+        String(pattern) === '**/*.{ts,tsx}' ? [{ fsPath: '/mock/src/fact.ts' }] : [],
+      );
+      const out = await runTests({}, makeContext(new ShellSessionStub()));
+      expect(out).toContain('get_diagnostics');
+      expect(out).toContain('Do not install TypeScript');
+      expect(out).not.toContain('npx tsc');
+      expect(out).toContain('There are no tests to run here');
     });
 
     it('names the interpreter for a Python-only workspace with no test files', async () => {
@@ -279,7 +303,8 @@ describe('shell tool runtime resolution', () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
       const out = await runTests({});
       expect(out).toContain('Could not detect test runner');
-      expect(out).toContain('Do not write test files or install a test framework');
+      expect(out).toContain('Do not add a test script or install a test framework');
+      expect(out).not.toMatch(/Do not write test files/);
     });
 
     // Told only "no runner", models built one: ad-hoc test files, `npm init -y
@@ -287,12 +312,72 @@ describe('shell tool runtime resolution', () => {
     // the check that can run is the last step.
     it('in a TypeScript project with no tests, says the compiler check is the last step', async () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockImplementation(async (glob: string) =>
-        /\{ts,tsx\}/.test(glob) ? [{ fsPath: '/mock/src/a.ts' }] : [],
+        /\{ts,tsx\}/.test(glob) || glob === 'node_modules/typescript/package.json'
+          ? [{ fsPath: '/mock/src/a.ts' }]
+          : [],
       );
       const out = await runTests({});
       expect(out).toContain('npx tsc --noEmit');
       expect(out).toContain('There are no tests to run here');
-      expect(out).toMatch(/once that check passes, the change is done/);
+      expect(out).toMatch(/Once that check passes, the change is done/);
+      // Building a runner is what's ruled out; a test file is not (#279).
+      expect(out).toContain('a test file alongside the change is fine');
+      expect(out).not.toMatch(/Do not write test files/);
+    });
+  });
+
+  // #279: outputs as Nemotron's no-stub-in-write runs saw them. Each led to
+  // `npm init -y` and a toolchain install to check one file.
+  describe('missing checker (#279)', () => {
+    const TSC_PLACEHOLDER =
+      '                This is not the tsc command you are looking for                \n\n' +
+      'To get access to the TypeScript compiler, tsc, from the command line either:\n\n' +
+      '- Use npm install typescript to first add TypeScript to your project before using npx';
+    const NPX_FETCH =
+      'npm warn exec The following package was not found and will be installed: eslint@10.13.0\n\n' +
+      "Oops! Something went wrong! :(\n\nESLint couldn't find an eslint.config.* file.";
+
+    it('recognises the npx placeholder tsc, a fetched checker, and a checker the shell cannot find', () => {
+      expect(missingChecker(TSC_PLACEHOLDER)).toBe('tsc');
+      expect(missingChecker(NPX_FETCH)).toBe('eslint');
+      expect(missingChecker('bash: jest: command not found')).toBe('jest');
+      expect(
+        missingChecker('npm error could not determine executable to run', 'npx --yes vitest run src/a.test.ts'),
+      ).toBe('vitest');
+    });
+
+    it('leaves everything else alone: other programs, other npx targets, a clean run', () => {
+      expect(missingChecker('bash: foo: command not found')).toBeNull();
+      expect(
+        missingChecker('npm warn exec The following package was not found and will be installed: cowsay@1.6.0'),
+      ).toBeNull();
+      expect(missingChecker('npm error could not determine executable to run', 'npx create-thing')).toBeNull();
+      expect(missingChecker('src/fact.ts(3,5): error TS2322')).toBeNull();
+    });
+
+    it('run_command appends the final answer to a placeholder-tsc result', async () => {
+      const injected = new ShellSessionStub();
+      injected.execute = vi.fn(async () => ({ stdout: TSC_PLACEHOLDER, exitCode: 1, timedOut: false }));
+      const out = await runCommand({ command: 'npx tsc --noEmit src/fact.ts' }, makeContext(injected));
+      expect(out).toContain('This is not the tsc command');
+      expect(out).toMatch(/`tsc` is not installed in this workspace, so this check cannot run here, and that is final/);
+      expect(out).toContain('Do not create a project (`npm init`)');
+      expect(out).toContain('get_diagnostics');
+      expect(out).toContain('only if the user asked');
+    });
+
+    it('a checker the shell cannot find gets the final answer instead of "check that it is installed"', () => {
+      const msg = notRunError('bash: tsc: command not found', 127).message;
+      expect(msg).toContain('`tsc` is not installed in this workspace');
+      expect(msg).not.toContain('Check that it is installed');
+      // Other programs keep the generic hint.
+      expect(notRunError('bash: foo: command not found', 127).message).toContain('Check that it is installed');
+    });
+
+    it('a missing python keeps its own hint: a shell without python is not a missing project toolchain', () => {
+      const msg = notRunError('bash: python3: command not found', 127).message;
+      expect(msg).toContain('Python may be missing');
+      expect(msg).not.toContain('is not installed in this workspace');
     });
   });
 

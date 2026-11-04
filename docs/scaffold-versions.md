@@ -40,6 +40,53 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.0 — structured tool outcomes (2026-11)
+
+MAJOR: the triggers of the completion gate, the action reprompt and the
+regression guard change. Not directly comparable with 6.0.x.
+
+- **What changed:** `write_file`, `edit_file` and `delete_file` report what
+  each call did to the workspace — `mutated`, `noop` or `failed`, plus
+  `staged` for audit-buffer and review-store writes — and every check that
+  asks "did this call change a file?" reads that report instead of matching
+  the result's wording (#367,
+  [ADR-008](adr/008-structured-tool-outcomes.md)). An inferred edit counts as
+  a change everywhere; a failed or no-op edit no longer runs a `post-write`
+  regression guard; a queued review-mode edit counts as a change everywhere;
+  an aliased call (`str_replace`, `create_file`, `rm`) is treated as the tool
+  it runs as; an identical rewrite is a `noop`.
+- **Measured:** agent eval ×3 against a 6.0.2 control on the same base.
+  gemma4:31b 241 vs 240/243. ministral-3 ran twice: 214 vs 222/243, then,
+  with the arms in the opposite order, 218 vs 219/243. No case dropped in
+  both runs; each run's leads (−2 per case) were different cases, and the
+  first run's four traced to sampling (identical prompts, catalog and first
+  gate nudge in both arms). The A/B ran before 6.0.3 merged; 7.0.0 includes
+  it, and the two were not measured together.
+
+### 6.0.3 — a missing checker is a final answer (2026-11)
+
+PATCH: tool-result wording within existing tools (run_command, run_tests); no
+mechanism is added, removed or re-defaulted. Comparable with 6.0.2, noting the
+patch.
+
+- **What changed:** when a checker (`tsc`, `eslint`, `jest`, `ts-node`, `mypy`
+  and similar) can't run because it isn't installed — npm's placeholder `tsc`,
+  npx fetching a checker the project doesn't have, the shell not finding it —
+  run_command's result says that is final: don't create a project, install a
+  toolchain or write config to make it run; use `get_diagnostics` and say the
+  change is unverified beyond it. run_tests recommends `npx tsc --noEmit` only
+  where TypeScript is installed, and its no-runner answers now forbid building
+  a runner (a test script, framework config, a framework install) rather than
+  writing a test file (#279).
+- **Measured:** agent eval ×3, ministral-3 and gemma4:31b against a 6.0.2
+  control. The full suite is equal on the cases both share (ministral 218/243
+  both, gemma 238 vs 240/243). On the new `no-toolchain-bootstrap` case, re-run
+  per trial with no global toolchain and an empty npm cache, all 12 runs pass
+  and none installs anything; in the two gemma runs per arm that tried
+  `npx ts-node`, 6.0.2 retried with ts-node and tsx (4 `run_command` calls
+  each), 6.0.3 got the note and stopped after one. `toolchain-setup-on-request`
+  passes 3/3 in every arm.
+
 ### 6.0.2 — web-tree-sitter 0.25 (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted; the parser runtime under
