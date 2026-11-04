@@ -167,6 +167,14 @@ export function notRunError(output: string, exitCode: number): Error {
   const program = missingProgram(output);
   const who = program ? `\`${program}\`` : 'The program';
   const why = exitCode === 126 ? 'was found but cannot be executed' : 'was not found in this shell';
+  // A missing checker gets the final answer, not "check that it is installed"
+  // -- that hint is what a model reads as "install it" (#279).
+  if (program && CHECKER_PROGRAM.test(program)) {
+    return new Error(
+      `${output.trim()}\n(exit code: ${exitCode})\n\n${who} ${why}, so the command did not run -- ` +
+        `this is not its output.${missingCheckerNote(program)}`,
+    );
+  }
   const hint =
     program && /^python(?:3(?:\.\d+)?)?$|^pip3?$|^pytest$/.test(program)
       ? "Python may be missing from this shell: try `py` or `python3` (Windows), or the project's virtualenv; " +
@@ -177,6 +185,49 @@ export function notRunError(output: string, exitCode: number): Error {
   return new Error(
     `${output.trim()}\n(exit code: ${exitCode})\n\n${who} ${why}, so the command did not run -- ` +
       `this is not its output. ${hint}`,
+  );
+}
+
+/** Checkers a model reaches for to verify a change, by program or npm package name. */
+const CHECKER_PROGRAM =
+  /^(?:tsc|typescript|eslint|jest|vitest|mocha|ts-node|tsx|prettier|biome|@biomejs\/biome|pyright|mypy|ruff|flake8|pylint)$/;
+
+/**
+ * The checker this command could not run because it isn't installed, from
+ * what the shell or npx printed, or null. Not Python or pytest themselves: a
+ * shell without python is a broken machine, not a missing project toolchain
+ * (notRunError's hint covers it).
+ */
+export function missingChecker(output: string, command = ''): string | null {
+  // `npx tsc` with no local TypeScript runs npm's placeholder `tsc` package.
+  if (/This is not the tsc command you are looking for/.test(output)) return 'tsc';
+  // npx fetching a checker the project does not have.
+  const fetched = output.match(/The following package was not found and will be installed: (@?[\w./-]+?)@\d/);
+  if (fetched && CHECKER_PROGRAM.test(fetched[1])) return fetched[1];
+  const program = missingProgram(output);
+  if (program && CHECKER_PROGRAM.test(program)) return program;
+  // npm's own failure names no program, so take it from the command.
+  if (/could not determine executable to run/.test(output)) {
+    const target = command.match(/\bnpx\s+(?:-{1,2}[\w-]+\s+)*(@?[\w./-]+)/)?.[1];
+    if (target && CHECKER_PROGRAM.test(target)) return target;
+  }
+  return null;
+}
+
+/**
+ * Appended when a check could not run because its toolchain is missing
+ * (#279). Told only that TypeScript wasn't installed, models ran `npm init -y`,
+ * installed TypeScript and then Jest, wrote test files and config, and spent
+ * the rest of the run on version conflicts -- every Nemotron run of
+ * no-stub-in-write did some of this. Same final answer #170 gives run_tests
+ * when there are no tests.
+ */
+export function missingCheckerNote(checker: string): string {
+  return (
+    `\n\n\`${checker}\` is not installed in this workspace, so this check cannot run here, and that is final. ` +
+    'Do not create a project (`npm init`), install a toolchain, or write config to make it run. ' +
+    'Use the checks that exist -- get_diagnostics, and the syntax check edits already get -- and say the change ' +
+    'is unverified beyond them. Set up a toolchain only if the user asked for one.'
   );
 }
 
@@ -368,7 +419,10 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
   // Append an advisory when the command masks the failure of a program it ran
   // for verification — it "succeeded" but verified nothing.
   const maskWarning = detectMaskedVerification(cmd);
-  return maskWarning ? output + maskWarning : output;
+  // The checker ran but isn't the project's: npx's placeholder `tsc`, or a
+  // copy npx fetched (#279). Exit 127/9009 is handled in notRunError.
+  const checker = missingChecker(output, cmd);
+  return output + (maskWarning ?? '') + (checker ? missingCheckerNote(checker) : '');
 }
 
 export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
@@ -459,15 +513,26 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
       // that CAN run here, or say plainly that none exists. And say that the
       // answer is final: told only "no runner", models built one -- ad-hoc
       // test files, `npm init -y && npm install jest` -- and spent most of a
-      // run editing them (#170).
+      // run editing them (#170). The ban is on building the runner, not on
+      // tests: a test file written alongside the change is a good habit (#279).
       const tsFiles = await workspace.findFiles('**/*.{ts,tsx}', '**/node_modules/**', 1);
       if (tsFiles.length > 0) {
+        // Recommend the compiler only where it is installed. In a workspace
+        // without TypeScript, `npx tsc` prints npm's placeholder package, and
+        // that is where models started installing a toolchain (#279).
+        // null exclude: node_modules is exactly where to look.
+        const tscInstalled = (await workspace.findFiles('node_modules/typescript/package.json', null, 1)).length > 0;
+        const check = tscInstalled
+          ? 'For these TypeScript sources the available check is the compiler — run_command with `npx tsc --noEmit`.'
+          : 'TypeScript is not installed here either, so the available check is get_diagnostics on the files you ' +
+            'changed (the editor type-checks them without a local install). Do not install TypeScript to get one.';
         return (
           'Could not detect test runner: no test script, config, or test files exist in this workspace. ' +
-          'For these TypeScript sources the available check is the compiler — run_command with `npx tsc --noEmit`. ' +
+          `${check} ` +
           'Do not guess at npm test or pytest here; neither is configured. ' +
-          'There are no tests to run here. Do not write test files, add a test script or install a test framework ' +
-          'to create some: once that check passes, the change is done, untested beyond it -- say so.'
+          'There are no tests to run here. Do not add a test script, test-framework config or install a test ' +
+          'framework to create a runner; a test file alongside the change is fine, but nothing here can run it. ' +
+          'Once that check passes, the change is done, untested beyond it -- say so.'
         );
       }
       const pyFiles = await workspace.findFiles('**/*.py', '**/node_modules/**', 1);
@@ -476,14 +541,15 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
           'Could not detect test runner: no test files or config exist in this workspace. ' +
           'For these Python sources the available check is the interpreter — run_command with `python3 -m py_compile <file>` ' +
           'or run the script directly. Do not guess at npm test here. ' +
-          'There are no tests to run here. Do not write test files, add a test script or install a test framework ' +
-          'to create some: once that check passes, the change is done, untested beyond it -- say so.'
+          'There are no tests to run here. Do not add a test script, test-framework config or install a test ' +
+          'framework to create a runner; a test file alongside the change is fine if the interpreter can run it ' +
+          'directly. Once that check passes, the change is done -- say what it was verified with.'
         );
       }
       return (
         'Could not detect test runner, and this workspace has no test files or config. ' +
         'If tests exist elsewhere, specify the command explicitly; otherwise state that no automated check is available. ' +
-        'Do not write test files or install a test framework to create one.'
+        'Do not add a test script or install a test framework to create one.'
       );
     }
   }
