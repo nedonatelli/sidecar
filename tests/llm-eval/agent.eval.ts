@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { describe, it, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
 import { runAgentCase, pickAgentBackend } from './agentHarness.js';
@@ -8,6 +8,7 @@ import type { AgentCaseResult } from './agentTypes.js';
 import { HistoryDb } from '../../src/agent/history/historyDb.js';
 import { appendFailure, writeHeader, writeSummary } from './evalReporter.js';
 import { ALL_AGENT_CASES } from './allCases.js';
+import { disposeAllShellSessions } from '../../src/terminal/shellSession.js';
 
 // Write results to .sidecar/history.db when the workspace has one.
 // Silently skips when the path can't be resolved (CI without a workspace).
@@ -113,6 +114,12 @@ describe.skipIf(!backend)('llm-eval :: agent loop', () => {
   // Skip remaining cases rather than burning 120 s × N on a dead endpoint.
   let consecutiveApiUnavailable = 0;
   const CIRCUIT_BREAKER_THRESHOLD = 3;
+
+  // A case vitest abandons on its timeout never reaches the harness's own
+  // dispose, and the exit-time kill never runs either: on Windows the worker
+  // is terminated, not exited. Its shell and an `npx vitest --watch` it
+  // started then outlived the run (#245). afterEach still runs on a timeout.
+  afterEach(() => disposeAllShellSessions());
 
   const scheduledCases = ALL_CASES.filter(
     (c) =>

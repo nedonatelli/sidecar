@@ -15,7 +15,8 @@
 // scored without Docker, so it is gated to run only when SIDECAR_SWE_DATA is set.
 // ---------------------------------------------------------------------------
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { disposeAllShellSessions } from '../../src/terminal/shellSession.js';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -1024,6 +1025,11 @@ function buildTaskPrompt(task: SweTask, retrievalContext: string, taskEnv: TaskE
 }
 
 describe('SWE-bench Lite — prediction generation', () => {
+  // Each task disposes its runtime, but a run vitest abandons on its timeout
+  // never gets there, and on Windows the terminated worker runs no exit hook
+  // (#245). afterEach still runs on a timeout.
+  afterEach(() => disposeAllShellSessions());
+
   it.skipIf(!DATA)(
     `generates predictions for ${MODEL}`,
     async () => {
