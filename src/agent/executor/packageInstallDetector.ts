@@ -38,24 +38,21 @@ export interface PackageInstall {
 const CHECKERS =
   /^(typescript|tsc|ts-node|tsx|eslint|eslint-.+|@eslint\/.+|@typescript-eslint\/.+|tslint|prettier|biome|@biomejs\/biome|oxlint|vitest|@vitest\/.+|jest|ts-jest|babel-jest|@babel\/jest|@jest\/.+|expect|mocha|ts-mocha|chai|sinon|supertest|@testing-library\/.+|ava|tap|jasmine|@types\/(node|jest|mocha|chai|sinon|supertest)|mypy|pyright|ruff|pylint|flake8|pyflakes|pycodestyle|black|isort|pytest|pytest-.+|nose2?|tox|golangci-lint|staticcheck|revive|clippy|rubocop|rspec|phpunit|phpstan)$/i;
 
-/** Option flags that take a value, so the value is not mistaken for a package. */
+/** Long option flags that take a value, so the value is not mistaken for a package. */
 const VALUE_FLAGS = new Set([
   '--registry',
   '--prefix',
   '--cache',
   '--tag',
-  '-t',
   '--target',
   '--index-url',
-  '-i',
   '--extra-index-url',
+  '--find-links',
   '--trusted-host',
   '--python',
-  '-p',
   '--version',
   '--source',
   '--channel',
-  '-n',
   '--name',
   '--root',
   '--git',
@@ -63,8 +60,35 @@ const VALUE_FLAGS = new Set([
   '--rev',
   '--path',
   '--framework',
-  '-f',
+  '--workspace',
+  '--filter',
+  '--dir',
+  '--group',
+  '--extras',
+  '--features',
 ]);
+
+/**
+ * Short flags that take a value, per tool: one letter means different things
+ * to different tools. `-f` is npm's --force, which takes none, and pip's
+ * --find-links, which does; one shared list skipped the package after
+ * `npm i -f`, so that install asked nothing. A letter that takes a value for
+ * one tool of a family and not another (`-w`: npm's workspace, pnpm's
+ * workspace root) is left out: reading a value as a package costs a word in
+ * the prompt, reading a package as a value costs the prompt.
+ */
+const SHORT_VALUE_FLAGS = {
+  node: new Set(['-F', '-C']),
+  pip: new Set(['-i', '-f', '-t']),
+  pyAdd: new Set(['-G', '-E', '-p']),
+  conda: new Set(['-n', '-p', '-c']),
+  cargo: new Set(['-F', '-j']),
+  gem: new Set(['-v', '-i', '-n']),
+  dotnet: new Set(['-f', '-v', '-s']),
+  system: new Set(['-t']),
+  none: new Set<string>(),
+};
+type Tool = keyof typeof SHORT_VALUE_FLAGS;
 
 /** Flags whose value is a file of the project's own declared dependencies. */
 const RESTORE_FLAGS = new Set(['-r', '--requirement', '-c', '--constraint', '-e', '--editable']);
@@ -81,7 +105,7 @@ function bareName(spec: string): string {
 }
 
 /** The package arguments after an install verb, up to the next shell separator. */
-function packageArgs(rest: string): string[] {
+function packageArgs(rest: string, tool: Tool): string[] {
   const segment = rest.split(/\s*(?:&&|\|\||;|\||>|<)\s*/)[0];
   const words = segment.split(/\s+/).filter(Boolean);
   const out: string[] = [];
@@ -89,7 +113,8 @@ function packageArgs(rest: string): string[] {
     const w = words[i];
     if (w.startsWith('-')) {
       const [flag] = w.split('=');
-      if ((VALUE_FLAGS.has(flag) || RESTORE_FLAGS.has(flag)) && !w.includes('=')) i++; // skip its value
+      const takesValue = VALUE_FLAGS.has(flag) || RESTORE_FLAGS.has(flag) || SHORT_VALUE_FLAGS[tool].has(flag);
+      if (takesValue && !w.includes('=')) i++; // skip its value
       continue;
     }
     if (LOCAL.test(w)) continue;
@@ -100,20 +125,21 @@ function packageArgs(rest: string): string[] {
 }
 
 /** Ecosystem package installs: a verb, then the package arguments. */
-const PACKAGE_VERBS: RegExp[] = [
-  /\bnpm\s+(?:i|install|add|in|ins|inst|insta|instal|isnt|isntall)\b([^\n]*)/g,
-  /\bpnpm\s+(?:add|i|install)\b([^\n]*)/g,
-  /\byarn\s+(?:global\s+)?add\b([^\n]*)/g,
-  /\bbun\s+(?:add|install|i)\b([^\n]*)/g,
-  /\b(?:pip3?|python[0-9.]*\s+-m\s+pip|uv\s+pip|pipx)\s+install\b([^\n]*)/g,
-  /\b(?:uv|poetry|pdm|rye)\s+add\b([^\n]*)/g,
-  /\b(?:conda|mamba|micromamba)\s+install\b([^\n]*)/g,
-  /\bcargo\s+(?:add|install)\b([^\n]*)/g,
-  /\bgo\s+(?:get|install)\b([^\n]*)/g,
-  /\bgem\s+install\b([^\n]*)/g,
-  /\bbundle\s+add\b([^\n]*)/g,
-  /\bcomposer\s+(?:require|global\s+require)\b([^\n]*)/g,
-  /\bdotnet\s+(?:add\s+(?:\S+\s+)?package|tool\s+install)\b([^\n]*)/g,
+const PACKAGE_VERBS: [RegExp, Tool][] = [
+  [/\bnpm\s+(?:i|install|add|in|ins|inst|insta|instal|isnt|isntall)\b([^\n]*)/g, 'node'],
+  [/\bpnpm\s+(?:add|i|install)\b([^\n]*)/g, 'node'],
+  [/\byarn\s+(?:global\s+)?add\b([^\n]*)/g, 'node'],
+  [/\bbun\s+(?:add|install|i)\b([^\n]*)/g, 'node'],
+  // pip, pip3 and pip3.11; `python -m pip` and `py -m pip` end in `pip install` too.
+  [/\b(?:pip[0-9.]*|uv\s+pip|pipx)\s+install\b([^\n]*)/g, 'pip'],
+  [/\b(?:uv|poetry|pdm|rye)\s+add\b([^\n]*)/g, 'pyAdd'],
+  [/\b(?:conda|mamba|micromamba)\s+install\b([^\n]*)/g, 'conda'],
+  [/\bcargo\s+(?:add|install)\b([^\n]*)/g, 'cargo'],
+  [/\bgo\s+(?:get|install)\b([^\n]*)/g, 'none'],
+  [/\bgem\s+install\b([^\n]*)/g, 'gem'],
+  [/\bbundle\s+add\b([^\n]*)/g, 'gem'],
+  [/\bcomposer\s+(?:require|global\s+require)\b([^\n]*)/g, 'none'],
+  [/\bdotnet\s+(?:add\s+(?:\S+\s+)?package|tool\s+install)\b([^\n]*)/g, 'dotnet'],
 ];
 
 /** Fetch-and-run: installs (into a cache) whatever it names, then runs it. */
@@ -140,11 +166,12 @@ const SYSTEM_VERBS: RegExp[] = [
 const REMOTE_SCRIPT =
   /\b(?:curl|wget)\b[^|\n]*?(https?:\/\/\S+)[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b|\b(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b[^|\n]*?(https?:\/\/\S+)[^|\n]*\|\s*(?:iex|Invoke-Expression)\b/i;
 
-function collect(cmd: string, patterns: RegExp[], firstOnly = false): string[] {
+function collect(cmd: string, patterns: (RegExp | [RegExp, Tool])[], firstOnly = false, tool: Tool = 'none'): string[] {
   const found: string[] = [];
-  for (const re of patterns) {
+  for (const entry of patterns) {
+    const [re, flags] = Array.isArray(entry) ? entry : [entry, tool];
     for (const m of cmd.matchAll(re)) {
-      const args = packageArgs(m[1] ?? '');
+      const args = packageArgs(m[1] ?? '', flags);
       found.push(...(firstOnly ? args.slice(0, 1) : args));
     }
   }
@@ -178,7 +205,7 @@ export function detectPackageInstall(
   const script = REMOTE_SCRIPT.exec(cmd);
   if (script) return { kind: 'script', what: script[1] ?? script[2] };
 
-  const system = [...new Set(collect(cmd, SYSTEM_VERBS))];
+  const system = [...new Set(collect(cmd, SYSTEM_VERBS, false, 'system'))];
   if (system.length > 0) return { kind: 'system', what: system.join(', ') };
 
   const packages = [...new Set([...collect(cmd, PACKAGE_VERBS), ...collect(cmd, FETCH_AND_RUN, true)])];

@@ -62,6 +62,25 @@ describe('detectPackageInstall — any new package', () => {
     expect(detect(cmd)).toEqual({ kind: 'package', what });
   });
 
+  // A short flag means different things to different tools: `-f` is npm's
+  // --force, which takes no value, but pip's --find-links, which does. Read as
+  // pip's, `npm i -f left-pad` skipped the package and asked nothing; and
+  // `py -m pip` and `pip3.11` were not read as pip at all.
+  it.each([
+    ['npm i -f left-pad', 'left-pad'],
+    ['npm install -f -g left-pad', 'left-pad'],
+    ['pnpm add -D -w left-pad', 'left-pad'],
+    ['pip install -f https://example.org/wheels left-pad', 'left-pad'],
+    ['py -m pip install left-pad', 'left-pad'],
+    ['py -3.11 -m pip install left-pad', 'left-pad'],
+    ['pip3.11 install left-pad', 'left-pad'],
+    ['python3 -I -m pip install left-pad', 'left-pad'],
+    ['dotnet add package -f net8.0 Left.Pad', 'Left.Pad'],
+    ['gem install -v 1.0 left-pad', 'left-pad'],
+  ])('`%s` installs %s, whatever each tool means by a short flag', (cmd, what) => {
+    expect(detect(cmd)).toEqual({ kind: 'package', what });
+  });
+
   it.each([
     ['sudo apt-get install -y jq', 'jq'],
     ['brew install --cask docker', 'docker'],

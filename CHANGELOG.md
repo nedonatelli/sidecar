@@ -19,6 +19,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The install approval reads each package manager's own flags.** A short flag that takes a value
+  for one tool but not another (`-f` is npm's `--force` and pip's `--find-links`) could hide the
+  package after it, so `npm i -f <package>` was not asked about. Versioned pip commands such as
+  `pip3.11 install` are recognized too.
 - **The confirmation for destructive commands knows more of them.** Typing to confirm now also
   covers Windows and PowerShell recursive deletes, `find` that deletes everything under a path,
   discarding the whole work tree with `git checkout`/`git restore`, and more spellings of

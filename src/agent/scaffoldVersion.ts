@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.5** (2026-11) — install approval reads each package manager's flags.
+ *   The install approval parses flags per package manager, so a short flag that
+ *   takes a value for one tool no longer hides the package after it, and
+ *   versioned `pip3.11 install` is recognized. PATCH: tuning within the install
+ *   guard. No eval: it changes only which installs are asked about, and the
+ *   evals auto-approve.
  * - **7.0.4** (2026-11) — type-to-confirm covers more destructive commands. The
  *   destructive-command confirmation recognizes Windows and PowerShell
  *   recursive deletes, `find -delete` under a path, whole-tree `git
@@ -351,7 +357,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.4';
+export const SCAFFOLD_VERSION = '7.0.5';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
