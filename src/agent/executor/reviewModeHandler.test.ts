@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { workspace } from 'vscode';
 import { handleReviewModeTool, computePendingOverlay, REVIEW_OVERLAY_TOOLS } from './reviewModeHandler.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
-import type { PendingEditStore } from '../pendingEdits.js';
+import { PendingEditStore } from '../pendingEdits.js';
 
 // The vscode mock (src/__mocks__/vscode.ts) sets workspaceFolders[0].uri.fsPath
 // to '/mock-workspace' and joinPath returns '{base.fsPath}/{segment}'.
@@ -294,6 +294,52 @@ describe('handleReviewModeTool — edit_file', () => {
     // more specific diagnosis. What this pins is unchanged: refused, never queued.
     expect(result!.content).toMatch(/syntax error|drops the line/);
     expect(store.record).not.toHaveBeenCalled();
+  });
+});
+
+// delete_file used to fall through to the normal executor, which deleted the
+// file from disk with no review (#423).
+describe('handleReviewModeTool — delete_file', () => {
+  it('queues the deletion for review instead of deleting from disk', async () => {
+    const deleteSpy = vi.spyOn(workspace.fs, 'delete');
+    const store = new PendingEditStore();
+    const result = await handleReviewModeTool(makeToolUse('delete_file', { path: 'src/old.ts' }), store);
+    expect(result?.is_error).toBeFalsy();
+    expect(result?.content).toBe('Pending delete queued for review: src/old.ts');
+    expect(deleteSpy).not.toHaveBeenCalled();
+    expect(store.get(`${ROOT}/src/old.ts`)).toMatchObject({
+      originalContent: 'mock file content',
+      newContent: null,
+      lastTool: 'delete_file',
+    });
+    // The agent sees the file as gone.
+    const read = await handleReviewModeTool(makeToolUse('read_file', { path: 'src/old.ts' }), store);
+    expect(read?.is_error).toBe(true);
+    expect(read?.content).toContain('does not exist');
+  });
+
+  it('drops a file this session created instead of queueing a delete of it', async () => {
+    const store = new PendingEditStore();
+    store.record(`${ROOT}/src/new.ts`, null, 'x', 'write_file');
+    const result = await handleReviewModeTool(makeToolUse('delete_file', { path: 'src/new.ts' }), store);
+    expect(result?.is_error).toBeFalsy();
+    expect(store.size).toBe(0);
+  });
+
+  it('refuses a file that does not exist', async () => {
+    vi.spyOn(workspace.fs, 'readFile').mockRejectedValueOnce(new Error('ENOENT'));
+    const store = new PendingEditStore();
+    const result = await handleReviewModeTool(makeToolUse('delete_file', { path: 'nope.ts' }), store);
+    expect(result?.is_error).toBe(true);
+    expect(store.size).toBe(0);
+  });
+
+  it('applies the write tools path rules', async () => {
+    const store = new PendingEditStore();
+    const result = await handleReviewModeTool(makeToolUse('delete_file', { path: '../outside.txt' }), store);
+    expect(result?.is_error).toBe(true);
+    expect(String(result?.content)).toMatch(/path traversal/);
+    expect(store.size).toBe(0);
   });
 });
 

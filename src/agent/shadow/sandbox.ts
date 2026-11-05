@@ -97,15 +97,24 @@ export async function runAgentLoopInSandbox(
   // embedding lookups on this runtime are null and fall through to the default
   // (main-tree) index, which is correct — the shadow's edits aren't indexed.
   const shadowRuntime = new ToolRuntime(shadow.path);
+  let failedWithChanges = false;
   try {
     await shadow.create();
     callbacks.onText?.(`\n[shadow workspace ${shadow.id} active at ${shadow.path}]\n`);
 
-    const finalMessages = await runAgentLoop(client, messages, callbacks, signal, {
-      ...options,
-      cwdOverride: shadow.path,
-      toolRuntime: shadowRuntime,
-    });
+    let finalMessages: ChatMessage[];
+    try {
+      finalMessages = await runAgentLoop(client, messages, callbacks, signal, {
+        ...options,
+        cwdOverride: shadow.path,
+        toolRuntime: shadowRuntime,
+      });
+    } catch (err) {
+      // A run that fails partway may still have done work worth keeping, and
+      // the worktree is the only copy of it: don't clean that up.
+      failedWithChanges = (await shadow.diff().catch(() => '')) !== '';
+      throw err;
+    }
 
     const diff = await shadow.diff();
     if (!diff) {
@@ -183,7 +192,9 @@ export async function runAgentLoopInSandbox(
   } finally {
     // Tear down the per-run shell child process before the worktree goes away.
     shadowRuntime.dispose();
-    if (cfg.shadowWorkspaceAutoCleanup) {
+    if (failedWithChanges) {
+      callbacks.onText?.(`\n[the run failed; its changes are preserved in the shadow at ${shadow.path}]\n`);
+    } else if (cfg.shadowWorkspaceAutoCleanup) {
       await shadow.dispose();
     } else {
       // Leave the worktree behind for post-mortem. The user gets a

@@ -237,6 +237,20 @@ describe('ShadowWorkspace', () => {
       }
     });
 
+    // `ls-files` C-quotes a non-ASCII name unless -z is passed; the quoted
+    // form is no path, so the new file was silently left out of the patch (#423).
+    it('applies a new file with a non-ASCII name', async () => {
+      const shadow = new ShadowWorkspace({ mainRoot });
+      try {
+        await shadow.create();
+        fs.writeFileSync(path.join(shadow.path, 'café.md'), 'bonjour\n');
+        await shadow.applyToMain();
+        expect(fs.readFileSync(path.join(mainRoot, 'café.md'), 'utf-8')).toContain('bonjour');
+      } finally {
+        await shadow.dispose();
+      }
+    });
+
     it('throws when the patch does not apply cleanly against main', async () => {
       const shadow = new ShadowWorkspace({ mainRoot });
       try {

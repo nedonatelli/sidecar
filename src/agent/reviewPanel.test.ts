@@ -2,10 +2,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // vi.hoisted gives us mock refs that survive vi.mock's top-of-file hoisting.
-const { mockWriteFile, mockCreateDirectory, mockExecuteCommand } = vi.hoisted(() => ({
-  mockWriteFile: vi.fn(async () => undefined),
+const {
+  mockWriteFile,
+  mockCreateDirectory,
+  mockExecuteCommand,
+  mockReadFile,
+  mockDelete,
+  mockShowWarningMessage,
+  commandHandlers,
+} = vi.hoisted(() => ({
+  mockWriteFile: vi.fn(async (..._args: unknown[]) => undefined),
   mockCreateDirectory: vi.fn(async () => undefined),
   mockExecuteCommand: vi.fn(async () => undefined),
+  mockReadFile: vi.fn(async (_uri: { fsPath: string }): Promise<Uint8Array> => {
+    throw new Error('ENOENT');
+  }),
+  mockDelete: vi.fn(async (..._args: unknown[]) => undefined),
+  mockShowWarningMessage: vi.fn(async (..._args: unknown[]): Promise<string | undefined> => undefined),
+  commandHandlers: new Map<string, (...args: any[]) => Promise<void>>(),
 }));
 
 vi.mock('vscode', () => {
@@ -33,10 +47,23 @@ vi.mock('vscode', () => {
       fs: {
         writeFile: mockWriteFile,
         createDirectory: mockCreateDirectory,
+        readFile: mockReadFile,
+        delete: mockDelete,
       },
     },
     commands: {
       executeCommand: mockExecuteCommand,
+      registerCommand: (id: string, handler: (...args: any[]) => Promise<void>) => {
+        commandHandlers.set(id, handler);
+        return { dispose: () => {} };
+      },
+    },
+    window: {
+      createTreeView: () => ({ dispose: () => {} }),
+      showWarningMessage: mockShowWarningMessage,
+      showErrorMessage: vi.fn(),
+      showInformationMessage: vi.fn(),
+      setStatusBarMessage: vi.fn(),
     },
     TreeItem: class TreeItem {
       description?: string;
@@ -57,7 +84,13 @@ vi.mock('vscode', () => {
   };
 });
 
-import { ReviewTreeProvider, applyPendingEdit, openReviewDiff, computeReviewBadge } from './reviewPanel.js';
+import {
+  ReviewTreeProvider,
+  applyPendingEdit,
+  openReviewDiff,
+  computeReviewBadge,
+  registerReviewPanel,
+} from './reviewPanel.js';
 import { PendingEditStore, type PendingEdit } from './pendingEdits.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 
@@ -94,6 +127,10 @@ beforeEach(() => {
   mockWriteFile.mockClear();
   mockCreateDirectory.mockClear();
   mockExecuteCommand.mockClear();
+  mockReadFile.mockReset();
+  mockReadFile.mockRejectedValue(new Error('ENOENT'));
+  mockDelete.mockClear();
+  mockShowWarningMessage.mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -194,6 +231,120 @@ describe('applyPendingEdit', () => {
   it('propagates filesystem errors so the caller can surface them', async () => {
     mockWriteFile.mockRejectedValueOnce(new Error('EACCES'));
     await expect(applyPendingEdit(makeEdit('/test/a.ts'))).rejects.toThrow('EACCES');
+  });
+
+  it('deletes (to the trash) a file the agent deleted, writing nothing', async () => {
+    await applyPendingEdit(makeEdit('/test/a.ts', { newContent: null, lastTool: 'delete_file' }));
+    expect(mockDelete).toHaveBeenCalledWith(expect.objectContaining({ fsPath: '/test/a.ts' }), { useTrash: true });
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Accept commands (#423)
+// ---------------------------------------------------------------------------
+
+describe('review panel accept commands', () => {
+  // Disk holds `files[path]`; a path not listed does not exist.
+  function setDisk(files: Record<string, string>): void {
+    mockReadFile.mockImplementation(async (uri: { fsPath: string }) => {
+      if (!(uri.fsPath in files)) throw new Error('ENOENT');
+      return Buffer.from(files[uri.fsPath]);
+    });
+  }
+
+  function setup(): PendingEditStore {
+    const store = new PendingEditStore();
+    commandHandlers.clear();
+    registerReviewPanel({ subscriptions: [] } as any, store, makeFakeContentProvider());
+    return store;
+  }
+
+  const run = (id: string, ...args: unknown[]) => commandHandlers.get(id)!(...args);
+
+  it('asks before overwriting a file that changed on disk since the edit was captured', async () => {
+    const store = setup();
+    store.record('/test/a.ts', 'before', 'after', 'edit_file');
+    setDisk({ '/test/a.ts': 'before, plus the user edit' });
+
+    await run('sidecar.review.acceptFile', store.get('/test/a.ts'));
+
+    expect(mockShowWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('changed on disk'),
+      { modal: true },
+      'Accept Anyway',
+    );
+    expect(mockWriteFile).not.toHaveBeenCalled();
+    expect(store.has('/test/a.ts')).toBe(true);
+
+    mockShowWarningMessage.mockResolvedValueOnce('Accept Anyway');
+    await run('sidecar.review.acceptFile', store.get('/test/a.ts'));
+    expect(mockWriteFile).toHaveBeenCalledTimes(1);
+    expect(store.has('/test/a.ts')).toBe(false);
+  });
+
+  it('accepts without asking when the file still matches the captured original', async () => {
+    const store = setup();
+    store.record('/test/a.ts', 'before', 'after', 'edit_file');
+    store.record('/test/new.ts', null, 'fresh', 'write_file');
+    setDisk({ '/test/a.ts': 'before' });
+
+    await run('sidecar.review.acceptFile', store.get('/test/a.ts'));
+    await run('sidecar.review.acceptFile', store.get('/test/new.ts'));
+
+    expect(mockShowWarningMessage).not.toHaveBeenCalled();
+    expect(mockWriteFile).toHaveBeenCalledTimes(2);
+    expect(store.size).toBe(0);
+  });
+
+  it('keeps an edit the agent recorded while the accepted write was in flight', async () => {
+    const store = setup();
+    store.record('/test/a.ts', 'before', 'after', 'edit_file');
+    setDisk({ '/test/a.ts': 'before' });
+    mockWriteFile.mockImplementationOnce(async () => {
+      store.record('/test/a.ts', null, 'newer', 'edit_file');
+    });
+
+    await run('sidecar.review.acceptFile', store.get('/test/a.ts'));
+
+    const written = mockWriteFile.mock.calls[0] as unknown as [unknown, Uint8Array];
+    expect(Buffer.from(written[1]).toString('utf-8')).toBe('after');
+    // Still pending, now measured from what the accept wrote.
+    expect(store.get('/test/a.ts')).toMatchObject({ originalContent: 'after', newContent: 'newer' });
+  });
+
+  it('accept-all clears the files it wrote, matched by path rather than basename', async () => {
+    const store = setup();
+    store.record('/test/lib/index.ts', 'a', 'A', 'edit_file');
+    store.record('/test/src/index.ts', 'b', 'B', 'edit_file');
+    setDisk({ '/test/lib/index.ts': 'a', '/test/src/index.ts': 'b' });
+    mockWriteFile.mockImplementation(async (uri: any) => {
+      if (uri.fsPath === '/test/src/index.ts') throw new Error('EACCES');
+    });
+
+    try {
+      await run('sidecar.review.acceptAll');
+    } finally {
+      mockWriteFile.mockImplementation(async () => undefined);
+    }
+
+    expect(store.has('/test/lib/index.ts')).toBe(false);
+    expect(store.has('/test/src/index.ts')).toBe(true);
+  });
+
+  it('accept-all can skip the files that changed on disk and accept the rest', async () => {
+    const store = setup();
+    store.record('/test/a.ts', 'a', 'A', 'edit_file');
+    store.record('/test/b.ts', 'b', 'B', 'edit_file');
+    setDisk({ '/test/a.ts': 'a, edited by the user', '/test/b.ts': 'b' });
+    mockShowWarningMessage.mockResolvedValueOnce('Skip Changed Files');
+
+    await run('sidecar.review.acceptAll');
+
+    expect(mockShowWarningMessage.mock.calls[0][0]).toContain('/test/a.ts');
+    expect(mockWriteFile).toHaveBeenCalledTimes(1);
+    expect(store.has('/test/a.ts')).toBe(true);
+    expect(store.has('/test/b.ts')).toBe(false);
   });
 });
 

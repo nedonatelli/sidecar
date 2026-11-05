@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { window } from 'vscode';
-import { reviewForkBatchWithPanel, reviewFacetBatchWithPanel } from './reviewPanel.js';
+import { reviewForkBatchWithPanel, reviewFacetBatchWithPanel, diffForDisplay } from './reviewPanel.js';
 import type { ForkDispatchBatchResult, ForkResult } from '../agent/fork/forkDispatcher.js';
 import type { FacetDispatchBatchResult, FacetDispatchResult } from '../agent/facets/facetDispatcher.js';
 import type { ForkReviewDeps } from '../agent/fork/forkReview.js';
@@ -362,5 +362,69 @@ describe('reviewFacetBatchWithPanel', () => {
 
     expect(outcome.applied).toEqual(['f0']);
     expect(outcome.cancelledRemaining).toEqual(['f1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #423
+// ---------------------------------------------------------------------------
+
+describe('diffForDisplay', () => {
+  it('passes a diff under the cap through unchanged', () => {
+    expect(diffForDisplay(DIFF_A)).toBe(DIFF_A);
+  });
+
+  it('cuts a long diff on a line boundary and says Accept applies all of it', () => {
+    const long = Array.from({ length: 2000 }, (_, i) => `+line ${i}`).join('\n');
+    const shown = diffForDisplay(long);
+    expect(shown.length).toBeLessThan(long.length);
+    const lines = shown.split('\n');
+    expect(lines.at(-1)).toMatch(/diff truncated: \d+ more line\(s\) not shown\. Accepting applies the full diff\./);
+    expect(lines.at(-2)).toMatch(/^\+line \d+$/);
+  });
+});
+
+describe('closing the panel while an Accept is applying', () => {
+  function deferred() {
+    let resolve!: (v: string) => void;
+    const promise = new Promise<string>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+
+  it('reports the facet as applied, not cancelled', async () => {
+    const fake = makeFakePanel();
+    vi.spyOn(window, 'createWebviewPanel').mockReturnValue(fake.panel as never);
+    const apply = deferred();
+    const batch: FacetDispatchBatchResult = {
+      results: [facetResult({ facetId: 'f0' })],
+    } as unknown as FacetDispatchBatchResult;
+
+    const p = reviewFacetBatchWithPanel(batch, makeFacetDeps(vi.fn(() => apply.promise)), ctx);
+    await fake.send({ command: 'ready' });
+    await fake.send({ command: 'acceptFacet', facetId: 'f0' });
+    fake.userClose();
+    apply.resolve('applied');
+    const outcome = await p;
+
+    expect(outcome.applied).toEqual(['f0']);
+    expect(outcome.cancelledRemaining).toEqual([]);
+  });
+
+  it('reports the fork as the winner, not cancelled', async () => {
+    const fake = makeFakePanel();
+    vi.spyOn(window, 'createWebviewPanel').mockReturnValue(fake.panel as never);
+    const apply = deferred();
+    const batch: ForkDispatchBatchResult = {
+      results: [forkResult({ forkId: 'fork-0', index: 0 })],
+    } as unknown as ForkDispatchBatchResult;
+
+    const p = reviewForkBatchWithPanel(batch, makeForkDeps(vi.fn(() => apply.promise)), ctx);
+    await fake.send({ command: 'ready' });
+    await fake.send({ command: 'applyFork', forkId: 'fork-0' });
+    fake.userClose();
+    apply.resolve('applied');
+    const outcome = await p;
+
+    expect(outcome).toEqual({ winnerIndex: 0, appliedOk: true, skippedLabels: [] });
   });
 });

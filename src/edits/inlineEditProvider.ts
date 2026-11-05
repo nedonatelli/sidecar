@@ -23,6 +23,7 @@ import {
   TextEditorRevealType,
   StatusBarAlignment,
   Disposable,
+  WorkspaceEdit,
 } from 'vscode';
 
 export interface PendingEdit {
@@ -51,7 +52,7 @@ export class InlineEditProvider implements InlineCompletionItemProvider, Disposa
 
     // Register accept/reject commands
     this.disposables.push(
-      commands.registerCommand('sidecar.acceptInlineEdit', () => this.accept()),
+      commands.registerCommand('sidecar.acceptInlineEdit', () => this.applyAndAccept()),
       commands.registerCommand('sidecar.rejectInlineEdit', () => this.reject()),
     );
   }
@@ -161,7 +162,30 @@ export class InlineEditProvider implements InlineCompletionItemProvider, Disposa
     return [item];
   }
 
-  /** Accept the pending edit. */
+  /**
+   * Accept from the status bar or command palette. Unlike Tab, nothing has
+   * inserted the replacement yet, so apply it here before resolving -- the
+   * agent is told the edit landed.
+   */
+  async applyAndAccept(): Promise<void> {
+    const edit = this.pendingEdit;
+    if (!edit) return;
+    const doc = await workspace.openTextDocument(edit.fileUri);
+    if (doc.getText(edit.range) !== edit.searchText) {
+      window.showErrorMessage(`SideCar: ${edit.filePath} changed under the proposed edit — dismiss it and retry.`);
+      return;
+    }
+    const wsEdit = new WorkspaceEdit();
+    wsEdit.replace(edit.fileUri, edit.range, edit.replaceText);
+    if (!(await workspace.applyEdit(wsEdit))) {
+      window.showErrorMessage(`SideCar: could not apply the edit to ${edit.filePath}.`);
+      return;
+    }
+    // A newer proposal may have replaced this one while the edit was applied.
+    if (this.pendingEdit === edit) this.accept();
+  }
+
+  /** Accept the pending edit (Tab has already inserted it). */
   accept(): void {
     if (!this.pendingEdit) return;
     const edit = this.pendingEdit;

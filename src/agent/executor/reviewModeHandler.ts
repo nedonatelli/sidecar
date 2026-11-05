@@ -1,6 +1,6 @@
 import { workspace, Uri } from 'vscode';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
-import type { PendingEditStore } from '../pendingEdits.js';
+import type { PendingEditStore, PendingEdit } from '../pendingEdits.js';
 import type { AgentLogger } from '../logger.js';
 import {
   validateFilePath,
@@ -25,12 +25,12 @@ export const REVIEW_OVERLAY_TOOLS = new Set(['grep', 'search_files', 'list_direc
 
 /**
  * Review-mode interception. Returns a tool result when the tool is one we
- * should redirect into the shadow store (read_file / write_file / edit_file),
- * or `null` to signal "let the normal executor handle this."
+ * should redirect into the shadow store (read_file / write_file / edit_file /
+ * delete_file), or `null` to signal "let the normal executor handle this."
  *
  * Reads return pending content when available so the agent sees a coherent
- * view of its own edits. Writes / edits capture the proposed result into
- * the store without touching disk. The revert baseline is locked on the
+ * view of its own edits. Writes / edits / deletes capture the proposed result
+ * into the store without touching disk. The revert baseline is locked on the
  * first capture for a given file; subsequent edits update only the
  * post-content so the user ultimately sees one before/after pair per file.
  */
@@ -48,7 +48,7 @@ export async function handleReviewModeTool(
   // rules must be applied here too. Without them, `../../.aws/credentials`
   // was read (its contents came back in the edit diff) and a write outside
   // the workspace was queued for acceptance.
-  if (toolUse.name === 'write_file' || toolUse.name === 'edit_file') {
+  if (toolUse.name === 'write_file' || toolUse.name === 'edit_file' || toolUse.name === 'delete_file') {
     const relPath = toolUse.input.path as string | undefined;
     if (relPath !== undefined) {
       const refusal =
@@ -73,6 +73,14 @@ export async function handleReviewModeTool(
     if (!relPath) return null;
     const absPath = Uri.joinPath(root, relPath).fsPath;
     const pending = pendingEdits.get(absPath);
+    if (pending?.newContent === null) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: `Error: ${relPath} does not exist — it was deleted (pending review)`,
+        is_error: true,
+      };
+    }
     if (pending) {
       logger?.info(`[REVIEW] Served pending content for read_file ${relPath}`);
       return {
@@ -98,6 +106,33 @@ export async function handleReviewModeTool(
       type: 'tool_result',
       tool_use_id: toolUse.id,
       content: `Pending write queued for review: ${relPath}`,
+    };
+  }
+
+  // --- delete_file: queue the deletion ---
+  if (toolUse.name === 'delete_file') {
+    const relPath = toolUse.input.path as string | undefined;
+    if (!relPath) return null;
+    const absPath = Uri.joinPath(root, relPath).fsPath;
+    const pending = pendingEdits.get(absPath);
+    const current = pending ? pending.newContent : await readDiskOrNull(root, relPath);
+    if (current === null) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: `Error: cannot delete ${relPath} — file does not exist`,
+        is_error: true,
+      };
+    }
+    // A file this session created and now deletes leaves nothing to review.
+    if (pending && pending.originalContent === null) pendingEdits.remove(absPath);
+    else pendingEdits.record(absPath, current, null, 'delete_file');
+    logger?.info(`[REVIEW] Captured delete_file for ${relPath}`);
+    context?.recordOutcome?.(mutated(relPath, 'review'));
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUse.id,
+      content: `Pending delete queued for review: ${relPath}`,
     };
   }
 
@@ -254,6 +289,7 @@ export function computePendingOverlay(toolUse: ToolUseContentBlock, pendingEdits
     for (const edit of all) {
       const rel = toRel(edit.filePath);
       if (scopePath && !rel.startsWith(scopePath)) continue;
+      if (edit.newContent === null) continue;
       const lines = edit.newContent.split('\n');
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i])) {
@@ -287,7 +323,7 @@ export function computePendingOverlay(toolUse: ToolUseContentBlock, pendingEdits
     for (const edit of all) {
       const rel = toRel(edit.filePath);
       if (re.test(rel)) {
-        const tag = edit.originalContent === null ? ' (pending new file)' : ' (pending edit)';
+        const tag = pendingTag(edit);
         hits.push(rel + tag);
       }
     }
@@ -310,8 +346,7 @@ export function computePendingOverlay(toolUse: ToolUseContentBlock, pendingEdits
       // not arbitrary descendants — matches list_directory's disk semantics.
       const afterScope = scope ? rel.slice(scope.length) : rel;
       if (afterScope.includes('/')) continue;
-      const tag = edit.originalContent === null ? ' (pending new file)' : ' (pending edit)';
-      hits.push(afterScope + tag);
+      hits.push(afterScope + pendingTag(edit));
     }
     if (hits.length === 0) return '';
     return (
@@ -321,6 +356,11 @@ export function computePendingOverlay(toolUse: ToolUseContentBlock, pendingEdits
   }
 
   return '';
+}
+
+function pendingTag(edit: PendingEdit): string {
+  if (edit.newContent === null) return ' (pending delete)';
+  return edit.originalContent === null ? ' (pending new file)' : ' (pending edit)';
 }
 
 async function readDiskOrNull(root: Uri, relPath: string): Promise<string | null> {

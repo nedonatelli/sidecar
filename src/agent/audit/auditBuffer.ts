@@ -460,9 +460,17 @@ export class AuditBuffer {
       }
     }
 
-    // All-or-nothing succeeded — clear buffer entries we flushed.
+    // All-or-nothing succeeded — clear buffer entries we flushed. An entry the
+    // agent replaced while the flush awaited the disk is newer than what was
+    // written: keep it, with the flushed state as its baseline.
     for (const entry of targetEntries) {
-      this.entries.delete(entry.path);
+      const current = this.entries.get(entry.path);
+      if (current === entry) {
+        this.entries.delete(entry.path);
+      } else if (current) {
+        current.originalContent = entry.op === 'delete' ? undefined : entry.content;
+        if (current.op !== 'delete') current.op = current.originalContent === undefined ? 'create' : 'modify';
+      }
     }
 
     // Queued commits execute ONLY when the buffer is fully empty
