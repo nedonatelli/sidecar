@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.10** (2026-11) — db_execute reports the rows a write changed.
+ *   `db_execute` reported "Rows affected" from the rows returned, and asked for
+ *   none, so every write read as 0 and a model could send an INSERT again. The
+ *   count now comes from the driver, or reads `unknown`, and `RETURNING` rows
+ *   render. In Audit Mode the result says the statement did not run, and the
+ *   tool description says it is not executed there. PATCH. No eval: the
+ *   database tools are offered only when database profiles are configured, and
+ *   no eval configures one.
  * - **7.0.9** (2026-11) — review mode queues delete_file. In review mode
  *   `delete_file` is queued for review like a write, with no prompt, and until
  *   it is accepted reads and searches treat the file as gone. PATCH. No eval:
@@ -375,7 +383,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.9';
+export const SCAFFOLD_VERSION = '7.0.10';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
