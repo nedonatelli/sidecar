@@ -780,18 +780,17 @@ describe('editFile repeated-failure escalation', () => {
     expect(different).not.toContain('AGAIN');
   });
 
-  it('search-not-found: an identical repeat is told to read first', async () => {
+  it('search-not-found: an identical repeat escalates too', async () => {
     const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
     await buf.write('src/notfound.ts', 'const keep = 1;\n', async () => undefined);
     const call = { path: 'src/notfound.ts', search: 'totally missing text', replace: 'new text' };
 
     const first = await editMsg(call, context);
     expect(first).toContain('search string not found');
-    expect(first).not.toContain('resent a search');
+    expect(first).not.toContain('AGAIN');
 
     const second = await editMsg(call, context);
-    expect(second).toContain('resent a search that already missed');
-    expect(second).toContain('read_file(path="src/notfound.ts")');
+    expect(second).toContain('AGAIN');
   });
 
   it('a successful edit clears the failure signature so a later identical failure does not spuriously escalate', async () => {
@@ -817,7 +816,7 @@ describe('editFile repeated-failure escalation', () => {
     expect(second).not.toContain('AGAIN');
   });
 
-  it('disk mode (non-audit): an identical search-not-found repeat is told to read first', async () => {
+  it('disk mode (non-audit): an identical search-not-found repeat escalates', async () => {
     const { workspace } = await import('vscode');
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('const keep = 1;\n') as never);
     const context = { editFailureSignatures: new Map<string, string>() };
@@ -825,18 +824,40 @@ describe('editFile repeated-failure escalation', () => {
 
     const first = await editMsg(call, context);
     expect(first).toContain('search string not found');
-    expect(first).not.toContain('resent a search');
+    expect(first).not.toContain('AGAIN');
 
     const second = await editMsg(call, context);
-    expect(second).toContain('resent a search that already missed');
+    expect(second).toContain('AGAIN');
     vi.restoreAllMocks();
   });
 
-  it('disk mode: repeats of a search that missed never write a guessed region', async () => {
-    // A 20%-confidence fuzzy match used to overwrite `alpha zzzz zzzz zzzz`
-    // with `alpha beta gamma delta epsilon` on the 3rd identical repeat.
-    // Measured over 1,700 real edits from 11 repositories, the matcher picks
-    // the wrong region 30% of the time it commits, at ANY threshold.
+  it('search-not-found: a 3rd identical repeat SUGGESTS a region — it never overwrites one', async () => {
+    // This test used to assert the opposite: that a 20%-confidence fuzzy match
+    // should overwrite `alpha zzzz zzzz zzzz` with `alpha beta gamma delta
+    // epsilon`. That is nonsense, and it was the DESIGNED behavior. Measured
+    // over 1,700 real edits from 11 repositories, the matcher picks the wrong
+    // region 30% of the time it commits — at ANY confidence threshold. It now
+    // hands the candidate to the model instead of writing it.
+    const context = { config: { agentMode: 'audit' } as never, editFailureSignatures: new Map<string, string>() };
+    const fileContent = 'function foo() {\n  alpha zzzz zzzz zzzz zzzz;\n  return 1;\n}\n';
+    await buf.write('src/loose.ts', fileContent, async () => undefined);
+    const call = { path: 'src/loose.ts', search: 'totally missing text', replace: 'alpha beta gamma delta epsilon' };
+
+    const first = await editMsg(call, context);
+    expect(first).toContain('search string not found');
+
+    const second = await editMsg(call, context);
+    expect(second).toContain('AGAIN');
+
+    const third = await editMsg(call, context);
+    expect(third).toContain('closest matching region'); // the candidate, handed over
+    expect(third).not.toContain('Auto-repaired');
+
+    // The file is untouched. That is the whole point.
+    expect(buf.read('src/loose.ts').content).toBe(fileContent);
+  });
+
+  it('disk mode: a 3rd identical repeat SUGGESTS a region and writes NOTHING', async () => {
     const { workspace } = await import('vscode');
     const fileContent = 'function foo() {\n  alpha zzzz zzzz zzzz zzzz;\n  return 1;\n}\n';
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from(fileContent) as never);
@@ -849,12 +870,12 @@ describe('editFile repeated-failure escalation', () => {
       replace: 'alpha beta gamma delta epsilon',
     };
 
-    await editMsg(call, context);
-    await editMsg(call, context);
-    const third = await editMsg(call, context);
+    await editMsg(call, context); // 1st
+    await editMsg(call, context); // 2nd (AGAIN)
+    const third = await editMsg(call, context); // 3rd — used to auto-repair to disk
 
-    expect(third).toContain('resent a search that already missed');
-    expect(writeSpy).not.toHaveBeenCalled();
+    expect(third).toContain('closest matching region');
+    expect(writeSpy).not.toHaveBeenCalled(); // NOTHING is written on a guess
     vi.restoreAllMocks();
   });
 
