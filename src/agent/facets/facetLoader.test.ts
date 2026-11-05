@@ -51,6 +51,17 @@ rpcSchema: {"publishMathBlock": {"params": {"symbol": "string", "latex": "string
     expect(facet.rpcSchema!.publishMathBlock.params).toEqual({ symbol: 'string', latex: 'string' });
   });
 
+  it('reads the frontmatter of a file with CRLF line endings or a BOM', () => {
+    const lf = makeFacet('id: a\ndisplayName: A\ntoolAllowlist: ["read_file"]', 'Line one\nLine two');
+    for (const raw of [lf.replace(/\n/g, '\r\n'), `﻿${lf}`]) {
+      const facet = parseFacetFile('/x/a.md', raw, 'project');
+      expect(facet.id).toBe('a');
+      expect(facet.displayName).toBe('A');
+      expect(facet.toolAllowlist).toEqual(['read_file']);
+      expect(facet.systemPrompt).toBe('Line one\nLine two');
+    }
+  });
+
   it('trims quoted scalar values (JSON-ish scalars work too)', () => {
     const raw = makeFacet(`id: a\ndisplayName: "Quoted Name"\npreferredModel: 'claude-haiku-4-5'`);
     const facet = parseFacetFile('/x/a.md', raw, 'user');

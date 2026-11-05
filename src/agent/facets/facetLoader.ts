@@ -104,6 +104,8 @@ export class FacetValidationError extends Error {
  * require every facet already loaded.
  */
 export function parseFacetFile(filePath: string, raw: string, source: FacetDefinition['source']): FacetDefinition {
+  // Windows line endings and a BOM, as the skill loader handles them.
+  raw = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
   const fmMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
   if (!fmMatch) {
     throw new FacetValidationError(
