@@ -36,7 +36,14 @@ vi.mock('./retry.js', async (importActual) => {
 });
 
 const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+// The fallback's backend is identified from its URL the way `auto` does it:
+// :11500 is not Ollama's port, so the /api/version probe decides. Every
+// server here answers it as Ollama; the probe stays out of mockFetch's calls.
+vi.stubGlobal('fetch', (url: unknown, init?: RequestInit) =>
+  String(url).endsWith('/api/version')
+    ? Promise.resolve({ ok: true, json: async () => ({ version: '0.12.0' }) })
+    : mockFetch(url, init),
+);
 
 function okChat(content: string) {
   return {
@@ -70,8 +77,8 @@ describe('SideCarClient — retry/fallback interplay', () => {
     mockFetch.mockReset();
     circuitBreaker.reset();
     h.overrides = {
-      // Pin the provider so both primary and the :11500 fallback resolve to the
-      // Ollama backend (auto-detection keys on port 11434 only).
+      // The PRIMARY's provider. It used to be applied to the fallback too,
+      // which this pin hid; the fallback's backend now comes from its URL.
       provider: 'ollama',
       fallbackBaseUrl: FALLBACK_URL,
       fallbackApiKey: 'ollama',
@@ -188,6 +195,82 @@ describe('SideCarClient — retry/fallback interplay', () => {
     await drain(); // second failure switches to the fallback and retries there
     const fallbackCall = bodies.find((b) => b.url.includes(':11500'));
     expect(fallbackCall?.model).toBe('fb-model');
+  });
+
+  // #420: the chat handler calls updateConnection + updateModel with the
+  // configured primary on every message, which reset the fallback state.
+  it('keeps the fallback across messages that re-apply the same connection', async () => {
+    installRouter({ primaryFails: true });
+    const client = new SideCarClient('m', PRIMARY_URL, 'ollama');
+    const send = async (content: string) => {
+      client.updateConnection(PRIMARY_URL, 'ollama');
+      client.updateModel('m');
+      return client.complete([{ role: 'user', content }]);
+    };
+
+    await expect(send('a')).rejects.toThrow();
+    for (const msg of ['b', 'c', 'd', 'e', 'f', 'g']) expect(await send(msg)).toBe('FALLBACK');
+    const models = mockFetch.mock.calls
+      .filter((c) => String(c[0]).includes(':11500/api/chat'))
+      .map((c) => (JSON.parse(String((c[1] as RequestInit).body)) as { model: string }).model);
+    expect(new Set(models)).toEqual(new Set(['fb-model']));
+  });
+
+  it('a changed primary connection still leaves the fallback', async () => {
+    installRouter({ primaryFails: true });
+    const client = new SideCarClient('m', PRIMARY_URL, 'ollama');
+    await expect(client.complete([{ role: 'user', content: 'a' }])).rejects.toThrow();
+    expect(await client.complete([{ role: 'user', content: 'b' }])).toBe('FALLBACK');
+
+    client.updateConnection('http://127.0.0.1:11434', 'ollama');
+    mockFetch.mockClear();
+    await expect(client.complete([{ role: 'user', content: 'c' }])).rejects.toThrow('Network error');
+    expect(chatUrls()).toEqual(['http://127.0.0.1:11434/api/chat']);
+  });
+
+  // #420: sidecar.provider is the primary's backend; applied to the fallback,
+  // an Ollama primary posted /api/chat to an Anthropic fallback.
+  it('speaks the fallback URL’s protocol, not the primary’s provider', async () => {
+    h.overrides = { ...h.overrides, fallbackBaseUrl: 'https://api.anthropic.com', fallbackApiKey: 'sk-ant' };
+    mockFetch.mockImplementation(async (url: unknown) => {
+      if (String(url).includes('anthropic.com')) {
+        return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ANTHROPIC' }] }), { status: 200 });
+      }
+      throw new Error('Network error');
+    });
+    const client = new SideCarClient('m', PRIMARY_URL, 'ollama');
+
+    await expect(client.complete([{ role: 'user', content: 'a' }])).rejects.toThrow();
+    expect(await client.complete([{ role: 'user', content: 'b' }])).toBe('ANTHROPIC');
+    const fallbackUrls = mockFetch.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('anthropic.com'));
+    expect(fallbackUrls).toEqual(['https://api.anthropic.com/v1/messages']);
+    expect(client.getProviderType()).toBe('anthropic');
+  });
+
+  // The fallback's success at the recheck moment switched back to the primary
+  // first, then credited the primary's breaker with it.
+  it("credits a fallback success to the fallback's breaker, not the primary's", async () => {
+    h.overrides = { ...h.overrides, fallbackBaseUrl: 'https://api.anthropic.com', fallbackApiKey: 'sk-ant' };
+    mockFetch.mockImplementation(async (url: unknown) => {
+      if (String(url).includes('anthropic.com')) {
+        return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ANTHROPIC' }] }), { status: 200 });
+      }
+      throw new Error('Network error');
+    });
+    const client = new SideCarClient('m', PRIMARY_URL, 'ollama');
+    const now = vi.spyOn(Date, 'now');
+    let t = 1_000_000;
+    now.mockImplementation(() => t);
+
+    await expect(client.complete([{ role: 'user', content: 'a' }])).rejects.toThrow();
+    expect(await client.complete([{ role: 'user', content: 'b' }])).toBe('ANTHROPIC');
+    const primaryFailures = circuitBreaker.describe('ollama').consecutiveFailures;
+    expect(primaryFailures).toBeGreaterThan(0);
+
+    t += 121_000; // the next fallback success also switches back to the primary
+    expect(await client.complete([{ role: 'user', content: 'c' }])).toBe('ANTHROPIC');
+    expect(circuitBreaker.describe('ollama').consecutiveFailures).toBe(primaryFailures);
+    now.mockRestore();
   });
 
   it('does not switch on a permanent (auth) error — surfaces a config error instead', async () => {

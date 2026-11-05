@@ -97,6 +97,19 @@ export function envNumGpu(): number | null {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+/**
+ * The explicit context window, in precedence order: the `sidecar.ollama.numCtx`
+ * setting, then `SIDECAR_OLLAMA_NUM_CTX`. The env fallback exists because the
+ * setting is VS Code-only, which left benchmarks with no way to pin the window
+ * at all (mirrors SIDECAR_AGENT_SEED). Null when neither is set. The request
+ * sends it and the context budget sizes to it, so both read it from here.
+ */
+export function ollamaNumCtxOverride(ollamaNumCtx: number | null | undefined): number | null {
+  const envNumCtx = process.env.SIDECAR_OLLAMA_NUM_CTX;
+  const override = ollamaNumCtx ?? (envNumCtx !== undefined && envNumCtx !== '' ? Number(envNumCtx) : null);
+  return override !== null && Number.isFinite(override) ? override : null;
+}
+
 /** In-flight `/api/show` probes, so concurrent requests don't stampede one model. */
 const numCtxProbes = new Map<string, Promise<void>>();
 
@@ -811,13 +824,8 @@ export class OllamaBackend implements ApiBackend {
     ollamaNumCtx: number | null | undefined,
     probe = true,
   ): Promise<number | null> {
-    // Explicit override, in precedence order: the `sidecar.ollama.numCtx`
-    // setting, then `SIDECAR_OLLAMA_NUM_CTX`. The env fallback exists because
-    // the setting is VS Code-only, which left benchmarks with no way to pin the
-    // window at all (mirrors SIDECAR_AGENT_SEED).
-    const envNumCtx = process.env.SIDECAR_OLLAMA_NUM_CTX;
-    const overrideNumCtx = ollamaNumCtx ?? (envNumCtx !== undefined && envNumCtx !== '' ? Number(envNumCtx) : null);
-    const hasOverride = overrideNumCtx !== null && Number.isFinite(overrideNumCtx);
+    const overrideNumCtx = ollamaNumCtxOverride(ollamaNumCtx);
+    const hasOverride = overrideNumCtx !== null;
     // Without an override the model's real window has to be known, so probe it
     // here rather than trusting some earlier caller to have done it.
     if (!hasOverride && probe) await ensureNumCtxProbed(this.baseUrl, model);

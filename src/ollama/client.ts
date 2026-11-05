@@ -2,7 +2,7 @@ import type { ChatMessage, ToolDefinition, StreamEvent } from './types.js';
 import { logger } from '../system/logger.js';
 import type { ApiBackend, ResponseFormat } from './backend.js';
 import { AnthropicBackend } from './anthropicBackend.js';
-import { OllamaBackend } from './ollamaBackend.js';
+import { OllamaBackend, ollamaNumCtxOverride } from './ollamaBackend.js';
 import { OpenAIBackend } from './openaiBackend.js';
 import { KickstandBackend } from './kickstandBackend.js';
 import { OpenRouterBackend } from './openrouterBackend.js';
@@ -17,6 +17,7 @@ import {
   contextLengthFromModelsList,
   detectProvider,
   getConfig,
+  identifyOllamaServer,
 } from '../config/settings.js';
 import { openAiApiRoot } from '../config/settings/backends.js';
 import { MODEL_CONTEXT_LENGTHS } from '../config/constants.js';
@@ -159,6 +160,13 @@ export class SideCarClient {
   private fallbackSince = 0;
   /** True while a recheck of the primary is unconfirmed: one failure goes straight back to the fallback. */
   private recheckingPrimary = false;
+  /**
+   * The backend the fallback URL speaks, detected from that URL the way
+   * `auto` does. `sidecar.provider` names the PRIMARY's backend: applied to
+   * the fallback, an Ollama primary posted `/api/chat` to an Anthropic
+   * fallback and a Bedrock primary called Bedrock again.
+   */
+  private fallbackProvider: ReturnType<typeof detectProvider> | null = null;
 
   /**
    * @param provider  Which backend to speak, overriding `sidecar.provider` and
@@ -184,7 +192,13 @@ export class SideCarClient {
 
   /** The backend this client actually speaks: the override, else config, else the URL rules. */
   private resolveProvider(): ReturnType<typeof detectProvider> {
-    return detectProvider(this.baseUrl, this.providerOverride ?? getConfig().provider);
+    if (this.usingFallback && this.fallbackProvider) return this.fallbackProvider;
+    return this.primaryProvider();
+  }
+
+  /** The primary's backend, whichever URL is active. */
+  private primaryProvider(): ReturnType<typeof detectProvider> {
+    return detectProvider(this.primaryBaseUrl, this.providerOverride ?? getConfig().provider);
   }
 
   private createBackend(): ApiBackend {
@@ -310,8 +324,10 @@ export class SideCarClient {
         )) {
           yield forward(event);
         }
-        this.recordSuccess();
+        // Credit the backend that answered before recordSuccess(), which can
+        // switch back to the primary and change getProviderType().
         circuitBreaker.recordSuccess(this.getProviderType());
+        this.recordSuccess();
         reported = true;
       } catch (err) {
         // Don't count user aborts as failures
@@ -339,8 +355,8 @@ export class SideCarClient {
             )) {
               yield forward(event);
             }
-            this.recordSuccess();
             circuitBreaker.recordSuccess(this.getProviderType());
+            this.recordSuccess();
             reported = true;
             return;
           } catch (retryErr) {
@@ -410,8 +426,8 @@ export class SideCarClient {
     try {
       const result = await this.backend.complete(this.model, this.systemPrompt, messages, maxTokens, signal);
       this.chargeLastDecision(spendTracker.snapshot().totalUsd - preSpend);
-      this.recordSuccess();
       circuitBreaker.recordSuccess(this.getProviderType());
+      this.recordSuccess();
       return result;
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
@@ -434,8 +450,8 @@ export class SideCarClient {
             maxTokens,
             signal,
           );
-          this.recordSuccess();
           circuitBreaker.recordSuccess(this.getProviderType());
+          this.recordSuccess();
           return retryResult;
         } catch (retryErr) {
           if (retryErr instanceof Error && retryErr.name === 'AbortError') {
@@ -537,6 +553,11 @@ export class SideCarClient {
     const config = getConfig();
     if (!config.fallbackBaseUrl || this.usingFallback) return false;
 
+    // Which backend the fallback URL speaks, decided the way `auto` decides
+    // it -- including the /api/version probe for an Ollama on another port.
+    await identifyOllamaServer(config.fallbackBaseUrl, 'auto');
+    const fallbackProvider = detectProvider(config.fallbackBaseUrl, 'auto');
+
     if (isLocalUrl(config.fallbackBaseUrl)) {
       const reachable = await probeFallbackHealth(config.fallbackBaseUrl);
       if (!reachable) {
@@ -553,8 +574,9 @@ export class SideCarClient {
     this.baseUrl = config.fallbackBaseUrl;
     this.apiKey = config.fallbackApiKey || 'ollama';
     this.model = config.fallbackModel || this.primaryModel;
-    this.backend = this.createBackend();
+    this.fallbackProvider = fallbackProvider;
     this.usingFallback = true;
+    this.backend = this.createBackend();
     this.consecutiveFailures = 0;
     this.fallbackSince = Date.now();
     this.recheckingPrimary = false;
@@ -566,8 +588,8 @@ export class SideCarClient {
     this.baseUrl = this.primaryBaseUrl;
     this.apiKey = this.primaryApiKey;
     this.model = this.primaryModel;
-    this.backend = this.createBackend();
     this.usingFallback = false;
+    this.backend = this.createBackend();
     logger.info('[SideCar] Switched back to primary backend');
   }
 
@@ -613,6 +635,14 @@ export class SideCarClient {
   }
 
   updateModel(model: string) {
+    if (this.usingFallback) {
+      // The chat handler sets the configured (primary) model every message.
+      // On the fallback that is the model to return to; the fallback server
+      // keeps its own model, or reuses this one when none is configured.
+      this.primaryModel = model;
+      this.model = getConfig().fallbackModel || model;
+      return;
+    }
     this.model = model;
   }
 
@@ -764,13 +794,24 @@ export class SideCarClient {
 
   updateConnection(baseUrl: string, apiKey: string) {
     const newBaseUrl = baseUrl || DEFAULT_BASE_URL;
+    const newApiKey = apiKey || 'ollama';
+    // The chat handler calls this every message with the configured primary.
+    // Resetting the fallback state on an unchanged primary undid the switch
+    // (and the failure count it needs) before the next message, so the
+    // fallback never engaged.
+    if (newBaseUrl === this.primaryBaseUrl && newApiKey === this.primaryApiKey) {
+      if (!this.usingFallback) this.backend = this.createBackend();
+      return;
+    }
+    if (this.usingFallback) this.model = this.primaryModel;
     this.baseUrl = newBaseUrl;
-    this.apiKey = apiKey || 'ollama';
+    this.apiKey = newApiKey;
     this.primaryBaseUrl = this.baseUrl;
     this.primaryApiKey = this.apiKey;
     this.primaryModel = this.model;
     this.usingFallback = false;
     this.consecutiveFailures = 0;
+    this.recheckingPrimary = false;
     this.backend = this.createBackend();
   }
 
@@ -831,6 +872,12 @@ export class SideCarClient {
       }
       return known ?? null;
     }
+    // The window the backend sends as num_ctx when one is pinned. /api/show
+    // reports the model's own window, which Ollama does not use then: a
+    // budget sized to it overflowed the pinned window, and Ollama silently
+    // cut the front of the prompt, system prompt included.
+    const pinned = ollamaNumCtxOverride(getConfig().ollamaNumCtx);
+    if (pinned !== null) return pinned;
     try {
       // Hard-capped and abortable: this runs BEFORE the agent loop's first
       // iteration, so an unsignalled hang here wedges the whole run with the

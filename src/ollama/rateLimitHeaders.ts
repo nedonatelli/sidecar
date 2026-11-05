@@ -59,6 +59,7 @@ function anthropicResetHeader(headers: Headers | null | undefined, name: string)
  *   "1m30s"     → 90
  *   "1h30m15s"  → 5415
  *   "500ms"     → 1   (rounded up; we don't track sub-second resolution)
+ *   "2m59.56s"  → 180
  *
  * Returns undefined if the string has no recognizable segments.
  *
@@ -66,14 +67,16 @@ function anthropicResetHeader(headers: Headers | null | undefined, name: string)
  */
 export function parseOpenAIDuration(raw: string): number | undefined {
   // IMPORTANT: match `ms` before `s` — `500ms` must parse as milliseconds,
-  // not as "500m + s" (which the `m` arm would misinterpret).
-  const re = /(\d+)(ms|h|m|s)/g;
+  // not as "500m + s" (which the `m` arm would misinterpret). Values carry
+  // decimals (Groq's `7.66s`, `2m59.56s`): an integer-only number read
+  // `7.66s` as 66 s.
+  const re = /(\d+(?:\.\d+)?)(ms|h|m|s)/g;
   let total = 0;
   let matched = false;
   let match: RegExpExecArray | null;
   while ((match = re.exec(raw)) !== null) {
     matched = true;
-    const n = parseInt(match[1], 10);
+    const n = parseFloat(match[1]);
     switch (match[2]) {
       case 'h':
         total += n * 3600;

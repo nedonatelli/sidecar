@@ -389,6 +389,22 @@ describe('SideCarClient', () => {
       expect(result).toBe(131_072);
     });
 
+    // #420: the pinned window is what Ollama runs with; budgeting to the
+    // /api/show window overflowed it and Ollama cut the front of the prompt.
+    it('returns the pinned SIDECAR_OLLAMA_NUM_CTX window, not the /api/show one', async () => {
+      vi.stubEnv('SIDECAR_OLLAMA_NUM_CTX', '8192');
+      try {
+        const client = new SideCarClient('test-model');
+        mockFetch.mockResolvedValue({
+          ok: true,
+          json: async () => ({ model_info: { 'llama.context_length': 131_072 } }),
+        });
+        expect(await client.getModelContextLength()).toBe(8192);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it('returns 32768 when API call fails', async () => {
       const client = new SideCarClient('test-model');
       mockFetch.mockRejectedValueOnce(new Error('timeout'));

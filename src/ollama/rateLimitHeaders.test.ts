@@ -26,6 +26,16 @@ describe('parseOpenAIDuration', () => {
   it('parses hours alone', () => {
     expect(parseOpenAIDuration('2h')).toBe(7200);
   });
+  // #420: the integer-only pattern read `7.66s` as 66 s and `2m59.56s` as
+  // 176 s, past the 60 s wait cap, so every Groq request after the first threw.
+  it('parses decimal durations as Groq and OpenAI send them', () => {
+    expect(parseOpenAIDuration('7.66s')).toBe(8);
+    expect(parseOpenAIDuration('2m59.56s')).toBe(180);
+    expect(parseOpenAIDuration('6.857s')).toBe(7);
+    expect(parseOpenAIDuration('250ms')).toBe(1);
+    expect(parseOpenAIDuration('1.5ms')).toBe(1);
+    expect(parseOpenAIDuration('6m0s')).toBe(360);
+  });
   it('returns undefined for an unparseable string', () => {
     expect(parseOpenAIDuration('never')).toBeUndefined();
   });
@@ -126,6 +136,20 @@ describe('parseOpenAIRateLimitHeaders', () => {
     expect(result.requestsLimit).toBe(60);
     expect(result.requestsRemaining).toBe(55);
     expect(result.requestsResetSec).toBe(5);
+  });
+
+  it('parses a Groq header set with decimal resets (#420)', () => {
+    const h = new Headers({
+      'x-ratelimit-limit-requests': '14400',
+      'x-ratelimit-limit-tokens': '18000',
+      'x-ratelimit-remaining-requests': '14370',
+      'x-ratelimit-remaining-tokens': '17997',
+      'x-ratelimit-reset-requests': '2m59.56s',
+      'x-ratelimit-reset-tokens': '7.66s',
+    });
+    const result = parseOpenAIRateLimitHeaders(h);
+    expect(result.requestsResetSec).toBe(180);
+    expect(result.tokensResetSec).toBe(8);
   });
 
   it('returns undefined for an unparseable duration string', () => {
