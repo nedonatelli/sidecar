@@ -28,6 +28,9 @@ All notable changes to the SideCar extension will be documented in this file.
   - A multi-line search that wasn't found is shown the region of the file it most resembles. A
     keyword hit often pointed above that block before, and the suggested line range was too
     short to hold the search.
+  - Resending a search that was just not found is answered with the lines to read. Until the agent
+    reads them, any search not found in that file gets the same answer, so a retry loop ends
+    with a fresh read.
   - A search that appears only above its `within` locator is described as such, rather than as
     "not found".
   - A multi-line `within` now works in files with Windows line endings.

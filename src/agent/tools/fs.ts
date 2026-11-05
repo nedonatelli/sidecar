@@ -572,9 +572,77 @@ function recordEditFailure(
 function clearEditFailure(context: ToolExecutorContext | undefined, filePath: string): void {
   context?.editFailureSignatures?.delete(filePath);
   context?.editFailureSignatures?.delete(noChangeKey(filePath));
+  context?.editFailureSignatures?.delete(missedKey(filePath));
+  context?.editFailureSignatures?.delete(readFirstKey(filePath));
 }
 
 const noChangeKey = (filePath: string): string => `${filePath}\0no-change`;
+// Keyed by the normalized path, as reads are, so a read can clear them.
+const missedKey = (filePath: string): string => `${staleKey(filePath)}\0missed`;
+const readFirstKey = (filePath: string): string => `${staleKey(filePath)}\0read-first`;
+
+/** Record a search that was not found; true when it is the one that missed last time on this file. */
+function missedAgain(context: ToolExecutorContext | undefined, filePath: string, search: string): boolean {
+  const map = context?.editFailureSignatures;
+  if (!map) return false;
+  const again = map.get(missedKey(filePath)) === search;
+  map.set(missedKey(filePath), search);
+  return again;
+}
+
+/**
+ * The lines to read before a resent search can be fixed, as `from:to`, or ''
+ * for the whole file: the region the not-found hints would point at, else the
+ * grep hint's range.
+ */
+function readRangeFor(text: string, search: string, replace: string): string {
+  const region =
+    findIntentTarget(text, replace, 0.4, SUGGEST_MARGIN) ??
+    (search.includes('\n') ? findNearestMatch(text, search) : null);
+  const at = region ? text.indexOf(region) : -1;
+  if (region && at >= 0) {
+    const from = text.slice(0, at).split('\n').length;
+    const to = from + region.split('\n').length - 1;
+    return `${Math.max(1, from - 2)}:${to + 2}`;
+  }
+  const grep = (buildGrepHint(text, search) ?? buildGrepHint(text, replace))?.match(/start_line=(\d+), end_line=(\d+)/);
+  return grep ? `${grep[1]}:${grep[2]}` : '';
+}
+
+function readFirstError(filePath: string, range: string): string {
+  const [from, to] = range.split(':');
+  const call = range
+    ? `read_file(path="${filePath}", start_line=${from}, end_line=${to})`
+    : `read_file(path="${filePath}")`;
+  return (
+    `Error: edit_file did not apply this edit to ${filePath} — your 'search' is not in the file, and you have ` +
+    `resent a search that already missed here, so the hint you were given was not used. The file was NOT ` +
+    `modified.\n\nRead the current text before editing again: call \`${call}\`, then copy the lines you want ` +
+    `to change from that output into 'search' byte-for-byte. Until those lines are read, a search that is not ` +
+    `found in ${filePath} gets only this message.`
+  );
+}
+
+/** A read that shows the lines a read-first refusal named lifts it (#161 ML-07). */
+function refreshReadFirst(
+  context: ToolExecutorContext | undefined,
+  key: string,
+  mode: string | undefined,
+  startLine: number | undefined,
+  endLine: number | undefined,
+): void {
+  const map = context?.editFailureSignatures;
+  const range = map?.get(`${key}\0read-first`);
+  if (!map || range === undefined) return;
+  if (startLine !== undefined || endLine !== undefined) {
+    const [from, to] = range.split(':').map(Number);
+    if (!range || (startLine ?? 1) > to || (endLine !== undefined && endLine < from)) return;
+  } else if (mode && mode !== 'full') {
+    return;
+  }
+  map.delete(`${key}\0read-first`);
+  map.delete(`${key}\0missed`);
+}
 
 /**
  * A "No change needed" answer for `filePath`, with the count of times in a row
@@ -879,6 +947,7 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   // A read that shows the edited lines refreshes the model's memory of the
   // file: it is no longer stale with respect to its own earlier edits.
   refreshStaleRead(context, readKey, mode, startLine, endLine);
+  refreshReadFirst(context, readKey, mode, startLine, endLine);
   return applyReadView(text, mode, startLine, endLine, filePath);
 }
 
@@ -2244,6 +2313,20 @@ export async function resolveEditedText(params: {
       }
     }
 
+    // The search that missed last time, sent again: the hint it got was not
+    // used. Shown the region, the model edited without reading in 14 of 16
+    // paired runs, 6 of them this same search; a run that did not read again
+    // could loop on it to the turn cap (#161 ML-07). From here until the model
+    // reads those lines, a miss gets only the instruction to read them.
+    const repeated = missedAgain(context, filePath, search);
+    const pending = context?.editFailureSignatures?.get(readFirstKey(filePath));
+    if (repeated || pending !== undefined) {
+      recordEditFailure(context, filePath, search, replace);
+      const range = pending ?? readRangeFor(text, search, replace);
+      context?.editFailureSignatures?.set(readFirstKey(filePath), range);
+      throw new Error(`${stalePrefix}${unreadPrefix}${readFirstError(filePath, range)}`);
+    }
+
     // Every search line is in the file, in order, but the search left out a
     // line between two of them (usually a comment or blank line). The region
     // is certain here, so name it and the skipped lines, instead of guessing.
@@ -2262,27 +2345,9 @@ export async function resolveEditedText(params: {
       );
     }
 
-    const failureCount = recordEditFailure(context, filePath, search, replace);
-    // Third+ identical failure: findIntentTarget already ran above at the
-    // default confidence and either found nothing or found `replace` itself
-    // (a no-op) — both dead ends at that threshold. Retry looser rather than
-    // just repeating the same hint a model has already ignored twice.
-    if (failureCount >= 3) {
-      // A LOW-confidence fuzzy match (0.2) writing to disk after repeated
-      // failures was the weakest guess in the tool. The matcher is wrong
-      // about the region 30% of the time it commits at ANY threshold, so
-      // this now suggests the region instead of rewriting it.
-      const looseTarget = findIntentTarget(text, replace, 0.2);
-      if (looseTarget && text.includes(looseTarget) && looseTarget !== replace) {
-        throw new Error(
-          suggestRegionError(
-            filePath,
-            looseTarget,
-            `your 'search' text still does not appear in the file after ${failureCount} attempts`,
-          ),
-        );
-      }
-    }
+    // A resend of this search never reaches here: the read-first refusal
+    // above answers it.
+    recordEditFailure(context, filePath, search, replace);
 
     const grepHint2 = buildGrepHint(text, search) ?? buildGrepHint(text, replace);
     const nearest = findNearestMatch(text, search);
@@ -2299,14 +2364,6 @@ export async function resolveEditedText(params: {
           : nearest
             ? regionHint
             : '\n\nCall read_file to see the exact current content.';
-    if (failureCount >= 2) {
-      throw new Error(
-        `${stalePrefix}${unreadPrefix}Error: edit_file failed AGAIN — you resubmitted the EXACT SAME search and replace ` +
-          `text as your last call to ${filePath}, which failed for the same reason. Repeating an identical call ` +
-          `will never work. You MUST call read_file on ${filePath} right now and copy the CURRENT text VERBATIM ` +
-          `into search.${hint}`,
-      );
-    }
     throw new Error(
       `${stalePrefix}${unreadPrefix}Error: edit_file failed — search string not found in ${filePath}. The file was NOT modified.${hint}`,
     );
@@ -2767,13 +2824,9 @@ function markRead(exec: ToolExecutor): ToolExecutor {
     if (p) {
       const key = path.posix.normalize(p.split(path.sep).join('/'));
       context?.filesReadThisTurn?.add(key);
-      refreshStaleRead(
-        context,
-        key,
-        input.mode as string | undefined,
-        toLineNum(input.start_line),
-        toLineNum(input.end_line),
-      );
+      const view = [input.mode as string | undefined, toLineNum(input.start_line), toLineNum(input.end_line)] as const;
+      refreshStaleRead(context, key, ...view);
+      refreshReadFirst(context, key, ...view);
     }
     return result;
   };

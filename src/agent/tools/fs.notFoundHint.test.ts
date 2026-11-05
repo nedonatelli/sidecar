@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { workspace } from 'vscode';
-import { editFile } from './fs.js';
+import { editFile, fsTools } from './fs.js';
 
 // #161 ML-07: when a multi-line search was not found, the grep hint won over
 // the nearest-region block whenever grep hit anything. Its first two long
@@ -69,6 +69,73 @@ describe('a multi-line search that was not found (#161 ML-07)', () => {
   it('keeps the grep hint first for a single-line search', async () => {
     const msg = await refusal('autoreload.py', FILE, 'def watched_files(modules, strict=True):', 'x = 1');
     expect(msg).toMatch(/Grep for \[/);
+  });
+});
+
+// Shown the region, the model edited without reading in 14 of 16 paired runs,
+// 6 of them resending the search that had just missed; one sent it with a new
+// `within` until the turn cap. A resent search is told to read the region's
+// lines, and every miss on the file gets that until a read shows them.
+describe('a resent search that already missed (#161 ML-07)', () => {
+  const read = fsTools.find((t) => t.definition.name === 'read_file')!.executor;
+  const loopCtx = () =>
+    ({
+      config: { agentMode: 'agent' },
+      filesReadThisTurn: new Set(['autoreload.py']),
+      editFailureSignatures: new Map<string, string>(),
+    }) as never;
+  const edit = (context: never, search: string, replace = REPLACE, within?: string) =>
+    editFile({ path: 'autoreload.py', search, replace, ...(within ? { within } : {}) }, context).then(
+      (r) => `APPLIED: ${r}`,
+      (e: Error) => e.message,
+    );
+  // The region the hint showed is lines 40-51 of FILE; the range adds two lines each side.
+  const READ_CALL = 'read_file(path="autoreload.py", start_line=38, end_line=53)';
+
+  it('is told to read the region, even with a new replace and a within', async () => {
+    const write = mount(FILE);
+    const context = loopCtx();
+    expect(await edit(context, SEARCH)).toContain('search string not found');
+    const again = await edit(
+      context,
+      SEARCH,
+      `${REPLACE}\n    pass`,
+      'def iter_modules_and_files(modules, extra_files):',
+    );
+    expect(again).toContain('resent a search that already missed');
+    expect(again).toContain(READ_CALL);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('keeps answering any miss with the read until the lines are read', async () => {
+    mount(FILE);
+    const context = loopCtx();
+    await edit(context, SEARCH);
+    await edit(context, SEARCH);
+    expect(await edit(context, 'def something_else():\n    return 2')).toContain(READ_CALL);
+  });
+
+  it('still applies a search that matches', async () => {
+    const write = mount(FILE);
+    const context = loopCtx();
+    await edit(context, SEARCH);
+    await edit(context, SEARCH);
+    expect(await edit(context, '    results = set()', '    results = {}')).toMatch(/^APPLIED/);
+    expect(write).toHaveBeenCalled();
+  });
+
+  it('is lifted by a read that shows the lines, not by one elsewhere or a compact read', async () => {
+    mount(FILE);
+    const context = loopCtx();
+    await edit(context, SEARCH);
+    await edit(context, SEARCH);
+    await read({ path: 'autoreload.py', start_line: 1, end_line: 10 }, context);
+    await read({ path: 'autoreload.py', mode: 'compact' }, context);
+    expect(await edit(context, SEARCH)).toContain(READ_CALL);
+    await read({ path: 'autoreload.py', start_line: 45, end_line: 60 }, context);
+    const after = await edit(context, SEARCH);
+    expect(after).toContain('search string not found');
+    expect(after).not.toContain('resent a search');
   });
 });
 
