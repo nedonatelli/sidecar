@@ -2,12 +2,7 @@ import type { Webview } from 'vscode';
 import { Uri } from 'vscode';
 import type { GitHubAction } from '../github/types.js';
 import type { ChatMessage } from '../ollama/types.js';
-import {
-  getConfig,
-  BUILT_IN_BACKEND_PROFILES,
-  CUSTOM_ENDPOINT_ENTRY,
-  detectActiveProfileId,
-} from '../config/settings.js';
+import { getConfig, MENU_BACKEND_PROFILES, CUSTOM_ENDPOINT_ENTRY, detectActiveProfileId } from '../config/settings.js';
 import * as crypto from 'crypto';
 
 export interface WebviewMessage {
@@ -418,7 +413,7 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
     ? webview.asWebviewUri(Uri.joinPath(extensionUri, 'media', 'mermaid.min.js'))
     : null;
   const backendProfilesJson = JSON.stringify([
-    ...BUILT_IN_BACKEND_PROFILES.map((p) => ({ id: p.id, name: p.name, description: p.description })),
+    ...MENU_BACKEND_PROFILES.map((p) => ({ id: p.id, name: p.name, description: p.description })),
     CUSTOM_ENDPOINT_ENTRY,
   ]);
   const activeProfileId = detectActiveProfileId(cfg.baseUrl, cfg.provider);

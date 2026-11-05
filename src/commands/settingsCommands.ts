@@ -332,7 +332,7 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
     }),
     commands.registerCommand('sidecar.bedrock.setRegion', () => promptBedrockRegion()),
     commands.registerCommand('sidecar.switchBackend', async (profileId?: unknown) => {
-      const { BUILT_IN_BACKEND_PROFILES, CUSTOM_ENDPOINT_ENTRY, applyBackendProfile } =
+      const { BUILT_IN_BACKEND_PROFILES, MENU_BACKEND_PROFILES, CUSTOM_ENDPOINT_ENTRY, applyBackendProfile } =
         await import('../config/settings.js');
       let selectedId = typeof profileId === 'string' ? profileId : undefined;
       const isKnownId = (id: string | undefined) =>
@@ -340,7 +340,7 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
       if (!isKnownId(selectedId)) {
         const pick = await window.showQuickPick(
           [
-            ...BUILT_IN_BACKEND_PROFILES.map((p) => ({
+            ...MENU_BACKEND_PROFILES.map((p) => ({
               label: p.name,
               description: p.description,
               detail: p.baseUrl,

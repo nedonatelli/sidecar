@@ -20,6 +20,7 @@ import {
   BUILT_IN_BACKEND_PROFILES,
   OLLAMA_DEFAULT_MODEL,
   ANTHROPIC_DEFAULT_MODEL,
+  MENU_BACKEND_PROFILES,
 } from './backends.js';
 
 describe('detectActiveProfile', () => {
@@ -277,5 +278,15 @@ describe('openai-compat provider', () => {
       ...pkg.contributes.configuration.map((b: never) => (b as { properties?: object }).properties ?? {}),
     );
     expect(props['sidecar.provider'].enum).toContain('openai-compat');
+  });
+});
+
+// Kickstand is not released: kept for setups that already use it, not offered.
+describe('hidden backend profiles', () => {
+  it('are left out of the menu list but still recognized', () => {
+    expect(BUILT_IN_BACKEND_PROFILES.some((p) => p.id === 'kickstand')).toBe(true);
+    expect(MENU_BACKEND_PROFILES.some((p) => p.id === 'kickstand')).toBe(false);
+    expect(MENU_BACKEND_PROFILES.length).toBe(BUILT_IN_BACKEND_PROFILES.length - 1);
+    expect(detectActiveProfile('http://localhost:11435')?.id).toBe('kickstand');
   });
 });
