@@ -3,6 +3,7 @@ import type { ChatMessage } from '../../ollama/types.js';
 import { getConfig } from '../../config/settings.js';
 import { getWorkspaceRoot } from '../../config/workspace.js';
 import { GitCLI } from '../../github/git.js';
+import { isSensitiveFile } from '../../agent/tools/shared.js';
 
 // ---------------------------------------------------------------------------
 // Generate handlers — non-agent LLM operations that call state.client.complete()
@@ -17,21 +18,38 @@ export async function handleGenerateCommit(state: ChatState): Promise<void> {
   }
 
   const git = new GitCLI(cwd);
+  const finish = (content: string) => {
+    state.postMessage({ command: 'assistantMessage', content });
+    state.postMessage({ command: 'done' });
+    state.postMessage({ command: 'setLoading', isLoading: false });
+  };
 
   try {
-    const status = await git.status();
-    if (status === 'Working tree clean.') {
-      state.postMessage({ command: 'assistantMessage', content: 'No changes to commit.' });
-      state.postMessage({ command: 'done' });
+    // What is already staged is what the user chose, so commit only that.
+    // Otherwise take every changed and new file, by name, except credential
+    // files: staging the whole tree swept in `.env` and unrelated work.
+    const { staged, unstaged } = await git.changedPaths();
+    const useStaged = staged.length > 0;
+    const allUntracked = useStaged ? [] : await git.listUntracked();
+    const untracked = allUntracked.filter((f) => !isSensitiveFile(f));
+    const changed = useStaged ? staged : unstaged.filter((f) => !isSensitiveFile(f));
+    const files = [...changed, ...untracked];
+    const skipped = useStaged ? [] : [...unstaged, ...allUntracked].filter(isSensitiveFile);
+    const skippedNote = skipped.length
+      ? `\n\nNot included, as they look like credential files: ${skipped.join(', ')}. Stage them yourself to commit them.`
+      : '';
+    if (files.length === 0) {
+      finish(`No changes to commit.${skippedNote}`);
       return;
     }
 
-    const { diff } = await git.diff();
-    if (diff === 'No diff output.') {
-      state.postMessage({ command: 'assistantMessage', content: 'No diff found. Stage files first or make changes.' });
-      state.postMessage({ command: 'done' });
-      return;
-    }
+    // The model writes the message from the diff; a credential file's lines
+    // are not sent to it, even when the user staged that file.
+    const diff =
+      (await git.diffPaths(
+        changed.filter((f) => !isSensitiveFile(f)),
+        useStaged,
+      )) + (untracked.length ? `\n\nNew files:\n${untracked.join('\n')}` : '');
 
     const maxDiff = 15_000;
     const truncated = diff.length > maxDiff ? diff.slice(0, maxDiff) + '\n... (truncated)' : diff;
@@ -56,12 +74,20 @@ export async function handleGenerateCommit(state: ChatState): Promise<void> {
       .replace(/\n?```$/, '')
       .trim();
 
-    await git.stage();
-    const result = await git.commit(message);
+    const listed = files.length > 20 ? [...files.slice(0, 20), `…and ${files.length - 20} more`] : files;
+    const choice = await state.requestConfirm(
+      `Commit ${files.length} file${files.length === 1 ? '' : 's'}${useStaged ? ' (already staged)' : ''}?`,
+      ['Commit'],
+      { modal: true, detail: `${message}\n\nFiles:\n${listed.join('\n')}${skippedNote}` },
+    );
+    if (choice !== 'Commit') {
+      finish('Commit cancelled. Nothing was staged or committed.');
+      return;
+    }
 
-    state.postMessage({ command: 'assistantMessage', content: result + '\n' });
-    state.postMessage({ command: 'done' });
-    state.postMessage({ command: 'setLoading', isLoading: false });
+    if (!useStaged) await git.stage(files);
+    const result = await git.commit(message);
+    finish(`${result}${skippedNote}\n`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     state.postMessage({ command: 'error', content: `Commit failed: ${msg}` });

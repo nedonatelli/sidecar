@@ -5,18 +5,22 @@ import { handleGenerateCommit, handleRegenSection } from './generateHandlers.js'
 // GitCLI mock — hoisted so the factory can close over the shared spies
 // ---------------------------------------------------------------------------
 
-const gitMockStatus = vi.fn();
-const gitMockDiff = vi.fn();
+const gitMockChanged = vi.fn();
+const gitMockUntracked = vi.fn();
+const gitMockDiffPaths = vi.fn();
 const gitMockStage = vi.fn();
 const gitMockCommit = vi.fn();
 
 vi.mock('../../github/git.js', () => ({
   GitCLI: class {
-    status(...args: unknown[]) {
-      return gitMockStatus(...args);
+    changedPaths(...args: unknown[]) {
+      return gitMockChanged(...args);
     }
-    diff(...args: unknown[]) {
-      return gitMockDiff(...args);
+    listUntracked(...args: unknown[]) {
+      return gitMockUntracked(...args);
+    }
+    diffPaths(...args: unknown[]) {
+      return gitMockDiffPaths(...args);
     }
     stage(...args: unknown[]) {
       return gitMockStage(...args);
@@ -35,6 +39,7 @@ describe('handleGenerateCommit', () => {
   function makeState() {
     return {
       postMessage: vi.fn(),
+      requestConfirm: vi.fn().mockResolvedValue('Commit'),
       client: {
         updateConnection: vi.fn(),
         updateModel: vi.fn(),
@@ -42,12 +47,18 @@ describe('handleGenerateCommit', () => {
       },
     };
   }
+  const contents = (state: ReturnType<typeof makeState>) =>
+    state.postMessage.mock.calls
+      .map((c) => c[0] as { command: string; content?: string })
+      .filter((m) => m.command === 'assistantMessage')
+      .map((m) => m.content ?? '');
 
   beforeEach(() => {
-    gitMockStatus.mockReset();
-    gitMockDiff.mockReset();
-    gitMockStage.mockReset();
-    gitMockCommit.mockReset();
+    for (const m of [gitMockChanged, gitMockUntracked, gitMockDiffPaths, gitMockStage, gitMockCommit]) m.mockReset();
+    gitMockChanged.mockResolvedValue({ staged: [], unstaged: ['src/app.ts'] });
+    gitMockUntracked.mockResolvedValue([]);
+    gitMockDiffPaths.mockResolvedValue('diff --git a/src/app.ts b/src/app.ts\n+added line');
+    gitMockCommit.mockResolvedValue('[main abc1234] feat: add feature');
   });
 
   it('posts an error when no workspace folder is open', async () => {
@@ -64,65 +75,82 @@ describe('handleGenerateCommit', () => {
     (workspace as Record<string, unknown>).workspaceFolders = origFolders;
   });
 
-  it('posts "No changes to commit" when the working tree is clean', async () => {
-    gitMockStatus.mockResolvedValue('Working tree clean.');
+  it('posts "No changes to commit" when nothing changed', async () => {
+    gitMockChanged.mockResolvedValue({ staged: [], unstaged: [] });
 
     const state = makeState();
     await handleGenerateCommit(state as never);
 
-    expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'assistantMessage', content: 'No changes to commit.' }),
-    );
+    expect(contents(state)).toContain('No changes to commit.');
     expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    expect(state.client.complete).not.toHaveBeenCalled();
   });
 
-  it('posts "No diff found" when status is dirty but diff is empty', async () => {
-    gitMockStatus.mockResolvedValue('M  src/app.ts');
-    gitMockDiff.mockResolvedValue({ diff: 'No diff output.' });
+  it('asks first, then stages the listed files by name and commits', async () => {
+    gitMockUntracked.mockResolvedValue(['src/new.ts']);
 
     const state = makeState();
     await handleGenerateCommit(state as never);
 
-    expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('No diff found') }),
-    );
+    const [title, actions, opts] = state.requestConfirm.mock.calls[0];
+    expect(title).toBe('Commit 2 files?');
+    expect(actions).toEqual(['Commit']);
+    expect(opts).toMatchObject({ modal: true });
+    expect(opts.detail).toContain('feat: add feature');
+    expect(opts.detail).toContain('src/app.ts\nsrc/new.ts');
+    expect(gitMockStage).toHaveBeenCalledWith(['src/app.ts', 'src/new.ts']);
+    expect(contents(state).some((c) => c.includes('[main abc1234]'))).toBe(true);
   });
 
-  it('commits and posts the commit result on the happy path', async () => {
-    gitMockStatus.mockResolvedValue('M  src/app.ts');
-    gitMockDiff.mockResolvedValue({ diff: 'diff --git a/src/app.ts b/src/app.ts\n+added line' });
-    gitMockStage.mockResolvedValue(undefined);
-    gitMockCommit.mockResolvedValue('[main abc1234] feat: add feature');
+  it('stages and commits nothing when the user dismisses the prompt', async () => {
+    const state = makeState();
+    state.requestConfirm.mockResolvedValue(undefined); // Esc or close
+    await handleGenerateCommit(state as never);
+
+    expect(gitMockStage).not.toHaveBeenCalled();
+    expect(gitMockCommit).not.toHaveBeenCalled();
+    expect(contents(state).some((c) => c.includes('Commit cancelled'))).toBe(true);
+  });
+
+  it('leaves credential files out of the commit and out of the prompt, and says so', async () => {
+    gitMockChanged.mockResolvedValue({ staged: [], unstaged: ['src/app.ts', 'config/secrets.yml'] });
+    gitMockUntracked.mockResolvedValue(['.env']);
 
     const state = makeState();
     await handleGenerateCommit(state as never);
 
-    const assistantCalls = state.postMessage.mock.calls.filter(
-      (c) => (c[0] as { command: string }).command === 'assistantMessage',
-    );
-    const contents = assistantCalls.map((c) => (c[0] as { content: string }).content);
-    expect(contents.some((c) => c.includes('[main abc1234]'))).toBe(true);
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    expect(gitMockStage).toHaveBeenCalledWith(['src/app.ts']);
+    expect(gitMockDiffPaths).toHaveBeenCalledWith(['src/app.ts'], false);
+    const prompt = state.client.complete.mock.calls[0][0][0].content as string;
+    expect(prompt).not.toContain('.env');
+    const note = contents(state).at(-1) ?? '';
+    expect(note).toContain('config/secrets.yml');
+    expect(note).toContain('.env');
+  });
+
+  it('commits only what is already staged, without staging more', async () => {
+    gitMockChanged.mockResolvedValue({ staged: ['src/a.ts'], unstaged: ['src/b.ts'] });
+    gitMockUntracked.mockResolvedValue(['src/c.ts']);
+
+    const state = makeState();
+    await handleGenerateCommit(state as never);
+
+    expect(state.requestConfirm.mock.calls[0][0]).toBe('Commit 1 file (already staged)?');
+    expect(gitMockDiffPaths).toHaveBeenCalledWith(['src/a.ts'], true);
+    expect(gitMockStage).not.toHaveBeenCalled();
+    expect(gitMockCommit).toHaveBeenCalled();
   });
 
   it('strips markdown fences from the model-generated commit message', async () => {
-    gitMockStatus.mockResolvedValue('M  src/app.ts');
-    gitMockDiff.mockResolvedValue({ diff: 'diff --git a/src/app.ts b/src/app.ts\n+line' });
-    gitMockStage.mockResolvedValue(undefined);
-    gitMockCommit.mockResolvedValue('[main xyz] feat: clean');
-    (makeState().client.complete as ReturnType<typeof vi.fn>) = vi.fn();
-
-    // Return a message wrapped in a markdown code block as models sometimes do
     const state = makeState();
     state.client.complete = vi.fn().mockResolvedValue('```\nfeat: clean commit\n```');
     await handleGenerateCommit(state as never);
 
-    // The commit call should receive the stripped text
     expect(gitMockCommit).toHaveBeenCalledWith('feat: clean commit');
   });
 
-  it('posts an error when git.status() throws', async () => {
-    gitMockStatus.mockRejectedValue(new Error('git not found'));
+  it('posts an error when git fails', async () => {
+    gitMockChanged.mockRejectedValue(new Error('git not found'));
 
     const state = makeState();
     await handleGenerateCommit(state as never);
@@ -133,9 +161,6 @@ describe('handleGenerateCommit', () => {
   });
 
   it('posts an error when git.commit() throws', async () => {
-    gitMockStatus.mockResolvedValue('M  src/app.ts');
-    gitMockDiff.mockResolvedValue({ diff: 'diff --git a/src/app.ts b/src/app.ts\n+line' });
-    gitMockStage.mockResolvedValue(undefined);
     gitMockCommit.mockRejectedValue(new Error('nothing to commit'));
 
     const state = makeState();

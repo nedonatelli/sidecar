@@ -29,14 +29,14 @@ const CONTINUATION_PATTERNS: RegExp[] = [
   /^keep at it\.?$/i,
 ];
 
+// Only replies that say "commit". "lgtm" and "save changes" also answer a
+// review or a plan, and were taken as a commit request.
 const COMMIT_REQUEST_PATTERNS: RegExp[] = [
   /^commit\.?$/i,
   /^commit (it|this|that|the changes?|them)\.?$/i,
   /^commit (and push|it now)\.?$/i,
   /^make (a )?commit\.?$/i,
   /^create (a )?commit\.?$/i,
-  /^save (the )?changes?\.?$/i,
-  /^lgtm\.?$/i,
 ];
 
 /** Returns true when the user wants to commit the current changes. */

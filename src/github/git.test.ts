@@ -42,6 +42,28 @@ describe('GitCLI', () => {
     expect(result).toContain('src/app.ts');
   });
 
+  it('changedPaths lists staged and unstaged paths relative to the cwd', async () => {
+    mockGitOutput('src/a.ts\0src/b b.ts\0');
+    expect(await git.changedPaths()).toEqual({
+      staged: ['src/a.ts', 'src/b b.ts'],
+      unstaged: ['src/a.ts', 'src/b b.ts'],
+    });
+    const calls = mockExecFile.mock.calls.map((c) => c[1]);
+    expect(calls).toEqual([
+      ['diff', '--name-only', '--relative', '-z', '--cached'],
+      ['diff', '--name-only', '--relative', '-z'],
+    ]);
+  });
+
+  it('diffPaths passes the files after --, so a name is never read as an option', async () => {
+    mockGitOutput('diff');
+    await git.diffPaths(['-rf', 'a.ts'], true);
+    expect(mockExecFile.mock.calls[0][1]).toEqual(['diff', '--cached', '--', '-rf', 'a.ts']);
+    mockExecFile.mockClear();
+    expect(await git.diffPaths([], false)).toBe('');
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
   it('status returns clean message for empty output', async () => {
     mockGitOutput('');
     const result = await git.status();

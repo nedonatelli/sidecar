@@ -19,6 +19,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Committing from the chat asks first, and commits only the files it names.** Replying "lgtm" or
+  "save changes" no longer starts a commit; "commit" and the like still do. Before it commits,
+  SideCar shows the message and the files and waits for you to confirm. If you have staged files,
+  only those are committed. Otherwise the changed and new files are staged by name, leaving out
+  credential files such as `.env`, which it lists so you can add them yourself.
 - **Each tool call's result is read for that call only**
   ([#417](https://github.com/nedonatelli/sidecar/issues/417)). Ollama numbers its tool calls
   from `ollama_tc_0` on every request, and SideCar's text-form parsers do the same. The record of
