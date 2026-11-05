@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.4** (2026-11) — type-to-confirm covers more destructive commands. The
+ *   destructive-command confirmation recognizes Windows and PowerShell
+ *   recursive deletes, `find -delete` under a path, whole-tree `git
+ *   checkout`/`git restore`, and more `rm -rf` and force-push spellings,
+ *   including inside `bash -c`. A plain `rm -f file` no longer asks as if
+ *   recursive. PATCH: tuning within the guard. No eval: the evals auto-approve,
+ *   so the confirmation never shows there.
  * - **7.0.3** (2026-11) — every tool call gets its own id within a chat (#417).
  *   Native Ollama and the text-form parsers numbered calls from 0 on every
  *   request, so `state.toolOutcomes` (ADR-008) handed a call that recorded no
@@ -344,7 +351,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.3';
+export const SCAFFOLD_VERSION = '7.0.4';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

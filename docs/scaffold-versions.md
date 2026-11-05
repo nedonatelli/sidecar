@@ -40,6 +40,18 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.4 — type-to-confirm covers more destructive commands (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.3,
+noting the patch.
+
+- **What changed:** The destructive-command confirmation recognizes Windows and
+  PowerShell recursive deletes, `find -delete` under a path, whole-tree `git
+checkout`/`git restore`, and more `rm -rf` and force-push spellings, including
+  inside `bash -c`. A plain `rm -f file` no longer asks as if recursive.
+- **Measured:** no eval; the evals auto-approve, so the confirmation never shows
+  there.
+
 ### 7.0.3 — every tool call gets its own id within a chat (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted; the checks that read

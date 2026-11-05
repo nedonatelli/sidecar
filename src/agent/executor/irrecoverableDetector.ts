@@ -25,6 +25,107 @@ export function shellCommandOf(toolUse: ToolUseContentBlock): string | null {
   return ['run_command', 'run_tests', 'research_log_experiment'].includes(toolUse.name) ? cmd : null;
 }
 
+/** Commands that run the command after them: `sudo rm -rf x` is an rm. */
+const WRAPPERS = new Set(['sudo', 'doas', 'xargs', 'nohup', 'time', 'command', 'exec', 'env', 'nice']);
+
+/**
+ * Each simple command in `cmd`, as its words, with the command name first,
+ * lowercased, without a directory or `.exe`. What a quote, backtick or `$( )`
+ * holds is read as a command too, so `bash -c "rm -rf x"` is still an rm -- at
+ * the cost of also reading an echoed "rm -rf" as one.
+ */
+function commandSegments(cmd: string, depth = 0): string[][] {
+  const out: string[][] = [];
+  const outer = cmd.replace(/"([^"]*)"|'([^']*)'|`([^`]*)`|\$\(([^)]*)\)/g, (_m, ...inner: (string | undefined)[]) => {
+    const held = inner.slice(0, 4).find((s) => s !== undefined) ?? '';
+    if (depth < 3) out.push(...commandSegments(held, depth + 1));
+    return ' _ ';
+  });
+  for (const segment of outer.split(/&&|\|\||[;|&\n()]/)) {
+    let words = segment.trim().split(/\s+/).filter(Boolean);
+    while (words.length && (/^\w+=/.test(words[0]) || WRAPPERS.has(baseName(words[0])))) {
+      words = words.slice(1);
+      while (words.length && words[0].startsWith('-')) words = words.slice(1); // the wrapper's own options
+    }
+    if (words.length) out.push([baseName(words[0]), ...words.slice(1)]);
+  }
+  return out;
+}
+
+const baseName = (word: string): string => (word.split(/[\\/]/).pop() ?? word).toLowerCase().replace(/\.exe$/, '');
+
+/** Every short flag letter in `words`, however grouped: `-rfv` and `-r -f` both give the r and the f. */
+function shortFlags(words: string[]): string {
+  return words
+    .filter((w) => /^-[a-zA-Z]+$/.test(w))
+    .map((w) => w.slice(1))
+    .join('');
+}
+
+function destructiveSegment([name, ...args]: string[]): string | null {
+  const lower = args.map((a) => a.toLowerCase());
+  const has = (...flags: string[]) => flags.some((f) => lower.includes(f));
+  if (name === 'rm') {
+    const short = shortFlags(args);
+    const recursive = /r/i.test(short) || has('--recursive');
+    const force = short.includes('f') || has('--force');
+    if (recursive && force) return 'Recursive force-delete (rm -rf)';
+  }
+  // PowerShell's Remove-Item and its aliases, and cmd.exe's /s.
+  if (['remove-item', 'ri', 'rm', 'rmdir', 'rd', 'del', 'erase'].includes(name)) {
+    if (has('-recurse')) return 'Recursive delete (Remove-Item -Recurse)';
+    if (name !== 'rm' && name !== 'remove-item' && name !== 'ri' && has('/s')) {
+      return 'Recursive delete (rmdir /s, del /s)';
+    }
+  }
+  if (name === 'find') {
+    // Deleting by name (`-name '*.bak' -delete`, the usual cleanup after
+    // `sed -i.bak`, 16 of 4,799 recorded commands) is targeted; deleting
+    // everything under a path is not.
+    const exec = lower.findIndex((a) => a === '-exec' || a === '-execdir' || a === '-ok');
+    const deletes = has('-delete') || (exec >= 0 && ['rm', 'rmdir', 'unlink'].includes(baseName(args[exec + 1] ?? '')));
+    const filter = lower.findIndex((a) => /^-i?(name|path|wholename|regex)$/.test(a));
+    if (deletes && (filter < 0 || args[filter + 1] === '*')) {
+      return 'find that deletes everything it reaches (-delete, -exec rm)';
+    }
+  }
+  if (name === 'git') return destructiveGit(args);
+  return null;
+}
+
+function destructiveGit(args: string[]): string | null {
+  // Past git's own options (-C <dir>, -c <key=value>) to the subcommand.
+  let i = 0;
+  while (i < args.length && args[i].startsWith('-')) i += args[i] === '-C' || args[i] === '-c' ? 2 : 1;
+  const [sub, ...rest] = args.slice(i);
+  const short = shortFlags(rest);
+  const has = (...flags: string[]) => flags.some((f) => rest.includes(f));
+  const discards = 'Discards uncommitted changes (git checkout / restore of the whole tree)';
+  switch (sub) {
+    case 'push':
+      // A `+` refspec (`+main`) force-pushes that ref.
+      return short.includes('f') || rest.some((a) => a.startsWith('--force') || /^\+\S/.test(a))
+        ? 'Force push to remote (git push --force)'
+        : null;
+    case 'reset':
+      return has('--hard') ? 'Hard reset (git reset --hard discards uncommitted changes)' : null;
+    case 'branch':
+      return short.includes('D') ||
+        ((short.includes('d') || has('--delete')) && (short.includes('f') || has('--force')))
+        ? 'Force branch delete (git branch -D)'
+        : null;
+    case 'clean':
+      return short.includes('f') || has('--force') ? 'git clean (removes untracked files)' : null;
+    case 'checkout':
+      return short.includes('f') || has('--force') || has('.') ? discards : null;
+    case 'restore':
+      // `--staged` alone only unstages; the work tree is untouched.
+      return has('.') && !(has('--staged', '-S') && !has('--worktree', '-W')) ? discards : null;
+    default:
+      return null;
+  }
+}
+
 export function detectIrrecoverable(toolUse: ToolUseContentBlock): string | null {
   const name = toolUse.name;
   const input = toolUse.input as Record<string, unknown>;
@@ -34,25 +135,12 @@ export function detectIrrecoverable(toolUse: ToolUseContentBlock): string | null
   const shellCommand = shellCommandOf(toolUse);
   if (shellCommand !== null) {
     const cmd = shellCommand;
-    // Recursive force-delete (rm -rf, rm -fr, rm -Rf…)
-    if (/\brm\s+(-[frRf]{1,3}|--force\s+--recursive|--recursive\s+--force)\b/.test(cmd)) {
-      return 'Recursive force-delete (rm -rf)';
-    }
-    // Force push to a remote
-    if (/\bgit\s+push\s+(?:[^|;&]*\s)?(?:--force\b|--force-with-lease\b|-f\b)/.test(cmd)) {
-      return 'Force push to remote (git push --force)';
-    }
-    // Hard reset discards uncommitted work
-    if (/\bgit\s+reset\s+--hard\b/.test(cmd)) {
-      return 'Hard reset (git reset --hard discards uncommitted changes)';
-    }
-    // Force branch delete
-    if (/\bgit\s+branch\s+-D\b/.test(cmd)) {
-      return 'Force branch delete (git branch -D)';
-    }
-    // Clean untracked files
-    if (/\bgit\s+clean\s+-[fdx]{1,3}\b/.test(cmd)) {
-      return 'git clean (removes untracked files)';
+    // Read per simple command and by its words, so a flag's order, grouping
+    // or spelling (-rfv, -r -f, +main, -fu) and the other shells' commands
+    // for the same thing (rmdir /s, Remove-Item -Recurse) all count.
+    for (const words of commandSegments(cmd)) {
+      const found = destructiveSegment(words);
+      if (found) return found;
     }
     // Database DROP / TRUNCATE
     if (/\b(?:DROP|TRUNCATE)\s+(?:DATABASE|TABLE|SCHEMA|INDEX)\b/i.test(cmd)) {

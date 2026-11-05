@@ -60,6 +60,60 @@ describe('detectIrrecoverable', () => {
   it('returns null for write_file', () => expect(detectIrrecoverable(tool('write_file'))).toBeNull());
 });
 
+// The patterns matched one spelling of each flag: an extra letter, another
+// order, a flag on its own, or another shell's command for the same thing
+// went through with one-click approval, or none in autonomous mode.
+describe('other spellings of the same destructive commands', () => {
+  it.each([
+    ['rm -rfv build/', /force-delete/i],
+    ['rm -vrf build/', /force-delete/i],
+    ['rm -r -f build/', /force-delete/i],
+    ['rm build/ -rf', /force-delete/i],
+    ['cd x && rm -fR --no-preserve-root /', /force-delete/i],
+    ['rmdir /s /q build', /recursive delete/i],
+    ['rd /S build', /recursive delete/i],
+    ['del /s /q *.log', /recursive delete/i],
+    ['Remove-Item -Recurse -Force .\\build', /recursive delete/i],
+    ['powershell -Command "Remove-Item build -Recurse"', /recursive delete/i],
+    ['find build -delete', /find/i],
+    ['find build -type f -exec rm {} +', /find/i],
+    ['find . -name * -delete', /find/i],
+    ['git push origin +main', /force push/i],
+    ['git push -fu origin main', /force push/i],
+    ['git push -uf origin main', /force push/i],
+    ['git push --force-if-includes origin main', /force push/i],
+    ['git checkout -- .', /discards/i],
+    ['git checkout .', /discards/i],
+    ['git checkout -f main', /discards/i],
+    ['git restore .', /discards/i],
+    ['git clean -xdf', /git clean/i],
+    ['git branch --delete --force old', /force branch delete/i],
+    ['bash -c "rm -rf build"', /force-delete/i],
+    ['sudo /bin/rm -rf /var/x', /force-delete/i],
+    ['ls | xargs rm -rf', /force-delete/i],
+    ['git -C repo push --force', /force push/i],
+  ])('flags %s', (command, kind) => expect(detectIrrecoverable(cmd(command))).toMatch(kind));
+
+  it.each([
+    'rm -r -i build/',
+    'rm -f stale.lock',
+    'rmdir build',
+    'del notes.txt',
+    'Remove-Item build\\out.txt',
+    'find . -name "*.py"',
+    'find src/ -name "*.bak" -type f -delete', // the usual cleanup after sed -i.bak
+    "find src -name '*.bak' -exec rm {} +",
+    'git push origin main',
+    'git push -u origin feature',
+    'git push origin main:main',
+    'git checkout main',
+    'git checkout -b feature',
+    'git checkout -- src/app.ts',
+    'git restore --staged src/app.ts',
+    'grep -rf patterns.txt src',
+  ])('leaves %s alone', (command) => expect(detectIrrecoverable(cmd(command))).toBeNull());
+});
+
 // run_tests and research_log_experiment take a free-form command; the
 // type-to-CONFIRM gate saw only run_command.
 describe('every tool that runs a shell command', () => {
