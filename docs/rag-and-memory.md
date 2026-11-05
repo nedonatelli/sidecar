@@ -46,8 +46,8 @@ The Doc Index automatically discovers and indexes your project's documentation, 
 ### How It Works
 
 1. **Discovery** — On startup, SideCar crawls your workspace for documentation files:
-   - `README*` files in the project root
-   - All `.md` files in `docs/`, `doc/`, and `wiki/` directories
+   - `README*.md`, `CONTRIBUTING*.md` and `CHANGELOG*.md` files anywhere in the workspace
+   - All `.md` files in `docs/`, `doc/`, and `wiki/` directories, plus `.txt` files in `docs/`
 2. **Indexing** — Each markdown file is parsed and indexed by:
    - Headings (h1-h6) — title matches score 3x higher
    - Paragraphs — body text is indexed for keyword search
@@ -91,7 +91,7 @@ The Doc Index is enabled by default but fully configurable:
 | Setting                          | Default | Description                                                                                                                                                        |
 | -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `sidecar.enableDocumentationRAG` | `true`  | Enable/disable the Doc Index. Key is named `...RAG` for backward compatibility with existing user configs; it controls the keyword-based index, not embedding RAG. |
-| `sidecar.ragMaxDocEntries`       | `20`    | Max documentation sections per message (1-20)                                                                                                                      |
+| `sidecar.ragMaxDocEntries`       | `20`    | Max documentation sections per message (1-100)                                                                                                                     |
 
 ### Tips
 
@@ -178,7 +178,7 @@ Agent memory is enabled by default:
 | Setting                         | Default | Description                     |
 | ------------------------------- | ------- | ------------------------------- |
 | `sidecar.enableAgentMemory`     | `true`  | Enable/disable agent memory     |
-| `sidecar.agentMemoryMaxEntries` | `500`   | Max memories to retain (10-500) |
+| `sidecar.agentMemoryMaxEntries` | `500`   | Max memories to retain (10-2000) |
 
 ### Tips
 
@@ -218,8 +218,8 @@ All three are searched and injected for every message. The agent can cross-refer
 
 ### The Doc Index isn't finding my documentation
 
-- **Check file locations**: Documentation must be in `README*`, `docs/**`, `doc/**`, or `wiki/**`
-- **Check file types**: Only `.md` files are indexed
+- **Check file locations**: Documentation must be a `README*.md`, `CONTRIBUTING*.md` or `CHANGELOG*.md` file, or live under `docs/**`, `doc/**`, or `wiki/**`
+- **Check file types**: Only `.md` files are indexed, plus `.txt` files under `docs/`
 - **Re-index**: the Doc Index is built once when SideCar starts and is not refreshed automatically — run **Developer: Reload Window** to re-index after adding or moving docs
 - **Verify settings**: Check that `sidecar.enableDocumentationRAG` is `true` (key name kept for backward compatibility)
 
@@ -239,4 +239,4 @@ All three are searched and injected for every message. The agent can cross-refer
 
 - [Configuration](configuration.md) — Full settings reference
 - [Architecture](architecture.md) — How RAG and memory integrate into the system
-- [Large Files & Monorepos](configuration.md#large-files--monorepo-handling) — How streaming reads work alongside RAG
+- [Large Files & Monorepos](configuration.md#large-file--monorepo-handling) — How streaming reads work alongside RAG

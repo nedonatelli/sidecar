@@ -115,18 +115,21 @@ rm ~/Library/LaunchAgents/com.sidecar.prewarm.plist
 ### Other tips for faster loading
 
 - **Use a smaller model** — `gemma2` (5GB) loads in a few seconds vs. `qwen3-coder:30b` (18GB)
-- **Keep models warm** — Set the `OLLAMA_KEEP_ALIVE` environment variable to `24h` so Ollama doesn't unload the model between sessions
+- **Keep models warm** — SideCar sends `keep_alive: '30m'` with every chat request, which overrides `OLLAMA_KEEP_ALIVE`, so a model stays loaded for 30 minutes after its last SideCar request; there is no setting for this. Keep `sidecar.ollama.numCtx` unchanged too: a different `num_ctx` makes Ollama reload the model
 - **SSD storage** — NVMe SSDs load models significantly faster than HDDs
 
 ## Request timeout
 
-If SideCar shows "Request timed out after Ns waiting for the model", the model didn't respond within the timeout window. This usually means:
+If SideCar shows "Request timed out waiting for the model", the model didn't respond within the timeout window. This usually means:
 
 - **Model is loading** — large models (30B+) take time to load into memory. See [Slow model loading](#slow-model-loading) above
 - **Prompt too large** — the system prompt + workspace context exceeds what the model can handle. Try reducing `sidecar.maxFiles` or disabling workspace context temporarily (`sidecar.includeWorkspace: false`)
 - **Network issue** — for remote backends, check your connection
 
-Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `0` to disable the timeout entirely.
+Two settings govern the wait:
+
+- `sidecar.firstTokenTimeout` (default: 300 seconds) — how long to wait for the **first** token. This is the floor; large prompts get proportionally more time automatically. Raise it if a slow-loading model times out before it starts answering.
+- `sidecar.requestTimeout` (default: 120 seconds) — the longest gap allowed **between** tokens once streaming has started. Set to `0` to disable it.
 
 ## Agent loop not stopping
 
@@ -146,7 +149,7 @@ Adjust the timeout via `sidecar.requestTimeout` (default: 120 seconds). Set to `
 
 - Verify the command and args in `sidecar.mcpServers` are correct
 - Run the command manually to check for errors: `npx -y @modelcontextprotocol/server-filesystem /tmp`
-- Check the "SideCar Agent" output channel for connection logs
+- Check the "SideCar" output channel for connection logs
 - Ensure `npx` / `node` are in your PATH
 
 ## Terminal error interception isn't firing
@@ -166,21 +169,21 @@ SideCar classifies errors and shows actionable cards:
 
 | Error type     | When you'll see it                                   | Card action                                                                                         |
 | -------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Connection     | `ECONNREFUSED`, `ENOTFOUND`, network failures        | "Check Connection" — opens settings                                                                 |
+| Connection     | `ECONNREFUSED`, `ENOTFOUND`, network failures        | "Check Connection" — opens settings; plus "Retry"                                                   |
 | Auth           | 401, 403, "Invalid API key"                          | "Check API Key" — opens settings (use `SideCar: Set / Refresh API Key` to update via SecretStorage) |
-| Model          | 404 with "model not found"                           | "Install Model" — opens model dropdown                                                              |
-| Rate limit     | 429, "rate limit", "too many requests"               | "Wait and Retry"                                                                                    |
+| Model          | 404 with "model not found"                           | "Install Model" — pulls the missing model                                                           |
+| Rate limit     | 429, "rate limit", "too many requests"               | "Retry" — resends the last message                                                                  |
 | Server error   | 500, 502, 503, 504, "overloaded"                     | "Retry"                                                                                             |
 | Content policy | Anthropic safety violations, "flagged"               | (no action — refine your prompt)                                                                    |
 | Token limit    | "token limit exceeded", "too long", "maximum tokens" | "Reduce Context" — try lowering `sidecar.maxFiles` or running `/compact`                            |
-| Timeout        | Request didn't complete within `requestTimeout`      | "Retry" — resends the last message                                                                  |
+| Timeout        | No first token within `firstTokenTimeout`, or a gap over `requestTimeout` | "Retry" — resends the last message                                                     |
 
 Click the action button on the error card to resolve common issues quickly.
 
 ### Anthropic-specific tips
 
 - **Rate limit (429)**: Anthropic has per-minute and per-day token limits. SideCar automatically retries with exponential backoff. If you hit limits frequently, either upgrade your tier or set `sidecar.dailyBudget` to throttle yourself.
-- **Server error (overloaded)**: Anthropic occasionally returns 529/overloaded during peak demand. Wait 30 seconds and retry, or use the `/model` command to switch to a different provider temporarily.
+- **Server error (overloaded)**: Anthropic occasionally returns 529/overloaded during peak demand. Wait 30 seconds and retry, or switch to a different provider temporarily with **☰ menu → Backend** or `SideCar: Switch Backend`. (`/model` changes only the model name on the current backend.)
 - **Token limit**: Long conversations exceed the model's context window. Use `/compact` to summarize older turns, or clear the chat (`Cmd+L` / `Ctrl+L`) to start fresh.
 
 ## Model returns empty responses

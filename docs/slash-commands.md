@@ -19,6 +19,7 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/batch`           | Run multiple tasks                                                                                     |
 | `/doc`             | Generate documentation                                                                                 |
 | `/spec`            | Generate structured requirements                                                                       |
+| `/revise <feedback>` | Revise the pending plan with your feedback                                                           |
 | `/insight`         | Activity analytics                                                                                     |
 | `/insights`        | Conversation pattern analysis                                                                          |
 | `/save <name>`     | Save current session                                                                                   |
@@ -45,7 +46,7 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/ci`              | Analyze the latest failing CI run on this branch                                                       |
 | `/audit`           | Agent action audit log                                                                                 |
 | `/mcp`             | MCP server status                                                                                      |
-| `/memories`        | Browse agent memories                                                                                  |
+| `/memories`        | Show how many agent memories are stored, by type                                                       |
 | `/memory-search`   | Search agent memories                                                                                  |
 | `/init`            | Generate SIDECAR.md project notes                                                                      |
 | `/bg <task>`       | Run a task in the background                                                                           |
@@ -54,7 +55,7 @@ Type `/` in the chat input to see all available commands. An autocomplete dropdo
 | `/branch [name]`   | Fork the current conversation into a new named thread                                                  |
 | `/compact`         | Summarize older turns to free context window space                                                     |
 | `/guards`          | Show active regression guards and built-in guard catalog                                               |
-| `/research`        | Set active research project or log an observation                                                      |
+| `/research`        | Set the active research project; `observe`, `status` and `report` subcommands                          |
 | `/verbose`         | Toggle verbose mode                                                                                    |
 | `/prompt`          | Show system prompt                                                                                     |
 | `/resume`          | Resume a response that was cut off mid-stream                                                          |
@@ -121,7 +122,7 @@ Generates boilerplate code from built-in templates. Available types:
 | `middleware` | Express/Koa middleware                  |
 | `service`    | Service class with dependency injection |
 
-Run `/scaffold` with no arguments to see all available templates.
+Bare `/scaffold` only prints its usage line (`/scaffold <type>`); give it a type to generate code from that template.
 
 ### `/spec`
 
@@ -234,16 +235,28 @@ Generates an activity analytics report:
 
 ### `/batch`
 
-Run multiple tasks sequentially or in parallel:
+Run multiple tasks sequentially or in parallel. Put one task per line (Shift+Enter starts a new line); a `;` does not split tasks, so a one-line list runs as a single task:
 
 ```
-/batch Fix all TypeScript errors; Add missing tests; Run the linter
+/batch Fix all TypeScript errors
+Add missing tests
+Run the linter
 ```
 
-Use `--parallel` to run tasks concurrently:
+To run the tasks concurrently, put `--parallel` alone on the first line:
 
 ```
-/batch --parallel Generate docs for auth.ts; Generate docs for api.ts
+/batch --parallel
+Generate docs for auth.ts
+Generate docs for api.ts
+```
+
+### `/revise <feedback>`
+
+Sends feedback on the plan waiting for approval (in [plan mode](agent-mode#plan-mode)) and has SideCar rewrite it. The plan card's **Revise** button fills in `/revise ` for you. With no plan pending, the command does nothing; bare `/revise` prints its usage line.
+
+```
+/revise keep the old API as a deprecated wrapper
 ```
 
 ---
@@ -276,8 +289,9 @@ Switches to a different model mid-conversation. The conversation history is pres
 
 ```
 /model claude-sonnet-5-5
-/model qwen2.5-coder:7b
 ```
+
+`/model` changes only the model name on the current backend; it can't switch provider. To move between, say, Anthropic and Ollama, use **☰ menu → Backend** or `SideCar: Switch Backend` first.
 
 ---
 
@@ -392,7 +406,7 @@ Configured via `sidecar.fork.enabled` (default `true`), `sidecar.fork.defaultCou
 
 Dispatches one or more named specialists against a shared task. Opens a multi-select QuickPick to choose facets, then prompts for the task.
 
-Built-in facets: `general-coder` · `latex-writer` · `signal-processing` · `frontend` · `test-author` · `technical-writer` · `security-reviewer` · `data-engineer`.
+Built-in facets: `general-coder` · `latex-writer` · `signal-processing` · `frontend` · `test-author` · `technical-writer` · `security-reviewer` · `architecture-reviewer` · `data-engineer`.
 
 Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt. Multi-facet batches coalesce into a single aggregated review flow at the end — you review all the diffs in one pass instead of getting hit with per-facet prompts mid-run. The review UI detects cross-facet file overlaps (two facets touching the same file gets flagged), opens `vscode.diff` per facet, and applies accepted diffs via `git apply`.
 

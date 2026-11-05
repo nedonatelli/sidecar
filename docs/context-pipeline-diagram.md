@@ -1,3 +1,10 @@
+---
+title: Context Pipeline
+layout: docs
+nav_order: 6
+nav_section: 'Extend'
+---
+
 # Context Selection Pipeline
 
 Before every agent turn, SideCar assembles a system prompt that includes retrieved context relevant to the user's query. The retrieval layer fuses six independent sources — documentation, workspace chunks, agent memory, PDFs, semantic (PKI) search, and SIDECAR.md sections — under a single shared budget using reciprocal-rank fusion (RRF) over a set of rewritten retrieval queries (`fuseRetrieversMultiQuery`). This keeps one noisy source from dominating the limited context window.
@@ -38,7 +45,7 @@ flowchart TD
     class RRF,Slice fuseStyle
 ```
 
-Each retriever implements the `Retriever` interface in [`src/agent/retrieval/retriever.ts`](../src/agent/retrieval/retriever.ts): `isReady()` and `retrieve(query, k) → RetrievalHit[]`. `fuseRetrieversMultiQuery` silently skips retrievers that aren't ready, Promise.all's the rest across each rewritten query, catches per-retriever throws (so one failing source doesn't kill the others), then feeds the ranked lists into RRF. The output is capped at `topK` hits and rendered as a single markdown block prepended to the system prompt.
+Each retriever implements the `Retriever` interface in [`src/agent/retrieval/retriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/retriever.ts): `isReady()` and `retrieve(query, k) → RetrievalHit[]`. `fuseRetrieversMultiQuery` silently skips retrievers that aren't ready, Promise.all's the rest across each rewritten query, catches per-retriever throws (so one failing source doesn't kill the others), then feeds the ranked lists into RRF. The output is capped at `topK` hits and rendered as a single markdown block prepended to the system prompt.
 
 ## Inside SemanticRetriever (the workspace source)
 
@@ -121,25 +128,25 @@ RRF works well for this problem because it only needs **ordinal rank** from each
 
 ## Observability
 
-The RAG-eval harness at [`src/test/retrieval-eval/`](../src/test/retrieval-eval/) runs every golden case through the metrics suite (`contextPrecisionAtK`, `contextRecallAtK`, `f1ScoreAtK`, `reciprocalRank`) and a CI ratchet in [`baseline.test.ts`](../src/test/retrieval-eval/baseline.test.ts) gates retrieval quality against floor thresholds. An LLM-as-judge layer at `tests/llm-eval/retrieval.eval.ts` runs under `npm run eval:llm` and adds `Faithfulness` + `AnswerRelevancy` scoring.
+The RAG-eval harness at [`src/test/retrieval-eval/`](https://github.com/nedonatelli/sidecar/tree/main/src/test/retrieval-eval/) runs every golden case through the metrics suite (`contextPrecisionAtK`, `contextRecallAtK`, `f1ScoreAtK`, `reciprocalRank`) and a CI ratchet in [`baseline.test.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/test/retrieval-eval/baseline.test.ts) gates retrieval quality against floor thresholds. An LLM-as-judge layer at `tests/llm-eval/retrieval.eval.ts` runs under `npm run eval:llm` and adds `Faithfulness` + `AnswerRelevancy` scoring.
 
 ## Source layout
 
 | File                                                                                        | Role                                                                                     |
 | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [`src/agent/retrieval/index.ts`](../src/agent/retrieval/index.ts)                           | `fuseRetrievers` + `renderFusedContext` — the public fusion entrypoint                   |
-| [`src/agent/retrieval/retriever.ts`](../src/agent/retrieval/retriever.ts)                   | `Retriever` interface + `RetrievalHit` type                                              |
-| [`src/agent/retrieval/fusion.ts`](../src/agent/retrieval/fusion.ts)                         | `reciprocalRankFusion` — pure function, side-effect-free                                 |
-| [`src/agent/retrieval/docRetriever.ts`](../src/agent/retrieval/docRetriever.ts)             | Wraps `DocumentationIndexer`                                                             |
-| [`src/agent/retrieval/memoryRetriever.ts`](../src/agent/retrieval/memoryRetriever.ts)       | Wraps `AgentMemory`                                                                      |
-| [`src/agent/retrieval/chunkRetriever.ts`](../src/agent/retrieval/chunkRetriever.ts)         | Workspace chunk retrieval (per-query, latency-bounded cap)                               |
-| [`src/agent/retrieval/pdfRetriever.ts`](../src/agent/retrieval/pdfRetriever.ts)             | Indexed PDF content                                                                      |
-| [`src/agent/retrieval/sidecarMdRetriever.ts`](../src/agent/retrieval/sidecarMdRetriever.ts) | SIDECAR.md sections (retrieval mode)                                                     |
-| [`src/agent/retrieval/graphExpansion.ts`](../src/agent/retrieval/graphExpansion.ts)         | Code-graph walk expansion of ranked hits                                                 |
-| [`src/agent/retrieval/queryRewriter.ts`](../src/agent/retrieval/queryRewriter.ts)           | Produces the `retrievalQueries` array fed to multi-query fusion                          |
-| [`src/agent/retrieval/semanticRetriever.ts`](../src/agent/retrieval/semanticRetriever.ts)   | Wraps `WorkspaceIndex`; branches on PKI readiness                                        |
-| [`src/config/symbolEmbeddingIndex.ts`](../src/config/symbolEmbeddingIndex.ts)               | `SymbolEmbeddingIndex` — symbol-level vector store + optional Merkle descent             |
-| [`src/config/merkleTree.ts`](../src/config/merkleTree.ts)                                   | Content-addressed hash tree over symbol leaves                                           |
-| [`src/config/vectorStore.ts`](../src/config/vectorStore.ts)                                 | `VectorStore<M>` interface + `FlatVectorStore<M>`                                        |
-| [`src/config/workspaceIndex.ts`](../src/config/workspaceIndex.ts)                           | File-level index used by the legacy path                                                 |
-| [`src/webview/handlers/systemPrompt.ts`](../src/webview/handlers/systemPrompt.ts)           | `injectSystemContext` — the caller that assembles retrievers and renders into the prompt |
+| [`src/agent/retrieval/index.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/index.ts)                           | `fuseRetrievers` + `renderFusedContext` — the public fusion entrypoint                   |
+| [`src/agent/retrieval/retriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/retriever.ts)                   | `Retriever` interface + `RetrievalHit` type                                              |
+| [`src/agent/retrieval/fusion.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/fusion.ts)                         | `reciprocalRankFusion` — pure function, side-effect-free                                 |
+| [`src/agent/retrieval/docRetriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/docRetriever.ts)             | Wraps `DocumentationIndexer`                                                             |
+| [`src/agent/retrieval/memoryRetriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/memoryRetriever.ts)       | Wraps `AgentMemory`                                                                      |
+| [`src/agent/retrieval/chunkRetriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/chunkRetriever.ts)         | Workspace chunk retrieval (per-query, latency-bounded cap)                               |
+| [`src/agent/retrieval/pdfRetriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/pdfRetriever.ts)             | Indexed PDF content                                                                      |
+| [`src/agent/retrieval/sidecarMdRetriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/sidecarMdRetriever.ts) | SIDECAR.md sections (retrieval mode)                                                     |
+| [`src/agent/retrieval/graphExpansion.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/graphExpansion.ts)         | Code-graph walk expansion of ranked hits                                                 |
+| [`src/agent/retrieval/queryRewriter.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/queryRewriter.ts)           | Produces the `retrievalQueries` array fed to multi-query fusion                          |
+| [`src/agent/retrieval/semanticRetriever.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/retrieval/semanticRetriever.ts)   | Wraps `WorkspaceIndex`; branches on PKI readiness                                        |
+| [`src/config/symbolEmbeddingIndex.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/config/symbolEmbeddingIndex.ts)               | `SymbolEmbeddingIndex` — symbol-level vector store + optional Merkle descent             |
+| [`src/config/merkleTree.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/config/merkleTree.ts)                                   | Content-addressed hash tree over symbol leaves                                           |
+| [`src/config/vectorStore.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/config/vectorStore.ts)                                 | `VectorStore<M>` interface + `FlatVectorStore<M>`                                        |
+| [`src/config/workspaceIndex.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/config/workspaceIndex.ts)                           | File-level index used by the legacy path                                                 |
+| [`src/webview/handlers/systemPrompt.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/webview/handlers/systemPrompt.ts)           | `injectSystemContext` — the caller that assembles retrievers and renders into the prompt |

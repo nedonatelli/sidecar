@@ -1,7 +1,8 @@
 ---
 title: Background Doc Sync
 layout: docs
-nav_order: 14
+nav_order: 8
+nav_section: 'Agent'
 ---
 
 # Background Doc Sync

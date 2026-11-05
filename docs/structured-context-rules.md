@@ -1,7 +1,8 @@
 ---
 title: Structured Context Rules
 layout: docs
-nav_order: 9
+nav_order: 7
+nav_section: 'Configuration'
 ---
 
 # Structured Context Rules (.sidecarrules)

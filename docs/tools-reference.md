@@ -97,12 +97,12 @@ SideCar ships **80+ built-in tools** available to the agent loop. Most are alway
 | `analyze_ci_failure`                | CI & Profiling     | No       | `sidecar.ci.analysis.enabled`               |
 | `profile_code`                      | CI & Profiling     | Yes      | `sidecar.profiling.enabled`                 |
 | `latex_compile`                     | LaTeX              | Yes      | `sidecar.latex.enabled`                     |
-| `delegate_to_mcp`                   | MCP Delegation     | No       | `sidecar.mcpDelegation.enabled`             |
+| `delegate_to_mcp`                   | MCP Delegation     | Yes      | `sidecar.mcpDelegation.enabled`             |
 | `monorepo_packages`                 | Monorepo           | No       | `sidecar.monorepo.enabled`                  |
 
 **Approval** — `Yes` means the tool pauses for user confirmation in normal mode. `Always` means it pauses even in autonomous mode and cannot be bypassed by `toolPermissions`.
 
-**Custom tools** defined via `sidecar.customTools` are prefixed `custom_<name>` and always require approval.
+**Custom tools** defined via `sidecar.customTools` are prefixed `custom_<name>` and require approval (`Yes`), so autonomous mode or a `toolPermissions` entry of `allow` runs them without asking. See [Custom Tools](hooks-and-tasks#custom-tools).
 
 ---
 
@@ -144,11 +144,15 @@ Overwrites without confirmation — call `read_file` first if the file may alrea
 
 Edit an existing file by replacing an exact search string with a replacement.
 
-| Parameter | Type   | Required | Description                                                                                |
-| --------- | ------ | -------- | ------------------------------------------------------------------------------------------ |
-| `path`    | string | Yes      | Relative file path from the project root                                                   |
-| `search`  | string | Yes      | Exact text to find. Must match exactly one location — include enough context to be unique. |
-| `replace` | string | Yes      | New text to substitute for the search match. Must differ from `search`.                    |
+| Parameter     | Type    | Required | Description                                                                                                                                                                                                                               |
+| ------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`        | string  | Yes      | Relative file path from the project root                                                                                                                                                                                                  |
+| `search`      | string  | No\*     | Exact text to find, matched byte-for-byte. Must match exactly one location unless `replace_all` is set.                                                                                                                                   |
+| `replace`     | string  | No\*     | New text to substitute for the search match. Must differ from `search`.                                                                                                                                                                   |
+| `within`      | string  | No       | Unique text just above the edit (an enclosing `class`/`def`, a comment) that says which occurrence is meant; `search` is matched only at or after it. Must appear exactly once. Never written to the file. Not usable with `replace_all`. |
+| `replace_all` | boolean | No       | Replace every occurrence of `search` instead of requiring a unique match. Default `false`.                                                                                                                                                |
+
+\* Only `path` is required by the schema; `search` and `replace` are checked when the call runs. With neither, the call fails. On a file that doesn't exist, a call with just one of them writes that text as the new file's content, with a note in the result. On an existing file, a missing `search` is inferred from `replace` where SideCar can find the region it supersedes, with a note in the result; any other missing field fails.
 
 In Audit Mode, edits are buffered for review.
 
@@ -1198,7 +1202,7 @@ Fetch and parse the GitHub Actions log for the most recent failed CI run on the 
 | ------------ | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `job_filter` | string[] | No       | Glob patterns matched against CI job names (case-insensitive). Defaults to `["*"]` (all failed jobs). Supports `*` wildcard (e.g. `["*test*"]`). |
 
-Returns a structured markdown summary of failed jobs and steps, with relevant log lines trimmed to failure context (ANSI stripped, timestamps removed). Requires a GitHub token with `actions:read` scope configured via "SideCar: Set GitHub Token".
+Returns a structured markdown summary of failed jobs and steps, with relevant log lines trimmed to failure context (ANSI stripped, timestamps removed). Uses the GitHub account you sign in to through VS Code (the Accounts menu; SideCar asks for the `repo` scope when it first needs GitHub).
 
 Requires `sidecar.ci.analysis.enabled: true`.
 

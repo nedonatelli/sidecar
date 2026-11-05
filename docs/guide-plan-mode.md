@@ -7,7 +7,7 @@ nav_section: "Guides"
 
 # Plan Mode
 
-Plan Mode inserts a review checkpoint between the moment you submit a task and the moment the agent touches any files. The agent reads your codebase, designs an implementation approach, and presents a numbered plan. You approve it, request revisions, or reject it — execution only begins after you say go.
+Plan Mode inserts a review checkpoint between the moment you submit a task and the moment the agent touches any files. The agent designs an implementation approach from the context SideCar has already assembled, and presents a numbered plan. You approve it, request revisions, or reject it — execution only begins after you say go.
 
 ---
 
@@ -15,7 +15,7 @@ Plan Mode inserts a review checkpoint between the moment you submit a task and t
 
 When `sidecar.agentMode` is `plan`, the agent loop runs in two distinct phases:
 
-**Phase 1 — exploration and planning.** The agent gets read-only tool access: it can read files, search, grep, check diagnostics, and walk the symbol graph. It cannot write or edit anything. It uses this read pass to understand the codebase, identify relevant patterns, and design an approach. When it's ready, it formats the plan and hands it back to you.
+**Phase 1 — planning.** The agent gets no file tools at all — not even read-only ones. The only tool offered is `ask_user`, so it can ask you a clarifying question; any other tool call is refused with an error telling the model to write its plan as text. The plan is built from what is already in the system prompt: SIDECAR.md, workspace context and retrieval results, pinned files, and anything you attached with `@file:`. When it's ready, it formats the plan and hands it back to you.
 
 **Phase 2 — execution.** After you approve the plan, execution runs in cautious mode — the same diff-preview flow you'd get with a normal agent run. Each file write opens a diff editor for your review.
 
@@ -104,19 +104,19 @@ This works in any mode. The difference is that Plan Mode enforces the constraint
 
 Here is what happens step by step once you're in Plan Mode and send a task:
 
-**1. You send the task.** The agent loop starts with `approvalMode: 'plan'`. Tool definitions for write/edit operations are withheld from the first LLM call.
+**1. You send the task.** The agent loop starts with `approvalMode: 'plan'`. Every tool definition except `ask_user` is withheld.
 
-**2. The agent explores.** Read-only tools (`read_file`, `grep`, `search_files`, `project_knowledge_search`, `get_diagnostics`, `git_diff`) are available. The agent reads the files it needs to understand the task.
+**2. The agent plans from its context.** It cannot read files or search during this phase, so if the plan depends on a specific file, mention it with `@file:path` in your task so its contents are in the prompt.
 
-**3. The plan appears.** Once the agent has enough context, it produces the structured plan and sends it back. A **Plan Ready** card appears in the chat panel — not an assistant message, a dedicated review UI.
+**3. The plan appears.** The agent produces the structured plan as an ordinary assistant message. When the response finishes, three buttons are added to the bottom of that message: **Execute Plan**, **Revise**, and **Reject**.
 
 **4. You review.** Read through the steps. Check that the files listed match what you expect. Verify the agent hasn't misunderstood the scope.
 
 **5a. You approve.** Click **Execute Plan**. The agent executes each step in order, opening diff previews for each file write as it goes. Plan mode is temporarily switched off for the execution run, then restored — so your setting persists.
 
-**5b. You request revisions.** Type feedback into the revision input, e.g. "Step 3 should update the `users` table instead of `accounts`" or "We use `pino` for logging, not `console.log`". The agent revises the plan and presents a new version. You can revise multiple times before approving.
+**5b. You request revisions.** Click **Revise** — it puts `/revise ` in the chat input — and type your feedback after it, e.g. "Step 3 should update the `users` table instead of `accounts`" or "We use `pino` for logging, not `console.log`". The agent revises the plan and presents a new version. You can revise multiple times before approving.
 
-**5c. You reject.** Dismiss the plan card. Nothing was written. Start over with a different task or different approach.
+**5c. You reject.** Click **Reject**, or send a short rejection such as `no`, `reject` or `cancel`. Nothing was written. The **Reject** button only greys out the message in the panel — the plan is still pending, so the next message you send is read as revision feedback (any message that isn't an approval or rejection is). Send `no` to clear it, then start over with a different task or approach. While a plan is pending, a short approval such as `yes` runs it, the same as **Execute Plan**.
 
 ### Requesting revisions without starting over
 
@@ -144,7 +144,7 @@ For tasks that clearly involve significant scope, SideCar auto-activates Plan Mo
 
 If the message already contains a bullet list or numbered list — meaning you've done your own planning — auto-triggering is suppressed.
 
-Auto-triggered plan mode uses the same plan-then-execute flow. You still get the Plan Ready card and the same approve/revise/reject choices.
+Auto-triggered plan mode uses the same plan-then-execute flow. You still get the same **Execute Plan** / **Revise** / **Reject** buttons on the plan message.
 
 ---
 
@@ -200,7 +200,7 @@ The flow becomes: plan → approve → execute in shadow → diff review → acc
 
 ## Practical tips
 
-**Plan Mode adds one LLM turn, not one LLM run.** The planning turn is a read-pass — no writes, typically fewer tokens than a full execution turn. On a large task the cost is negligible. On a trivial task it's wasteful.
+**Plan Mode adds one LLM turn, not one LLM run.** The planning turn makes no tool calls (apart from an optional `ask_user`) — no reads, no writes, typically fewer tokens than a full execution turn. On a large task the cost is negligible. On a trivial task it's wasteful.
 
 **You can always ask without enabling the setting.** The most portable pattern:
 
@@ -215,4 +215,4 @@ This works in any mode with any model. The difference from enabling Plan Mode is
 
 **Approve means cautious mode, not autonomous.** After you approve a plan, execution runs in cautious mode — each file write still opens a diff preview. If you want to skip the per-file review and trust the plan, switch to autonomous mode before clicking Execute Plan.
 
-**Verbose mode shows the plan-phase tool calls.** Enable `sidecar.verboseMode` to see exactly which files the agent read during the planning phase, which symbol searches it ran, and how it built up its understanding before producing the plan.
+**Verbose mode shows what the plan was built from.** Verbose mode is on by default (`sidecar.verboseMode: true`; `/verbose` toggles it). It shows the full system prompt sent for the planning turn, so you can check which files and context the plan was based on. There are no plan-phase file reads to show — the planning turn has no read tools.

@@ -122,8 +122,8 @@ Later sources override earlier on name conflict, and a warning is logged when a 
 
 | Claude Code command | SideCar equivalent                                          |
 | ------------------- | ----------------------------------------------------------- |
-| `/review`           | `/review`                                                   |
-| `/commit-message`   | `/commit-message` (copy only) or `/commit` (commit + push)  |
+| `/review`           | `/review` (reviews your uncommitted changes, not a branch)  |
+| `/commit-message`   | `/commit-message` (generates a message to copy; never commits) or `/commit` (stages all changes and commits; does not push) |
 | `/help`             | `/help`                                                     |
 | `#<file>` mention   | Drag file into chat, or click the file pill above the input |
 | `/clear`            | `Cmd+L` / `Ctrl+L`                                          |

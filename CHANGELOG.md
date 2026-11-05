@@ -65,6 +65,21 @@ All notable changes to the SideCar extension will be documented in this file.
   - When the added definition comes after the existing one, the refusal now says the earlier line
     is left as dead code, instead of claiming the new line would be overridden.
 
+### Documentation
+
+- **The documentation site matches the code again**
+  ([#428](https://github.com/nedonatelli/sidecar/issues/428)). Every page was checked against
+  the code it describes. Examples that could not work now do: custom tools and hooks read
+  `SIDECAR_INPUT` from the environment, scheduled tasks set `enabled: true`, MCP header tokens
+  come from the server's `env`, facet files use double-quoted JSON, and regression guards use
+  `blocking`. Plan mode, `/review`, autonomous-mode approvals, steering, `/batch`, `/research`,
+  Ollama's `num_ctx` and `keep_alive`, and the timeout settings are described as they behave.
+  The architecture and diagram pages are in the site navigation, and links into the repository
+  open on GitHub.
+- **The CI tool's error and description name the GitHub sign-in in VS Code** instead of a "Set
+  GitHub Token" command that does not exist. The `sidecar.firstTokenTimeout` description says
+  that `0` falls back to `sidecar.requestTimeout` rather than disabling the timeout.
+
 ## [0.135.0] - 2026-11-03
 
 SideCar no longer freezes VS Code's extension host on a cold start. It used to block it for

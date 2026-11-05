@@ -100,11 +100,11 @@ When an agent task touches 3 or more files, SideCar generates an `EditPlan` mani
 
 Add `@no-plan` anywhere in your prompt to skip the planner for that request.
 
-| Setting                                    | Type    | Default      | Description                                                                                                                                                                                             |
-| ------------------------------------------ | ------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.multiFileEdits.enabled`           | boolean | `true`       | Master toggle for multi-file edit streams. When `false`, the agent writes files sequentially without a plan card.                                                                                       |
-| `sidecar.multiFileEdits.planningPass`      | boolean | `true`       | Run a dedicated Edit Plan LLM turn before executing writes. Adds one extra LLM call but produces the plan card and enables per-file cancel. Set `false` to skip planning and stream writes immediately. |
-| `sidecar.multiFileEdits.reviewGranularity` | string  | `"per-file"` | How the Pending Changes panel presents the batch. `"per-file"` = accept/reject each file individually; `"bulk"` = Accept All / Reject All only.                                                         |
+| Setting                                    | Type    | Default      | Description                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------ | ------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sidecar.multiFileEdits.enabled`           | boolean | `true`       | Master toggle for multi-file edit streams. When `false`, the agent writes files sequentially without a plan card.                                                                                                                                                                                |
+| `sidecar.multiFileEdits.planningPass`      | boolean | `true`       | Run a dedicated Edit Plan LLM turn before executing writes. Adds one extra LLM call but produces the plan card and enables per-file cancel. Set `false` to skip planning and stream writes immediately.                                                                                          |
+| `sidecar.multiFileEdits.reviewGranularity` | string  | `"per-file"` | How the audit-mode review (`SideCar: Review Audited Changes`) presents buffered edits. `"per-file"` = accept/reject each file individually; `"per-hunk"` = accept or discard each diff hunk; `"bulk"` = accept/reject all as one unit. No effect on the Pending Changes view outside audit mode. |
 
 Each file in the planned-edits card has a **cancel button** — clicking it aborts that file's write mid-stream without affecting other in-flight files. Use **Accept All** or **Reject All** in the card to apply or discard the entire batch atomically.
 
@@ -167,7 +167,7 @@ Rule `when` expressions support role names (`agent-loop`, `chat`, `summarize`, `
 | `sidecar.steerQueue.coalesceWindowMs` | number | `2000`  | Milliseconds to wait at an iteration boundary before draining pending steers, coalescing rapid follow-ups into one turn. `0` drains immediately. |
 | `sidecar.steerQueue.maxPending`       | number | `5`     | Maximum queued steers. When full, the oldest nudge is evicted; an all-interrupt queue rejects new submissions with an explicit error.            |
 | `sidecar.agentMaxMessages`            | number | `25`    | Soft ceiling on conversation message count before the agent wraps up.                                                                            |
-| `sidecar.firstTokenTimeout`           | number | `300`   | Seconds to wait for the first token from the model. Local models loading from disk may need the full window. Set to `0` to disable.              |
+| `sidecar.firstTokenTimeout`           | number | `300`   | Seconds to wait for the first token from the model. Local models loading from disk may need the full window. `0` uses `requestTimeout` instead.   |
 
 ## Context
 
@@ -512,15 +512,15 @@ Built-in facets are embedded in the extension and always available — no disk I
 
 ## Skills Registry & Sync (v0.112+)
 
-Git-native skill distribution. SideCar clones personal and team skill registries on activation; `SkillLoader` picks up every `.agent.md` inside as a loadable skill. Standard git auth (SSH keys, HTTPS tokens) applies.
+Git-native skill distribution. SideCar clones personal and team skill registries on activation; `SkillLoader` picks up every `*.md` file inside as a loadable skill. Standard git auth (SSH keys, HTTPS tokens) applies.
 
-| Setting                            | Type    | Default      | Description                                                                                                                               |
-| ---------------------------------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.skills.userRegistry`      | string  | `""`         | Git URL or absolute local folder for your personal skill collection. Cloned/pulled into `~/.sidecar/user-skills/` on activation.          |
-| `sidecar.skills.teamRegistries`    | array   | `[]`         | Git URLs for team skill collections, each cloned into `~/.sidecar/team-skills/<slug>/`. Skills Picker tags each skill by origin registry. |
-| `sidecar.skills.autoPull`          | string  | `"on-start"` | When to sync registries. `"on-start"` refreshes on every activation; `"manual"` only when you run `SideCar: Sync Skill Registries`.       |
-| `sidecar.skills.offline`           | boolean | `false`      | Air-gapped mode — no network calls for sync. The loader reads only from what is already cached.                                           |
-| `sidecar.skills.trustedRegistries` | array   | `[]`         | Registry URLs that skip the first-install trust prompt. Per-skill `allowed-tools` and `disable-model-invocation` guardrails still apply.  |
+| Setting                            | Type    | Default      | Description                                                                                                                                                                                                      |
+| ---------------------------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.skills.userRegistry`      | string  | `""`         | Git URL or absolute local folder for your personal skill collection. Cloned/pulled into `~/.sidecar/user-skills/` on activation.                                                                                 |
+| `sidecar.skills.teamRegistries`    | array   | `[]`         | Git URLs for team skill collections, each cloned into `~/.sidecar/team-skills/<slug>/`. Skills Picker tags each skill by origin registry.                                                                        |
+| `sidecar.skills.autoPull`          | string  | `"on-start"` | When to sync registries. `"on-start"` refreshes on every activation; `"hourly"` / `"daily"` also re-sync on a background timer without a restart; `"manual"` only when you run `SideCar: Sync Skill Registries`. |
+| `sidecar.skills.offline`           | boolean | `false`      | Air-gapped mode — no network calls for sync. The loader reads only from what is already cached.                                                                                                                  |
+| `sidecar.skills.trustedRegistries` | array   | `[]`         | Registry URLs that skip the first-install trust prompt. Per-skill `allowed-tools` and `disable-model-invocation` guardrails still apply.                                                                         |
 
 ## Auto Mode (v0.73+)
 
@@ -740,7 +740,7 @@ Entries are persisted to `.sidecar/memory/` and keyed by SHA-256 of path + optio
 ]
 ```
 
-Custom tools appear alongside built-in tools and go through the same approval flow.
+Custom tools appear alongside built-in tools and go through the same approval flow. `command` runs without a shell, so nothing in it is expanded; the agent's argument arrives only as the `SIDECAR_INPUT` environment variable. See [Custom Tools](hooks-and-tasks#custom-tools).
 
 ## macOS Seatbelt Sandbox (v0.89+)
 

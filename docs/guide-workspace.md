@@ -71,17 +71,23 @@ Run `/init` in chat. SideCar scans your file tree, entry-point files, and existi
 
 ## Architecture
 
+### API package
+
 <!-- @paths: packages/api/** -->
 
 API package (`packages/api/`) is an Express app. Routes in `src/routes/`, middleware in
 `src/middleware/`. Shared request context flows via `AsyncLocalStorage` in `src/context.ts`.
 DB access goes through `src/db/` only — never import `pg` directly in routes.
 
+### UI package
+
 <!-- @paths: packages/ui/** -->
 
 UI package (`packages/ui/`) is React + Vite. Design tokens from `src/theme/tokens.ts`.
 Use `cn()` from `src/lib/utils.ts` for conditional class names (Tailwind).
 All data fetching via React Query hooks in `src/hooks/`.
+
+### Shared package
 
 <!-- @paths: packages/shared/** -->
 
@@ -128,6 +134,8 @@ Never write inline SQL in route handlers.
 Sections without a sentinel inject on every turn (`always` priority). Sections with a sentinel inject only when the active editor file or a path mentioned in your message matches the glob. This keeps the system prompt tight on small-context local models.
 
 Glob syntax: `**` matches any depth, `*` matches a non-slash segment, trailing `/` expands to `/**`.
+
+A sentinel scopes only the section whose heading it sits directly under, and only when it is the first non-blank line after that heading. A sentinel further down a section is ignored, and it does not start a new section — the whole section keeps the scope (or lack of one) set at its top. To scope parts of a section differently, give each part its own `###` heading, as the `## Architecture` block above does. `###` headings are section boundaries just like `##`.
 
 If your file has 20+ sections and path routing is still too coarse, switch to retrieval mode:
 
@@ -196,7 +204,7 @@ Pinning is for files the agent needs on every single turn, regardless of what it
 ]
 ```
 
-**`@pin:` in chat** — pin a file for the current session and all future sessions without leaving chat:
+**`@pin:` in chat** — pin a file for the rest of the current session without leaving chat. Runtime pins are kept in memory only, so they are gone after a window reload; use `sidecar.pinnedContext` or Pinned Memory for pins that should last:
 
 ```
 @pin:src/auth/middleware.ts
@@ -204,15 +212,15 @@ Pinning is for files the agent needs on every single turn, regardless of what it
 Now add rate limiting to the /api/login route.
 ```
 
-**`/memories` panel** — the Pinned Memory sidebar lets you pin files with optional heading filters and a boost value. The boost controls injection order: a pin with `boost: 2.0` lands before one at the default `1.0`.
+**Pinned Memory view** — the Pinned Memory sidebar view lists entries pinned with the `SideCar: Pin File to Memory`, `Pin Active File to Memory` and `Pin Selection to Memory` commands. Each entry's content is captured at pin time and stored in `.sidecar/pins.json`, so it persists across sessions; run `Refresh Pinned Memory from Disk` after the file changes. There is no UI for heading filters or boost values — every pin gets the default boost. (The `/memories` chat command is unrelated: it prints a count of agent-memory entries by type.)
 
 ### When to use each
 
 | Mechanism               | Best for                                                             |
 | ----------------------- | -------------------------------------------------------------------- |
 | `sidecar.pinnedContext` | Team-wide shared files; check into `.vscode/settings.json`           |
-| `@pin:` in chat         | Files you realize mid-session should always be present               |
-| `/memories` panel       | Per-entry boost tuning; pinning specific H2 sections of a large file |
+| `@pin:` in chat         | Files you realize mid-session should be present for the rest of it   |
+| Pinned Memory view      | Pins that persist across sessions; pinning one section of a large file via Pin Selection |
 
 ### Pinned Memory vs. SIDECAR.md
 
@@ -220,19 +228,19 @@ Use `SIDECAR.md` for instructions and conventions — prose that tells the agent
 
 ### Example: pin the types file
 
-Your central types file is referenced in nearly every task. Pin it:
+Your central types file is referenced in nearly every task. Pin it for the session:
 
 ```
 @pin:src/types.ts
 ```
 
-Now every turn starts with the full type catalog in context. The agent will use your existing types instead of inventing new ones.
+Now every turn starts with the full type catalog in context. To keep it pinned after a reload, add it to `sidecar.pinnedContext` instead. The agent will use your existing types instead of inventing new ones.
 
-### Example: pin with a heading filter
+### Example: pin one section of a large file
 
 If your shared utilities file is large but only one section is universally relevant, pin just that section:
 
-Open the `/memories` panel → Add Pin → enter `src/utils.ts` → under Heading filter, enter the H2 heading name (e.g., `Error Handling`). Only that section injects.
+Open `src/utils.ts`, select the `Error Handling` section, and run `SideCar: Pin Selection to Memory` from the Command Palette. Enter a label when prompted. Only the selected text injects; it is a snapshot, so pin it again after that section changes.
 
 ---
 
@@ -384,7 +392,7 @@ For stronger guarantees, add regression guards. Guards run shell commands after 
     "name": "lint",
     "command": "npm run lint",
     "trigger": "post-write",
-    "mode": "blocking",
+    "blocking": true,
     "scope": ["src/**/*.ts", "src/**/*.tsx"],
     "maxAttempts": 5
   },
@@ -392,14 +400,14 @@ For stronger guarantees, add regression guards. Guards run shell commands after 
     "name": "typecheck",
     "command": "npm run typecheck",
     "trigger": "pre-completion",
-    "mode": "blocking",
+    "blocking": true,
     "scope": [],
     "maxAttempts": 3
   }
 ]
 ```
 
-`post-write` guards fire after every file write. `pre-completion` guards fire when the agent tries to wrap up. `blocking` mode injects a reprompt when the command fails; `advisory` logs but lets the turn continue.
+`post-write` guards fire after every file write. `pre-completion` guards fire when the agent tries to wrap up. With `"blocking": true` (the default when the field is omitted) a failing command injects a reprompt; `"blocking": false` logs a warning but lets the turn continue. Guards have no `mode` field — an unknown field is ignored, so such a guard stays blocking.
 
 ### Auto-fix diagnostics
 

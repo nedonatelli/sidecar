@@ -52,24 +52,15 @@ No API key is needed. The `sidecar.apiKey` setting is ignored for local Ollama.
 
 ### Performance tuning
 
-**Context window (`num_ctx`):** Ollama loads models with a default context window of 2048 tokens — far too small for agentic work. Increase it by creating a Modelfile:
+**Context window (`num_ctx`):** SideCar sends `num_ctx` with every request, so Ollama's own default window (often 2-4K) never applies. It probes the model via `/api/show` — a `num_ctx` set in the model's Modelfile, otherwise the model's native window — floors the result at 32,768 tokens and caps it per model (at most 131,072). The probed value is cached per model name for the session. Because the floor applies to a Modelfile value too, a Modelfile can't shrink the window below 32K; to set the window exactly, in either direction, use `sidecar.ollama.numCtx`:
 
-```
-FROM qwen2.5-coder:7b
-PARAMETER num_ctx 32768
-```
-
-Then build it: `ollama create qwen2.5-coder-32k -f ./Modelfile`
-
-SideCar probes the effective `num_ctx` via `/api/show` and uses it for context budget calculations. The probed value is cached per model name for the session.
-
-**Keep alive (`keep_alive`):** by default Ollama unloads a model from GPU memory after 5 minutes of inactivity. If you switch models frequently or pause between prompts, you may see cold-start delays. Set a longer keep-alive in your Modelfile:
-
-```
-PARAMETER keep_alive 30m
+```json
+"sidecar.ollama.numCtx": 16384
 ```
 
-Or set it globally via Ollama's environment variable: `OLLAMA_KEEP_ALIVE=30m`.
+Keep the value stable: Ollama reloads the model whenever a request's `num_ctx` differs from the loaded instance's.
+
+**Keep alive (`keep_alive`):** SideCar sends `keep_alive: '30m'` with every chat request, so a model stays loaded for 30 minutes after its last request. This per-request value overrides a Modelfile `keep_alive` and the `OLLAMA_KEEP_ALIVE` environment variable for SideCar's requests, and there is no setting to change it.
 
 ### Tool support
 
@@ -87,7 +78,7 @@ At runtime, if an Ollama model consistently fails to produce valid tool calls af
 "sidecar.baseUrl": "http://localhost:12345"
 ```
 
-**PATH issue on macOS** — if SideCar can't auto-launch Ollama, ensure `/usr/local/bin` or wherever `ollama` is installed is on your shell's PATH. The extension spawns processes using a login shell but PATH inheritance varies by installation method.
+**PATH issue on macOS** — if SideCar can't auto-launch Ollama, make sure the directory holding `ollama` is on the PATH VS Code itself was started with. SideCar runs `ollama serve` directly, without a shell, so it inherits VS Code's environment; a PATH set only in your shell profile isn't seen when VS Code is launched from the Dock or Finder. Starting `ollama serve` yourself always works.
 
 ---
 
@@ -309,7 +300,7 @@ No API key is required. The model name must match the identifier LM Studio repor
 | FIM / inline completions | Yes                    | Yes                    |
 | Modelfile customization  | No                     | Yes                    |
 | API surface              | OpenAI-compat only     | Native + OpenAI-compat |
-| Context window config    | Per-model slider in UI | Modelfile `num_ctx`    |
+| Context window config    | Per-model slider in UI | `sidecar.ollama.numCtx` |
 
 If you only need a CLI workflow, Ollama is simpler. If you prefer a GUI for organizing and loading models, LM Studio works equally well as a backend.
 
@@ -429,11 +420,11 @@ Note the base URL ends at `/openai` — do not append `/v1`. SideCar's `GeminiBa
 
 ### Available models
 
-SideCar fetches the live model list from the Gemini API using your API key. There is no built-in fallback list, so the picker stays empty until a key is set.
+SideCar fetches the live model list from the Gemini API using your API key. When the list can't be fetched (no key yet, or the request fails), the picker falls back to a built-in list containing `gemini-3.8-flash`.
 
 Google recommends `gemini-3.8-flash` for new projects (or `gemini-3.5-flash-lite` for lower cost). The 2.5 models (`gemini-2.5-flash`, `gemini-2.5-pro`) are served only to accounts that already used them, and `gemini-2.0-flash` has been shut down. See [Google's model list](https://ai.google.dev/gemini-api/docs/models).
 
-> The **☰ menu → Backend → Google Gemini** profile still selects `gemini-2.0-flash`, which Google has shut down. After switching, pick a current model from the model list.
+The **☰ menu → Backend → Google Gemini** profile selects `gemini-3.8-flash`.
 
 ---
 

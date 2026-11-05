@@ -13,16 +13,16 @@ Press `Cmd+I` (Mac) or `Ctrl+I` (Windows/Linux) to open an inline prompt directl
 
 1. Select code (optional) — if you have a selection, SideCar uses it as context
 2. Press `Cmd+I` and describe the change: "convert to async/await", "add error handling", "translate to TypeScript"
-3. The proposed replacement streams into a **side-by-side diff preview** — original on the left, proposal on the right
-4. An **Accept / Dismiss** dialog gates the final apply — nothing lands in your file until you accept
+3. SideCar generates the replacement behind a cancellable "generating edit..." notification; once it finishes, a **side-by-side diff preview** opens — original on the left, proposal on the right
+4. A modal **Accept** dialog gates the final apply — nothing lands in your file until you accept, and cancelling the dialog discards the proposal
 
-Inline chat uses the same model as the sidebar chat. It supports thinking models (reasoning blocks are shown collapsed). All tool use is disabled — inline chat is a focused edit, not an agent run.
+Inline chat uses the same model as the sidebar chat. Only the model's answer text is used: reasoning from thinking models isn't shown. All tool use is disabled — inline chat is a focused edit, not an agent run.
 
 ### Lightbulb integration
 
 When VS Code shows a diagnostic (red/yellow squiggle), pressing `Cmd+.` / `Ctrl+.` surfaces two SideCar actions alongside the built-in Quick Fixes:
 
-- **Fix with SideCar** — explains the error and proposes a corrective edit via inline chat
+- **Fix with SideCar** — sends the diagnostic and its line to the sidebar chat with a request to fix it
 - **Explain this error with SideCar** — sends the diagnostic to the sidebar chat for a detailed explanation
 
 **Refactor with SideCar** appears in the Refactor submenu (`Cmd+Shift+R` / right-click → Refactor) for any selection.
@@ -47,20 +47,20 @@ SideCar routes completions differently per backend:
 | ------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
 | Ollama        | FIM endpoint (`/api/generate` with `suffix`)  | Requires a model with FIM support (qwen2.5-coder, codestral, deepseek-coder) |
 | Anthropic     | Messages API with fill-in context             | No native FIM; less accurate for mid-file insertions                         |
-| OpenAI-compat | `/v1/completions` FIM if available, else chat | Depends on the server                                                        |
+| OpenAI-compat | Chat completion with fill-in context          | No FIM endpoint is used                                                      |
 
 Not all Ollama models support FIM — models without a `<|fim_prefix|>` / `<|fim_suffix|>` / `<|fim_middle|>` token set fall back to the chat API and produce lower-quality suggestions.
 
 ### Speculative decoding (v0.110+)
 
-When enabled, a small draft model proposes tokens that the main model verifies — delivering main-model quality at draft-model latency.
+For local inline completions on Ollama, SideCar can race a small draft model against the main model: both get the same FIM request, the first to finish supplies the completion, and the other is aborted. There is no draft-then-verify step, so a draft win returns the draft model's own output.
 
 ```json
 "sidecar.speculativeDecoding.enabled": true,
 "sidecar.completionDraftModel": "qwen2.5-coder:0.5b"
 ```
 
-Leave `completionDraftModel` empty to auto-discover the smallest available model on the active backend. SideCar tracks the rolling accept rate and auto-disables speculative decoding if it falls below `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` (default `0.4`).
+Leave `completionDraftModel` empty to use the draft paired with your main model in SideCar's built-in table (for example `qwen2.5-coder:0.5b` for the `qwen2.5-coder` and `qwen3-coder` models); a model with no pair in the table runs without a race. After 10 races, SideCar stops using the table's draft for the session if the draft's win rate falls below `sidecar.speculativeDecoding.minAcceptRateToKeepEnabled` (default `0.4`). A `completionDraftModel` you set always races — even with `speculativeDecoding.enabled` off or after that cutoff. Other backends use the chat path and never race.
 
 ### Settings
 
@@ -117,9 +117,10 @@ Right-click on selected code (or press `Cmd+.` / `Ctrl+.`) to access SideCar cod
 | **Explain with SideCar**   | Sends the selection to the sidebar chat with "Explain this code"              |
 | **Fix with SideCar**       | Sends the selection and any related diagnostic with "Fix this code"           |
 | **Refactor with SideCar**  | Sends the selection with "Refactor this code for clarity and maintainability" |
-| **Add tests with SideCar** | Generates a test file for the selected function or class                      |
 
 All actions send to the sidebar agent which has its full tool set available — it can read related files, run tests, and iterate.
+
+Adding tests is a **CodeLens**, not a code action: the `⚡ Add tests` lens above a function or class puts an "Add unit tests for the following code" prompt in the sidebar chat input for you to review and send. The same lens row offers `⚡ Explain` and `⚡ Refactor`.
 
 ---
 
@@ -130,7 +131,7 @@ Use `@` syntax in chat messages to include specific context:
 | Syntax               | Description                         |
 | -------------------- | ----------------------------------- |
 | `@file:src/index.ts` | Include a specific file's contents  |
-| `@folder:src/utils/` | Include all files in a directory    |
+| `@folder:src/utils/` | List a directory's entries (names only, not contents) |
 | `@symbol:MyClass`    | Include the definition of a symbol  |
 | `@pin:src/types.ts`  | Pin this file to always be included |
 

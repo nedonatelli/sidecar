@@ -40,9 +40,9 @@ Ratings persist to `.sidecar/arena/elo.json` and accumulate across both chat and
 
 ```
 /arena                          # QuickPick to select models
-/arena llama3.2:3b,qwen3:8b    # pre-fill two models, skip QuickPick
-/arena qwen3:8b,gemma4:e4b,mistral:7b  # three-way match
 ```
+
+Model names typed after `/arena` (for example `/arena llama3.2:3b,qwen3:8b`) are currently ignored — the command still opens the QuickPick, or uses `sidecar.arena.defaultModels` if that is set. Pick two or more models in the QuickPick; three models make a three-way match.
 
 **From the Command Palette:**
 
@@ -50,7 +50,7 @@ Ratings persist to `.sidecar/arena/elo.json` and accumulate across both chat and
 
 If your backend is reachable, the QuickPick lists every installed model with multi-select enabled (`Pick at least 2 models to compare`). If the backend is unreachable at launch time, you get a free-text fallback: enter model names separated by commas.
 
-If you set `sidecar.arena.defaultModels`, the QuickPick is skipped entirely and those models open immediately.
+If you set `sidecar.arena.defaultModels` to two or more models, the QuickPick is skipped entirely and those models open immediately. A list with fewer than two entries is ignored.
 
 Before the panel opens, SideCar runs a memory preflight check. At low RAM pressure (under 2 GiB free) you get a confirmation dialog. At critical pressure (under 1 GiB free) the launch is blocked. You can always check current RAM and GPU usage via the status bar memory indicator or `SideCar: Refresh Memory Stats`.
 
@@ -112,20 +112,20 @@ Agent mode runs each model through a full agent loop against a coding task. Each
 
 **With pre-filled models:**
 
-If you pass model names in `sidecar.arena.defaultModels`, the model QuickPick is skipped and you go straight to the task prompt.
+Agent arena does not read `sidecar.arena.defaultModels` — it always opens the model QuickPick. `/arena agent <task>` skips only the task prompt.
 
-The same memory preflight runs as in chat mode. Agent mode starts multiple full agent processes concurrently, so the VRAM pressure check is more significant here — running three 8B models in parallel on 16 GB of unified memory will be tight.
+The same memory preflight runs as in chat mode. Agent mode starts one full agent loop per selected model, all at once, so the VRAM pressure check is more significant here — running three 8B models in parallel on 16 GB of unified memory will be tight.
 
 ### What happens during a run
 
 1. Each model gets its own Shadow Workspace (a `git worktree` at `.sidecar/shadows/<task-id>/`).
-2. All agent loops run in parallel with `approvalMode: 'autonomous'` — no per-tool approval prompts fire mid-run.
-3. Tool-call events are tagged with a `fork-<n>:` prefix in the output stream.
+2. All agent loops run in parallel, one per model; `sidecar.fork.maxConcurrent` does not apply. File writes land in each shadow without per-file approval prompts. A tool that reaches outside the shadow (a shell command, a git push, a database write, an MCP tool) still asks first in a modal dialog, unless your agent mode is autonomous.
+3. The agent loops' output is not shown — nothing streams into chat or the panel while they run.
 4. When all agent loops complete (or fail), the Fork diff-review UI opens.
 
 ### Reviewing results and picking a winner
 
-The review UI is the same QuickPick-driven flow used by `/fork`:
+The review UI is the same QuickPick-driven flow used by `/fork` in chat:
 
 1. A QuickPick lists every completed fork by model label.
 2. Select a fork to preview — `vscode.diff` opens showing that model's full patch against the current `HEAD`.
@@ -201,8 +201,8 @@ The file is written after every vote and is human-editable if you want to reset 
 
 | Setting                       | Type     | Default | Description                                                                                                                                    |
 | ----------------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.arena.enabled`       | boolean  | `true`  | Master toggle. When `false`, `/arena` and both palette commands show an info toast instead of opening the panel.                               |
-| `sidecar.arena.defaultModels` | string[] | `[]`    | Pre-populated model list. When non-empty, the QuickPick is skipped and these models are used directly. Example: `["llama3.2:3b", "qwen3:8b"]`. |
+| `sidecar.arena.enabled`       | boolean  | `true`  | Master toggle, read at startup. When `false`, the arena commands are never registered, so `/arena` and both palette commands fail with VS Code's "command not found" error rather than a SideCar message. Reload the window after changing it. |
+| `sidecar.arena.defaultModels` | string[] | `[]`    | Pre-populated model list for chat arena. With two or more entries, the QuickPick is skipped and these models are used directly. Agent arena ignores it. Example: `["llama3.2:3b", "qwen3:8b"]`. |
 
 **Example: always compare the same two models:**
 
@@ -226,4 +226,4 @@ With this set, `/arena` opens the panel immediately with those two models — no
 
 **Separate task types.** A model that ranks well for prose explanation may rank poorly for code generation. Consider maintaining separate leaderboards (different workspaces, or manually editing `elo.json`) for different categories — documentation writing vs. refactoring vs. test generation.
 
-**Watch memory before large agent arena runs.** Three 8B models loading concurrently can hit swap on machines with 16 GB RAM. The preflight check warns you, but if you dismiss the warning and Ollama OOMs mid-run, the forks that were in progress will error and you will get incomplete results. On memory-constrained machines, set `sidecar.fork.maxConcurrent` to `1` so models run sequentially instead of in parallel — the run takes longer but each model gets the full memory budget.
+**Watch memory before large agent arena runs.** Three 8B models loading concurrently can hit swap on machines with 16 GB RAM. The preflight check warns you, but if you dismiss the warning and Ollama OOMs mid-run, the forks that were in progress will error and you will get incomplete results. Agent arena always runs every selected model at once — it does not honor `sidecar.fork.maxConcurrent` — so on memory-constrained machines, compare two models rather than three or four.

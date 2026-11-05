@@ -1,3 +1,10 @@
+---
+title: Architecture
+layout: docs
+nav_order: 4
+nav_section: 'Extend'
+---
+
 # SideCar Architecture
 
 ## Overview
@@ -34,8 +41,8 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
 
 ### 3. Agent Loop System
 
-- `runAgentLoop` — orchestrator in [`src/agent/loop.ts`](../src/agent/loop.ts) (~900 lines) whose `while` body reads top-to-bottom as one iteration's pseudo-code
-- [`src/agent/loop/`](../src/agent/loop/) — ~29 focused helpers, each taking a single `LoopState` container:
+- `runAgentLoop` — orchestrator in [`src/agent/loop.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/loop.ts) (~1,250 lines) whose `while` body reads top-to-bottom as one iteration's pseudo-code
+- [`src/agent/loop/`](https://github.com/nedonatelli/sidecar/tree/main/src/agent/loop/) — ~35 focused helpers, each taking a single `LoopState` container:
   - `state.ts` bundles all run state into one object (`DEFAULT_MAX_ITERATIONS = 50`)
   - `steerDrain.ts` coalesces queued user steers at the iteration boundary
   - `compression.ts` handles pre-turn + post-tool context compression
@@ -61,7 +68,7 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
 - `tools.ts` - Registry of available tools for the agent
 - Built-in tools for file operations, code search, shell commands, Git operations
 - Custom tools defined in settings (gated via `checkWorkspaceConfigTrust`)
-- MCP (Model Control Protocol) integration for external tools
+- MCP (Model Context Protocol) integration for external tools
 - Tool execution with approval modes and security checks
 - `ToolExecutorContext` carries per-call data: streaming callback, abort signal, `cwd` override for Shadow Workspace routing, and the active `SideCarClient` reference for model-attribution git trailers. `fs.ts` tools resolve relative paths via `resolveRootUri(context)` so ShadowWorkspace can pin writes into a shadow worktree transparently
 
@@ -74,7 +81,7 @@ The prose below fills in the pieces the diagrams don't cover (component responsi
 - `streamingFileReader.ts` - Streaming reads with summary mode for large files (>50KB)
 - `documentationIndexer.ts` - Doc Index: discovers and indexes documentation, provides keyword-based search
 - `agentMemory.ts` - Persistent learning: stores and retrieves patterns, decisions, and conventions
-- [`src/agent/retrieval/`](../src/agent/retrieval/) - Unified `Retriever` interface + reciprocal-rank fusion across six sources — documentation, workspace chunks, agent memory, PDFs, semantic (PKI) search, and SIDECAR.md sections. All compete under a single shared budget inside `injectSystemContext` via `fuseRetrieversMultiQuery()` over a set of rewritten retrieval queries. `ConversationSummarizer` has a per-turn cap (default 220 chars) that usually skips the LLM compression round-trip entirely
+- [`src/agent/retrieval/`](https://github.com/nedonatelli/sidecar/tree/main/src/agent/retrieval/) - Unified `Retriever` interface + reciprocal-rank fusion across six sources — documentation, workspace chunks, agent memory, PDFs, semantic (PKI) search, and SIDECAR.md sections. All compete under a single shared budget inside `injectSystemContext` via `fuseRetrieversMultiQuery()` over a set of rewritten retrieval queries. `ConversationSummarizer` has a per-turn cap (default 220 chars) that usually skips the LLM compression round-trip entirely
 
 ### 6. Communication Layer
 
@@ -146,12 +153,12 @@ Per-diagram detail lives under the links at the top of this page. The short vers
 
 ### Integration Points
 
-- Git operations (status, diff, commit, push, pull, branch, stash, worktree add/remove/list)
+- Git operations (status, diff, log, history search, stage, commit, push, pull, branch, stash)
 - Testing framework integration
 - Security scanning
 - Custom shell commands
 - **Persistent learning**: automatic recording of successful patterns during agent runs
-- MCP (Model Control Protocol) for external tool integration
+- MCP (Model Context Protocol) for external tool integration
 
 ### Shadow Workspaces (v0.59+)
 

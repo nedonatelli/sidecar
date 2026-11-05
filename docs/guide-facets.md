@@ -36,7 +36,7 @@ After all selected facets complete, a single review UI collects the diffs side-b
 | **Model**                    | Global `sidecar.model`                             | Global `sidecar.model`                                                     | Per-facet `preferredModel`                                                |
 | **Isolation**                | Optional Shadow Workspace                          | Forced Shadow Workspace                                                    | Forced Shadow Workspace                                                   |
 | **Review**                   | Per-agent, fires during or after the run           | Single winner — pick one diff                                              | Batch — Accept/Reject each facet's diff                                   |
-| **Inter-agent coordination** | None                                               | None                                                                       | Typed RPC bus — facets can call methods on peers                          |
+| **Inter-agent coordination** | None                                               | None                                                                       | Typed RPC bus — declared, but not wired up yet                            |
 | **When to use**              | You have multiple independent tasks to run at once | You want the best of several autonomous attempts at one task               | You want specialised roles to cover different dimensions of the same task |
 
 The decision rule: **Facets** when the work has natural role boundaries (code + tests + docs + security audit). **`/fork`** when you want the agent to try the same thing multiple ways and you'll pick the winner. **`/bg`** when the tasks are genuinely independent.
@@ -50,7 +50,7 @@ SideCar ships nine facets embedded in the extension. They are always available �
 | ID                      | Display Name          | Tool Allowlist                                                                                                                                     | Skill Bundle                             | When to Use                                                                                                                                                                                                                  |
 | ----------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `general-coder`         | General Coder         | `read_file`, `write_file`, `edit_file`, `search_files`, `grep`, `list_directory`, `get_diagnostics`, `run_tests`, `run_command`, `find_references` | —                                        | General implementation work, coordinating across other facets when the task crosses domain boundaries.                                                                                                                       |
-| `latex-writer`          | LaTeX Writer          | `read_file`, `write_file`, `edit_file`, `grep`, `list_directory`                                                                                   | `technical-paper`                        | Editing `.tex` / `.bib` files, maintaining math blocks and cite-keys. Publishes equations via RPC so sibling facets can stay in lock-step.                                                                                   |
+| `latex-writer`          | LaTeX Writer          | `read_file`, `write_file`, `edit_file`, `grep`, `list_directory`                                                                                   | `technical-paper`                        | Editing `.tex` / `.bib` files, maintaining math blocks and cite-keys.                                                                                                                                                       |
 | `signal-processing`     | Signal Processing     | `read_file`, `write_file`, `edit_file`, `grep`, `get_diagnostics`, `run_tests`, `find_references`                                                  | `signal-processing`, `numerical-methods` | FFT, filter design, wavelet and transform code. Attentive to numerical stability, DC bin, Nyquist, and windowing edge cases.                                                                                                 |
 | `frontend`              | Frontend              | `read_file`, `write_file`, `edit_file`, `search_files`, `grep`, `get_diagnostics`, `run_tests`                                                     | `react`                                  | Component extraction, accessible markup (ARIA + semantic HTML), matching existing styling conventions before inventing new abstractions.                                                                                     |
 | `test-author`           | Test Author           | `read_file`, `write_file`, `edit_file`, `grep`, `get_diagnostics`, `run_tests`, `find_references`                                                  | —                                        | Writing tests covering behavior, edge cases, and regression invariants. Probes untested branches via `get_diagnostics`.                                                                                                      |
@@ -91,19 +91,9 @@ Vague tasks lead to vague output regardless of the facet model. Be specific.
 
 ### What You See During Dispatch
 
-As facets run, the chat panel emits prefix-tagged output:
+While the batch runs, the chat panel shows a dispatch graphic with one chip per facet (pending, running, done or error, plus the facet's preferred model), and a cancellable "SideCar: dispatching facets…" notification lets you stop the batch. Each facet's streamed text goes into the chat panel as it arrives; the text itself carries no per-facet tag.
 
-```
-[facet general-coder dispatching: Add rate limiting to /api/auth/login...]
-... general-coder's streaming output ...
-[facet general-coder completed]
-
-[facet test-author dispatching: Add rate limiting to /api/auth/login...]
-... test-author's streaming output ...
-[facet test-author completed]
-```
-
-Tool call events are also prefixed with the facet id (`general-coder:write_file`, `test-author:run_tests`) so you can follow which specialist is doing what.
+Tool call events are prefixed with the facet id (`general-coder:write_file`, `test-author:run_tests`) so you can follow which specialist is doing what. When the batch settles, a toast reports `Facets: N succeeded, M failed.`
 
 Facets with `dependsOn` edges wait for their prerequisites before starting. Independent facets run concurrently up to the `sidecar.facets.maxConcurrent` cap (default 3).
 
@@ -111,30 +101,33 @@ Facets with `dependsOn` edges wait for their prerequisites before starting. Inde
 
 ## The Batched Review
 
-When every selected facet has settled, a single review UI opens. You are not prompted during the run — the `deferPrompt: true` flag captures each diff in `SandboxResult.pendingDiff` and holds it until the batch completes.
+When every selected facet has settled, a single **Facet Review** panel opens with one card per facet that produced a diff. You are not prompted during the run — the `deferPrompt: true` flag captures each diff in `SandboxResult.pendingDiff` and holds it until the batch completes.
 
 ### Per-Facet Actions
 
-For each facet's result you can:
+Each card shows the facet's diff inline (files touched, lines added and removed, and the tail of its output). For each card you can:
 
 - **Accept** — applies the facet's diff to your main working tree via `git apply`. Parent directories are created if needed.
-- **Show diff** — opens VS Code's native diff editor against the captured diff.
-- **Reject** — discards the facet's shadow worktree. Nothing lands on disk.
-- **Skip** — move past without deciding; the shadow is discarded at session end.
+- **Reject** — drops the diff. Nothing lands on disk.
+- **Skip** — leaves the diff unapplied; it counts as unreviewed when you close the panel.
+
+### Read-only Facets
+
+A facet that finishes without a diff — `security-reviewer`, `architecture-reviewer`, or any facet whose allowlist has no write tool — has no review card. Its output opens as a separate Markdown document instead.
 
 ### Cross-Facet Overlap Warnings
 
-Before the review UI, SideCar runs `planFacetReview`, which extracts the file paths each facet touched and detects overlaps. If `general-coder` and `test-author` both modified `src/auth/login.ts`, the review panel flags the overlap:
+Before the review panel opens, SideCar runs `planFacetReview`, which extracts the file paths each facet touched and detects overlaps. If `general-coder` and `test-author` both modified `src/auth/login.ts`, each of their cards flags the overlap:
 
 ```
-⚠ File overlap: src/auth/login.ts touched by general-coder and test-author
+⚠ Overlaps with: test-author
 ```
 
 The overlap is informational — you can still accept both diffs, but you should inspect them before doing so. Accept the more authoritative one first; the second `git apply` will fail cleanly if there are conflicts, rather than silently overwriting.
 
 ### Facets That Failed
 
-A facet that errors during its run appears in the batch result with `success: false` and an error message. Its entry still appears in the review UI so you can see what went wrong. No diff is offered for a failed facet; its shadow was never written.
+A facet that errors during its run counts as failed in the `Facets: N succeeded, M failed.` toast. It gets no review card and no document; it is skipped.
 
 ---
 
@@ -149,10 +142,9 @@ A facet is a `.md` file with YAML-ish frontmatter. The body is the system prompt
 id: api-contract-tester
 displayName: API Contract Tester
 preferredModel: claude-haiku-5-5
-toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
+toolAllowlist: ["read_file", "grep", "run_tests", "edit_file", "write_file"]
 skillBundle: []
-dependsOn: ['general-coder']
-rpcSchema: { 'reportFinding': { 'params': { 'endpoint': 'string', 'severity': 'string', 'detail': 'string' } } }
+dependsOn: ["general-coder"]
 ---
 
 You are an API contract tester. For every change to a route handler:
@@ -160,7 +152,6 @@ You are an API contract tester. For every change to a route handler:
 1. Diff the OpenAPI schema (or equivalent) to detect backward-incompatible changes.
 2. Verify each changed endpoint against its declared response schema.
 3. Write or update contract tests that fail if a breaking change ships unreviewed.
-4. Call rpc.general-coder.reportFinding (if available) to surface any breaking changes found.
 
 Focus on: removed fields, changed types, new required parameters, modified status codes.
 Do not add functionality — only write defensive tests.
@@ -180,7 +171,11 @@ Do not add functionality — only write defensive tests.
 
 ### Parsing Rules
 
-Values that start with `[` or `{` are parsed as JSON — that is how `toolAllowlist`, `dependsOn`, `skillBundle`, and `rpcSchema` work. Scalar values (`id`, `displayName`, `preferredModel`) are plain strings. You do not need a full YAML parser to write a valid facet file.
+Values that start with `[` or `{` are parsed as JSON — that is how `toolAllowlist`, `dependsOn`, `skillBundle`, and `rpcSchema` work. Scalar values (`id`, `displayName`, `preferredModel`) are plain strings. You do not need a full YAML parser to write a valid facet file, but the JSON rules are strict:
+
+- Use double quotes. `['read_file']` is not JSON, and the facet is rejected with an `invalid-json` error.
+- Keep each value on one line. The parser reads one `key: value` line at a time, so a key with nothing after the colon is treated as empty and a value continued on the next line is silently dropped.
+- The body after the closing `---` must not be empty — it is the facet's system prompt.
 
 ### File Locations
 
@@ -200,8 +195,8 @@ Use `dependsOn` to enforce ordering when one facet's output is an input for anot
 ---
 id: docs-writer
 displayName: Docs Writer
-toolAllowlist: ['read_file', 'write_file', 'edit_file', 'grep']
-dependsOn: ['general-coder']
+toolAllowlist: ["read_file", "write_file", "edit_file", "grep"]
+dependsOn: ["general-coder"]
 ---
 
 You document the code changes made by the general-coder facet.
@@ -216,29 +211,31 @@ When you select a subset of facets for dispatch (e.g., `docs-writer` but not `ge
 
 ### The `rpcSchema` Field
 
-RPC lets facets communicate. When a facet declares an `rpcSchema`, the dispatcher generates `rpc.<facetId>.<method>` tools for every other facet in the same batch.
+> **Not available yet.** Facet RPC is not wired up. The tools are generated, but no dispatch path registers a handler for them, so every call returns `no-handler`. Facets cannot exchange data today; the section below describes the declared format and the bus behavior.
 
-Declare a method your facet will answer:
+When a facet declares an `rpcSchema`, the dispatcher generates `rpc.<facetId>.<method>` tools for every other facet in the same batch.
+
+Declare a method on one line, in double-quoted JSON:
 
 ```markdown
 ---
-id: latex-writer
-rpcSchema:
-  { 'publishMathBlock': { 'params': { 'symbol': 'string', 'latex': 'string' }, 'returns': { 'ok': 'boolean' } } }
+id: my-latex-writer
+displayName: My LaTeX Writer
+rpcSchema: { "publishMathBlock": { "params": { "symbol": "string", "latex": "string" }, "returns": { "ok": "boolean" } } }
 ---
+
+You maintain the LaTeX paper in `paper/`.
 ```
 
-A sibling facet (`signal-processing`, for example) can then call:
+A sibling facet in the same batch then sees this tool in its catalog:
 
 ```
-rpc.latex-writer.publishMathBlock({ "args": { "symbol": "H_n", "latex": "H_n(z) = \\sum_{k=0}^{N-1} h[k] z^{-k}" } })
+rpc.my-latex-writer.publishMathBlock({ "args": { "symbol": "H_n", "latex": "H_n(z) = \\sum_{k=0}^{N-1} h[k] z^{-k}" } })
 ```
 
-The model sees `rpc.latex-writer.publishMathBlock` in its tool catalog and calls it like any other tool. The bus resolves the call to the registered handler and returns the result synchronously.
+**The bus never rejects.** Every RPC call resolves to either `{ "ok": true, "value": ... }` or `{ "ok": false, "errorKind": "no-handler" | "timeout" | "handler-threw", "message": "..." }`. Because no handlers are registered, the result today is always `no-handler`; the model reads it as a tool result and the loop does not crash.
 
-**The bus never rejects.** Every RPC call resolves to either `{ "ok": true, "value": ... }` or `{ "ok": false, "errorKind": "no-handler" | "timeout" | "handler-threw", "message": "..." }`. A facet loop that tries to call a peer that hasn't registered a handler gets a typed error result it can read and react to — the loop does not crash.
-
-After each batch, `rpcWireTrace` records every RPC attempt: caller, receiver, method, args, outcome, and elapsed milliseconds. The review UI exposes this trace so you can see what facets communicated.
+The batch result's `rpcWireTrace` records every RPC attempt (caller, receiver, method, args, outcome, elapsed milliseconds), but no UI shows it yet.
 
 ---
 
@@ -319,22 +316,22 @@ Audit the diff on this branch for security issues.
 Focus on the new /api/admin/* endpoints.
 ```
 
-`security-reviewer`'s read-only allowlist means it can examine files, grep for patterns, and read the git diff — but cannot write anything. Its output is a findings report in the review panel, not a patch.
+`security-reviewer`'s read-only allowlist means it can examine files, grep for patterns, and read the git diff — but cannot write anything. It produces no patch, so there is no review card: its findings open as a Markdown document when the batch finishes.
 
 ### DSP / Signal Processing Paper
 
-Select `signal-processing` and `latex-writer` with an `rpcSchema` on `latex-writer` for `publishMathBlock`. Task:
+Select `signal-processing` and `latex-writer`. Task:
 
 ```
 Implement the Goertzel algorithm in dsp/goertzel.ts.
 Keep the LaTeX paper in sync with the implementation.
 ```
 
-`signal-processing` implements the algorithm and calls `rpc.latex-writer.publishMathBlock` with each load-bearing equation. `latex-writer` updates the corresponding `.tex` file. Both diffs land in the batch review.
+`signal-processing` implements the algorithm and `latex-writer` updates the corresponding `.tex` file. Both diffs land in the batch review. The two facets work from the same task and the same `HEAD`; they cannot pass equations to each other, because [facet RPC](#the-rpcschema-field) is not wired up yet.
 
 ### Adding a New Data Pipeline
 
-Select `general-coder`, `data-engineer`, and `test-author` with `data-engineer` having `dependsOn: ["general-coder"]`. Task:
+The built-in facets declare no `dependsOn`, so first give `data-engineer` one: a facet file in `.sidecar/facets/` with `id: data-engineer` replaces the built-in, so copy its fields and add `dependsOn: ["general-coder"]`. Then select `general-coder`, `data-engineer`, and `test-author`. Task:
 
 ```
 Add a pipeline that ingests daily user activity CSVs into the

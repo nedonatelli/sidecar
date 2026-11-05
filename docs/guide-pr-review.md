@@ -13,16 +13,11 @@ This guide covers the full PR lifecycle in SideCar — from reviewing an incomin
 
 ## Reviewing an incoming PR
 
-### Fetch the branch and run /review
+### /review: your uncommitted changes
 
-Check out the branch you want to review, then type `/review` in the SideCar chat panel. SideCar collects the full `git diff` against the working tree (staged and unstaged) and runs the model over it.
+`/review` reviews **uncommitted changes**: SideCar collects `git diff HEAD` (staged and unstaged edits to tracked files) and runs the model over it. It does not diff a branch against its base, so checking out someone else's PR branch with a clean working tree gives it nothing to review — for that, see [Posting inline comments](#posting-inline-comments) below, which reviews `origin/<base>...HEAD`.
 
-```
-git fetch origin
-git checkout feature/some-branch
-```
-
-Then in SideCar chat:
+In SideCar chat:
 
 ```
 /review
@@ -43,11 +38,11 @@ You can also run `SideCar: Review Changes` from the Command Palette (`Cmd+Shift+
 
 The reviewer prompt is direct: it reads the raw diff and asks the model to identify real problems. The system prompt instructs the model to "be thorough but concise" and "only flag real issues." You won't get a list of 40 suggestions about variable names.
 
-For a branch-range diff (everything this branch changed against its base), SideCar uses the diff between `origin/<baseBranch>...HEAD` so you see the cumulative change rather than just the last commit.
+`/review` never looks at a branch range. The branch-range diff (`origin/<baseBranch>...HEAD`, everything this branch changed against its base) is what `SideCar: Post PR Review with Inline Comments (Agent)` hands the agent.
 
 ### Customizing the review with SIDECAR.md
 
-You can add your own review checklist to `.sidecar/SIDECAR.md`. SideCar injects this file into the system prompt for every agent turn, including reviews. Add a section like this:
+`/review` does not use SIDECAR.md: it replaces the system prompt with its own fixed reviewer prompt, and no section of SIDECAR.md is read for it. SIDECAR.md is injected into agent turns, so a checklist there applies when the **agent** reviews — `SideCar: Post PR Review with Inline Comments (Agent)`, `/pr-respond`, or a chat request such as "review my changes against the checklist". Add a section like this to `.sidecar/SIDECAR.md`:
 
 ```markdown
 ## Review checklist
@@ -72,15 +67,15 @@ Because SIDECAR.md sections support path scoping, you can also target specific p
 - Never log the raw token — only the sub claim
 ```
 
-That section only activates when the agent is looking at files matching those globs, keeping the review prompt lean for unrelated changes.
+That section only activates when the agent is looking at files matching those globs, keeping the agent's prompt lean for unrelated changes.
 
 Run `/init` once to generate a starter SIDECAR.md if you don't have one yet.
 
 ### Using the security-reviewer facet for a deeper pass
 
-For a focused security audit, dispatch the built-in `security-reviewer` facet instead of running a plain `/review`. The `security-reviewer` facet uses a security-specialist persona, a security-tuned tool allowlist, and runs in its own Shadow Workspace so nothing touches your main tree.
+For a focused security audit, dispatch the built-in `security-reviewer` facet instead of running a plain `/review`. The `security-reviewer` facet uses a security-specialist persona and a read-only tool allowlist, so it reports findings rather than editing files.
 
-From the Command Palette, run `SideCar: Facets: Dispatch Specialists`. Select `security-reviewer` from the multi-select QuickPick, enter the task (e.g. "security review of src/api/"), and press Enter. The facet works in its own shadow workspace — asking before any command or other action outside it, unless your agent mode is autonomous — and produces a diff review at the end.
+From the Command Palette, run `SideCar: Facets: Dispatch Specialists`. Select `security-reviewer` from the multi-select QuickPick, enter the task (e.g. "security review of src/api/"), and press Enter. Its output streams into the chat panel and batch progress shows in the dispatch graphic. Because it makes no edits, there is no diff to review: when it finishes, its report opens as a Markdown document.
 
 For a combined general + security pass in one batch:
 
@@ -88,7 +83,7 @@ For a combined general + security pass in one batch:
 2. Select both `general-coder` and `security-reviewer`
 3. Enter your task description
 
-Both facets run in parallel (bounded by `sidecar.facets.maxConcurrent`, default 3). The batch review UI fires once after both finish, showing each facet's findings with cross-facet file-overlap detection.
+Both facets run in parallel (bounded by `sidecar.facets.maxConcurrent`, default 3). After both finish, `general-coder`'s diff goes to the review panel (Accept / Reject / Skip, with cross-facet file-overlap detection), and `security-reviewer`'s report opens as a Markdown document. A facet that failed, or produced no diff, is skipped in the review.
 
 ---
 
@@ -122,7 +117,7 @@ The agent calls `create_pr_review` and constructs the review. You can steer it m
 
 ### submit_pr_review: approve, request changes, or comment
 
-The `submit_pr_review` tool (and its corresponding agent invocation) submits a pending review with one of three events:
+`create_pr_review` posts a complete review — summary body, event and inline comments — in one call; nothing is left pending. `submit_pr_review` posts a **separate** top-level review (a body and an event, no inline comments), typically the summary at the end of `/pr-respond`. Both take `event` as one of:
 
 | Event             | When to use                                            |
 | ----------------- | ------------------------------------------------------ |
@@ -144,7 +139,7 @@ The `reply_pr_comment` tool posts a reply to an existing review thread. The agen
 Reply to thread 123456789 on PR #42: "Fixed — the null check is now in validateInput() before this call."
 ```
 
-The agent needs the `comment_id` (the thread's root comment ID from the GitHub API). When you run `/pr-respond`, SideCar fetches all open threads and includes their IDs in the agent prompt automatically.
+The agent needs the `comment_id` (the thread's root comment ID from the GitHub API). When you run `/pr-respond`, SideCar fetches the PR's review threads (resolved ones included — the GitHub API call it uses doesn't report resolution) and includes their IDs in the agent prompt automatically.
 
 ---
 
@@ -190,7 +185,7 @@ Run `/ci` in chat (or `SideCar: Analyze CI Failure` from the Command Palette) fo
 4. Opens a Markdown preview with grouped, formatted failure blocks
 5. Surfaces each failure as a VS Code diagnostic in the Problems panel (`source: sidecar-ci`), so you can click through directly to the offending file/line
 
-After the preview opens, you're offered "Send to agent for fix." If you accept, the full failure summary is injected into the agent as a new turn and it begins diagnosing and patching. You can also click any diagnostic in the Problems panel to trigger `sidecar.ci.fixFromDiagnostic`, which injects the failure message directly into chat:
+After the preview opens, you're offered **Send to agent**. If you accept, the full failure summary is injected into the agent as a new turn and it begins diagnosing and patching. On any of these diagnostics, the lightbulb quick fix (`Cmd+.` / `Ctrl+.`) offers **Ask SideCar to fix this CI failure**, which runs `sidecar.ci.fixFromDiagnostic` and injects the failure message directly into chat:
 
 ```
 Fix the CI failure: TypeError: Cannot read property 'id' of undefined at src/api/users.ts:87
@@ -240,9 +235,9 @@ If you always merge into `develop` rather than `main`, set `baseBranch` to `"dev
 
 ### /pr-summary: title and body without pushing
 
-If you want to preview the generated PR description without creating the PR yet, use `/pr-summary` in chat (or `SideCar: Summarize Pull Request` from the Command Palette). It generates the title and body from the branch-range diff and opens a Markdown preview — no push, no API call.
+If you want a draft description without creating a PR, use `/pr-summary` in chat (or `SideCar: Summarize Pull Request` from the Command Palette). Like `/review`, it works from your **uncommitted changes** (`git diff HEAD`), not the branch-range diff, and opens the result — a suggested title, summary bullets, impacted files and reviewer focus areas — as a Markdown document in an editor tab. No push, no API call.
 
-This is useful for drafting the description in advance, copying it into an existing PR, or checking how the model summarizes a large diff before committing to it.
+This is useful for drafting a description for work you haven't committed yet. For a description of a committed branch, `/pr` generates one from the branch-range diff and shows it before anything is submitted.
 
 ---
 
@@ -271,13 +266,13 @@ When you create a PR via `/pr`, SideCar fetches the branch protection rules for 
 
 This appears in the preview tab before you confirm, not in the PR body itself. It's informational — SideCar won't block the push based on protection rules, but it makes sure you see them before submitting.
 
-For `git_push`, the agent always requests approval before pushing (it's a destructive tool). The approval modal shows the full push command so you can verify the branch and remote before confirming.
+For `git_push`, Cautious and Manual modes ask before pushing; Autonomous mode pushes without asking, except a force push, which always asks you to type to confirm. The approval shows the remote, its URL and the commits being pushed, so you can check where they go before confirming.
 
 ### /pr-respond: address all open review threads
 
 After reviewers have commented on your PR, run `/pr-respond` in chat (or `SideCar: Respond to PR Comments (Agent)` from the Command Palette). SideCar:
 
-1. Fetches all open review threads for your branch's PR
+1. Fetches the review threads on your branch's PR (all of them, resolved ones included)
 2. Formats them as structured Markdown grouped by file
 3. Dispatches the agent with a prompt to address each thread
 
@@ -289,11 +284,11 @@ For each thread the agent:
 - If not applicable: calls `reply_pr_comment` with a concise explanation of why the existing approach is correct
 - After all threads are addressed, calls `submit_pr_review` with a summary
 
-The agent handles the full response pass autonomously. If you want to review its proposed replies before they post, switch to Cautious mode before running `/pr-respond` — you'll see each `reply_pr_comment` and `submit_pr_review` call as an approval prompt.
+In Cautious mode, the default, each `reply_pr_comment` and `submit_pr_review` call is an approval prompt, so you see every reply before it posts. In Autonomous mode the agent posts them without asking.
 
 ### /review-comments: read threads without responding
 
-To read the current review comments without triggering a response pass, run `/review-comments` in chat. This opens the formatted thread view in a Markdown preview tab and offers (but doesn't require) a "Send to agent" option. Use it when you want to read what reviewers said before deciding how to respond.
+To read the current review comments without triggering a response pass, run `/review-comments` in chat. This opens the formatted thread view (every thread, resolved ones included) in a Markdown preview tab and offers (but doesn't require) a "Send to agent" option. Use it when you want to read what reviewers said before deciding how to respond.
 
 ---
 
@@ -301,17 +296,17 @@ To read the current review comments without triggering a response pass, run `/re
 
 | Step                                       | SideCar command / tool                                                           |
 | ------------------------------------------ | -------------------------------------------------------------------------------- |
-| Review incoming PR diff                    | `/review` or `SideCar: Review Changes`                                           |
+| Review your uncommitted changes            | `/review` or `SideCar: Review Changes`                                           |
 | Deep security pass                         | Facets: `security-reviewer`                                                      |
 | Post inline review comments to GitHub      | `SideCar: Post PR Review with Inline Comments (Agent)` (`sidecar.pr.postReview`) |
 | Submit approve / request-changes / comment | `submit_pr_review` tool (called by agent during review)                          |
 | Reply to a specific thread                 | `reply_pr_comment` tool or `/pr-respond`                                         |
-| Read your PR's open threads                | `/review-comments`                                                               |
+| Read your PR's review threads              | `/review-comments`                                                               |
 | Address all open review threads            | `/pr-respond`                                                                    |
 | Check CI check status                      | `/pr-ci` or `SideCar: Check PR CI Status`                                        |
 | Diagnose failing CI logs                   | `/ci` or `SideCar: Analyze CI Failure`                                           |
 | Create a PR from your branch               | `/pr` or `SideCar: Create Pull Request (Draft from Branch)`                      |
-| Preview PR title + body only               | `/pr-summary` or `SideCar: Summarize Pull Request`                               |
+| Draft a PR summary of uncommitted changes  | `/pr-summary` or `SideCar: Summarize Pull Request`                               |
 | Move draft PR to ready-for-review          | `/pr-ready` or `SideCar: Mark PR Ready for Review`                               |
 | Commit staged changes                      | `/commit`                                                                        |
-| Push to remote                             | `git_push` tool (agent), always requires approval                                |
+| Push to remote                             | `git_push` tool (agent), asks first in Cautious and Manual modes                |

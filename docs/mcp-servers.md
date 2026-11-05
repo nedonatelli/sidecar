@@ -13,7 +13,7 @@ SideCar supports the [Model Context Protocol (MCP)](https://modelcontextprotocol
 
 MCP is an open protocol that lets AI assistants call external tools — databases, APIs, file systems, and custom scripts. MCP tools appear alongside SideCar's built-in tools and go through the same approval flow.
 
-This page covers the **client** direction (SideCar consuming external MCP servers). SideCar can also act as an MCP **server**, exposing its own agent as a `run_agent_task` tool over Streamable HTTP (port 3457) for other MCP clients — see the `sidecar.mcpServer.*` settings in [Configuration](configuration#mcp-server).
+This page covers the **client** direction (SideCar consuming external MCP servers). SideCar can also act as an MCP **server**, exposing its own agent as a `run_agent_task` tool over Streamable HTTP (port 3457) for other MCP clients — see the `sidecar.mcpServer.*` settings in [Configuration](configuration#sidecar-as-mcp-server--inbound-calls).
 
 ## Transport types
 
@@ -53,17 +53,14 @@ For team-shared configurations, create a `.mcp.json` file at your workspace root
   "mcpServers": {
     "my-api": {
       "type": "http",
-      "url": "https://mcp.example.com/api",
-      "headers": {
-        "Authorization": "Bearer ${API_TOKEN}"
-      }
+      "url": "https://mcp.example.com/api"
     },
     "local-tools": {
       "type": "stdio",
       "command": "npx",
       "args": ["my-mcp-server"],
       "env": {
-        "DB_URL": "${DATABASE_URL}"
+        "LOG_LEVEL": "info"
       }
     }
   }
@@ -72,7 +69,9 @@ For team-shared configurations, create a `.mcp.json` file at your workspace root
 
 **Merge behavior**: VS Code settings take precedence over `.mcp.json`. If both define a server with the same name, the VS Code setting wins. This lets individuals override shared project configs.
 
-**Environment variable expansion**: Use `${VAR_NAME}` in `env` values and HTTP `headers`. Variables resolve from `process.env` merged with the server's `env` config. This keeps secrets out of version control.
+**Environment variable expansion**: `${VAR_NAME}` is expanded only in HTTP/SSE `headers`, and only from that server's own `env` block — never from your shell or `process.env`. A placeholder with no matching `env` entry becomes an empty string. Values in `env` are passed as written; `${VAR}` inside them is not expanded.
+
+`.mcp.json` http/sse servers don't keep an `env` block, so a `${VAR}` in their headers always becomes empty. Define a server that needs a token in your user-level `sidecar.mcpServers` instead (see the HTTP example below), which also keeps the token out of version control.
 
 ## Transport examples
 
@@ -94,6 +93,7 @@ For team-shared configurations, create a `.mcp.json` file at your workspace root
   "production-api": {
     "type": "http",
     "url": "https://mcp.mycompany.com/api",
+    "env": { "MCP_TOKEN": "your-token" },
     "headers": {
       "Authorization": "Bearer ${MCP_TOKEN}"
     }
@@ -108,6 +108,7 @@ For team-shared configurations, create a `.mcp.json` file at your workspace root
   "streaming-server": {
     "type": "sse",
     "url": "https://mcp.example.com/sse",
+    "env": { "SSE_API_KEY": "your-key" },
     "headers": {
       "X-API-Key": "${SSE_API_KEY}"
     }
@@ -267,24 +268,24 @@ Type `/mcp-builder` in chat to start, or describe the API you want to wrap.
 
 ## Full configuration reference
 
-| Field            | Type                             | Default   | Description                                                                     |
-| ---------------- | -------------------------------- | --------- | ------------------------------------------------------------------------------- |
-| `type`           | `"stdio"` \| `"http"` \| `"sse"` | `"stdio"` | Transport type                                                                  |
-| `command`        | string                           | —         | Executable to spawn (stdio)                                                     |
-| `args`           | string[]                         | `[]`      | Command arguments (stdio)                                                       |
-| `env`            | object                           | `{}`      | Environment variables (stdio) or variable source for header expansion           |
-| `url`            | string                           | —         | Server URL (http/sse)                                                           |
-| `headers`        | object                           | `{}`      | HTTP headers (http/sse). Supports `${VAR}` expansion                            |
-| `tools`          | object                           | `{}`      | Per-tool config: `{ "tool_name": { "enabled": false } }`                        |
-| `toolAllowlist`  | string[]                         | —         | When set, only listed tools are registered; all others are silently dropped     |
-| `maxResultChars` | number                           | `50000`   | Maximum result size in characters before truncation                             |
-| `alwaysLoad`     | boolean                          | `false`   | Inject full tool schemas into the prompt upfront instead of lazy one-line stubs |
+| Field            | Type                             | Default   | Description                                                                                                                    |
+| ---------------- | -------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `type`           | `"stdio"` \| `"http"` \| `"sse"` | `"stdio"` | Transport type                                                                                                                 |
+| `command`        | string                           | —         | Executable to spawn (stdio)                                                                                                    |
+| `args`           | string[]                         | `[]`      | Command arguments (stdio)                                                                                                      |
+| `env`            | object                           | `{}`      | Environment variables (stdio, passed as written) or the only source for `${VAR}` in headers (http/sse; ignored in `.mcp.json`) |
+| `url`            | string                           | —         | Server URL (http/sse)                                                                                                          |
+| `headers`        | object                           | `{}`      | HTTP headers (http/sse). `${VAR}` expands from this server's `env` only                                                        |
+| `tools`          | object                           | `{}`      | Per-tool config: `{ "tool_name": { "enabled": false } }`                                                                       |
+| `toolAllowlist`  | string[]                         | —         | When set, only listed tools are registered; all others are silently dropped                                                    |
+| `maxResultChars` | number                           | `50000`   | Maximum result size in characters before truncation                                                                            |
+| `alwaysLoad`     | boolean                          | `false`   | Inject full tool schemas into the prompt upfront instead of lazy one-line stubs                                                |
 
 ## Troubleshooting
 
 - **Check server status**: run `/mcp` in chat to see connection status and errors
 - **Verify installation**: run the MCP server command manually in your terminal
-- **Check logs**: open the "SideCar Agent" output channel for connection errors
+- **Check logs**: open the "SideCar" output channel for connection errors
 - **PATH issues**: ensure `npx` and `node` are in your PATH if using npx-based servers
 - **Windows**: when using `npx` on Windows, you may need to wrap with `cmd /c npx`
 - **HTTP servers**: ensure the URL is reachable and returns valid MCP responses

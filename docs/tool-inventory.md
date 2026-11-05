@@ -1,3 +1,10 @@
+---
+title: Tool-Surface Inventory
+layout: docs
+nav_order: 10
+nav_section: 'Extend'
+---
+
 # Tool-Surface Inventory & Feature-Budget Recommendation
 
 > Decision-framing doc for the agent tool surface (review item #9). The tier
@@ -9,7 +16,7 @@
 
 SideCar ships **87 built-in agent tools** (pinned by `tools.test.ts`) across ~34 tool-group files in `src/agent/tools/` (plus the inline tools in `tools.ts`). The original review flagged this as feature sprawl threatening a small-team project. The data says the situation is **better than it looks** — two mitigations already exist:
 
-1. **Config gating** — extended tool groups are excluded from the LLM catalog when their `sidecar.*.enabled` flag is off. `TOOL_REGISTRY` is a complete static catalog; the gate is applied **dynamically per request** by `getEnabledBuiltInTools(cfg)` (see `GATED_TOOL_GROUPS` in [tools.ts](../src/agent/tools.ts)).
+1. **Config gating** — extended tool groups are excluded from the LLM catalog when their `sidecar.*.enabled` flag is off. `TOOL_REGISTRY` is a complete static catalog; the gate is applied **dynamically per request** by `getEnabledBuiltInTools(cfg)` (see `GATED_TOOL_GROUPS` in [tools.ts](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools.ts)).
 2. **Tier stubbing** — `getToolDefinitionsForTier('full', …)` sends non-core built-ins as one-line stubs (name + first sentence + `describe_tool` pointer) instead of full schemas, so extended tools cost ~1 line of catalog each.
 
 The **remaining opportunity** is narrower: a cluster of ~14 _always-on, context-irrelevant_ tools (database, GitHub-PR, academic) are listed in every session — including a default Ollama user editing TypeScript who will never use them. That's catalog noise a local model can still mis-select against, with no usage signal justifying it.
@@ -20,7 +27,7 @@ This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gat
 
 ## How the catalog is assembled
 
-- [`TOOL_REGISTRY`](../src/agent/tools.ts) is a module-level `const` that spreads **every** built-in tool group unconditionally — it is the complete static catalog of what exists.
+- [`TOOL_REGISTRY`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools.ts) is a module-level `const` that spreads **every** built-in tool group unconditionally — it is the complete static catalog of what exists.
 - Whether a gated group is advertised + callable is decided **dynamically per request** by `getEnabledBuiltInTools(cfg)` against `GATED_TOOL_GROUPS`, so toggling a `sidecar.*.enabled` flag (or injecting a test config) takes effect on the next request — no window reload, unlike the old import-time spreads this replaced.
 - `getToolDefinitions()` returns the enabled defs + `spawn_agent`, plus `delegate_task` **only** when provider is anthropic/openai (a runtime-relevance gate).
 - `getToolDefinitionsForTier('full')` stubs extended built-ins; `'read'` returns only observation tools.
@@ -63,7 +70,7 @@ This is a **tuning** problem, not a sprawl crisis. Recommendation: relevance-gat
 
 ### Tier A — Relevance-gate the always-on niche cluster (highest value, no feature loss)
 
-Extend the `delegate_task` provider-gate pattern to the context-specific cluster, so a tool is advertised only when it _could_ apply. Implemented via `RELEVANCE_GATED_GROUPS` in [tools.ts](../src/agent/tools.ts) (synchronous config signals, null-safe):
+Extend the `delegate_task` provider-gate pattern to the context-specific cluster, so a tool is advertised only when it _could_ apply. Implemented via `RELEVANCE_GATED_GROUPS` in [tools.ts](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools.ts) (synchronous config signals, null-safe):
 
 - **Database** (6) → ✅ included only when ≥1 profile is configured (`databaseProfiles.length > 0`).
 - **Zotero** (2) → ✅ included only when Zotero credentials are set (`zoteroUserId` + `zoteroApiKey`).
@@ -78,7 +85,7 @@ Net effect: a default local-LLM coding session now sheds 11 catalog entries (dat
 
 ### Tier C — Hygiene & governance
 
-- **Close the 2 test gaps:** ✅ done — `deps.ts` ([deps.test.ts](../src/agent/tools/deps.test.ts)) and `history.ts` ([history.test.ts](../src/agent/tools/history.test.ts)) now have co-located tests. Every tool file is now covered.
+- **Close the 2 test gaps:** ✅ done — `deps.ts` ([deps.test.ts](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/deps.test.ts)) and `history.ts` ([history.test.ts](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/history.test.ts)) now have co-located tests. Every tool file is now covered.
 - **Feature-budget norm:** new always-on tools should justify universal relevance or ship gated/relevance-scoped by default. Niche additions default OFF.
 - **Plugin question (longer-term):** the academic + research + notebook cluster (zotero/pdf/citation/notebook/research ≈ 22 tools, ~2,000 LOC) is the most self-contained, least-coding-centric surface. If/when usage telemetry exists and shows low adoption, it's the natural candidate to split into an optional companion extension rather than carry in core. Not actionable today — flagged so the decision is deliberate, not default.
 
