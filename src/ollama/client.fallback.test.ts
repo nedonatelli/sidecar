@@ -228,12 +228,14 @@ describe('SideCarClient — retry/fallback interplay', () => {
     expect(chatUrls()).toEqual(['http://127.0.0.1:11434/api/chat']);
   });
 
+  const isAnthropicHost = (url: unknown): boolean => new URL(String(url)).hostname === 'api.anthropic.com';
+
   // #420: sidecar.provider is the primary's backend; applied to the fallback,
   // an Ollama primary posted /api/chat to an Anthropic fallback.
   it('speaks the fallback URL’s protocol, not the primary’s provider', async () => {
     h.overrides = { ...h.overrides, fallbackBaseUrl: 'https://api.anthropic.com', fallbackApiKey: 'sk-ant' };
     mockFetch.mockImplementation(async (url: unknown) => {
-      if (String(url).includes('anthropic.com')) {
+      if (isAnthropicHost(url)) {
         return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ANTHROPIC' }] }), { status: 200 });
       }
       throw new Error('Network error');
@@ -242,7 +244,7 @@ describe('SideCarClient — retry/fallback interplay', () => {
 
     await expect(client.complete([{ role: 'user', content: 'a' }])).rejects.toThrow();
     expect(await client.complete([{ role: 'user', content: 'b' }])).toBe('ANTHROPIC');
-    const fallbackUrls = mockFetch.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('anthropic.com'));
+    const fallbackUrls = mockFetch.mock.calls.map((c) => String(c[0])).filter(isAnthropicHost);
     expect(fallbackUrls).toEqual(['https://api.anthropic.com/v1/messages']);
     expect(client.getProviderType()).toBe('anthropic');
   });
@@ -252,7 +254,7 @@ describe('SideCarClient — retry/fallback interplay', () => {
   it("credits a fallback success to the fallback's breaker, not the primary's", async () => {
     h.overrides = { ...h.overrides, fallbackBaseUrl: 'https://api.anthropic.com', fallbackApiKey: 'sk-ant' };
     mockFetch.mockImplementation(async (url: unknown) => {
-      if (String(url).includes('anthropic.com')) {
+      if (isAnthropicHost(url)) {
         return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ANTHROPIC' }] }), { status: 200 });
       }
       throw new Error('Network error');
