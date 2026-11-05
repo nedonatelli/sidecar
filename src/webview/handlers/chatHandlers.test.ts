@@ -796,7 +796,12 @@ describe('classifySmallTalk', () => {
 describe('isCommitRequest', () => {
   it('recognizes bare commit', () => {
     expect(isCommitRequest('commit')).toBe(true);
-    expect(isCommitRequest('lgtm')).toBe(true);
+  });
+
+  it('does not take a reply that only approves as a commit request', () => {
+    expect(isCommitRequest('lgtm')).toBe(false);
+    expect(isCommitRequest('save changes')).toBe(false);
+    expect(isCommitRequest('save the changes.')).toBe(false);
   });
 
   it('recognizes qualified phrases', () => {
@@ -2700,128 +2705,18 @@ describe('handleRestartOllama', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// handleGenerateCommit — additional branches
-// ---------------------------------------------------------------------------
-
-// Shared mock fns for GitCLI — must be declared at module scope so the hoisted
-// vi.mock factory can close over them.
-const gitMockStatus = vi.fn();
-const gitMockDiff = vi.fn();
-const gitMockStage = vi.fn();
-const gitMockCommit = vi.fn();
-
+// GitCLI is mocked for the whole file (vi.mock is hoisted), so no test here
+// runs real git. handleGenerateCommit's branches are in generateHandlers.test.ts.
 vi.mock('../../github/git.js', () => ({
   GitCLI: class {
-    status(...args: unknown[]) {
-      return gitMockStatus(...args);
+    changedPaths() {
+      return Promise.resolve({ staged: [], unstaged: [] });
     }
-    diff(...args: unknown[]) {
-      return gitMockDiff(...args);
-    }
-    stage(...args: unknown[]) {
-      return gitMockStage(...args);
-    }
-    commit(...args: unknown[]) {
-      return gitMockCommit(...args);
+    listUntracked() {
+      return Promise.resolve([]);
     }
   },
 }));
-
-describe('handleGenerateCommit — git branches', () => {
-  beforeEach(() => {
-    gitMockStatus.mockReset();
-    gitMockDiff.mockReset();
-    gitMockStage.mockReset();
-    gitMockCommit.mockReset();
-  });
-
-  function makeState() {
-    return {
-      postMessage: vi.fn(),
-      client: {
-        updateConnection: vi.fn(),
-        updateModel: vi.fn(),
-        complete: vi.fn().mockResolvedValue('feat: add feature\n\n- detail one'),
-      },
-    };
-  }
-
-  it('posts "No changes to commit" when working tree is clean', async () => {
-    gitMockStatus.mockResolvedValue('Working tree clean.');
-
-    const state = makeState();
-    await handleGenerateCommit(state as never);
-
-    expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'assistantMessage', content: 'No changes to commit.' }),
-    );
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
-  });
-
-  it('posts "No diff found" when status is not clean but diff is empty', async () => {
-    gitMockStatus.mockResolvedValue('M  src/app.ts');
-    gitMockDiff.mockResolvedValue({ diff: 'No diff output.' });
-
-    const state = makeState();
-    await handleGenerateCommit(state as never);
-
-    expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: 'assistantMessage',
-        content: expect.stringContaining('No diff found'),
-      }),
-    );
-  });
-
-  it('posts commit result on happy path', async () => {
-    gitMockStatus.mockResolvedValue('M  src/app.ts');
-    gitMockDiff.mockResolvedValue({ diff: 'diff --git a/src/app.ts b/src/app.ts\n+added line' });
-    gitMockStage.mockResolvedValue(undefined);
-    gitMockCommit.mockResolvedValue('[main abc1234] feat: add feature');
-
-    const state = makeState();
-    await handleGenerateCommit(state as never);
-
-    const assistantCalls = state.postMessage.mock.calls.filter(
-      (c: unknown[]) => (c[0] as { command: string }).command === 'assistantMessage',
-    );
-    const contents = assistantCalls.map((c: unknown[]) => (c[0] as { content: string }).content);
-    expect(contents.some((c: string) => c.includes('[main abc1234]'))).toBe(true);
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
-  });
-
-  it('posts error when git.status() throws', async () => {
-    gitMockStatus.mockRejectedValue(new Error('git not found'));
-
-    const state = makeState();
-    await handleGenerateCommit(state as never);
-
-    expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: 'error',
-        content: expect.stringContaining('git not found'),
-      }),
-    );
-  });
-
-  it('posts error when git.commit() throws', async () => {
-    gitMockStatus.mockResolvedValue('M  src/app.ts');
-    gitMockDiff.mockResolvedValue({ diff: 'diff --git a/src/app.ts b/src/app.ts\n+added line' });
-    gitMockStage.mockResolvedValue(undefined);
-    gitMockCommit.mockRejectedValue(new Error('nothing to commit'));
-
-    const state = makeState();
-    await handleGenerateCommit(state as never);
-
-    expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: 'error',
-        content: expect.stringContaining('nothing to commit'),
-      }),
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // handleExportChat — full success path

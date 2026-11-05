@@ -138,6 +138,31 @@ export class GitCLI {
     return output.split('\0').filter(Boolean);
   }
 
+  /**
+   * Changed paths relative to the cwd, like listUntracked: in the index against
+   * HEAD (`staged`), and in the work tree against the index (`unstaged`).
+   */
+  async changedPaths(): Promise<{ staged: string[]; unstaged: string[] }> {
+    const names = async (extra: string[]) =>
+      (
+        await this.exec(['diff', '--name-only', '--relative', '-z', ...extra], undefined, {
+          raw: true,
+          maxBuffer: 16 * 1024 * 1024,
+        })
+      )
+        .split('\0')
+        .filter(Boolean);
+    return { staged: await names(['--cached']), unstaged: await names([]) };
+  }
+
+  /** The diff of just `files`: the index against HEAD when `staged`, else the work tree against the index. */
+  async diffPaths(files: string[], staged: boolean): Promise<string> {
+    if (files.length === 0) return '';
+    return this.exec(['diff', ...(staged ? ['--cached'] : []), '--', ...files], undefined, {
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  }
+
   async stage(files?: string[]): Promise<string> {
     if (files && files.length > 0) {
       await this.exec(['add', '--', ...files]);
