@@ -19,6 +19,8 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **`git_diff` leaves credential files out**, as `grep` and `read_file` already do. A tracked
+  `.env.production` or `secrets.yml` that changed is named, but its lines are not shown.
 - **The install approval reads each package manager's own flags.** A short flag that takes a value
   for one tool but not another (`-f` is npm's `--force` and pip's `--find-links`) could hide the
   package after it, so `npm i -f <package>` was not asked about. Versioned pip commands such as

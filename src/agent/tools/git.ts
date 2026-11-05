@@ -8,6 +8,7 @@ import { fetchRepoVisibility } from '../../github/repoVisibility.js';
 import { canPushDirect, summarizeProtection, formatProtectionMarkdown } from '../../github/branchProtection.js';
 import { resolveRoot, formatToolError, type ToolExecutorContext, type RegisteredTool } from './shared.js';
 import { compressGitDiff } from './compression.js';
+import { SECRET_FILE_GLOBS } from './grepArgs.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
 import { shouldBufferCommits } from './auditHelper.js';
 import { getConfig } from '../../config/settings.js';
@@ -45,11 +46,18 @@ export const gitDiffDef: ToolDefinition = {
 export async function gitDiffTool(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
     const git = new GitCLI(context?.cwd);
-    const result = await git.diff(input.ref1 as string | undefined, input.ref2 as string | undefined);
+    // Credential files are left out, as grep and read_file leave them out:
+    // this tool needs no approval, and its output goes to the model.
+    const result = await git.diff(input.ref1 as string | undefined, input.ref2 as string | undefined, {
+      exclude: SECRET_FILE_GLOBS,
+    });
+    const left = result.excluded?.length
+      ? `\n\nNot shown, as they look like credential files: ${result.excluded.join(', ')}.`
+      : '';
     // Drop blob hashes and redundant diff --git preambles — these
     // carry no information the model uses when reasoning about a
     // change, so there's no cost to stripping them.
-    return `${result.summary}\n\n${compressGitDiff(result.diff)}`;
+    return `${result.summary}\n\n${compressGitDiff(result.diff)}${left}`;
   } catch (err) {
     throw new Error(`git diff failed: ${formatToolError(err)}`);
   }

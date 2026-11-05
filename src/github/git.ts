@@ -98,7 +98,12 @@ export class GitCLI {
     });
   }
 
-  async diff(ref1?: string, ref2?: string): Promise<GitDiffResult> {
+  /**
+   * @param opts.exclude Basename globs (`.env`, `*.pem`) whose files are left
+   *   out of the diff anywhere in the repository; their paths come back in
+   *   `excluded`.
+   */
+  async diff(ref1?: string, ref2?: string, opts: { exclude?: readonly string[] } = {}): Promise<GitDiffResult> {
     assertGitName(ref1, 'ref');
     assertGitName(ref2, 'ref');
     // With no refs, diff against HEAD: staged AND unstaged changes, as the
@@ -114,14 +119,28 @@ export class GitCLI {
         refs = [];
       }
     }
-    const summary = await this.exec(['diff', '--stat', ...refs]);
-    let diff = await this.exec(['diff', ...refs]);
+    // Anchored at the top, so a cwd below the repository root still diffs the
+    // whole repository, as it does with no pathspec.
+    const exclude = opts.exclude ?? [];
+    const paths = exclude.length ? ['--', ':(top)', ...exclude.map((g) => `:(top,exclude,glob,icase)**/${g}`)] : [];
+    const summary = await this.exec(['diff', '--stat', ...refs, ...paths]);
+    let diff = await this.exec(['diff', ...refs, ...paths]);
 
     if (diff.length > MAX_DIFF_LENGTH) {
       diff = diff.slice(0, MAX_DIFF_LENGTH) + '\n\n[truncated]';
     }
 
-    return { summary: summary || 'No changes.', diff: diff || 'No diff output.' };
+    let excluded: string[] | undefined;
+    if (exclude.length) {
+      const names = async (extra: string[]) =>
+        (await this.exec(['diff', '--name-only', '-z', ...refs, ...extra], undefined, { raw: true }))
+          .split('\0')
+          .filter(Boolean);
+      const kept = new Set(await names(paths));
+      excluded = (await names([])).filter((p) => !kept.has(p));
+    }
+
+    return { summary: summary || 'No changes.', diff: diff || 'No diff output.', ...(excluded ? { excluded } : {}) };
   }
 
   async status(): Promise<string> {

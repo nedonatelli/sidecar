@@ -80,6 +80,10 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.6** (2026-11) — git_diff leaves credential files out. `git_diff`
+ *   names a changed credential file without showing its lines, as `grep` and
+ *   `read_file` already do. PATCH: model-facing tool-result text. No eval:
+ *   SWE-bench repos have no such files.
  * - **7.0.5** (2026-11) — install approval reads each package manager's flags.
  *   The install approval parses flags per package manager, so a short flag that
  *   takes a value for one tool no longer hides the package after it, and
@@ -357,7 +361,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.5';
+export const SCAFFOLD_VERSION = '7.0.6';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

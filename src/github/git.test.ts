@@ -64,6 +64,20 @@ describe('GitCLI', () => {
     expect(mockExecFile).not.toHaveBeenCalled();
   });
 
+  it('diff leaves out excluded globs anywhere in the repository, and names what it left out', async () => {
+    mockExecFile.mockImplementation((_cmd, args, _opts, fn: unknown) => {
+      const a = args as string[];
+      const filtered = a.includes(':(top)');
+      const out = a.includes('--name-only') ? (filtered ? 'src/a.ts\0' : 'src/a.ts\0config/.env\0') : 'x';
+      cb(fn)(null, out, '');
+      return ret();
+    });
+    const result = await git.diff('HEAD', undefined, { exclude: ['.env'] });
+    const diffArgs = mockExecFile.mock.calls.map((c) => c[1] as string[]).find((a) => a[0] === 'diff' && a.length > 2);
+    expect(diffArgs).toContain(':(top,exclude,glob,icase)**/.env');
+    expect(result.excluded).toEqual(['config/.env']);
+  });
+
   it('status returns clean message for empty output', async () => {
     mockGitOutput('');
     const result = await git.status();
