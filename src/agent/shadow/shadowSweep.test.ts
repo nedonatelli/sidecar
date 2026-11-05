@@ -44,12 +44,18 @@ function addShadowWorktree(mainRoot: string, name: string): string {
   return shadowPath;
 }
 
-describe('sweepStaleShadows', () => {
+// A cold `git` start on a Windows CI runner can take over 5 s, so the first
+// test here timed out, and its cleanup then hit EPERM on a folder git still had
+// open. Allow more time, and retry the removal as the integration tests do.
+const SLOW_GIT = { timeout: 30_000 };
+const RM = { recursive: true, force: true, maxRetries: 10, retryDelay: 200 } as const;
+
+describe('sweepStaleShadows', SLOW_GIT, () => {
   let tmp: string | null = null;
 
   afterEach(() => {
     if (tmp && fs.existsSync(tmp)) {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      fs.rmSync(tmp, RM);
     }
     tmp = null;
     vi.restoreAllMocks();
@@ -199,10 +205,10 @@ describe('sweepStaleShadows', () => {
 // The sweep runs at activation and deletes recursively. A cloned repository
 // can ship `.sidecar/shadows` as a link; the sweep followed it and deleted the
 // directories it pointed at -- here, a sibling project.
-describe('sweepStaleShadows -- a linked shadows directory', () => {
+describe('sweepStaleShadows -- a linked shadows directory', SLOW_GIT, () => {
   let base: string | null = null;
   afterEach(() => {
-    if (base) fs.rmSync(base, { recursive: true, force: true });
+    if (base) fs.rmSync(base, RM);
     base = null;
   });
 
