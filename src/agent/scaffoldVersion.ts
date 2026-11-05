@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.11** (2026-11) — Anthropic cache tokens count toward the context
+ *   estimate. Compression anchors on the last turn's input tokens. Anthropic's
+ *   `inputTokens` leaves out the cached prefix, so with prompt caching a long
+ *   chat never compressed. The anchor now adds `cacheCreationInputTokens` and
+ *   `cacheReadInputTokens`, which other backends report as 0. A pinned
+ *   `sidecar.ollama.numCtx` / `SIDECAR_OLLAMA_NUM_CTX` also sets the context
+ *   budget. PATCH. No eval: the eval harness runs on Ollama, which reports no
+ *   cache tokens, and no eval script pins `SIDECAR_OLLAMA_NUM_CTX`.
  * - **7.0.10** (2026-11) — db_execute reports the rows a write changed.
  *   `db_execute` reported "Rows affected" from the rows returned, and asked for
  *   none, so every write read as 0 and a model could send an INSERT again. The
@@ -383,7 +391,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.10';
+export const SCAFFOLD_VERSION = '7.0.11';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

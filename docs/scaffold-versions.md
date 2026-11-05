@@ -40,6 +40,20 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.11 — Anthropic cache tokens count toward the context estimate (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.10,
+noting the patch.
+
+- **What changed:** Compression anchors on the last turn's input tokens.
+  Anthropic's `inputTokens` leaves out the cached prefix, so with prompt caching
+  a long chat never compressed. The anchor now adds `cacheCreationInputTokens`
+  and `cacheReadInputTokens`, which other backends report as 0. A pinned
+  `sidecar.ollama.numCtx` / `SIDECAR_OLLAMA_NUM_CTX` also sets the context
+  budget.
+- **Measured:** no eval; the eval harness runs on Ollama, which reports no cache
+  tokens, and no eval script pins `SIDECAR_OLLAMA_NUM_CTX`.
+
 ### 7.0.10 — db_execute reports the rows a write changed (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.9,
