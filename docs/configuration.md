@@ -631,9 +631,9 @@ These settings tune the Audit Mode buffer behaviour. See [Agent Mode → Review 
 
 ## Outbound Allowlist
 
-| Setting                     | Type  | Default | Description                                                                                                                                                                                |
-| --------------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sidecar.outboundAllowlist` | array | `[]`    | Hostnames permitted for URL fetching in chat. Supports a leading `*.` wildcard (e.g. `*.github.com`). Empty = allow all public URLs (built-in SSRF and private-IP blocking still applies). |
+| Setting                     | Type  | Default | Description                                                                                                                                                                                                                                            |
+| --------------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sidecar.outboundAllowlist` | array | `[]`    | Hostnames permitted for URL fetching in chat. Supports a leading `*.` wildcard (e.g. `*.github.com`). Empty = allow all public URLs (built-in SSRF and private-IP blocking still applies). Does not restrict the backend, `web_search` or MCP traffic. |
 
 ## Verbose Logs
 

@@ -199,7 +199,7 @@ Yes, with the right configuration:
 - Use `.sidecarignore` to exclude sensitive files from context indexing.
 - The macOS Seatbelt sandbox (`sidecar.sandbox.enabled`, default on) restricts agent shell commands to the workspace root, `/tmp`, and common build caches.
 
-The outbound allowlist (`sidecar.outboundAllowlist`) lets you whitelist specific hostnames if you operate a private web search or documentation proxy.
+The outbound allowlist (`sidecar.outboundAllowlist`) limits which hosts SideCar fetches when a URL appears in a chat message, for example to an internal documentation server. It does not restrict the backend, `web_search` or MCP traffic.
 
 ### Can the agent run arbitrary shell commands?
 
