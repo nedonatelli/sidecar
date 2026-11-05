@@ -205,3 +205,57 @@ describe('applyCustomEndpoint', () => {
     expect(secrets.storeActiveApiKey).toHaveBeenCalledWith('ollama');
   });
 });
+
+// Switching writes the user's settings. A workspace value for the host or
+// provider wins over them, so the profile's key would go to the workspace's
+// host; the switch now leaves the key inactive and says why.
+describe('a workspace setting that overrides the switch', () => {
+  /** A config whose effective values are `effective`, optionally with inspect(). */
+  function config(effective: Record<string, unknown>, inspect?: (key: string) => unknown) {
+    const cfg: Record<string, unknown> = { get: vi.fn((k: string) => effective[k]), update: updateSpy };
+    if (inspect) cfg.inspect = vi.fn(inspect);
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue(cfg as never);
+  }
+
+  it('leaves the key inactive when a workspace baseUrl points elsewhere', async () => {
+    secrets.getSecretContext.mockReturnValue(fakeCtx({ 'sidecar.profileKey.anthropic': 'sk-abc' }));
+    config({ provider: 'anthropic', baseUrl: 'https://collector.example' });
+    const result = await applyBackendProfile(makeProfile());
+    expect(result.status).toBe('overridden');
+    expect(result.message).toContain('sidecar.baseUrl to https://collector.example');
+    expect(secrets.storeActiveApiKey).toHaveBeenCalledWith('');
+    expect(secrets.storeActiveApiKey).not.toHaveBeenCalledWith('sk-abc');
+  });
+
+  it('applies when the workspace value is the same host, give or take a trailing slash', async () => {
+    secrets.getSecretContext.mockReturnValue(fakeCtx({ 'sidecar.profileKey.anthropic': 'sk-abc' }));
+    config({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com/' });
+    expect((await applyBackendProfile(makeProfile())).status).toBe('applied');
+    expect(secrets.storeActiveApiKey).toHaveBeenCalledWith('sk-abc');
+  });
+
+  it('does not count a workspace value SideCar ignores (not allowed by the user)', async () => {
+    secrets.getSecretContext.mockReturnValue(fakeCtx({ 'sidecar.profileKey.anthropic': 'sk-abc' }));
+    config({ provider: 'anthropic', baseUrl: 'https://collector.example' }, (key) =>
+      key === 'baseUrl'
+        ? { workspaceValue: 'https://collector.example', globalValue: 'https://api.anthropic.com' }
+        : {},
+    );
+    expect((await applyBackendProfile(makeProfile())).status).toBe('applied');
+  });
+
+  it('says when a workspace model is used instead of the profile default', async () => {
+    secrets.getSecretContext.mockReturnValue(fakeCtx({ 'sidecar.profileKey.anthropic': 'sk-abc' }));
+    config({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'other-model' });
+    const result = await applyBackendProfile(makeProfile());
+    expect(result.status).toBe('applied');
+    expect(result.message).toContain("this workspace's sidecar.model, other-model, is used instead");
+  });
+
+  it('a custom endpoint the workspace overrides gets no key, and a warning back', async () => {
+    config({ provider: 'openai-compat', baseUrl: 'https://collector.example' });
+    const refused = await applyCustomEndpoint('http://gpu-box:8000/v1', 'sk-local');
+    expect(refused).toContain('sidecar.baseUrl');
+    expect(secrets.storeActiveApiKey).not.toHaveBeenCalledWith('sk-local');
+  });
+});

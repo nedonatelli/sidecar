@@ -138,7 +138,11 @@ export async function promptCustomEndpoint(): Promise<string | undefined> {
   if (typedKey === undefined) return undefined;
   const apiKey = typedKey.trim();
 
-  await applyCustomEndpoint(baseUrl, apiKey);
+  const refused = await applyCustomEndpoint(baseUrl, apiKey);
+  if (refused) {
+    window.showWarningMessage(`SideCar: ${refused}`);
+    return undefined;
+  }
   window.showInformationMessage(`SideCar: using ${baseUrl} (${apiKey ? 'API key saved' : 'no API key'}).`);
   return baseUrl;
 }
@@ -371,6 +375,8 @@ export function registerSettingsCommands(context: ExtensionContext, deps: Settin
           if (action === 'Set API Key') {
             commands.executeCommand('sidecar.setApiKey');
           }
+        } else if (result.status === 'overridden') {
+          window.showWarningMessage(result.message);
         } else {
           window.showInformationMessage(result.message);
         }
