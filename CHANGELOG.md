@@ -19,6 +19,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The confirmation for destructive commands knows more of them.** Typing to confirm now also
+  covers Windows and PowerShell recursive deletes, `find` that deletes everything under a path,
+  discarding the whole work tree with `git checkout`/`git restore`, and more spellings of
+  `rm -rf` and force pushes, including inside `bash -c "…"`. A plain `rm -f file` no longer asks
+  as if it were recursive.
 - **Committing from the chat asks first, and commits only the files it names.** Replying "lgtm" or
   "save changes" no longer starts a commit; "commit" and the like still do. Before it commits,
   SideCar shows the message and the files and waits for you to confirm. If you have staged files,
