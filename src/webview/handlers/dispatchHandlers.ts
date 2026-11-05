@@ -190,6 +190,21 @@ async function runFacetReview(state: ChatState, facetIds: string[], displayName:
 }
 
 /**
+ * Drop the pending plan and say so -- for a typed "no" and for the plan
+ * card's Reject button alike. Left pending, a later "ok" ran the rejected
+ * plan and any other prompt became revision feedback for it (#419).
+ */
+function rejectPendingPlan(state: ChatState): void {
+  state.pendingPlan = null;
+  state.pendingPlanMessages = [];
+  state.postMessage({
+    command: 'assistantMessage',
+    content: '\n\nPlan rejected. What would you like to do instead?',
+  });
+  state.postMessage({ command: 'done' });
+}
+
+/**
  * Build the full command→handler dispatch map for the chat webview.
  * Every dependency comes through `HandlerDeps` so handlers can be
  * exercised in unit tests by injecting stubs.
@@ -287,13 +302,7 @@ export function buildDispatchHandlers(
           return;
         }
         if (isPlanRejection(text)) {
-          state.pendingPlan = null;
-          state.pendingPlanMessages = [];
-          state.postMessage({
-            command: 'assistantMessage',
-            content: '\n\nPlan rejected. What would you like to do instead?',
-          });
-          state.postMessage({ command: 'done' });
+          rejectPendingPlan(state);
           return;
         }
         await handleRevisePlan(state, text);
@@ -429,6 +438,9 @@ export function buildDispatchHandlers(
     exportChat: () => handleExportChat(state),
     executePlan: () => handleExecutePlan(state),
     revisePlan: (msg) => handleRevisePlan(state, msg.text || ''),
+    rejectPlan: () => {
+      if (state.pendingPlan) rejectPendingPlan(state);
+    },
     batch: (msg) => handleBatch(state, msg.text || ''),
     sandboxTask: async (msg) => {
       const task = (msg.text || '').trim();
@@ -661,7 +673,7 @@ export function buildDispatchHandlers(
         queue.enqueue(trimmed, msg.steerUrgency ?? 'nudge');
       } catch (err) {
         const text = err instanceof Error ? err.message : String(err);
-        state.postMessage({ command: 'error', content: `Steer rejected: ${text}` });
+        state.postMessage({ command: 'notice', content: `Steer rejected: ${text}` });
       }
     },
 
@@ -675,7 +687,7 @@ export function buildDispatchHandlers(
         state.currentSteerQueue?.edit(msg.steerId || '', msg.text || '');
       } catch (err) {
         const text = err instanceof Error ? err.message : String(err);
-        state.postMessage({ command: 'error', content: `Steer edit rejected: ${text}` });
+        state.postMessage({ command: 'notice', content: `Steer edit rejected: ${text}` });
       }
     },
 

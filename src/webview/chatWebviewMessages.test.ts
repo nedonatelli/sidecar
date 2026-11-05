@@ -255,8 +255,9 @@ describe('chat webview message dispatcher', () => {
       const first = messagesEl.querySelector('.message.user') as HTMLElement;
       (first.querySelector('.message-delete-btn') as HTMLButtonElement).click();
 
-      // The extension refuses a delete mid-run, so nothing changes here.
-      expect(postMessage).toHaveBeenCalledWith({ command: 'deleteMessage', index: 0 });
+      // A delete mid-run is refused here, before anything is posted: the
+      // extension's refusal used to end the live run (#419).
+      expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'deleteMessage' }));
       expect(messagesEl.contains(first)).toBe(true);
       // (setLoading appended a typing indicator after the four bubbles.)
       expect(bubbleIndices().slice(0, 4)).toEqual(['0', '1', '2', '3']);

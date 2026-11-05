@@ -3189,7 +3189,8 @@ describe('ensureProviderRunning — kickstand path', () => {
 // handleDeleteMessage — abortController branch
 // ---------------------------------------------------------------------------
 describe('handleDeleteMessage — abort branch', () => {
-  it('posts error when abortController is active (agent is running)', () => {
+  // A notice, not an error: the webview ends the run on an error (#419).
+  it('posts a notice, not an error, when abortController is active (agent is running)', () => {
     const state = {
       messages: [{ role: 'user', content: 'hello' }],
       saveHistory: vi.fn(),
@@ -3199,10 +3200,11 @@ describe('handleDeleteMessage — abort branch', () => {
     handleDeleteMessage(state as never, 0);
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: 'error',
+        command: 'notice',
         content: expect.stringContaining('agent is running'),
       }),
     );
+    expect(state.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
     // Message should NOT have been deleted
     expect(state.messages).toHaveLength(1);
   });
@@ -3462,10 +3464,14 @@ describe('handleEditMessage', () => {
     expect(state.saveHistory).not.toHaveBeenCalled();
   });
 
-  it('posts an error and returns when the agent is running', async () => {
+  // A notice, not an error: the webview ends the run on an error (#419).
+  it('posts a notice, not an error, and returns when the agent is running', async () => {
     const state = { ...makeState([{ role: 'user', content: 'hi' }]), abortController: new AbortController() };
     await handleEditMessage(state as never, 0, 'new text');
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
+    expect(state.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'notice', content: expect.stringContaining('agent is running') }),
+    );
+    expect(state.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
     expect(state.messages).toHaveLength(1);
   });
 
@@ -3510,6 +3516,26 @@ describe('handleEditMessage', () => {
     );
     expect(initCall).toBeDefined();
     expect((initCall![0] as { messages: unknown[] }).messages.slice(0, 2)).toHaveLength(2);
+  });
+
+  // The cleared panel showed the history before the edit and then the answer,
+  // never the edited prompt itself (#419).
+  it('shows the edited prompt after the restored history, before the run', async () => {
+    const state = makeState([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+      { role: 'user', content: 'second' },
+    ]);
+    try {
+      await handleEditMessage(state as never, 2, 'edited second');
+    } catch {
+      // expected -- handleUserMessage has no client wired here
+    }
+    const commands = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: unknown[]) => (c[0] as { command: string }).command,
+    );
+    expect(commands.slice(0, 3)).toEqual(['chatCleared', 'init', 'addUserMessage']);
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'addUserMessage', content: 'edited second' });
   });
 
   it('skips init message when truncated history is empty', async () => {

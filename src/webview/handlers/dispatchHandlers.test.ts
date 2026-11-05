@@ -214,6 +214,31 @@ describe('buildDispatchHandlers', () => {
     expect(pendingState.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
   });
 
+  // The plan card's Reject button (#419): handled exactly like a typed "no".
+  it('rejectPlan clears the pending plan and answers like a typed rejection', async () => {
+    const { handleExecutePlan, handleRevisePlan } = await import('./agentHandlers.js');
+    const pendingState = makeState({
+      pendingPlan: 'Step 1: edit the parser' as unknown as ChatState['pendingPlan'],
+      pendingPlanMessages: [{ role: 'user', content: 'plan it' }] as ChatState['pendingPlanMessages'],
+    });
+    const h = buildDispatchHandlers({ ...deps, state: pendingState });
+    await invoke(h, 'rejectPlan');
+    expect(pendingState.pendingPlan).toBeNull();
+    expect(pendingState.pendingPlanMessages).toEqual([]);
+    expect(pendingState.postMessage).toHaveBeenCalledWith({
+      command: 'assistantMessage',
+      content: '\n\nPlan rejected. What would you like to do instead?',
+    });
+    expect(pendingState.postMessage).toHaveBeenCalledWith({ command: 'done' });
+    expect(handleExecutePlan).not.toHaveBeenCalled();
+    expect(handleRevisePlan).not.toHaveBeenCalled();
+  });
+
+  it('rejectPlan with no pending plan posts nothing', async () => {
+    await invoke(handlers, 'rejectPlan');
+    expect(state.postMessage).not.toHaveBeenCalled();
+  });
+
   // ── /sandbox one-shot shadow flag ─────────────────────────────────────────
 
   it('sandboxTask sets the one-shot forceShadow flag and forwards the task', async () => {
@@ -279,7 +304,8 @@ describe('buildDispatchHandlers', () => {
     expect(queue.enqueue).toHaveBeenCalledWith('stop and check', 'nudge');
   });
 
-  it('steerEnqueue posts error when queue.enqueue throws', async () => {
+  // A notice, not an error: the webview ends the run on an error (#419).
+  it('steerEnqueue posts a notice, not an error, when queue.enqueue throws', async () => {
     const queue = {
       enqueue: vi.fn().mockImplementation(() => {
         throw new Error('queue full');
@@ -291,8 +317,9 @@ describe('buildDispatchHandlers', () => {
     const h = buildDispatchHandlers({ ...deps, state: s });
     await invoke(h, 'steerEnqueue', { text: 'something' });
     expect(s.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'error', content: expect.stringContaining('queue full') }),
+      expect.objectContaining({ command: 'notice', content: expect.stringContaining('queue full') }),
     );
+    expect(s.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
   });
 
   // ── bgStart ───────────────────────────────────────────────────────────────
@@ -463,7 +490,7 @@ describe('buildDispatchHandlers', () => {
     expect(queue.edit).toHaveBeenCalledWith('steer-1', 'revised instruction');
   });
 
-  it('steerEdit posts error when queue.edit throws', async () => {
+  it('steerEdit posts a notice, not an error, when queue.edit throws', async () => {
     const queue = {
       enqueue: vi.fn(),
       cancel: vi.fn(),
@@ -475,8 +502,9 @@ describe('buildDispatchHandlers', () => {
     const h = buildDispatchHandlers({ ...deps, state: s });
     await invoke(h, 'steerEdit', { steerId: 'steer-1', text: 'revised' });
     expect(s.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'error', content: expect.stringContaining('immutable') }),
+      expect.objectContaining({ command: 'notice', content: expect.stringContaining('immutable') }),
     );
+    expect(s.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
   });
 
   // ── bgStop ────────────────────────────────────────────

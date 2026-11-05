@@ -35,11 +35,11 @@ export async function handleShowSystemPrompt(state: ChatState): Promise<void> {
 
 export function handleDeleteMessage(state: ChatState, index: number): void {
   if (index < 0 || index >= state.messages.length) return;
+  // A notice, not an `error`: the webview ends the run on an error (#419).
   if (state.abortController) {
     state.postMessage({
-      command: 'error',
+      command: 'notice',
       content: 'Cannot delete a message while the agent is running. Press Escape to stop the run first.',
-      errorType: 'unknown',
     });
     return;
   }
