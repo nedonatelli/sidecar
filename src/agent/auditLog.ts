@@ -1,5 +1,6 @@
 import type { SidecarDir } from '../config/sidecarDir.js';
 import { logger } from '../system/logger.js';
+import { redactSecrets } from './securityScanner.js';
 
 /**
  * A single audit log entry recording one tool execution.
@@ -54,6 +55,16 @@ export interface AuditFilter {
 const AUDIT_FILE = 'logs/audit.jsonl';
 const TRACE_FILE = 'logs/trace.jsonl';
 const MAX_RESULT_LENGTH = 2000;
+
+/** Every string in `value` with known secret shapes replaced, as the MCP and API logs do. */
+function redact(value: unknown): unknown {
+  if (typeof value === 'string') return redactSecrets(value);
+  if (Array.isArray(value)) return value.map(redact);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redact(v)]));
+  }
+  return value;
+}
 
 /**
  * Append-only structured audit log for agent tool executions.
@@ -135,6 +146,11 @@ export class AuditLog {
       };
     }
 
+    // A command, a file written or a tool's output can hold a credential, and
+    // the log keeps it on disk with no end date.
+    entry.input = redact(entry.input) as Record<string, unknown>;
+    entry.result = redactSecrets(entry.result);
+
     try {
       await this.sidecarDir.appendJsonl(AUDIT_FILE, entry);
     } catch (err) {
@@ -150,7 +166,7 @@ export class AuditLog {
       iteration,
       model: this.model,
       approvalMode: this.approvalMode,
-      text,
+      text: redactSecrets(text),
     };
     try {
       await this.sidecarDir.appendJsonl(TRACE_FILE, entry);

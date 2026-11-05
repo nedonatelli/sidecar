@@ -158,6 +158,24 @@ describe('SidecarDir', () => {
     await expect(dir.appendJsonl('logs/api.jsonl', { b: 2 })).resolves.toBeUndefined();
   });
 
+  it('appendJsonl leaves the file alone when it exists but cannot be read', async () => {
+    await dir.initialize();
+    mockFs.writeFile.mockClear();
+    mockFs.readFile.mockRejectedValueOnce(
+      Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' }),
+    );
+    await expect(dir.appendJsonl('logs/audit.jsonl', { a: 1 })).rejects.toThrow('EBUSY');
+    expect(mockFs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('appendJsonl starts a file that VS Code reports as not found', async () => {
+    await dir.initialize();
+    mockFs.readFile.mockRejectedValueOnce(Object.assign(new Error('Unable to read file'), { code: 'FileNotFound' }));
+    await dir.appendJsonl('logs/audit.jsonl', { a: 1 });
+    const calls = mockFs.writeFile.mock.calls;
+    expect(calls[calls.length - 1][1].toString()).toBe('{"a":1}\n');
+  });
+
   it('writeText writes UTF-8 content', async () => {
     await dir.initialize();
     await dir.writeText('plans/foo.md', '# Plan');

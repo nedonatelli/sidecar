@@ -149,4 +149,15 @@ describe('AuditLog', () => {
     expect(entry.iteration).toBe(2);
     expect(entry.sessionId).toBe('s-test');
   });
+
+  it('redacts credentials in the input, the result and text turns', async () => {
+    const key = 'AKIAIOSFODNN7EXAMPLE';
+    log.recordToolCall('run_command', { command: `aws configure set aws_access_key_id ${key}`, env: [key] }, 'tc_k', 1);
+    await log.recordToolResult('run_command', 'tc_k', `set ${key}`, false, 5);
+    await log.recordTextTurn(`The key is ${key}.`, 1);
+
+    const raw = [...dir._data.values()].join('');
+    expect(raw).not.toContain(key);
+    expect((await log.query())[0].input.command).toContain('[REDACTED:AWS Access Key]');
+  });
 });

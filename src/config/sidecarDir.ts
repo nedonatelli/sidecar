@@ -11,6 +11,11 @@ import * as path from 'path';
  * Committed to git:  SIDECAR.md, settings.json, specs/, plans/, memory/
  * Gitignored:        cache/, sessions/, logs/, scratchpad/
  */
+function isNotFound(err: unknown): boolean {
+  const e = err as { code?: string; message?: string };
+  return e?.code === 'FileNotFound' || e?.code === 'ENOENT' || String(e?.message).includes('ENOENT');
+}
+
 export class SidecarDir {
   private root: string | null = null;
   private initialized = false;
@@ -160,13 +165,17 @@ export class SidecarDir {
       await this.ensureParentSubdir(subpath);
       const uri = this.getUri(subpath);
       const line = JSON.stringify(data) + '\n';
+      let existing: Uint8Array;
       try {
-        const existing = await workspace.fs.readFile(uri);
-        await workspace.fs.writeFile(uri, Buffer.concat([existing, Buffer.from(line, 'utf-8')]));
-      } catch {
-        // File doesn't exist yet — create it
-        await workspace.fs.writeFile(uri, Buffer.from(line, 'utf-8'));
+        existing = await workspace.fs.readFile(uri);
+      } catch (err) {
+        // Only a missing file starts a new one. Any other failure to read (a
+        // file held open on Windows reports EBUSY) used to fall through to here
+        // too, and the write replaced the whole log with this one line.
+        if (!isNotFound(err)) throw err;
+        existing = new Uint8Array();
       }
+      await workspace.fs.writeFile(uri, Buffer.concat([existing, Buffer.from(line, 'utf-8')]));
     };
     // Serialize appends to the same file: this is a read-modify-write, so two
     // overlapping calls would both read the same base and the second write would

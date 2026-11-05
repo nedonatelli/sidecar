@@ -19,6 +19,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The audit log keeps its history, and leaves credentials out.** A log file that was briefly
+  locked, as Windows does while another program reads it, was rewritten with only the newest line.
+  Keys and tokens in tool inputs, results and the trace log are now replaced with a marker, as the
+  MCP log already did.
 - **Text marked as untrusted stays marked to its end.** A file or page that contained the marker
   SideCar puts around untrusted text could end the marked block early, or be taken as already
   marked and skip the check. The markers inside such text are now made inert.
