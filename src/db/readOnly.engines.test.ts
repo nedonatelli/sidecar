@@ -65,3 +65,23 @@ describe('DuckDB: no file or URL access through db_query', () => {
     await p.disconnect().catch(() => undefined);
   });
 });
+
+// DuckDB answers a write without RETURNING with one "Count" row; that row is
+// the count, not a result (#424).
+describe('DuckDB: rows affected', () => {
+  it('a write reports rowsChanged and returns no rows; RETURNING returns its rows', async () => {
+    const p = new DuckDbProvider();
+    await p.connect({ id: 'm', type: 'duckdb', readOnly: false } as never);
+    await p.query('CREATE TABLE t (a INTEGER)');
+    await expect(p.query('INSERT INTO t VALUES (1), (2), (3)')).resolves.toMatchObject({
+      columns: [],
+      rows: [],
+      rowsAffected: 3,
+    });
+    await expect(p.query('DELETE FROM t WHERE a > 1')).resolves.toMatchObject({ rows: [], rowsAffected: 2 });
+    const ret = await p.query('UPDATE t SET a = 9 RETURNING a');
+    expect(ret.rowCount).toBe(1);
+    expect(ret.columns).toEqual(['a']);
+    await p.disconnect().catch(() => undefined);
+  });
+});

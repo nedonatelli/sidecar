@@ -44,8 +44,15 @@ export interface TableSchema {
 export interface QueryResult {
   columns: string[];
   rows: Record<string, unknown>[];
+  /** Rows the statement returned, before truncation. Not rows changed. */
   rowCount: number;
   truncated: boolean;
+  /**
+   * Rows an INSERT/UPDATE/DELETE changed, as the driver reports it (SQLite
+   * `changes`, pg `rowCount`, MySQL `affectedRows`, DuckDB `rowsChanged`).
+   * 0 for a read or DDL; undefined where the driver doesn't say.
+   */
+  rowsAffected?: number;
 }
 
 export interface DatabaseProvider {

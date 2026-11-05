@@ -202,7 +202,13 @@ describe.skipIf(!nodeSqlite)('SqliteProvider', () => {
   it('query returns rows, binds parameters and truncates at the limit', async () => {
     const p = await open();
     const r = await p.query('SELECT name FROM users WHERE id > ? ORDER BY id', [1]);
-    expect(r).toEqual({ columns: ['name'], rows: [{ name: 'bob' }, { name: 'cy' }], rowCount: 2, truncated: false });
+    expect(r).toEqual({
+      columns: ['name'],
+      rows: [{ name: 'bob' }, { name: 'cy' }],
+      rowCount: 2,
+      truncated: false,
+      rowsAffected: 0,
+    });
     const capped = await p.query('SELECT id FROM users ORDER BY id', [], { limit: 2 });
     expect(capped).toMatchObject({ rowCount: 3, truncated: true });
     expect(capped.rows).toHaveLength(2);
@@ -235,6 +241,37 @@ describe.skipIf(!nodeSqlite)('SqliteProvider', () => {
     expect((await p.query('PRAGMA user_version')).rows).toEqual([{ user_version: 0 }]);
     await p.query('PRAGMA user_version(3)');
     expect((await p.query('PRAGMA user_version')).rows).toEqual([{ user_version: 3 }]);
+    await p.disconnect();
+  });
+
+  // db_execute reported "Rows affected" from the returned rows, so every write
+  // read as 0 (#424). The count is SQLite's own, separate from returned rows.
+  it('a write reports the rows it changed, not the rows it returned', async () => {
+    const p = await open(false);
+    expect(await p.query("UPDATE users SET name = name || '!' WHERE id > ?", [1])).toMatchObject({
+      rows: [],
+      rowCount: 0,
+      rowsAffected: 2,
+    });
+    expect((await p.query("INSERT INTO users (name, email) VALUES ('dee', 'd@x')")).rowsAffected).toBe(1);
+    expect((await p.query('DELETE FROM users WHERE id > 100')).rowsAffected).toBe(0);
+    await p.disconnect();
+  });
+
+  it('a write with RETURNING returns its rows and the count', async () => {
+    const p = await open(false);
+    const r = await p.query('UPDATE users SET email = NULL WHERE id <= 2 RETURNING id');
+    expect(r).toMatchObject({ rows: [{ id: 1 }, { id: 2 }], rowCount: 2, rowsAffected: 2 });
+    await p.disconnect();
+  });
+
+  // SQLite's changes() still holds the last write's count after a read or DDL.
+  it('a read or DDL after a write reports 0 rows affected', async () => {
+    const p = await open(false);
+    await p.query("UPDATE users SET name = 'x'");
+    expect((await p.query('CREATE TABLE extra (a INTEGER)')).rowsAffected).toBe(0);
+    expect((await p.query('SELECT id FROM users')).rowsAffected).toBe(0);
+    expect((await p.query('SELECT id FROM users', [], { readOnly: true })).rowsAffected).toBe(0);
     await p.disconnect();
   });
 
