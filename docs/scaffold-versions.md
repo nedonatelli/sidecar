@@ -40,6 +40,17 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.8 — mutation_test and db_migrate_up follow the command rules (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.7,
+noting the patch.
+
+- **What changed:** `mutation_test`'s `test_command` and `db_migrate_up`'s
+  custom command get the checks `run_command` gets (deny and ask rules,
+  destructive-command and install confirmation), and the file `mutation_test`
+  mutates gets `write_file`'s path checks.
+- **Measured:** no eval; neither tool is used in the SWE or agent evals.
+
 ### 7.0.7 — untrusted-content markers stay intact (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.6,

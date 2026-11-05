@@ -1534,6 +1534,19 @@ describe('executeTool', () => {
       await executeTool(makeToolUse('run_tests', {}), { approvalMode: 'autonomous' });
       expect(testsTool.executor).toHaveBeenCalled();
     });
+
+    it.each([
+      ['mutation_test', { file: 'calc.py', test_command: 'pytest -q' }],
+      ['db_migrate_up', { connection_id: 'db', tool: 'custom', custom_command: 'npx knex migrate:latest' }],
+    ])("the user's deny on run_command refuses %s", async (name, input) => {
+      const t = { ...testsTool, executor: vi.fn().mockResolvedValue('ran') };
+      t.definition = { ...testsTool.definition, name };
+      mockedFindTool.mockReturnValue(t as never);
+      mockConfig({ toolPermissions: { run_command: 'deny' } });
+      const result = await executeTool(makeToolUse(name, input), { approvalMode: 'autonomous' });
+      expect(result.is_error).toBe(true);
+      expect(t.executor).not.toHaveBeenCalled();
+    });
   });
 });
 

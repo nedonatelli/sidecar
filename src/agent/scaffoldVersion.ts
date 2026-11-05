@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.8** (2026-11) — mutation_test and db_migrate_up follow the command
+ *   rules. `mutation_test`'s `test_command` and `db_migrate_up`'s custom
+ *   command get the checks `run_command` gets (deny and ask rules,
+ *   destructive-command and install confirmation), and the file `mutation_test`
+ *   mutates gets `write_file`'s path checks. PATCH: existing guards applied to
+ *   two more tools. No eval: neither tool is used in the SWE or agent evals.
  * - **7.0.7** (2026-11) — untrusted-content markers stay intact. Marker text
  *   inside untrusted content is made inert, so a marked block runs to its end
  *   and already-marked-looking text is still checked. PATCH: tuning within the
@@ -365,7 +371,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.7';
+export const SCAFFOLD_VERSION = '7.0.8';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
