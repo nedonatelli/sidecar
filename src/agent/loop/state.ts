@@ -371,7 +371,7 @@ export interface LoopState {
    */
   editedSinceRead: Set<string>;
   /** The lines those edits changed (ToolExecutorContext.editedSpans). */
-  editedSpans: Map<string, { from: number; to: number }>;
+  editedSpans: Map<string, { from: number; to: number }[]>;
 
   // True once the unapplied-edit nudge has fired this run. Bounds the nudge to
   // one injection so a false positive (an explanatory code block) costs at most

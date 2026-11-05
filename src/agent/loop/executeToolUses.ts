@@ -57,7 +57,7 @@ interface ExecutionContext {
   signal: AbortSignal;
   filesReadThisTurn: Set<string>;
   editedSinceRead: Set<string>;
-  editedSpans: Map<string, { from: number; to: number }>;
+  editedSpans: Map<string, { from: number; to: number }[]>;
 }
 
 /**

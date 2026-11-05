@@ -1929,15 +1929,76 @@ function resolveWithin(text: string, within: string, filePath: string): number {
   return text.indexOf(within);
 }
 
-/** The 1-based lines of `newText` that differ from `oldText`. */
-function changedLineSpan(oldText: string, newText: string): { from: number; to: number } {
+type LineSpan = { from: number; to: number };
+
+/** Edit distance past which changedLineSpans settles for one span. */
+const MAX_HUNK_DIFF = 200;
+
+/**
+ * The 1-based lines of `newText` that differ from `oldText`, one range per
+ * hunk. One span from the first change to the last made a replace_all, or two
+ * edits far apart, clear only on a read of everything between: on #416's
+ * canary an agent re-read the lines it was editing five times and was still
+ * told the file had changed since it read it. A bounded Myers diff; past
+ * MAX_HUNK_DIFF it returns that single span.
+ */
+function changedLineSpans(oldText: string, newText: string): LineSpan[] {
   const a = oldText.split('\n');
   const b = newText.split('\n');
   let head = 0;
   while (head < a.length && head < b.length && a[head] === b[head]) head++;
   let tail = 0;
   while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
-  return { from: head + 1, to: Math.max(head + 1, b.length - tail) };
+  const whole = [{ from: head + 1, to: Math.max(head + 1, b.length - tail) }];
+
+  const A = a.slice(head, a.length - tail);
+  const B = b.slice(head, b.length - tail);
+  const n = A.length;
+  const m = B.length;
+  if (n === 0 || m === 0) return whole;
+
+  // v[k] = furthest x on diagonal k; one snapshot per edit-distance step.
+  const v = new Map<number, number>([[1, 0]]);
+  const trace: Map<number, number>[] = [];
+  const at = (map: Map<number, number>, k: number) => map.get(k) ?? -1;
+  const down = (map: Map<number, number>, k: number, d: number) =>
+    k === -d || (k !== d && at(map, k - 1) < at(map, k + 1));
+  for (let d = 0; d <= Math.min(n + m, MAX_HUNK_DIFF); d++) {
+    trace.push(new Map(v));
+    for (let k = -d; k <= d; k += 2) {
+      let x = down(v, k, d) ? at(v, k + 1) : at(v, k - 1) + 1;
+      let y = x - k;
+      while (x < n && y < m && A[x] === B[y]) {
+        x++;
+        y++;
+      }
+      v.set(k, x);
+      if (x < n || y < m) continue;
+
+      // Walk back, noting where each insertion or deletion lands in B.
+      const points: number[] = [];
+      let bx = n;
+      let by = m;
+      for (let s = trace.length - 1; s > 0; s--) {
+        const sk = bx - by;
+        const pk = down(trace[s], sk, s) ? sk + 1 : sk - 1;
+        const px = at(trace[s], pk);
+        const py = px - pk;
+        bx = px;
+        by = py;
+        points.push(Math.min(py, m - 1));
+      }
+      points.sort((p, q) => p - q);
+      const spans: LineSpan[] = [];
+      for (const p of points) {
+        const last = spans[spans.length - 1];
+        if (last && p <= last.to) last.to = Math.max(last.to, p + 1);
+        else spans.push({ from: p + 1, to: p + 1 });
+      }
+      return spans.map((s) => ({ from: head + s.from, to: head + s.to }));
+    }
+  }
+  return whole;
 }
 
 const staleKey = (filePath: string) => path.posix.normalize(filePath.split(path.sep).join('/'));
@@ -1952,9 +2013,7 @@ function recordEditedSpan(
   const spans = context?.editedSpans;
   if (!spans) return;
   const key = staleKey(filePath);
-  const span = changedLineSpan(oldText, newText);
-  const prev = spans.get(key);
-  spans.set(key, prev ? { from: Math.min(prev.from, span.from), to: Math.max(prev.to, span.to) } : span);
+  spans.set(key, [...(spans.get(key) ?? []), ...changedLineSpans(oldText, newText)]);
 }
 
 /** A whole-file write has no span: only a full read refreshes it. */
@@ -1967,7 +2026,9 @@ function forgetEditedSpan(context: ToolExecutorContext | undefined, filePath: st
  * used to clear it -- another range, an outline -- so a later miss on text
  * quoted from before the edit lost the "changed since you read it" prefix
  * (#161 ML-75). A full read clears it; compact and outline never do (they are
- * not the verbatim text); a line range does when it covers every edited line.
+ * not the verbatim text); a line range does when it covers one edited hunk.
+ * Requiring every hunk kept a replace_all's warning up through repeated reads
+ * of the very lines the agent was editing.
  */
 function refreshStaleRead(
   context: ToolExecutorContext | undefined,
@@ -1979,8 +2040,8 @@ function refreshStaleRead(
   if (!context?.editedSinceRead?.has(key)) return;
   if (startLine !== undefined || endLine !== undefined) {
     // A line range takes precedence over mode, as in applyReadView.
-    const span = context.editedSpans?.get(key);
-    if (!span || (startLine ?? 1) > span.from || (endLine !== undefined && endLine < span.to)) return;
+    const shown = (s: LineSpan) => (startLine ?? 1) <= s.from && (endLine === undefined || endLine >= s.to);
+    if (!context.editedSpans?.get(key)?.some(shown)) return;
   } else if (mode && mode !== 'full') {
     return;
   }
