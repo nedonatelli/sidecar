@@ -40,6 +40,17 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.5 — install approval reads each package manager's flags (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.4,
+noting the patch.
+
+- **What changed:** The install approval parses flags per package manager, so a
+  short flag that takes a value for one tool no longer hides the package after
+  it, and versioned `pip3.11 install` is recognized.
+- **Measured:** no eval; it changes only which installs are asked about, and the
+  evals auto-approve.
+
 ### 7.0.4 — type-to-confirm covers more destructive commands (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.3,
