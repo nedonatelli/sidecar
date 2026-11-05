@@ -40,6 +40,16 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.9 — review mode queues delete_file (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.8,
+noting the patch.
+
+- **What changed:** In review mode `delete_file` is queued for review like a
+  write, with no prompt, and until it is accepted reads and searches treat the
+  file as gone.
+- **Measured:** no eval; review mode is not used in the evals.
+
 ### 7.0.8 — mutation_test and db_migrate_up follow the command rules (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.7,
