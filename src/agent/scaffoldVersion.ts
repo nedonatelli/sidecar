@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.3** (2026-11) — every tool call gets its own id within a chat (#417).
+ *   Native Ollama and the text-form parsers numbered calls from 0 on every
+ *   request, so `state.toolOutcomes` (ADR-008) handed a call that recorded no
+ *   outcome the entry an earlier call left under the same id: about 94% of
+ *   calls reused an id, and a read after an edit counted as a file change. A
+ *   repeated id is now renamed `<id>-N`. PATCH: the outcome consumers are
+ *   unchanged and now read the right entries; reprompt and ratchet counts from
+ *   7.0.0-7.0.2 runs include the phantom changes.
  * - **7.0.2** (2026-11) — edit_file refuses fewer edits that were fine (#162
  *   ML-42/43/44/70). The dropped-definition guard reads a changed definition
  *   line as still there and allows deleting a whole block or a lone decorator;
@@ -336,7 +344,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.2';
+export const SCAFFOLD_VERSION = '7.0.3';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

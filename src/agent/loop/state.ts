@@ -16,6 +16,7 @@ import type { AgentOptions } from '../loop.js';
 import type { EditPlan } from '../editPlan.js';
 import { type SideCarConfig, getConfig } from '../../config/settings.js';
 import { EpisodicMemoryStore } from '../episodicMemory.js';
+import { toolUseIdsIn } from './toolUseIds.js';
 
 // ---------------------------------------------------------------------------
 // Shared mutable + immutable state for runAgentLoop.
@@ -253,6 +254,9 @@ export interface LoopState {
   // changedFiles() instead of matching the result's wording. Run-scoped: a
   // result with no entry (a resumed session, an MCP tool) changed nothing.
   toolOutcomes: Map<string, ToolOutcome>;
+  // Every tool_use id in the conversation, so each new call gets an unused one
+  // before toolOutcomes or the UI sees it (#417). See toolUseIds.ts.
+  toolUseIds: Set<string>;
 
   // Per-path signature of the most recent edit_file call that failed with
   // "search and replace identical" or "search not found" (both are
@@ -496,6 +500,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     forceVerifyBeforeBailByFile: new Map<string, number>(),
     filesEditedViaEditTool: new Set<string>(),
     toolOutcomes: new Map<string, ToolOutcome>(),
+    toolUseIds: toolUseIdsIn(copiedMessages),
     editFailureSignatures: new Map<string, string>(),
     zeroHitPatterns: new Map<string, number>(),
     bounceCounts: new Map<string, number>(),

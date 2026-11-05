@@ -40,6 +40,26 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.3 — every tool call gets its own id within a chat (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted; the checks that read
+tool outcomes now read the right ones. Comparable with 7.0.2, noting the patch,
+except for reprompt and ratchet counts (see Measured).
+
+- **What changed:** native Ollama numbered its tool calls from `ollama_tc_0` on
+  every request, and the text-form parsers did the same with `text_tc_N` and
+  `stream_tc_N`. `state.toolOutcomes` (7.0.0, ADR-008) is keyed by that id, so a
+  call that recorded no outcome inherited the entry an earlier call left: a
+  `read_file` after an edit counted as a file change. A repeated id is now
+  renamed `<id>-2`, `-3` and so on, seeded from the ids already in the chat
+  (#417).
+- **Measured:** e4b SWE canary, 50 tasks × seeds 11/22/33, against 7.0.2.
+  Non-file calls reading a stale "mutated" outcome fell from 437 (in 135 of 150
+  runs) to 0. Outcomes equal: F2P progress 20% vs 19% (0 fixed, 2 broke,
+  p = 0.50), resolve 20 vs 19, P2P regressions 3 fixed and 3 broke. Injected
+  reprompts fell from 163 to 136 and ratchet armings from 19 to 9, so those
+  counts from 7.0.0–7.0.2 runs include the phantom changes.
+
 ### 7.0.2 — edit_file refuses fewer edits that were fine (2026-11)
 
 PATCH: tuning within `edit_file`'s definition guards; no mechanism is added,
