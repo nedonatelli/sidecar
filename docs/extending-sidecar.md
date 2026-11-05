@@ -83,7 +83,7 @@ Refactor the target module for clarity and performance. ...
 
 When the active workspace isn't trusted, skills from sources 3 + 4 (project-level) are not loaded at all. Trusted workspace + workspace-sourced skill injects with a provenance banner telling the LLM to treat the skill's instructions as untrusted data — same policy as MCP tool output.
 
-See [`src/agent/skillLoader.ts`](../src/agent/skillLoader.ts) for the loader implementation and [`docs/slash-commands.md`](slash-commands.md) for user-level docs.
+See [`src/agent/skillLoader.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/skillLoader.ts) for the loader implementation and [`docs/slash-commands.md`](slash-commands.md) for user-level docs.
 
 ## Facets
 
@@ -147,7 +147,7 @@ When the active workspace isn't trusted, project-local facets (source 2) are not
 - `sidecar.facets.rpcTimeoutMs` (default `30000`, clamped 1000–300000) — per-RPC call timeout. Timeouts surface as `{ ok: false, errorKind: 'timeout' }` and the call resolves; the facet never hangs on a peer.
 - `sidecar.facets.registry` (default `[]`) — array of absolute paths to additional facet `.md` files.
 
-See [`src/agent/facets/`](../src/agent/facets/) for the implementation, particularly `facetLoader.ts` (schema + built-ins), `facetRegistry.ts` (validation + layering), `facetDispatcher.ts` (the `dispatchFacets` orchestrator), `facetRpcBus.ts` (never-reject RPC), and `facetReview.ts` (batched review UI).
+See [`src/agent/facets/`](https://github.com/nedonatelli/sidecar/tree/main/src/agent/facets) for the implementation, particularly `facetLoader.ts` (schema + built-ins), `facetRegistry.ts` (validation + layering), `facetDispatcher.ts` (the `dispatchFacets` orchestrator), `facetRpcBus.ts` (never-reject RPC), and `facetReview.ts` (batched review UI).
 
 ## Custom tools
 
@@ -159,29 +159,33 @@ Define in `settings.json` under `sidecar.customTools`:
     {
       "name": "deploy_staging",
       "description": "Deploy the current branch to the staging environment",
-      "command": "make deploy-staging BRANCH=$SIDECAR_INPUT"
+      "command": "node scripts/deploy-staging.mjs"
     }
   ]
 }
 ```
 
-Schema (`CustomToolConfig` in [`src/config/settings.ts`](../src/config/settings.ts)):
+Schema (`CustomToolConfig` in [`src/config/settings/agent.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/config/settings/agent.ts)):
 
 ```typescript
 interface CustomToolConfig {
   name: string; // tool name surfaced to the agent
   description: string; // description the LLM uses to decide when to call
-  command: string; // shell command; `$SIDECAR_INPUT` interpolates the LLM's arg
+  command: string; // program + arguments, run without a shell; the LLM's arg arrives as the SIDECAR_INPUT env var
 }
 ```
+
+The script reads its input from the environment, for example `const branch = process.env.SIDECAR_INPUT;` in `scripts/deploy-staging.mjs`.
 
 ### Behavior
 
 - Surfaces as a tool named `custom_<name>` in the catalog.
-- The LLM's string argument becomes `$SIDECAR_INPUT` in the child process environment.
-- `$SIDECAR_INPUT` passes through `redactSecrets()` before being set — a hallucinated API key in the LLM's arg can't leak via env var.
-- Command output is captured as the tool result.
-- Always requires per-call approval; no way to auto-allow.
+- `command` is split into a program and its arguments and run with `execFile`, without a shell. `$SIDECAR_INPUT`, other `$VARS`, pipes, redirects and `&&` are passed through literally, not expanded. On Windows, a bare `npm`/`npx`/`yarn`/`pnpm`/`bun` is started through `cmd.exe`.
+- The LLM's string argument is set as the `SIDECAR_INPUT` environment variable; it is never substituted into `command`. Read it from the environment in your script, or wrap the command in a shell yourself (`sh -c '... "$SIDECAR_INPUT"'`).
+- The child process gets only `SIDECAR_INPUT` plus `PATH`, `HOME`, `TMPDIR`, `TEMP`, `TMP`, `TERM`, `LANG`, `LC_ALL` and `SHELL` from SideCar's environment. Other variables (API keys, webhook URLs) are not passed.
+- `SIDECAR_INPUT` passes through `redactSecrets()` before being set — a hallucinated API key in the LLM's arg can't leak via env var.
+- Command output (stdout, then stderr) is captured as the tool result. Timeout 30 s, output cap 1 MB.
+- Custom tools are marked `requiresApproval`, so they follow the normal approval flow: Cautious and Manual modes ask per call, while Autonomous mode or a `sidecar.toolPermissions` entry of `allow` runs them without asking.
 
 ### Trust gating
 
@@ -221,7 +225,7 @@ The three transports + their trust semantics + the reconnect lifecycle are docum
 
 ### Injection defense
 
-Every MCP tool response flows through [`wrapMcpOutput`](../src/agent/mcpManager.ts) and [`detectInjectionSignals`](../src/agent/mcpManager.ts) before reaching the agent. See [`SECURITY.md`](../SECURITY.md) for the threat model and defenses.
+Every MCP tool response flows through [`wrapMcpOutput`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/mcpManager.ts) and [`detectInjectionSignals`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/mcpManager.ts) before reaching the agent. See [`SECURITY.md`](https://github.com/nedonatelli/sidecar/blob/main/SECURITY.md) for the threat model and defenses.
 
 ### NoSQL databases (MongoDB + Redis)
 
@@ -277,7 +281,7 @@ Credentials are stored in the `env` block per server, not in SecretStorage — k
 
 ## Policy hooks
 
-The agent loop's [`HookBus`](../src/agent/loop/policyHook.ts) is an extensibility point for authors who want to inject behavior _inside_ the loop itself — gating turn completion, running post-tool validators, or pushing synthetic user messages to steer the agent.
+The agent loop's [`HookBus`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/loop/policyHook.ts) is an extensibility point for authors who want to inject behavior _inside_ the loop itself — gating turn completion, running post-tool validators, or pushing synthetic user messages to steer the agent.
 
 This surface is available to first-party code (the six built-in hooks + `sidecar.regressionGuards` config), to callers who construct `AgentOptions.extraPolicyHooks` directly, and to **other VS Code extensions via the SideCar SDK** — `SideCarSdkApi.registerHook(hook)` returns a `Disposable` and registers the hook for every subsequent run (see the SDK section below).
 
@@ -325,7 +329,7 @@ The six built-ins registered by `defaultPolicyHooks()`, in registration (= execu
 | `actionReprompt` | onEmptyResponse                    | Text-only turn on an action-shaped request → one reprompt telling the model to use tools                                 |
 | `completionGate` | afterToolResults + onEmptyResponse | Tracks whether the agent verified its edits; reprompts on unverified termination (tool recording never injects)          |
 
-See [`src/agent/loop/builtInHooks.ts`](../src/agent/loop/builtInHooks.ts) for the adapters.
+See [`src/agent/loop/builtInHooks.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/loop/builtInHooks.ts) for the adapters.
 
 ### Hook ordering
 
@@ -340,7 +344,7 @@ Later hooks see what earlier hooks wrote to `state.messages`. Order matters when
 
 ### Writing a hook (first-party example)
 
-[`src/agent/guards/regressionGuardHook.ts`](../src/agent/guards/regressionGuardHook.ts) wraps the `sidecar.regressionGuards` config as a `PolicyHook`. It reads the config, runs each guard command after relevant tool calls, and pushes a synthetic "regression detected" message when a guard fails. Pattern to copy:
+[`src/agent/guards/regressionGuardHook.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/guards/regressionGuardHook.ts) wraps the `sidecar.regressionGuards` config as a `PolicyHook`. It reads the config, runs each guard command after relevant tool calls, and pushes a synthetic "regression detected" message when a guard fails. Pattern to copy:
 
 ```typescript
 export const myHook: PolicyHook = {
@@ -431,4 +435,4 @@ extension ID.
 - [Agent loop flow](agent-loop-diagram.md) — where hooks fire within one iteration.
 - [Tool registry & dispatch](tool-system-diagram.md) — how custom tools + MCP tools compose with built-ins.
 - [MCP lifecycle](mcp-lifecycle-diagram.md) — internal MCP manager + transport detail.
-- [SECURITY.md](../SECURITY.md) — threat model; trust gates; secret-pattern catalog.
+- [SECURITY.md](https://github.com/nedonatelli/sidecar/blob/main/SECURITY.md) — threat model; trust gates; secret-pattern catalog.

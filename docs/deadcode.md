@@ -1,3 +1,10 @@
+---
+title: Dead-code Detection
+layout: docs
+nav_order: 11
+nav_section: 'Extend'
+---
+
 # Dead-code detection
 
 `npm run deadcode` runs [knip](https://knip.dev) over `src/`, `tests/` and

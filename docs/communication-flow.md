@@ -1,3 +1,10 @@
+---
+title: Communication Flow
+layout: docs
+nav_order: 9
+nav_section: 'Extend'
+---
+
 # SideCar Communication Flow
 
 ## Overview

@@ -73,13 +73,12 @@ You can pin overrides to individual items using `@key:value` tokens in the task 
 | -------------------- | ------------------------- | ------------------------------------------------------------------------------- |
 | `@model:name`        | any configured model id   | Runs this task with the specified model; restores the previous model afterwards |
 | `@shadowMode:always` | `always`, `opt-in`, `off` | Overrides `sidecar.shadowWorkspace.mode` for this task only                     |
-| `@facets:id1,id2`    | comma-separated facet ids | Dispatches named facets instead of the default agent loop                       |
+| `@facets:id1,id2`    | comma-separated facet ids | **Not available yet** — parsed and stripped, but ignored: the task runs on the normal agent loop |
 
 Example:
 
 ```markdown
 - [ ] Refactor the auth middleware to use the new JWT library @model:claude-opus-5-5 @shadowMode:always
-- [ ] Run the security-auditor facet on src/mcpServer/ @facets:security-auditor
 ```
 
 ---

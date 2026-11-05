@@ -98,7 +98,7 @@ This prompt tells the agent exactly what to change, the precise scope, what to p
 
 ## Watching the planned-edits card
 
-When your task touches 3 or more files (the default threshold), SideCar runs a planner pass before writing anything. A collapsible **Planned edits** card appears in chat. The agent will not start writing until you've had a chance to see it.
+When a single model turn asks to write 3 or more files and does nothing else in that turn (the default threshold), SideCar runs a planner pass that orders the writes. A collapsible **Planned edits** card appears in chat. The card does not pause the run: the writes start as soon as it renders, and the card tracks their progress.
 
 ### What the card shows
 
@@ -111,15 +111,15 @@ Each row in the card represents one file operation:
 - **Status indicator** — starts at `pending`, transitions to `writing`, then `done`, `failed`, or `aborted`
 - **Cancel button** — per-file abort (see below)
 
-### How to read it before writing starts
+### How to read it
 
-Before the first write fires, scan the list and ask:
+Scan the list as the writes run and ask:
 
-- Are all the listed files ones you expected? If the planner pulled in a file you didn't intend to touch, steer now (see [Steering mid-run](#during-execution)).
-- Are there files missing that should be in scope? Type a follow-up with the missing path before execution starts.
+- Are all the listed files ones you expected? If the planner pulled in a file you didn't intend to touch, use that row's cancel button (see [Per-file cancel](#per-file-cancel)).
+- Are there files missing that should be in scope? Queue a steer with the missing path (see [Steering mid-run](#steering-mid-run)); the agent reads it after this batch of writes.
 - Do the rationales make sense? A vague or wrong rationale is a signal the agent misunderstood the task.
 
-If the plan looks wrong, type a correction in the chat box. The agent will revise the plan before writing.
+If the plan looks wrong, there is no "revise before writing" step — cancel the rows you don't want, or press Ctrl+Enter (Cmd+Enter on macOS) with a correction to interrupt the turn, then review what landed.
 
 ### Skipping the planner
 
@@ -131,14 +131,14 @@ Replace ErrorCode with StatusCode everywhere in src/types/. @no-plan
 
 The agent skips the manifest and streams writes directly. Useful for narrow, well-understood changes where the planning turn would just slow you down.
 
-You can tune the threshold or disable the planner for larger batches via settings:
+You can tune the threshold or turn the planner off via settings:
 
 ```json
 "sidecar.multiFileEdits.minFilesForPlan": 5,
 "sidecar.multiFileEdits.planningPass": true
 ```
 
-Setting `minFilesForPlan` to `1` plans everything; `0` disables planning entirely.
+`minFilesForPlan` is clamped to 2–50, so `1` behaves as `2` and `0` does not disable anything. To turn the planner off, set `"sidecar.multiFileEdits.planningPass": false`.
 
 ---
 
@@ -164,11 +164,11 @@ The cancelled file's status changes to `aborted`. Other in-flight files continue
 
 ### Steering mid-run
 
-The chat input stays active while the agent is running. You can type and send a message at any time. This aborts the current run and starts a new one with your steer as the next user message.
+The chat input stays active while the agent is running. You can type and send a message at any time. Enter queues it as a steer: the run keeps going, and your message joins the conversation at the next iteration boundary, after the current model turn and its tool calls. Ctrl+Enter (Cmd+Enter on macOS) sends it as an interrupt, which aborts the in-flight model turn and continues the run with your message. Neither starts a new run.
 
 Use this when:
 
-- You see the planned-edits card and want to add or remove a file before writing starts
+- You see the planned-edits card and want to add a file to the scope
 - The agent is mid-execution and you realize the approach is wrong
 - You want to narrow or expand scope based on what you see streaming
 
@@ -178,7 +178,7 @@ To steer without a full restart, send a short correction. The agent picks up fro
 Actually, keep the old ErrorCode export as a re-export alias so callers don't break.
 ```
 
-The agent pauses, reads your steer, and adjusts. If you want a hard stop instead, press **Escape** or click **Stop** (the button that replaces Send while the agent is running).
+At the next iteration boundary the agent reads your steer and adjusts. If you want a hard stop instead, press **Escape** (with the input empty) or click **Stop** (the button that replaces Send while the agent is running).
 
 ---
 

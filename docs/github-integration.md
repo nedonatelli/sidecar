@@ -28,7 +28,7 @@ Ten dedicated Git tools are available to the agent at all times:
 | `git_branch`         | Confirm  | Create, switch, or list branches                                      |
 | `git_stash`          | Confirm  | Stash or pop changes                                                  |
 
-**Confirmation** means a native blocking modal appears before the tool executes — you can't miss it even while scrolled away from the chat panel.
+**Confirm** means SideCar asks before the tool runs, in Cautious and Manual modes: an approval card in the chat, or a native modal when the chat view is hidden so the card would go unseen. Autonomous mode runs these without asking, except a destructive operation such as a force push, which always asks you to type to confirm.
 
 ### What a push approval shows
 
@@ -61,11 +61,11 @@ Commits include a `Co-Authored-By: SideCar` trailer.
 
 ### `/commit-message`
 
-Generates and shows the commit message text without creating the commit — useful when you want to tweak the message before committing.
+Generates a commit message from your staged changes (or, with nothing staged, your unstaged changes) without creating the commit. A notification shows the first line and offers **Copy to Clipboard** or **Edit & Copy** — useful when you want to tweak the message before committing yourself.
 
 ### Command palette
 
-Run `SideCar: Generate Commit Message` (`Cmd+Shift+P`) to generate a message from your current diff and commit immediately.
+`SideCar: Generate Commit Message` (`Cmd+Shift+P`) is the same as `/commit-message`: it drafts the message and offers to copy it, and never commits. Neither `/commit` nor this command pushes.
 
 ---
 
@@ -91,7 +91,7 @@ Configure defaults:
 
 ### `/pr-summary`
 
-Generate a PR description from the current diff without opening a PR. Useful for drafting the description in chat before creating the PR.
+Generate a PR summary from your uncommitted changes (`git diff HEAD`) without opening a PR. The result opens as a Markdown document in an editor tab, not in chat. It does not read the branch-range diff; `/pr` does that when it drafts the real description.
 
 ### Checking CI
 
@@ -127,7 +127,7 @@ Calls `mark_pr_ready` to promote a draft PR to ready-for-review.
 /review
 ```
 
-Fetches the changed files, runs an adversarial review pass (bugs, security, style), and posts findings to the chat. Customise the review criteria by adding a `## Code Review` section to your `SIDECAR.md`.
+Reviews your **uncommitted changes** (`git diff HEAD`, staged and unstaged) for bugs, security issues, performance problems and edge cases, and opens the findings as a Markdown document in an editor tab. It does not review a PR branch against its base, and it uses its own fixed reviewer prompt, so SIDECAR.md is not applied. To review a PR branch, check it out and run `SideCar: Post PR Review with Inline Comments (Agent)`, which hands the agent `origin/<base>...HEAD` and posts the review on GitHub.
 
 For a deeper security pass, dispatch the `security-reviewer` facet:
 
@@ -139,13 +139,13 @@ SideCar: Facets: Dispatch Specialists → security-reviewer
 
 The agent has three GitHub review tools:
 
-| Tool               | Description                                                          |
-| ------------------ | -------------------------------------------------------------------- |
-| `create_pr_review` | Create a pending review with inline comments on specific lines       |
-| `reply_pr_comment` | Reply to an existing review thread                                   |
-| `submit_pr_review` | Submit the pending review as APPROVED, CHANGES_REQUESTED, or COMMENT |
+| Tool               | Description                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------- |
+| `create_pr_review` | Post a complete review in one call: summary body, `event` and inline comments on specific lines |
+| `reply_pr_comment` | Reply to an existing review thread                                                              |
+| `submit_pr_review` | Post a separate top-level review (body + `event`, no inline comments)                           |
 
-All three require confirmation before executing. The agent uses them when asked to "leave a review on this PR" or "comment on line 42 of auth.ts".
+`event` is `COMMENT` (the default), `APPROVE` or `REQUEST_CHANGES`. All three tools require approval in Cautious and Manual modes. The agent uses them when asked to "leave a review on this PR" or "comment on line 42 of auth.ts".
 
 ### Responding to PR comments
 
@@ -153,30 +153,30 @@ All three require confirmation before executing. The agent uses them when asked 
 /pr-respond
 ```
 
-Reads open review threads on the current PR and generates replies or code changes for each one.
+Reads the review threads on the current PR (all of them, resolved ones included) and generates replies or code changes for each one.
 
 ```
 /review-comments
 ```
 
-Lists all unresolved review comments on the current PR.
+Opens the current PR's review threads — all of them, resolved ones included — in a Markdown preview and offers to send them to the agent.
 
 ---
 
 ## Slash command reference
 
-| Command            | Description                                                      |
-| ------------------ | ---------------------------------------------------------------- |
-| `/commit`          | Stage all changes and commit with a generated message            |
-| `/commit-message`  | Generate a commit message without committing                     |
-| `/pr`              | Create a pull request from the current branch                    |
-| `/pr-summary`      | Generate a PR description without creating the PR                |
-| `/pr-ci`           | Check CI status for the current PR                               |
-| `/pr-ready`        | Mark a draft PR as ready for review                              |
-| `/pr-respond`      | Generate responses to open PR review threads                     |
-| `/review`          | Review the current git diff for bugs, security, and style issues |
-| `/review-comments` | List open review comments on the current PR                      |
-| `/ci`              | Analyze the latest failing CI run and propose a fix              |
+| Command            | Description                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| `/commit`          | Stage all changes and commit with a generated message        |
+| `/commit-message`  | Generate a commit message and copy it, without committing    |
+| `/pr`              | Create a pull request from the current branch                |
+| `/pr-summary`      | Summarize uncommitted changes as a PR description draft      |
+| `/pr-ci`           | Check CI status for the current PR                           |
+| `/pr-ready`        | Mark a draft PR as ready for review                          |
+| `/pr-respond`      | Generate responses to open PR review threads                 |
+| `/review`          | Review uncommitted changes for bugs, security and edge cases |
+| `/review-comments` | Show the current PR's review threads                         |
+| `/ci`              | Analyze the latest failing CI run and propose a fix          |
 
 ---
 
@@ -200,4 +200,4 @@ Some operations (`check_pr_ci`, `create_pr_review`, `mark_pr_ready`, branch prot
 
 No manual token entry is needed: SideCar uses VS Code's built-in GitHub authentication provider — the first GitHub operation triggers the standard VS Code GitHub sign-in prompt (`repo` scope), and VS Code manages the token.
 
-For CI analysis, a token with `actions:read` scope is sufficient.
+CI analysis uses the same VS Code GitHub sign-in; there is no separate token to configure.

@@ -71,7 +71,7 @@ Cache entries last 5 minutes of inactivity. If you go idle for more than 5 minut
 
 1. **Collapses whitespace** in tool results — removes runs of blank lines and leading/trailing padding.
 2. **Head+tail truncates oversized tool results** — any `tool_result` block over `maxToolResultTokens` is replaced with the first N tokens, an elision marker (e.g. `[...elided 1,240 tokens...]`), and the last N tokens.
-3. **Deduplicates repeated file content** — if the agent read the same file multiple times in a session, earlier identical reads are collapsed to a reference marker, unless the tool is flagged `nondeterministicOutput` (e.g. `git_diff`, `read_file` are exempt — you always get the full content of the most recent read).
+3. **Deduplicates repeated tool results** — when two tool results in the request are identical (ignoring whitespace, 200 characters or longer), the first keeps its content and every later copy is replaced with a short back-reference marker. Tools flagged `nondeterministicOutput` are never deduplicated; that includes `read_file` and `git_diff`, so repeated file reads and diffs are always sent in full.
 
 **Tuning `maxToolResultTokens`:**
 
@@ -110,16 +110,7 @@ The agent loop routes automatically: turns where `messages` contains no prior to
 
 **Expected savings:** 60–80% reduction in total cost per agent run compared to using Sonnet for all turns. The exact number depends on task complexity — tasks that require more planning turns (architectural work, novel feature design) see smaller savings; tasks that are mostly mechanical execution (refactoring, test generation, formatting) see larger savings.
 
-**Alternative pairing for hybrid cloud/local setups:**
-
-```json
-{
-  "sidecar.model": "claude-haiku-5-5",
-  "sidecar.editorModel": "qwen2.5-coder:7b"
-}
-```
-
-This uses Haiku for planning and a free local Ollama model for all execution turns, reducing API spend by ~90% compared to Haiku-only.
+**Both models must be on the same backend.** `sidecar.editorModel` changes only the model name sent to the current backend, so pairing a Claude planner with a local Ollama model (`qwen2.5-coder:7b`) sends the Ollama model name to Anthropic, and the request fails. To put local models to work alongside a cloud planner, use [`delegate_task`](agent-mode#hybrid-delegation--delegate_task), which sends read-only exploration to a local worker.
 
 ---
 
@@ -168,7 +159,7 @@ Both default to `0` (disabled). At `0`, no cap is enforced.
 **What happens at each threshold:**
 
 - **80% of budget reached:** a warning message appears in chat before the next agent run starts. The run proceeds — this is a heads-up, not a block.
-- **100% of budget reached:** the agent run is blocked. A message indicates which budget was hit and which setting to adjust. You can raise the limit or reset the session spend counter to continue.
+- **100% of budget reached:** the agent run is blocked. A message indicates which budget was hit and which setting to adjust. To continue, raise the limit (or set it to `0`) or wait for the budget period to roll over. `SideCar: Reset Session Spend` does not lift the block — it clears the session spend display, but the budget check reads the daily and weekly totals, which it leaves unchanged.
 
 Budgets reset on calendar boundaries: daily budgets reset at midnight local time, weekly budgets reset on Monday midnight.
 

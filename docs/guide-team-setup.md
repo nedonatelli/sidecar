@@ -32,7 +32,7 @@ Some SideCar configuration belongs in the repo and flows to every developer via 
 - `sidecar.dailyBudget` / `sidecar.weeklyBudget` — personal cost controls
 - `.vscode/settings.json` if it contains `sidecar.apiKey` (migrate away from this immediately — see [API key storage](configuration#api-key-storage-secretstorage))
 
-The `.sidecar/` directory top-level is tracked. Ephemeral subdirs — `cache/`, `memory/`, `sessions/`, `logs/`, `scratchpad/`, `shadows/` — are gitignored by default and should stay that way.
+The `.sidecar/` directory top-level is tracked. SideCar writes a `.sidecar/.gitignore` that ignores `cache/`, `sessions/`, `logs/`, `scratchpad/`, `audit-buffer/`, `literature/`, `screenshots/`, `thinking/`, `pids.json`, and `memory/durable-instructions.json`. It does not ignore the rest of `memory/` or `shadows/` (where Shadow Workspace worktrees live); add those lines yourself if you don't want them committed. If a `.sidecar/.gitignore` already exists, SideCar only appends the `memory/durable-instructions.json` line when nothing in it covers that file.
 
 ---
 
@@ -47,7 +47,7 @@ mkdir -p .sidecar
 touch .sidecar/SIDECAR.md
 ```
 
-Or generate a starter with `SideCar: Generate SIDECAR.md` from the Command Palette — it scaffolds sections from your existing `README.md` and package manifests.
+Or generate a starter with `SideCar: Generate SIDECAR.md` from the Command Palette — it scaffolds sections from your existing `README.md` and package manifests. The command writes `SIDECAR.md` at the workspace root, not `.sidecar/SIDECAR.md`. SideCar reads `.sidecar/SIDECAR.md` first, so a root file next to it is ignored — move the generated file into `.sidecar/`, or run `/init` in chat instead, which writes `.sidecar/SIDECAR.md` directly.
 
 ### Sections every team should include
 
@@ -241,7 +241,7 @@ Create `.sidecar/facets/security-reviewer.md`:
 id: security-reviewer
 displayName: Security Reviewer
 preferredModel: claude-sonnet-5-5
-toolAllowlist: ['read_file', 'grep', 'list_directory', 'web_search']
+toolAllowlist: ["read_file", "grep", "list_directory", "web_search"]
 dependsOn: []
 ---
 
@@ -279,8 +279,8 @@ You can dispatch multiple facets in one batch. Create `.sidecar/facets/api-contr
 id: api-contract-tester
 displayName: API Contract Tester
 preferredModel: claude-haiku-5-5
-toolAllowlist: ['read_file', 'grep', 'run_tests', 'edit_file', 'write_file']
-dependsOn: ['security-reviewer']
+toolAllowlist: ["read_file", "grep", "run_tests", "edit_file", "write_file"]
+dependsOn: ["security-reviewer"]
 ---
 
 You are an API contract tester. Run after the security reviewer.
@@ -377,7 +377,7 @@ Permission levels:
 | Level  | Behavior                                                           |
 | ------ | ------------------------------------------------------------------ |
 | `ask`  | Requires per-call approval (same as the default cautious behavior) |
-| `deny` | Never permitted — the tool is removed from the agent's tool list   |
+| `deny` | Never permitted — the tool stays in the agent's tool list, but every call is refused with `denied by repo policy` |
 
 Policy permission levels are **additive with the user's settings**: the more restrictive level always wins. If a developer's user settings have `git_push: ask` but the policy says `deny`, the effective level is `deny`.
 
@@ -467,7 +467,7 @@ The API key goes in SecretStorage, not here. Run `SideCar: Set / Refresh API Key
       "name": "tests",
       "command": "npm test",
       "trigger": "pre-completion",
-      "mode": "blocking",
+      "blocking": true,
       "maxAttempts": 3
     }
   ],
@@ -476,7 +476,7 @@ The API key goes in SecretStorage, not here. Run `SideCar: Set / Refresh API Key
 }
 ```
 
-Regression guards in workspace settings are workspace-trust-gated — VS Code prompts the developer to accept workspace trust before they activate. This is correct behavior; it prevents a cloned malicious repo from running arbitrary shell commands as guards.
+Regression guards in workspace settings are trust-gated — SideCar asks each developer to Allow or Block them before they run, and asks again if the guard list changes. This is correct behavior; it prevents a cloned malicious repo from running arbitrary shell commands as guards.
 
 ---
 

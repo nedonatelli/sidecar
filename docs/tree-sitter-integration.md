@@ -1,7 +1,8 @@
 ---
 title: Smart Context
 layout: docs
-nav_order: 9
+nav_order: 6
+nav_section: 'Configuration'
 ---
 
 # Smart Context — AST-Based Code Extraction
@@ -47,7 +48,7 @@ Smart context is part of the workspace context pipeline:
 2. **Relevant files** — scored by query relevance, with AST extraction for supported languages
 3. **Workspace tree** — appended last if budget remains, truncated if tight
 
-This ordering ensures the most valuable context gets priority, especially on local models with limited context windows (capped at 8K tokens by default).
+This ordering ensures the most valuable context gets priority, especially on local models with limited context windows (SideCar caps a local model's window at 131,072 tokens, lower for some models).
 
 ## Configuration
 

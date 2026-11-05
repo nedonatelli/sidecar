@@ -120,7 +120,7 @@ These estimates apply to Q4_K_M quantization (the default Ollama pull format). A
 
 > **Unified memory (Apple Silicon):** VRAM and system RAM share the same pool. A 36 GB M3 Max or M4 Pro can comfortably run models up to 14B. For 30B models, close other GPU-heavy applications first. 70B models require at least a 64 GB configuration.
 
-> **Multi-GPU:** Ollama supports splitting large models across multiple GPUs. Set `OLLAMA_NUM_GPU_LAYERS` if you need to run a 30B+ model on a multi-GPU workstation.
+> **Multi-GPU:** Ollama splits large models across multiple GPUs on its own. SideCar sends no GPU layer count unless the `SIDECAR_OLLAMA_NUM_GPU` environment variable is set to an integer, which it passes as `num_gpu` on every request; it is meant for headless benchmarks and has no setting.
 
 ---
 
@@ -148,14 +148,7 @@ In this setup, `sidecar.model` handles intent classification, plan generation, a
 }
 ```
 
-**Hybrid: cloud planning + local execution (minimize API spend)**
-
-```json
-{
-  "sidecar.model": "claude-haiku-5-5",
-  "sidecar.editorModel": "qwen2.5-coder:7b"
-}
-```
+Both models must be served by the same backend: `sidecar.editorModel` only changes the model name sent to the active backend, so pairing a Claude model with an Ollama model sends the Ollama model name to Anthropic. To keep a paid model planning while a local model does the reading, use [`delegate_task`](agent-mode#hybrid-delegation--delegate_task) instead.
 
 **Cloud: premium planning + budget execution**
 

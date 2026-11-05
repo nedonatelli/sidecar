@@ -1,6 +1,13 @@
+---
+title: MCP Client Lifecycle
+layout: docs
+nav_order: 8
+nav_section: 'Extend'
+---
+
 # MCP Client Lifecycle
 
-The [Model Context Protocol](https://modelcontextprotocol.io/) lets SideCar consume tools from external servers — GitHub, Linear, Postgres, whatever the user wires up. [`MCPManager`](../src/agent/mcpManager.ts) is the single class that owns the connection pool, tool discovery, reconnect backoff, and tool invocation surface.
+The [Model Context Protocol](https://modelcontextprotocol.io/) lets SideCar consume tools from external servers — GitHub, Linear, Postgres, whatever the user wires up. [`MCPManager`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/mcpManager.ts) is the single class that owns the connection pool, tool discovery, reconnect backoff, and tool invocation surface.
 
 ## End-to-end lifecycle
 
@@ -89,7 +96,7 @@ sequenceDiagram
 
 ### Env-var expansion is scoped
 
-Headers may reference `${VAR}` placeholders. Expansion **only** looks at the server's own `env` block, **not** at `process.env`. A malicious `.mcp.json` that set `headers: { Authorization: "${ANTHROPIC_API_KEY}" }` would otherwise exfiltrate SideCar's own API key to the remote server. Unresolved placeholders become empty strings.
+Headers may reference `${VAR}` placeholders. Expansion **only** looks at the server's own `env` block, **not** at `process.env`. A malicious `.mcp.json` that set `headers: { Authorization: "${ANTHROPIC_API_KEY}" }` would otherwise exfiltrate SideCar's own API key to the remote server. Unresolved placeholders become empty strings. `loadProjectMcpConfig` drops `env` from http/sse entries in `.mcp.json`, so header placeholders there always become empty; only servers in `sidecar.mcpServers` can supply them.
 
 ### Tool naming + approval
 
@@ -170,8 +177,8 @@ The chat panel polls this on open + whenever it re-renders the agent-mode picker
 
 | File                                                    | Role                                                          |
 | ------------------------------------------------------- | ------------------------------------------------------------- |
-| [`src/agent/mcpManager.ts`](../src/agent/mcpManager.ts) | `MCPManager` class + `MCPConnection` + `MCPServerInfo`        |
-| [`src/config/settings.ts`](../src/config/settings.ts)   | `MCPServerConfig` type; merges VS Code settings + `.mcp.json` |
+| [`src/agent/mcpManager.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/mcpManager.ts) | `MCPManager` class + `MCPConnection` + `MCPServerInfo`        |
+| [`src/config/settings.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/config/settings.ts)   | `MCPServerConfig` type; merges VS Code settings + `.mcp.json` |
 | `@modelcontextprotocol/sdk/client/*`                    | Third-party SDK for the protocol itself                       |
 
 ## User-facing docs

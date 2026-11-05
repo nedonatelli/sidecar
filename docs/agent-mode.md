@@ -28,16 +28,16 @@ Control how much autonomy SideCar has via the agent mode dropdown in the chat he
 | Mode                   | Reads                    | Writes                                             | Destructive |
 | ---------------------- | ------------------------ | -------------------------------------------------- | ----------- |
 | **Cautious** (default) | Auto-approve             | Confirm                                            | Confirm     |
-| **Autonomous**         | Auto-approve             | Auto-approve                                       | Confirm     |
+| **Autonomous**         | Auto-approve             | Auto-approve                                       | See below   |
 | **Manual**             | Confirm                  | Confirm                                            | Confirm     |
 | **Review**             | Auto-approve             | Buffered — see below                               | Confirm     |
-| **Plan**               | Auto-approve (read-only) | Blocked until you approve a plan                   | Blocked     |
+| **Plan**               | None — only `ask_user`   | Blocked until you approve a plan                   | Blocked     |
 | **Audit**              | Auto-approve             | Buffered in-memory (autonomous), reviewed on flush | Buffered    |
 
-All six are valid values for `sidecar.agentMode`. **Plan** runs a read-only planning phase first (see [Plan mode](#plan-mode) below); **Audit** is a lighter-weight alternative to Review that buffers file writes in memory and runs autonomously until you flush/review.
+All six are valid values for `sidecar.agentMode`. **Plan** has the model write a plan before any tool runs; during planning only `ask_user` is available (see [Plan mode](#plan-mode) below); **Audit** is a lighter-weight alternative to Review that buffers file writes in memory and runs autonomously until you flush/review.
 
 - **Cautious** is recommended for most use. File reads happen automatically; writes and edits open a **VS Code diff editor** showing the proposed changes. Accept/Reject buttons appear both as a VS Code notification (in the editor) and as a chat card — click whichever is more convenient.
-- **Autonomous** lets SideCar work without interruption. Use for trusted tasks where you'll review changes after.
+- **Autonomous** lets SideCar work without interruption. Use for trusted tasks where you'll review changes after. Shell commands, git operations and other tools run without asking; the only prompts are for irrecoverable commands (`rm -rf`, `git push --force`, `git reset --hard` and the like), package installs, edits to project config your request didn't ask for, commits that hold gitignored files or are unusually large, and the few tools that always ask (`update_setting`, `switch_backend`, `run_playwright_code`). Those checks apply in every mode.
 - **Manual** requires approval for every tool call, including file reads.
 - **Review** is the safest mode for large multi-file changes. Writes and edits never hit disk during the agent run — they're buffered into a **Pending Agent Changes** panel where you can review each file's diff and accept or discard it before anything is persisted. See the section below.
 
@@ -263,10 +263,11 @@ Toggle via `sidecar.delegateTask.enabled` (default on). See [Cost controls](conf
 When the agent calls a tool that requires approval, the prompt location depends on what the tool does:
 
 - **Write tools** (`write_file`, `edit_file`) — go through the **streaming diff preview**. The proposed content opens in VS Code's native diff editor; accept or reject via an editor notification, a chat card, or keyboard shortcuts. Whichever you click first wins.
-- **Destructive tools** (`run_command`, `run_tests`, `git_stage`, `git_commit`, `git_push`, `git_pull`, `git_branch`, `git_stash`) — open a **native blocking modal** (`showWarningMessage({modal: true})`) that you must dismiss before the editor responds to anything else. The modal body contains a short title (`Allow SideCar to run run_command?`) and a detail line with the full input (`command: npm test`). You can't miss the prompt while scrolled away from chat, and it can't auto-dismiss.
+- **Command and git tools** (`run_command`, `git_stage`, `git_commit`, `git_push`, `git_pull`, `git_branch`, `git_stash`) — approve on the **inline chat card** while the chat view is visible. When the chat view is hidden, where a card would go unseen, they escalate to a **native blocking modal** (`showWarningMessage({modal: true})`) that you must dismiss before the editor responds to anything else. The modal body contains a short title (`Allow SideCar to run run_command?`) and a detail line with the full input (`command: npm test`). `run_tests` never escalates — it runs the project's own test command and always uses the chat card.
+- **Irrecoverable commands** (`rm -rf`, `git push --force`, `git reset --hard` and the like) — get their own escalated type-to-confirm gate in every mode, including autonomous.
 - **Read-only tools** (`grep`, `search_files`, `find_references`, `list_directory`, `get_diagnostics`, `git_diff`, `git_status`, `git_log`, `git_branch list`) — keep the existing **inline chat card** since they're quick, non-destructive, and don't justify a blocking interruption.
 
-The rule of thumb: **if it could break something, block the editor until you decide.** If it's just reading data, use the quieter in-chat surface.
+The rule of thumb: **ask where you'll see it.** A prompt blocks the editor only when the chat is out of view, or when the operation can't be undone.
 
 ## Clarifying questions
 

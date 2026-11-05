@@ -37,7 +37,7 @@ The extension targets the desktop API surface. Some capabilities (native file sy
 
 ### Which model should I start with?
 
-For Ollama: `gemma4:e4b` (the default, ~10 GB VRAM) is the most-tested starting point. On lighter hardware, try `ministral-3:latest` (6 GB), `granite4.1:3b`, or `qwen2.5-coder:7b`. For agent tasks that require reliable tool use, `qwen3-coder` variants perform well. For the Anthropic API: `claude-sonnet-5-5` is a good default for agent work (the backend menu selects the cheaper, legacy `claude-haiku-4-5` until you change it).
+For Ollama: `gemma4:e4b` (the default, ~10 GB VRAM) is the most-tested starting point. On lighter hardware, try `ministral-3:latest` (6 GB), `granite4.1:3b`, or `qwen2.5-coder:7b`. For agent tasks that require reliable tool use, `qwen3-coder` variants perform well. For the Anthropic API: `claude-sonnet-5-5` is a good default for agent work (the backend menu selects the cheaper `claude-haiku-5-5` until you change it).
 
 ### How do I connect to OpenRouter, Groq, or Fireworks?
 
@@ -81,7 +81,7 @@ Yes, via model routing. Set `sidecar.modelRouting.enabled: true` and define rule
 
 ### The agent is repeating the same action. How do I stop it?
 
-SideCar has two-tier cycle detection built in. A normalized-signature buffer catches "same tool, same file, different content" loops after 10 repeats (configurable via `sidecar.scaffolding.cycleDetectionMinRepeats`); the exact-match check fires one repeat later. When either trips, the agent halts automatically and posts a message in chat explaining what happened.
+SideCar has cycle detection built in. A normalized-signature buffer catches "same tool, same file, different content" loops after 10 repeats (configurable via `sidecar.scaffolding.cycleDetectionMinRepeats`). Byte-identical repeats stop sooner, at a fixed threshold the setting doesn't change: 4 consecutive identical calls, or the same edit/write call 4 times in the recent window. When either trips, the agent halts automatically and posts a message in chat explaining what happened.
 
 If you are seeing a loop that was not caught: press Escape or click Stop to abort the run, then steer the agent with a follow-up message. You can also lower `sidecar.agentMaxIterations` (default 50, or 150 for strong-tier models such as Claude) to set a harder cap.
 
@@ -98,7 +98,7 @@ Three approaches:
 | Mode               | File reads | File writes                  | Destructive ops (shell, git) |
 | ------------------ | ---------- | ---------------------------- | ---------------------------- |
 | Cautious (default) | Auto       | Diff preview — you confirm   | Confirm                      |
-| Autonomous         | Auto       | Auto                         | Confirm                      |
+| Autonomous         | Auto       | Auto                         | Auto, except irrecoverable   |
 | Manual             | Confirm    | Confirm                      | Confirm                      |
 | Review             | Auto       | Buffered — nothing hits disk | Confirm                      |
 
@@ -115,7 +115,7 @@ A few possible causes:
 
 ### Can I send the agent a new instruction while it is still running?
 
-Yes. The chat input stays active during agent runs. Type a new message and send it — SideCar aborts the current run and starts a new one with your message. Press Escape or click Stop to abort without starting a new task. The SteerQueue lets you queue a lower-urgency follow-up that drains at the next iteration boundary without aborting the current tool call.
+Yes. The chat input stays active during agent runs, and what you send goes to the steer queue rather than starting a new run. **Enter** (or the Send button) queues a nudge, which the agent reads at the next iteration boundary without aborting the current tool call. **Ctrl+Enter** (Cmd+Enter on macOS) queues an interrupt, which aborts the in-flight turn immediately; its text is delivered at the same boundary. Press Escape with an empty input, or click Stop, to abort the run.
 
 ### How do I run multiple agent tasks in parallel?
 
@@ -153,7 +153,7 @@ Long sessions trigger context compression — older turns are summarized and com
 
 To make context persistent across compression:
 
-- **Pin a note**: type `/memories` to open the pinned memory panel. Pin a text note or file snippet. Pinned entries inject into every turn with always-include semantics and survive compression.
+- **Pin a file or selection**: use the **Pinned Memory** view in the SideCar sidebar, or the `SideCar: Pin File to Memory`, `Pin Active File to Memory` and `Pin Selection to Memory` commands. Pinned entries inject into every turn with always-include semantics and survive compression. (`/memories` is different: it prints a count of the agent's learned memories by type.)
 - **Add it to SIDECAR.md**: for project-level conventions, the right place is SIDECAR.md.
 - **Re-state the constraint**: typing a key instruction at the start of a new message reinforces it for the current turn.
 
@@ -162,8 +162,8 @@ To make context persistent across compression:
 Three ways:
 
 1. **Settings**: add paths to `sidecar.pinnedContext` — e.g. `["src/types.ts", "src/agent/"]`.
-2. **Inline**: type `@pin:src/types.ts` anywhere in a chat message to toggle that file in.
-3. **Pinned memory**: use `/memories` in chat or the Pinned Memory sidebar to pin text notes or file snippets that persist across sessions and survive context compression.
+2. **Inline**: type `@pin:src/types.ts` anywhere in a chat message to pin that file. The pin lasts until VS Code reloads; it isn't saved.
+3. **Pinned memory**: use the Pinned Memory sidebar view or the Pin File/Selection to Memory commands to pin files or snippets that persist across sessions and survive context compression.
 
 Pinned files appear in a dedicated "Pinned Files" section above relevance-scored context. See [configuration — context pinning](configuration#context-pinning).
 
@@ -203,7 +203,7 @@ The outbound allowlist (`sidecar.outboundAllowlist`) lets you whitelist specific
 
 ### Can the agent run arbitrary shell commands?
 
-The agent's `run_command` tool can execute shell commands — this is necessary for running tests, builds, and linters. In **cautious** and **manual** modes, every `run_command` call pops a blocking modal requiring your approval before execution. In **autonomous** mode, commands run without prompting. On macOS a Seatbelt sandbox restricts write paths at the OS level, but **only on the child-process fallback executor** — commands run through the VS Code terminal (the default path whenever shell integration is available) are not sandboxed, and the sandbox fails open if `/usr/bin/sandbox-exec` is missing. Do not treat it as a containment boundary; the approval modes are the real control.
+The agent's `run_command` tool can execute shell commands — this is necessary for running tests, builds, and linters. In **cautious** and **manual** modes, every `run_command` call needs your approval: on the chat card while the chat view is visible, or a blocking modal when it is hidden. In **autonomous** mode, commands run without prompting, except irrecoverable ones (`rm -rf`, `git push --force`, `git reset --hard` and the like), package installs, and config edits your request didn't ask for, which ask in every mode. On macOS a Seatbelt sandbox restricts write paths at the OS level, but **only on the child-process fallback executor** — commands run through the VS Code terminal (the default path whenever shell integration is available) are not sandboxed, and the sandbox fails open if `/usr/bin/sandbox-exec` is missing. Do not treat it as a containment boundary; the approval modes are the real control.
 
 To block shell execution entirely, set `"run_command": "deny"` and `"run_tests": "deny"` in `sidecar.toolPermissions`.
 
@@ -237,10 +237,10 @@ See [configuration — spending budgets](configuration#spending-budgets).
 Options depending on the bottleneck:
 
 - **Slow model inference**: switch to a smaller or faster model. Use `sidecar.editorModel` to route execution turns to a cheaper model while keeping a frontier model for planning.
-- **Slow local model loading**: Ollama unloads models after 5 minutes of inactivity — loading adds latency to the first request of a session. Raise `keep_alive` to keep the model warm (see [backends — Ollama performance tuning](backends#performance-tuning)).
+- **Slow local model loading**: SideCar sends `keep_alive: '30m'` with every chat request, so a model stays loaded for 30 minutes after its last request (this overrides `OLLAMA_KEEP_ALIVE`). A reload also happens whenever the context window changes, so keep `sidecar.ollama.numCtx` fixed (see [backends — Ollama performance tuning](backends#performance-tuning)).
 - **Context too large**: reduce `sidecar.maxFiles`, lower `sidecar.streamingReadThreshold`, or use `.sidecarignore` to exclude irrelevant directories.
 - **Too many file-read tool calls**: enable `sidecar.delegateTask.enabled` so the frontier model offloads codebase reads to a free local worker and only reasons over the compact summary.
-- **Slow inline completions**: enable speculative decoding (`sidecar.speculativeDecoding.enabled: true`) with a small draft model (e.g. `sidecar.completionDraftModel: "qwen2.5-coder:0.5b"`).
+- **Slow inline completions**: on a local Ollama backend, enable speculative decoding (`sidecar.speculativeDecoding.enabled: true`) with a small draft model (e.g. `sidecar.completionDraftModel: "qwen2.5-coder:0.5b"`). Other backends do not use it.
 - **Many files to write in one task**: the multi-file edit planner writes independent files in parallel (up to `sidecar.multiFileEdits.maxParallel`, default 8). Raise this cap for wide refactors.
 
 ---
@@ -255,9 +255,9 @@ Backend API keys are **never** stored in `settings.json` — they live in each d
 
 ### How do I share custom skills with my team?
 
-Skills are `.agent.md` files distributed via a git repository. Set up a team skill registry:
+Skills are markdown (`*.md`) files distributed via a git repository; the file name without `.md` is the skill id, so `review.agent.md` becomes `review.agent`. Set up a team skill registry:
 
-1. Create a git repo with your `.agent.md` skill files.
+1. Create a git repo with your `.md` skill files.
 2. Add the repo URL to `sidecar.skills.teamRegistries` in `.vscode/settings.json`.
 3. SideCar clones and syncs the registry on activation. The Skills Picker tags each skill by origin.
 
@@ -269,7 +269,7 @@ Commit facet markdown files to `<workspace>/.sidecar/facets/*.md`. SideCar loads
 
 ### How do I share SIDECAR.md with the team?
 
-Commit it to the repository. The `.sidecar/` top-level directory is tracked in git — `SIDECAR.md` and other curated shared files belong there or at the workspace root. Ephemeral subdirectories (`cache/`, `memory/`, `sessions/`, `logs/`, `shadows/`) are gitignored and should not be committed.
+Commit it to the repository. The `.sidecar/` top-level directory is tracked in git — `SIDECAR.md` and other curated shared files belong there or at the workspace root. The `.sidecar/.gitignore` SideCar creates ignores the ephemeral entries — `cache/`, `sessions/`, `logs/`, `scratchpad/`, `audit-buffer/`, `literature/`, `screenshots/`, `thinking/`, `pids.json` and `memory/durable-instructions.json` — and these should not be committed. The rest of `memory/` is not ignored by that file.
 
 ### Does SideCar work in Dev Containers or remote SSH?
 

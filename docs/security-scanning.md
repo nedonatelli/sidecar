@@ -60,15 +60,18 @@ To reduce false positives, SideCar skips:
 
 ## Workspace trust
 
-SideCar warns once per session when workspace-level settings define potentially dangerous configurations. This protects against supply-chain attacks where a malicious `.vscode/settings.json` is committed to a repository.
+SideCar warns when workspace-level settings define potentially dangerous configurations. This protects against supply-chain attacks where a malicious `.vscode/settings.json` is committed to a repository. There are two kinds of prompt.
 
-Trust warnings appear for:
+**Sensitive settings.** When the workspace sets any of a long list of keys that could send your API keys to another server, run programs, or lower approval, SideCar shows one modal naming them. The list covers endpoints (`sidecar.baseUrl`, `sidecar.provider`, `sidecar.fallbackBaseUrl`, `sidecar.delegateTask.workerBaseUrl`, `sidecar.outboundAllowlist` and others), programs and registries (`sidecar.eventHooks`, `sidecar.shadowWorkspace.gateCommand`, `sidecar.skills.teamRegistries`, `sidecar.facets.registry`, `sidecar.databases.profiles` and others), and approval or safety switches (`sidecar.agentMode`, `sidecar.customModes`, `sidecar.sandbox.enabled`, `sidecar.terminalExecution.enabled`, `sidecar.injectionGuard.enabled`, the `sidecar.mcpServer.*` and `sidecar.mcpDelegation.*` keys and others). Until you choose **Allow**, SideCar uses your own (user-level) values for these keys instead. The decision is saved in the workspace's state, so it survives restarts; you're asked again only when the workspace's values change.
+
+**Per-feature prompts.** Before using workspace-level values for these, SideCar asks separately, once per session:
 
 - **MCP server configs** (`sidecar.mcpServers`) — can spawn arbitrary processes
 - **Tool permission overrides** (`sidecar.toolPermissions`) — can auto-allow dangerous tools like `write_file`
 - **Hook commands** (`sidecar.hooks`) — execute shell commands on tool invocations
+- **Custom tools** (`sidecar.customTools`), **scheduled tasks** (`sidecar.scheduledTasks`), **regression guards** and **workspace facets** (`.sidecar/facets`), which run commands or replace built-ins
 
-When prompted, choose **Allow** to trust the workspace config for this session, or **Block** to ignore the workspace-level settings and fall back to your user-level defaults. The decision is remembered for the session — you won't be asked again until you restart VS Code.
+Choose **Allow** to trust the workspace config for this session, or **Block** to ignore the workspace-level settings and fall back to your user-level defaults. These decisions last until you restart VS Code.
 
 ## Path traversal protection
 
@@ -93,12 +96,12 @@ SideCar scans your manifest files for outdated dependencies and known vulnerabil
 
 ### How it works
 
-1. **Version check** — fetches the latest stable version from the upstream registry (npm registry, PyPI, crates.io, Go proxy) using a 1-hour in-memory cache to avoid hammering the APIs on every save.
+1. **Version check** — fetches the latest stable version from the upstream registry (npm registry, PyPI, crates.io, Go proxy) using a 1-hour in-memory cache to avoid hammering the APIs on every save. Each manifest's scan result is also saved in the workspace's state, keyed by the file's modification time, so an unchanged manifest isn't re-scanned within the hour even across VS Code restarts. Scans that timed out or whose vulnerability lookup failed aren't saved.
 2. **Vulnerability check** — batches a `POST` to the [OSV API](https://osv.dev) (`api.osv.dev/v1/querybatch`) with every resolved version. Returns CVE/GHSA IDs and severity ratings.
 3. **Problems panel** — findings surface under `source: sidecar-deps` alongside compiler errors:
    - `Error` — Critical vulnerabilities
-   - `Warning` — High / Medium vulnerabilities, or packages with any vulnerability
-   - `Information` — Outdated packages (no known vulnerability)
+   - `Warning` — High / Medium vulnerabilities
+   - `Information` — Low or unrated vulnerabilities, or outdated packages with no known vulnerability
 
 ### Triggering a scan
 

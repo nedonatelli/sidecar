@@ -27,7 +27,7 @@ The fastest fix is to steer mid-run. The chat input stays live while the agent i
 Stop trying to edit that file. Read the test output first and tell me what's failing.
 ```
 
-Sending the message aborts the current run immediately and starts a new one with your instruction.
+Pressing Enter queues the message as a steer: the run keeps going, and your instruction is added to the conversation at the next iteration boundary (after the current model turn and its tool calls). Press Ctrl+Enter (Cmd+Enter on macOS) instead to interrupt — the in-flight model turn is aborted and the run continues straight away with your instruction. To stop the run entirely, press Escape with an empty input or click the stop button.
 
 If the agent has already stopped on its own, start a new message that rephrases the task. Cycle detection usually fires when the model has lost track of its goal — a cleaner, more specific prompt breaks the pattern:
 
@@ -75,13 +75,13 @@ Use `@file:` in your prompt to pin the file you want the agent to work with:
 @file:src/auth/validateToken.ts The token expiry check on line 38 is off by one — fix it.
 ```
 
-You can pin a file permanently so it's always in context regardless of the task:
+You can pin a file so it stays in context for the rest of the session regardless of the task:
 
 ```
 @pin:src/auth/validateToken.ts
 ```
 
-Pinned files appear in a dedicated "Pinned Files" section before relevance-scored files and survive context compaction.
+Pinned files appear in a dedicated "Pinned Files" section before relevance-scored files and survive context compaction. An `@pin:` lasts only until the window reloads; to pin a file permanently, add it to `sidecar.pinnedContext` in settings.
 
 **Longer-term fix: path-scoped sections in SIDECAR.md.**
 
@@ -115,7 +115,7 @@ This happens because:
 2. The model is an instruction-tuned variant that was trained to refuse tool use
 3. The prompt is confusing the model into treating the task as a conversation
 
-**How to check.** Run `/verbose` (or set `sidecar.verboseMode: true`) and start a new message. The verbose output will show whether tool definitions were sent and, if so, what the model returned instead of a tool call.
+**How to check.** Make sure verbose mode is on (it is by default — `sidecar.verboseMode: true`) and start a new message. The verbose output will show whether tool definitions were sent and, if so, what the model returned instead of a tool call.
 
 **Fix: switch to a model with reliable function calling.**
 
@@ -185,7 +185,7 @@ Options, in order of least to most disruptive:
 
 **Verbose mode: system prompt, token counts, and tool selection.**
 
-Run `/verbose` to toggle verbose mode. With verbose on, each agent run shows:
+Verbose mode is on by default (`sidecar.verboseMode: true`). `/verbose` toggles it, so on a default install the first `/verbose` turns it **off**; the reply says which way it went. With verbose on, each agent run shows:
 
 - The full assembled system prompt at the start of the run (so you can see what context the agent actually has)
 - Per-iteration summaries: elapsed time and token counts
@@ -193,7 +193,7 @@ Run `/verbose` to toggle verbose mode. With verbose on, each agent run shows:
 
 Verbose output appears in yellow-bordered collapsible blocks, visually separate from the agent's normal responses.
 
-To enable it permanently:
+If you turned it off, set it back permanently with:
 
 ```json
 "sidecar.verboseMode": true
@@ -261,16 +261,16 @@ Fix:
 
 This summarizes older turns and compresses the conversation history. The agent retains the task context via episodic memory (summaries are embedded and retrieved in future turns), but the raw message count drops significantly.
 
-**Slow model or missing speculative decoding.**
+**Slow inline completions: speculative decoding.**
 
-For local models, speculative decoding delivers near-main-model quality at draft-model latency by having a smaller draft model propose tokens in parallel:
+Speculative decoding applies only to inline (ghost-text) completions on a local Ollama backend — it does not speed up chat or agent runs. SideCar sends the same completion request to a small draft model and to the main model at once, keeps whichever answer arrives first, and cancels the other:
 
 ```json
 "sidecar.speculativeDecoding.enabled": true,
 "sidecar.completionDraftModel": "qwen2.5-coder:0.5b"
 ```
 
-The draft model should be from the same model family as your main model and at least 10x smaller. SideCar auto-discovers the smallest available model on the backend if you leave `completionDraftModel` empty.
+`speculativeDecoding.enabled` is on by default. If you leave `completionDraftModel` empty, SideCar picks the draft from a fixed table keyed on your main model's name; a model with no table entry gets no race. Setting `completionDraftModel` explicitly races that model even with speculative decoding turned off. When the draft wins fewer than `speculativeDecoding.minAcceptRateToKeepEnabled` (default 0.4) of races after warm-up, the race is turned off for the session. On cloud and OpenAI-compatible backends, inline completions use the chat path and never race.
 
 **Two-model split for agent runs.**
 
@@ -336,7 +336,7 @@ See the [Cost Optimization guide](guide-cost-optimization) for the full walkthro
     "name": "lint",
     "command": "npm run lint",
     "trigger": "post-write",
-    "mode": "blocking",
+    "blocking": true,
     "scope": ["src/**/*.ts"],
     "maxAttempts": 5
   }
@@ -357,19 +357,19 @@ This is the same output you'd see running the command yourself. The agent is als
 
 1. Fix the underlying issue first. Guards often catch pre-existing failures that the agent's edit didn't cause but that are now blocking it from finishing. Run the guard command yourself (`npm run lint`), fix the errors, then re-run your task.
 
-2. Temporarily set a guard to advisory mode so it logs but doesn't block:
+2. Temporarily make a guard non-blocking so it logs but doesn't block:
 
    ```json
    {
      "name": "lint",
      "command": "npm run lint",
      "trigger": "post-write",
-     "mode": "advisory",
+     "blocking": false,
      "scope": ["src/**/*.ts"]
    }
    ```
 
-   Change it back to `"blocking"` when the pre-existing failures are resolved. Avoid disabling guards entirely — they exist to catch regressions, and the cost of disabling them is exactly the regressions they would have caught.
+   Set it back to `"blocking": true` (or remove the field — guards block by default) when the pre-existing failures are resolved. The field is the boolean `blocking`; a `"mode"` key on a guard is ignored, and the guard keeps blocking. Avoid disabling guards entirely — they exist to catch regressions, and the cost of disabling them is exactly the regressions they would have caught.
 
 **Global mode override.** To pause all guards for a session without editing each one:
 

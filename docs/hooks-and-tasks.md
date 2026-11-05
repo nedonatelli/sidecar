@@ -15,15 +15,14 @@ SideCar provides four extensibility surfaces that run shell commands or agent ta
 
 ## Tool hooks
 
-Run a shell command immediately before (`pre`) or after (`post`) any tool execution. Keys are tool names or `*` to match all tools.
+Run a shell command immediately before (`pre`) or after (`post`) any tool execution. Keys are tool names or `*` to match all tools. The command runs through a shell (`$SHELL`, or `/bin/bash`; `cmd.exe` on Windows) with SideCar's environment plus the variables below.
+
+The examples on this page use POSIX shell syntax. On Windows, where hooks run under `cmd.exe`, write the command for `cmd.exe`, or start it with `bash -c "…"` when Git Bash is installed.
 
 ```json
 "sidecar.hooks": {
   "write_file": {
-    "post": "npx prettier --write \"$SIDECAR_FILE\""
-  },
-  "edit_file": {
-    "post": "npx prettier --write \"$SIDECAR_FILE\""
+    "post": "npx prettier --write \"$(node -p 'JSON.parse(process.env.SIDECAR_INPUT).path')\""
   },
   "git_commit": {
     "pre": "npm run lint --silent"
@@ -40,22 +39,23 @@ Run a shell command immediately before (`pre`) or after (`post`) any tool execut
 |----------|-----------|-------------|
 | `SIDECAR_TOOL` | pre, post | Tool name being executed (e.g. `write_file`) |
 | `SIDECAR_INPUT` | pre, post | JSON-encoded input parameters |
-| `SIDECAR_FILE` | pre, post | Value of the `path` input field, if the tool has one |
-| `SIDECAR_OUTPUT` | post only | Tool execution result (string) |
+| `SIDECAR_OUTPUT` | post only | Tool execution result (string, first 10,000 characters) |
+
+Tool hooks get no `SIDECAR_FILE` variable. To act on the file a tool touched, read `path` out of `SIDECAR_INPUT`, as the `write_file` example above does.
 
 ### Hook execution order
 
-When a tool matches both a specific key and `*`, the specific hook runs first, then `*`. For each key, `pre` runs before the tool, `post` runs after.
+Only one hook runs per phase. When a tool has its own entry for that phase, it replaces the `*` entry; `*` runs only for tools (or phases) with no specific hook. `pre` runs before the tool, `post` runs after.
 
-A non-zero exit code from a `pre` hook **cancels the tool call** and returns the hook output as an error — useful for enforcing pre-conditions. A non-zero exit from a `post` hook is logged as a warning but does not affect the tool result already returned to the agent.
+A non-zero exit code (or a timeout) from a `pre` hook **cancels the tool call** and returns an error such as `Hook failed with exit code 1` — useful for enforcing pre-conditions. A non-zero exit from a `post` hook is logged as a warning but does not affect the tool result already returned to the agent.
 
 ### Recipes
 
 **Auto-format after every write:**
 ```json
 "sidecar.hooks": {
-  "write_file": { "post": "npx prettier --write \"$SIDECAR_FILE\" 2>/dev/null || true" },
-  "edit_file":  { "post": "npx prettier --write \"$SIDECAR_FILE\" 2>/dev/null || true" }
+  "write_file": { "post": "npx prettier --write \"$(node -p 'JSON.parse(process.env.SIDECAR_INPUT).path')\" 2>/dev/null || true" },
+  "edit_file":  { "post": "npx prettier --write \"$(node -p 'JSON.parse(process.env.SIDECAR_INPUT).path')\" 2>/dev/null || true" }
 }
 ```
 
@@ -96,11 +96,11 @@ Run a shell command when VS Code fires a file-system event. Unlike tool hooks, t
 
 | Event | Triggers when | `$SIDECAR_FILE` value |
 |-------|---------------|-----------------------|
-| `onSave` | Any file is saved (Cmd+S or auto-save) | Absolute path of saved file |
-| `onCreate` | A new file is created | Absolute path of new file |
-| `onDelete` | A file is deleted | Absolute path of deleted file |
+| `onSave` | Any file is saved (Cmd+S or auto-save) | Workspace-relative path of saved file |
+| `onCreate` | A new file is created | Workspace-relative path of new file |
+| `onDelete` | A file is deleted | Workspace-relative path of deleted file |
 
-Event hooks receive `$SIDECAR_FILE` (the absolute path of the affected file) and `$SIDECAR_TOOL` (the event name: `onSave`, `onCreate`, `onDelete`).
+Event hooks receive `$SIDECAR_FILE` (the affected file's path relative to the workspace root, e.g. `src/app.ts`) and `$SIDECAR_EVENT` (the event name: `onSave`, `onCreate`, `onDelete`). The command runs in the workspace root.
 
 ### Recipe — keep an index file in sync
 
@@ -108,7 +108,7 @@ Regenerate a barrel export whenever a TypeScript file is saved in `src/component
 
 ```json
 "sidecar.eventHooks": {
-  "onSave": "if [[ \"$SIDECAR_FILE\" == */src/components/*.ts ]]; then node scripts/gen-barrel.js; fi"
+  "onSave": "if [[ \"$SIDECAR_FILE\" == src/components/*.ts ]]; then node scripts/gen-barrel.js; fi"
 }
 ```
 
@@ -128,8 +128,8 @@ Run an agent task on a recurring interval, a cron schedule, or whenever a matchi
   },
   {
     "name": "lint-on-ts-save",
-    "onSave": ["src/**/*.ts", "src/**/*.tsx"],
-    "prompt": "The file $SIDECAR_FILE was just saved. Run the linter and fix any new warnings introduced in this file only.",
+    "onSave": ["**/src/**/*.ts", "**/src/**/*.tsx"],
+    "prompt": "A TypeScript file under src/ was just saved. Run the linter on the files changed since the last commit and fix any new warnings.",
     "enabled": true
   },
   {
@@ -147,10 +147,10 @@ Run an agent task on a recurring interval, a cron schedule, or whenever a matchi
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique display name — also used as the lock key to prevent overlapping runs |
 | `prompt` | string | Yes | Natural-language prompt sent to the agent |
-| `enabled` | boolean | No | `true` by default. Set `false` to pause without removing the entry |
+| `enabled` | boolean | Yes | Must be `true` for the task to run. A task with `enabled` missing or `false` is skipped and is not listed by **Run Scheduled Task Now** |
 | `intervalMinutes` | number | No | Run every N minutes (minimum 1). Ignored when `cron` is set |
 | `cron` | string | No | 5-field cron expression. Takes precedence over `intervalMinutes` |
-| `onSave` | string[] | No | Run when a saved file matches any of these globs |
+| `onSave` | string[] | No | Run when a saved file matches any of these globs. Each glob is matched against the file's absolute path and its bare file name, so start a directory glob with `**/` |
 | `targetPaths` | string[] | No | Files the task will write. When set, tasks with unsaved changes in these paths run in a Shadow Workspace |
 
 Exactly one trigger type should be set per task. If both `cron` and `intervalMinutes` are present, `cron` wins.
@@ -189,19 +189,20 @@ A QuickPick lists all enabled tasks by name. Selecting one fires it immediately.
 
 When `onSave` globs are set, the task fires within a few seconds of a matching file being saved — useful for reactive agents that keep derived artifacts in sync.
 
-The saved file path is injected into the prompt as `$SIDECAR_FILE`:
+The prompt is sent exactly as written: the saved file's path is not passed to the agent, and `$SIDECAR_FILE` in a prompt stays literal text. Write the prompt so it doesn't depend on knowing which file was saved:
 
 ```json
 {
   "name": "update-snapshots",
-  "onSave": ["src/**/*.test.ts"],
-  "prompt": "The test file $SIDECAR_FILE was saved. Run its tests with --updateSnapshot to refresh any outdated snapshots, then stage the updated snapshot files."
+  "onSave": ["**/src/**/*.test.ts"],
+  "prompt": "A test file under src/ was saved. Run the test suite with --updateSnapshot to refresh any outdated snapshots, then stage the updated snapshot files.",
+  "enabled": true
 }
 ```
 
 ### Protecting writes with Shadow Workspaces
 
-When `targetPaths` is set and any of those files have unsaved local changes, the task runs inside a Shadow Workspace — the agent's writes land in an isolated `git worktree` until you accept or reject the result.
+When `targetPaths` is set and any of those files are open with unsaved changes, the task runs inside a Shadow Workspace — the agent's writes land in an isolated `git worktree`, not your files. There is no accept/reject step: the changes are saved as a patch at `.sidecar/scheduled-patches/<task-name>-<timestamp>.patch`, the run is recorded as not applied, and you apply the patch yourself with `git apply`.
 
 ```json
 {
@@ -220,7 +221,8 @@ When `targetPaths` is set and any of those files have unsaved local changes, the
 {
   "name": "dep-audit",
   "cron": "0 9 * * 1-5",
-  "prompt": "Run 'npm audit'. If there are high-severity vulnerabilities, create a GitHub issue listing them and assign it to me."
+  "prompt": "Run 'npm audit'. If there are high-severity vulnerabilities, create a GitHub issue listing them and assign it to me.",
+  "enabled": true
 }
 ```
 
@@ -228,8 +230,9 @@ When `targetPaths` is set and any of those files have unsaved local changes, the
 ```json
 {
   "name": "openapi-sync",
-  "onSave": ["src/routes/**/*.ts"],
-  "prompt": "The route file $SIDECAR_FILE was saved. Regenerate the OpenAPI spec for that route and update docs/api/ accordingly."
+  "onSave": ["**/src/routes/**/*.ts"],
+  "prompt": "A route file under src/routes/ was saved. Regenerate the OpenAPI spec and update docs/api/ accordingly.",
+  "enabled": true
 }
 ```
 
@@ -238,7 +241,8 @@ When `targetPaths` is set and any of those files have unsaved local changes, the
 {
   "name": "bundle-watchdog",
   "intervalMinutes": 120,
-  "prompt": "Build the project and check the bundle size. If it exceeds 500KB, identify the largest contributors and open a GitHub issue."
+  "prompt": "Build the project and check the bundle size. If it exceeds 500KB, identify the largest contributors and open a GitHub issue.",
+  "enabled": true
 }
 ```
 
@@ -246,27 +250,29 @@ When `targetPaths` is set and any of those files have unsaved local changes, the
 
 ## Custom tools
 
-Register any shell command as an agent tool. Custom tools appear in the agent's tool catalog alongside built-ins and go through the same approval flow.
+Register any command as an agent tool. Custom tools appear in the agent's tool catalog alongside built-ins and go through the same approval flow.
 
 ```json
 "sidecar.customTools": [
   {
     "name": "deploy_staging",
-    "description": "Deploy the current branch to the staging environment. Use after tests pass to get feedback before production.",
-    "command": "npm run deploy:staging -- --branch $SIDECAR_INPUT"
+    "description": "Deploy a branch to the staging environment. Pass the branch name as input. Use after tests pass to get feedback before production.",
+    "command": "node scripts/deploy-staging.mjs"
   },
   {
     "name": "send_slack",
     "description": "Send a message to the #dev Slack channel. Pass the message text as input.",
-    "command": "curl -s -X POST $SLACK_WEBHOOK -d '{\"text\":\"'\"$SIDECAR_INPUT\"'\"}'"
+    "command": "node scripts/send-slack.mjs"
   },
   {
     "name": "db_migrate",
-    "description": "Run pending database migrations in the development environment.",
-    "command": "npx prisma migrate dev --name $SIDECAR_INPUT"
+    "description": "Run pending database migrations in the development environment. Pass the migration name as input.",
+    "command": "sh -c 'npx prisma migrate dev --name \"$SIDECAR_INPUT\"'"
   }
 ]
 ```
+
+Each script reads its argument from the environment, e.g. `const branch = process.env.SIDECAR_INPUT;`. `send-slack.mjs` has to get the webhook URL some other way (a file it reads, for instance), because custom tools don't inherit variables like `SLACK_WEBHOOK` (see below). The `sh -c` form works where `sh` is on `PATH` (macOS, Linux, Git Bash on Windows).
 
 ### Field reference
 
@@ -274,17 +280,19 @@ Register any shell command as an agent tool. Custom tools appear in the agent's 
 |-------|----------|-------------|
 | `name` | Yes | Tool identifier — becomes `custom_<name>` in the agent catalog |
 | `description` | Yes | What the tool does. The model reads this to decide when to call it — write it clearly |
-| `command` | Yes | Shell command. `$SIDECAR_INPUT` is replaced with the agent's string argument |
+| `command` | Yes | Program and arguments, run without a shell. Nothing in it is substituted; the agent's string argument arrives as the `SIDECAR_INPUT` environment variable |
 
 ### How `$SIDECAR_INPUT` works
 
-When the agent calls `custom_deploy_staging("main")`, `$SIDECAR_INPUT` is set to `main` in the child process environment. The input string passes through `redactSecrets()` before being set, so hallucinated credentials can't leak via environment variables.
+When the agent calls `custom_deploy_staging("main")`, `SIDECAR_INPUT` is set to `main` in the child process environment. The input string passes through `redactSecrets()` before being set, so hallucinated credentials can't leak via environment variables.
+
+`command` is split into a program and its arguments (quotes group words) and started with `execFile`, without a shell. A `$SIDECAR_INPUT` written into `command` reaches the program as those literal characters, and so do other `$VARS`, pipes, redirects and `&&`. On Windows, a bare `npm`, `npx`, `yarn`, `pnpm` or `bun` is started through `cmd.exe`, which still does not expand `$SIDECAR_INPUT`.
+
+The child process gets a minimal environment: `SIDECAR_INPUT`, plus `PATH`, `HOME`, `TMPDIR`, `TEMP`, `TMP`, `TERM`, `LANG`, `LC_ALL` and `SHELL` when they are set. Nothing else from your environment, including API keys and webhook URLs, is passed. The command runs in the workspace root with a 30-second timeout; stdout (then stderr) becomes the tool result.
 
 ### Approval behavior
 
-Custom tools **always require user approval** per call — there is no way to auto-allow them via `sidecar.toolPermissions`. This is intentional: custom tools have arbitrary shell access and the consequence of a wrong call cannot be bounded by SideCar.
-
-The approval prompt shows both the tool name and the full command with `$SIDECAR_INPUT` substituted so you see exactly what will run before confirming.
+Custom tools are marked as requiring approval, like the built-in tools that change things. In Cautious and Manual modes the agent asks before every call. Autonomous mode runs them without asking, and so does a `sidecar.toolPermissions` entry of `"custom_<name>": "allow"`. Set `"custom_<name>": "ask"` to keep the prompt in every mode.
 
 ### Trust gating
 
@@ -306,7 +314,7 @@ A complete workspace automation setup might combine all four:
 ```json
 {
   "sidecar.hooks": {
-    "write_file": { "post": "npx prettier --write \"$SIDECAR_FILE\" 2>/dev/null || true" }
+    "write_file": { "post": "npx prettier --write \"$(node -p 'JSON.parse(process.env.SIDECAR_INPUT).path')\" 2>/dev/null || true" }
   },
   "sidecar.eventHooks": {
     "onSave": "[ \"${SIDECAR_FILE##*.}\" = 'ts' ] && npx eslint --fix \"$SIDECAR_FILE\" --quiet 2>/dev/null || true"
@@ -323,7 +331,7 @@ A complete workspace automation setup might combine all four:
     {
       "name": "open_ticket",
       "description": "Create a Linear ticket for a bug or task. Pass the title as input.",
-      "command": "linear create --title \"$SIDECAR_INPUT\" --team ENG --status Backlog"
+      "command": "sh -c 'linear create --title \"$SIDECAR_INPUT\" --team ENG --status Backlog'"
     }
   ]
 }

@@ -84,11 +84,13 @@ Valid statuses are `open`, `supported`, `refuted`, `needs-more-evidence`, and `a
 
 ### 6. Generate a report
 
+`/research report` reports on the **active** project, so pick it first with bare `/research` if it isn't already active:
+
 ```
-/research report fir-vs-wavelet-transient-detection
+/research report
 ```
 
-Or ask the agent:
+Or ask the agent, which takes any slug:
 
 ```
 Export a research report for fir-vs-wavelet-transient-detection
@@ -106,9 +108,12 @@ The report is written to `.sidecar/research/<slug>/report.md` and returned inlin
 
 Type `/research` in the chat input to:
 
-- **Set the active project** — `sidecar.research.activeProject` is updated; subsequent bare research requests default to this project.
-- **Log an observation** — `research add observation` quick-entry without a full agent turn.
-- **Generate a report** — `/research report <slug>`.
+- **Set the active project** — bare `/research` opens a project picker and updates `sidecar.research.activeProject`; subsequent bare research requests default to this project.
+- **Log an observation** — `/research observe <note>` appends a note to the active project without a full agent turn.
+- **Show a status summary** — `/research status` prints the active project's question, hypotheses, latest experiments and observations.
+- **Generate a report** — `/research report` writes and shows the active project's report.
+
+The subcommands act on the active project only. Anything else after `/research` (for example a slug) opens the project picker.
 
 ---
 
@@ -157,8 +162,10 @@ The sidebar auto-refreshes with a 500 ms debounce whenever any file under `.side
 ### Via slash command
 
 ```
-/research report <slug>
+/research report
 ```
+
+This reports on the active project; to report on another project, make it active with bare `/research` first, or ask the agent.
 
 ### Via the agent
 
@@ -221,14 +228,7 @@ The report file is committed alongside your code if you run `git add .sidecar/re
 
 ### PDF indexing and literature retrieval
 
-Index papers before starting experiments so the agent can ground its interpretation in the literature:
-
-```
-index_pdf path="papers/mallat-1989-wavelet.pdf"
-index_pdf path="papers/ieee-transient-benchmark-2021.pdf"
-```
-
-Enable literature retrieval in settings:
+Index papers before starting experiments so the agent can ground its interpretation in the literature. First enable literature retrieval in settings — without it, indexed papers are written to disk but never retrieved:
 
 ```json
 {
@@ -236,7 +236,14 @@ Enable literature retrieval in settings:
 }
 ```
 
-Once indexed, the agent can call `project_knowledge_search` to pull relevant passages when interpreting experiment results or writing observations. Combine this with research tools in a single agent turn — for example: run an experiment, search the literature for the closest prior result, and record an observation that cites both.
+Then index each paper:
+
+```
+index_pdf path="papers/mallat-1989-wavelet.pdf"
+index_pdf path="papers/ieee-transient-benchmark-2021.pdf"
+```
+
+`index_pdf` writes the paper's chunks to `.sidecar/literature/`. From then on, passages relevant to each message are retrieved into the agent's context automatically (in trusted workspaces) — `project_knowledge_search` does not search PDFs; it queries the code symbol index only. Combine this with research tools in a single agent turn — for example: run an experiment, compare it with the closest prior result from the indexed papers, and record an observation that cites both.
 
 ### Zotero integration
 
@@ -308,8 +315,10 @@ Add observation to bitonic-vs-std-sort-gpu:
 At N=2^20 the ratio drops to 1.3x, consistent with hypothesis 2."
 ```
 
+With `bitonic-vs-std-sort-gpu` as the active project:
+
 ```
-/research report bitonic-vs-std-sort-gpu
+/research report
 ```
 
 The report goes into `.sidecar/research/bitonic-vs-std-sort-gpu/report.md` and can be attached to the PR that ships the implementation.
@@ -373,7 +382,12 @@ Update hypothesis h-<id-3> in watcher-migration-poll-vs-inotify to: needs-more-e
 
 ```
 research_set_project_status watcher-migration-poll-vs-inotify: complete
-/research report watcher-migration-poll-vs-inotify
+```
+
+Then, with `watcher-migration-poll-vs-inotify` as the active project:
+
+```
+/research report
 ```
 
 The generated report documents the decision rationale with reproducible benchmark commands, parameter logs, and a clear hypothesis outcome table — suitable for a team ADR or architecture review.

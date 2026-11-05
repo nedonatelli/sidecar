@@ -1,3 +1,10 @@
+---
+title: Tool Registry & Dispatch
+layout: docs
+nav_order: 7
+nav_section: 'Extend'
+---
+
 # Tool Registry & Dispatch
 
 The tool system exposes the agent's full capability surface as a flat list of `RegisteredTool` entries. The LLM sees just the `ToolDefinition` (name + description + JSON schema) and emits `tool_use` content blocks; the loop then hands those to an executor function that produces the string result the model sees next turn.
@@ -46,7 +53,7 @@ flowchart LR
     class Delegate,Spawn specialStyle
 ```
 
-- **Built-ins** are composed in [`src/agent/tools.ts`](../src/agent/tools.ts) from per-category modules under [`src/agent/tools/`](../src/agent/tools/). Each category file owns its own definitions + executors; `tools.ts` is the slim composition layer.
+- **Built-ins** are composed in [`src/agent/tools.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools.ts) from per-category modules under [`src/agent/tools/`](https://github.com/nedonatelli/sidecar/tree/main/src/agent/tools/). Each category file owns its own definitions + executors; `tools.ts` is the slim composition layer.
 - **`delegate_task`** is only exposed when the active backend is paid (Anthropic / OpenAI / etc.) — the whole point is offloading read-only research to a free local Ollama worker, so on local-first setups it's a no-op and hidden from the catalog to save the orchestrator tokens.
 - **`spawn_agent`** spawns a nested `runAgentLoop` with `maxIterations=15`. `MAX_AGENT_DEPTH = 3` prevents runaway recursion.
 - **MCP tools** are discovered at `MCPManager.connect()` time and flattened into a single `toolCache`. Each MCP tool is prefixed `mcp_<server>_<tool>` to namespace against collisions.
@@ -154,16 +161,16 @@ See [`agent-mode.md`](agent-mode.md) for the full matrix.
 
 | File                                                            | Tools                                                                                                             | Approval                                          |
 | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| [`fs.ts`](../src/agent/tools/fs.ts)                             | `read_file`, `write_file`, `edit_file`, `delete_file`, `list_directory`                                           | writes require approval                           |
-| [`search.ts`](../src/agent/tools/search.ts)                     | `search_files`, `grep`, `find_references`                                                                         | none                                              |
-| [`shell.ts`](../src/agent/tools/shell.ts)                       | `run_command`, `run_tests`                                                                                        | always require approval                           |
-| [`diagnostics.ts`](../src/agent/tools/diagnostics.ts)           | `get_diagnostics`                                                                                                 | none                                              |
-| [`git.ts`](../src/agent/tools/git.ts)                           | `git_diff`, `git_status`, `git_stage`, `git_commit`, `git_log`, `git_push`, `git_pull`, `git_branch`, `git_stash` | mutating ops require approval                     |
-| [`knowledge.ts`](../src/agent/tools/knowledge.ts)               | `web_search`, `display_diagram`                                                                                   | none                                              |
-| [`projectKnowledge.ts`](../src/agent/tools/projectKnowledge.ts) | `project_knowledge_search` — PKI symbol-level RAG                                                                 | none                                              |
-| [`systemMonitor.ts`](../src/agent/tools/systemMonitor.ts)       | `system_monitor`                                                                                                  | none                                              |
-| [`settings.ts`](../src/agent/tools/settings.ts)                 | `get_setting`, `update_setting`, `switch_backend`                                                                 | update/switch always require approval             |
+| [`fs.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/fs.ts)                             | `read_file`, `write_file`, `edit_file`, `delete_file`, `list_directory`                                           | writes require approval                           |
+| [`search.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/search.ts)                     | `search_files`, `grep`, `find_references`                                                                         | none                                              |
+| [`shell.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/shell.ts)                       | `run_command`, `run_tests`                                                                                        | always require approval                           |
+| [`diagnostics.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/diagnostics.ts)           | `get_diagnostics`                                                                                                 | none                                              |
+| [`git.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/git.ts)                           | `git_diff`, `git_status`, `git_stage`, `git_commit`, `git_log`, `git_push`, `git_pull`, `git_branch`, `git_stash` | mutating ops require approval                     |
+| [`knowledge.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/knowledge.ts)               | `web_search`, `display_diagram`                                                                                   | none                                              |
+| [`projectKnowledge.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/projectKnowledge.ts) | `project_knowledge_search` — PKI symbol-level RAG                                                                 | none                                              |
+| [`systemMonitor.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/systemMonitor.ts)       | `system_monitor`                                                                                                  | none                                              |
+| [`settings.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools/settings.ts)                 | `get_setting`, `update_setting`, `switch_backend`                                                                 | update/switch always require approval             |
 | (inline in tools.ts)                                            | `ask_user` — clarifying prompt                                                                                    | handled by executor, not the normal dispatch path |
 | (inline)                                                        | `spawn_agent`, `delegate_task`                                                                                    | special-cased in `executeToolUses`                |
 
-Adding a tool usually means extending the relevant category file and re-exporting; the slim composition layer in [`tools.ts`](../src/agent/tools.ts) then picks it up automatically.
+Adding a tool usually means extending the relevant category file and re-exporting; the slim composition layer in [`tools.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/tools.ts) then picks it up automatically.

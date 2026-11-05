@@ -15,7 +15,7 @@ and a `scaffold-on = 14%` from one version isn't comparable to another's unless
 the versions (and the active-mechanism snapshot) match.
 
 This doc is the human-facing registry. The machine-readable source of truth is
-[`src/agent/scaffoldVersion.ts`](../src/agent/scaffoldVersion.ts) (`SCAFFOLD_VERSION`
+[`src/agent/scaffoldVersion.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/scaffoldVersion.ts) (`SCAFFOLD_VERSION`
 
 - `describeScaffold`), stamped into every `run.manifest.json` and every ablation
   report.
@@ -821,7 +821,7 @@ causes the damage) has always shipped default-on; its counterweight should too.
 ### 2.0.1 — keep-best ratchet threshold tightened (2026-07)
 
 PATCH. `DEFAULT_OVER_ENGINEER_BYTES` (in
-[`keepBestRatchet.ts`](../src/agent/loop/keepBestRatchet.ts)) tightened from
+[`keepBestRatchet.ts`](https://github.com/nedonatelli/sidecar/blob/main/src/agent/loop/keepBestRatchet.ts)) tightened from
 4096 to 0. A local SWE-bench repro of scaffold-on bail-early found a concrete
 case — a 536-byte wrong edit to an unrelated file, driven by a cycle-detection
 bail — that slid under the old 4 KB threshold untouched. A byte-size gate alone
@@ -850,7 +850,7 @@ Adds, over 1.x (superseded — the current baseline is 4.0.0, top of the registr
   string values (multi-line `write_file`/`edit_file` recovery), NaN/Infinity.
 
 **Note on the ablation arm:** at 2.0.0 the SWE-bench `scaffold-on` arm
-([`bench/swe/arms.ts`](../bench/swe/arms.ts)) still enables only the pre-2.0
+([`bench/swe/arms.ts`](https://github.com/nedonatelli/sidecar/blob/main/bench/swe/arms.ts)) still enables only the pre-2.0
 mechanism set — **completion gate · critic · auto-fix · adaptive scaffolding ·
 impact gate · numerical-contract gate**. The 2.0 additions are built but not yet
 opted into the arm, so a 2.0.0 `scaffold-on` run isolates the _established_

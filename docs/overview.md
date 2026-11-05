@@ -1,3 +1,10 @@
+---
+title: Overview
+layout: docs
+nav_order: 3
+nav_section: 'Extend'
+---
+
 # SideCar Overview
 
 SideCar is an AI-powered coding assistant for VS Code that operates as an autonomous agent. It can interact with your codebase, execute commands, and perform various development tasks using a combination of local LLMs (via Ollama) and cloud APIs (Anthropic Claude).
@@ -32,10 +39,10 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 
 - Built-in tools for file operations, code search, shell commands, Git operations
 - Custom tools defined in settings
-- MCP (Model Control Protocol) integration for external tools
+- MCP (Model Context Protocol) integration for external tools
 - Sub-agent spawning for complex tasks (max 3 levels deep, 15 iterations each)
 - Tool execution with approval modes and security checks
-- **Typed Sub-Agent Facets** _(new in v0.66)_ — dispatch named specialists (`general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `data-engineer`) against a shared task via `SideCar: Facets: Dispatch Specialists`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce into a single aggregated review flow instead of stacking per-facet prompts. Typed RPC bus lets facets coordinate. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via `sidecar.facets.registry`
+- **Typed Sub-Agent Facets** _(new in v0.66)_ — dispatch named specialists (`general-coder`, `test-author`, `security-reviewer`, `latex-writer`, `signal-processing`, `frontend`, `technical-writer`, `architecture-reviewer`, `data-engineer`) against a shared task via `SideCar: Facets: Dispatch Specialists`. Each facet runs in its own isolated Shadow Workspace with its own tool allowlist, preferred model, and composed system prompt; multi-facet batches coalesce into a single aggregated review flow instead of stacking per-facet prompts. Typed RPC bus lets facets coordinate. Add project-local facets under `<workspace>/.sidecar/facets/*.md` or user facets via `sidecar.facets.registry`
 - **Fork & Parallel Solve** _(new in v0.67)_ — `/fork <task>` or `SideCar: Fork & Compare` spawns N parallel approaches to the same task, each running a full agent loop inside its own Shadow Workspace off the current `HEAD`. When every fork settles, a pick-the-winner QuickPick + `vscode.diff` + modal confirm + `git apply` picks the best output and discards the losers. Differs from Facets (N specialists on different subtasks) — Fork is N attempts at the **same** task. Config: `sidecar.fork.defaultCount` (default `3`), `sidecar.fork.maxConcurrent` (default `3`)
 
 ### Context Management
@@ -64,7 +71,7 @@ SideCar is an AI-powered coding assistant for VS Code that operates as an autono
 - Testing framework integration
 - Security scanning
 - Custom shell commands
-- MCP (Model Control Protocol) for external tool integration
+- MCP (Model Context Protocol) for external tool integration
 - **Terminal error interception** — watches the integrated terminal for non-zero exit codes and offers a **Diagnose in chat** notification that injects a synthesized prompt with the command, exit code, cwd, and ANSI-stripped output tail. Dedupes identical commands within a 30s cooldown and requires VS Code shell integration
 
 ## Architecture Overview

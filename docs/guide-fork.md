@@ -52,34 +52,23 @@ Type your task directly after the slash command in the chat input:
 /fork replace the in-memory cache with Redis
 ```
 
-SideCar reads the fork count from `sidecar.fork.defaultCount` (default 3) and dispatches that many parallel runs immediately. A status line appears in chat as each fork starts and finishes:
-
-```
-[fork dispatching 3 parallel approaches: refactor the auth middleware to use async/await]
-[Fork 1 starting]
-[Fork 2 starting]
-[Fork 3 starting]
-[Fork 2 completed]
-[Fork 1 completed]
-[Fork 3 completed]
-[fork batch complete: 3/3 succeeded in 47.2s]
-```
+SideCar reads the fork count from `sidecar.fork.defaultCount` (default 3) and dispatches that many parallel runs immediately. The forks' own output is not streamed into chat. Instead, the chat panel shows a dispatch graphic with one chip per fork (pending, running, done or error), and when the batch settles a toast reports the totals, e.g. `Forks: 3 succeeded in 47.2s.`
 
 ### From the Command Palette
 
-Run `SideCar: Fork & Compare` (`Cmd+Shift+P` / `Ctrl+Shift+P`). This prompts you for the task via an input box instead of reading it from the chat line. Useful when you want to fork without a chat session already active.
+Run `SideCar: Fork & Compare` (`Cmd+Shift+P` / `Ctrl+Shift+P`). This prompts you for the task via an input box instead of reading it from the chat line. Useful when you want to fork without a chat session already active. The palette command reviews the results in a **Fork Review** panel rather than the QuickPick flow `/fork` uses — see [The review UI](#the-review-ui).
 
 ### What happens during the run
 
 Each fork writes files freely inside its shadow without pausing for per-file approval, and you review the entire result in one pass at the end — pausing each fork for every edit would block all N branches and defeat the parallel speedup. The shadow isolates file writes only, so a tool that reaches outside it (a shell command, a git push or stash, a database write, an MCP tool) still asks first, unless your agent mode is autonomous. The same applies to facets.
 
-If you need to stop the batch early, close the VS Code notification or use the active agent controls. Forks that complete before the abort record their diffs and can still be reviewed; forks that are aborted before starting are reported as `aborted-before-start` in the review.
+A fork batch cannot be stopped once it starts: neither `/fork` nor the palette command wires a cancel control to it, and the chat's stop button does not reach it. Wait for the forks to finish, then dismiss the review without applying anything if you don't want the result.
 
 ---
 
 ## The review UI
 
-When all forks settle, a QuickPick opens listing every fork that produced a reviewable diff:
+How you review depends on where you started the fork. From the Command Palette, a **Fork Review** panel opens with one card per fork that produced a diff; select a card and click **Apply Selected Fork**, or **Dismiss** to apply nothing. From `/fork` in chat, a QuickPick opens listing every fork that produced a reviewable diff:
 
 ```
 $(git-commit) Fork 1   3 files · 14.8s
@@ -98,7 +87,7 @@ Each entry shows:
 - How many files it touched and how long it took
 - The first four touched files as a preview
 
-Forks that failed or produced no changes are omitted from the picker — an info message tells you how many were skipped and why (error message or "no-diff").
+Forks that failed or produced no changes are omitted from the picker. If none produced a diff, there is no picker — an info message says `No fork produced a reviewable diff (N skipped).`
 
 ### Selecting a winner
 

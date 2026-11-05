@@ -21,10 +21,15 @@ SideCar reads `SIDECAR.md` on every message and includes it in the system prompt
 
 ## Where to put it
 
-SideCar checks two workspace-level locations in order:
+SideCar checks these workspace-level locations in order and uses the first non-empty one:
 
 1. `.sidecar/SIDECAR.md` (preferred — keeps project instructions alongside other SideCar data)
 2. `SIDECAR.md` in the workspace root (fallback for backward compatibility)
+3. `AGENTS.md` in the workspace root
+4. `CLAUDE.md` in the workspace root
+5. `.cursorrules` in the workspace root
+
+Only one file is used: an existing `SIDECAR.md` means `AGENTS.md` and the others are not read. A fallback file is injected verbatim, as always-included content.
 
 In addition, **per-directory `SIDECAR.md` files** along the active file's directory chain are loaded and injected root-to-leaf — so `src/parser/SIDECAR.md` applies whenever you're working on a file under `src/parser/`, layered on top of the workspace-level file.
 
@@ -154,4 +159,4 @@ Leave sentinels off when:
 
 `sidecar.sidecarMd.mode` has three values: `full` forces the legacy whole-file behavior regardless of sentinel presence; the default `sections` degrades to `full` automatically when the file has zero `@paths` sentinels, so no migration is required; and `retrieval` selects sections by embedding similarity against the current query, tuned with `sidecar.sidecarMd.retrieval.topK` and `.minScore`.
 
-See [Configuration — SIDECAR.md Path-Scoped Section Injection](configuration#sidecarmd-path-scoped-section-injection-v067) for the config surface.
+See [Configuration — SIDECAR.md Path-Scoped Section Injection](configuration#sidecarmd-path-scoped-section-injection-v067--retrieval-mode-v092) for the config surface.

@@ -40,7 +40,7 @@ export const analyzeCiFailureDef: ToolDefinition = {
     'Returns a structured markdown summary of which jobs and steps failed, with the relevant log ' +
     'trimmed to the failure context (ANSI stripped, timestamps removed, test-runner failures windowed). ' +
     'Use this when CI is red to understand what broke before deciding how to fix it. ' +
-    'Requires a GitHub token with `actions:read` scope. ' +
+    'Requires the user to be signed in to GitHub in VS Code. ' +
     'Example: `analyze_ci_failure()` — analyzes all failed jobs. ' +
     '`analyze_ci_failure(job_filter=["test"])` — scopes to jobs whose names match "test".',
   input_schema: {
@@ -93,7 +93,7 @@ export async function analyzeCiFailureTool(
   try {
     token = await getGitHubToken();
   } catch {
-    return 'No GitHub token found. Configure a Personal Access Token with actions:read scope via "SideCar: Set GitHub Token".';
+    return 'No GitHub token found. Sign in to GitHub in VS Code (Accounts menu, bottom of the Activity Bar) and allow SideCar access, then try again.';
   }
 
   const api = new GitHubAPI(token);

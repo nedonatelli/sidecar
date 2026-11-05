@@ -180,7 +180,7 @@ describe('analyzeCiFailureTool', () => {
 
     const result = await analyzeCiFailureTool({});
     expect(result).toMatch(/No GitHub token/);
-    expect(result).toMatch(/actions:read/);
+    expect(result).toMatch(/Sign in to GitHub in VS Code/);
   });
 
   it('returns "no failed runs" with "No runs" hint when runs array is empty', async () => {
