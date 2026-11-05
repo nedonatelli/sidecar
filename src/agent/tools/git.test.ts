@@ -185,7 +185,18 @@ describe('gitDiffTool', () => {
       return { diff: diffMock };
     });
     await gitDiffTool({ ref1: 'HEAD~1', ref2: 'HEAD' });
-    expect(diffMock).toHaveBeenCalledWith('HEAD~1', 'HEAD');
+    expect(diffMock).toHaveBeenCalledWith('HEAD~1', 'HEAD', { exclude: expect.arrayContaining(['.env', '*.pem']) });
+  });
+
+  // It needs no approval, and its output goes to the model: credential files
+  // stay out of it, as they stay out of grep and read_file.
+  it('leaves credential files out and says which', async () => {
+    const { GitCLI } = await import('../../github/git.js');
+    const diffMock = vi.fn().mockResolvedValue({ summary: 'ok', diff: '', excluded: ['.env.production'] });
+    vi.mocked(GitCLI).mockImplementationOnce(function () {
+      return { diff: diffMock };
+    });
+    expect(await gitDiffTool({})).toContain('Not shown, as they look like credential files: .env.production.');
   });
 });
 

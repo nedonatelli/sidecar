@@ -31,6 +31,8 @@ export interface GitCommitInfo {
 export interface GitDiffResult {
   summary: string;
   diff: string;
+  /** Changed paths left out by the `exclude` option, relative to the repository root. */
+  excluded?: string[];
 }
 
 export interface GitHubRepoFile {
