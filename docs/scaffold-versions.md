@@ -40,6 +40,16 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.12 — switch_backend no longer offers Kickstand (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.11,
+noting the patch.
+
+- **What changed:** `switch_backend`'s description, `profile` enum and enum
+  description drop the unreleased Kickstand profile.
+- **Measured:** no eval; the evals send `switch_backend` as a one-sentence stub,
+  which is unchanged.
+
 ### 7.0.11 — Anthropic cache tokens count toward the context estimate (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.10,
