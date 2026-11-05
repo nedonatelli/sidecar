@@ -19,6 +19,9 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Text marked as untrusted stays marked to its end.** A file or page that contained the marker
+  SideCar puts around untrusted text could end the marked block early, or be taken as already
+  marked and skip the check. The markers inside such text are now made inert.
 - **`git_diff` leaves credential files out**, as `grep` and `read_file` already do. A tracked
   `.env.production` or `secrets.yml` that changed is named, but its lines are not shown.
 - **The install approval reads each package manager's own flags.** A short flag that takes a value

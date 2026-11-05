@@ -1,4 +1,4 @@
-import { neutralizeInjections } from '../injectionGuard.js';
+import { isFenced, neutralizeInjections } from '../injectionGuard.js';
 import { Retriever, RetrievalHit } from './retriever';
 import { logger } from '../../system/logger.js';
 import { reciprocalRankFusion } from './fusion';
@@ -67,7 +67,9 @@ export async function fuseRetrievers(
  * between hits so the model can see the boundaries.
  */
 function screenHit(h: RetrievalHit): string {
-  if (h.content.includes('[UNTRUSTED CONTENT from')) return h.content; // already fenced at the source
+  // Already fenced at the source. A hit that merely contains the marker is
+  // not, so a file cannot skip the screen by quoting it.
+  if (isFenced(h.content)) return h.content;
   return neutralizeInjections(h.content, h.title ?? h.filePath ?? h.source).text;
 }
 

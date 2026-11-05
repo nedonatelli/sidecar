@@ -80,6 +80,10 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.7** (2026-11) — untrusted-content markers stay intact. Marker text
+ *   inside untrusted content is made inert, so a marked block runs to its end
+ *   and already-marked-looking text is still checked. PATCH: tuning within the
+ *   injection guard. No eval: the eval repos contain no marker text.
  * - **7.0.6** (2026-11) — git_diff leaves credential files out. `git_diff`
  *   names a changed credential file without showing its lines, as `grep` and
  *   `read_file` already do. PATCH: model-facing tool-result text. No eval:
@@ -361,7 +365,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.6';
+export const SCAFFOLD_VERSION = '7.0.7';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
