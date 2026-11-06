@@ -22,6 +22,14 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Failed edits get more accurate guidance**
+  ([#161](https://github.com/nedonatelli/sidecar/issues/161)). When an `edit_file` call doesn't
+  land, the agent is told less that is wrong:
+  - A search that appears only above its `within` locator is described as such, rather than as
+    "not found".
+  - A multi-line `within` now works in files with Windows line endings.
+  - The incomplete-code check no longer asks the agent to finish placeholders it only quoted from
+    the existing code, or that were in an edit that was refused.
 - **The database tools read real DuckDB results, and Postgres row counts appear**
   ([#433](https://github.com/nedonatelli/sidecar/issues/433),
   [#434](https://github.com/nedonatelli/sidecar/issues/434)). Against a real DuckDB database,

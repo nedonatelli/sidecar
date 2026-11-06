@@ -40,6 +40,26 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.14 — edit_file failures are described more accurately (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.13,
+noting the patch.
+
+- **What changed:** The stub check reads only calls that changed a file (from
+  the call's outcome, ADR-008), and skips a placeholder restated from that
+  edit's `search` (#161 ML-08). A multi-line `within` written with LF resolves
+  in a CRLF file (ML-31). A search that occurs only above its `within` is
+  reported as such, with the lines, instead of "search string not found"
+  (ML-74).
+- **Measured:** e4b SWE canary, 50 tasks × seeds 11/22/33, against 7.0.2
+  (`4fff5877`). Resolve 20/150 in both arms, with no discordant pair; stub
+  reprompts 5 → 0. Of four P2P differences, three trace to volatile tool output
+  (test timing, memory addresses). The fourth, sphinx-7686 seed 22, came from a
+  stale-read change that was taken out; re-run without it, the task matched the
+  base event for event. ML-07, in earlier versions of this change, cost 2
+  resolves and 7 repeat P2P regressions on two canaries and was taken out
+  first.
+
 ### 7.0.13 — DuckDB and Postgres schema tools read real rows (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.12,

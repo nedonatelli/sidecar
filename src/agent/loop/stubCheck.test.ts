@@ -3,6 +3,7 @@ import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { applyStubCheck } from './stubCheck.js';
 import type { LoopState } from './state.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
+import { mutated, failed } from '../tools/toolOutcome.js';
 
 // ---------------------------------------------------------------------------
 // Tests for stubCheck.ts (loop helper hardening).
@@ -18,10 +19,17 @@ import type { ToolUseContentBlock } from '../../ollama/types.js';
 //   4. Bumps state.stubFixRetries on each injection
 //   5. Surfaces a user-visible warning via callbacks.onText
 //   6. Logs the attempt via state.logger when present
+//   7. Checks only calls that changed a file (#161 ML-08)
 // ---------------------------------------------------------------------------
 
 function toolUseWriteFile(path: string, content: string): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${path}`, name: 'write_file', input: { path, content } };
+}
+
+/** Record that the call changed its file, as the executor does (ADR-008). */
+function landed(state: LoopState, tu: ToolUseContentBlock): ToolUseContentBlock {
+  state.toolOutcomes.set(tu.id, mutated(tu.input.path as string));
+  return tu;
 }
 
 describe('applyStubCheck', () => {
@@ -41,7 +49,7 @@ describe('applyStubCheck', () => {
     const state = stubLoopState();
     const cb = stubCallbacks();
     const stubbed = toolUseWriteFile('src/stub.ts', 'export function hello(): void {\n  // TODO: implement this\n}');
-    expect(applyStubCheck(state, [stubbed], cb)).toBe(true);
+    expect(applyStubCheck(state, [landed(state, stubbed)], cb)).toBe(true);
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0].role).toBe('user');
     expect(state.stubFixRetries).toBe(1);
@@ -62,7 +70,7 @@ describe('applyStubCheck', () => {
     const state = stubLoopState({ logger: { info, warn: vi.fn() } as unknown as LoopState['logger'] });
     const cb = stubCallbacks();
     const stubbed = toolUseWriteFile('src/stub.ts', '// TODO: implement\nfunction x() {}');
-    applyStubCheck(state, [stubbed], cb);
+    applyStubCheck(state, [landed(state, stubbed)], cb);
     expect(info).toHaveBeenCalledOnce();
     expect(info.mock.calls[0][0]).toContain('Stub validator');
     expect(info.mock.calls[0][0]).toContain('1/1');
@@ -94,7 +102,25 @@ describe('applyStubCheck', () => {
         replace: '// TODO: finish this\nthrow new Error("not implemented");',
       },
     };
-    expect(applyStubCheck(state, [edit], cb)).toBe(true);
+    expect(applyStubCheck(state, [landed(state, edit)], cb)).toBe(true);
     expect(state.stubFixRetries).toBe(1);
+  });
+
+  // A refused edit wrote nothing, so there is nothing to finish: 114 of the
+  // 168 spurious reprompts in the recorded runs came from one (#161 ML-08).
+  it.each([
+    ['refused', (state: LoopState, tu: ToolUseContentBlock) => state.toolOutcomes.set(tu.id, failed('src/broken.ts'))],
+    ['not recorded', () => undefined],
+  ])('ignores an edit whose outcome is %s', (_label, record) => {
+    const state = stubLoopState();
+    const edit: ToolUseContentBlock = {
+      type: 'tool_use',
+      id: 'tu-edit',
+      name: 'edit_file',
+      input: { path: 'src/broken.ts', search: 'return 0;', replace: '// TODO: finish this\nreturn 0;' },
+    };
+    record(state, edit);
+    expect(applyStubCheck(state, [edit], stubCallbacks())).toBe(false);
+    expect(state.stubFixRetries).toBe(0);
   });
 });
