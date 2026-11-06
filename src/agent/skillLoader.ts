@@ -57,7 +57,11 @@ function parseSkillFile(filePath: string, raw: string, source: Skill['source']):
   let disableModelInvocation: boolean | undefined;
   let guards: string[] | undefined;
 
-  // Parse YAML frontmatter
+  // Parse YAML frontmatter. CRLF first: each line kept its \r, which `.` does
+  // not match, so a skill saved with Windows line endings lost every field --
+  // allowed-tools, guards and max-iterations went unenforced.
+  raw = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  content = raw;
   const fmMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (fmMatch) {
     const frontmatter = fmMatch[1];

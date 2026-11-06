@@ -19,6 +19,9 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Skills saved with Windows line endings keep their settings.** A skill file with CRLF line
+  endings, or a byte-order mark, had its frontmatter read as empty, so its `allowed-tools`,
+  `guards` and `max-iterations` did nothing. Facet files get the same handling.
 - **Switching backends checks that the switch takes effect.** A switch saves the provider and URL
   to your user settings, but a workspace that sets `sidecar.baseUrl` or `sidecar.provider` (and
   whose settings you allowed) wins over them, so the new profile's API key went to the

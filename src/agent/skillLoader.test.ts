@@ -192,6 +192,28 @@ describe('SkillLoader', () => {
     expect(skill!.allowedTools).toEqual(['read_file', 'run_command']);
   });
 
+  it('reads the frontmatter of a file with CRLF line endings or a BOM', async () => {
+    loader.setBuiltinPath('/ext/skills');
+    mockReadDir.mockImplementation(async (uri: any) => {
+      if (norm(uri.fsPath).includes('/ext/skills')) return [['crlf.md', FileType.File]];
+      return [];
+    });
+    const lf =
+      '---\nname: Windows\nallowed-tools:\n  - read_file\nguards: lint-clean\nmax-iterations: 4\n---\nLine one\nLine two';
+    for (const raw of [lf.replace(/\n/g, '\r\n'), `﻿${lf}`]) {
+      mockReadFile.mockImplementation(async () => Buffer.from(raw));
+      loader = new SkillLoader();
+      loader.setBuiltinPath('/ext/skills');
+      await loader.initialize();
+      const skill = loader.get('crlf')!;
+      expect(skill.name).toBe('Windows');
+      expect(skill.allowedTools).toEqual(['read_file']);
+      expect(skill.guards).toEqual(['lint-clean']);
+      expect(skill.maxIterations).toBe(4);
+      expect(skill.content).toBe('Line one\nLine two');
+    }
+  });
+
   it('parses preferred-model', async () => {
     loader.setBuiltinPath('/ext/skills');
     mockReadDir.mockImplementation(async (uri: any) => {
