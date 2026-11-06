@@ -22,6 +22,14 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The database tools read real DuckDB results, and Postgres row counts appear**
+  ([#433](https://github.com/nedonatelli/sidecar/issues/433),
+  [#434](https://github.com/nedonatelli/sidecar/issues/434)). Against a real DuckDB database,
+  `db_query` showed values under the wrong column names, and `db_list_tables` and
+  `db_describe_table` listed tables and columns with no names: the driver returns each row as an
+  array, and SideCar read it by column name. Primary keys are now marked too. Postgres
+  `db_describe_table` looked up the row count in a schema named after the database, so it never
+  showed one; both engines now count the table in its own schema.
 - **`db_execute` reports how many rows a write changed**
   ([#424](https://github.com/nedonatelli/sidecar/issues/424)). Every write reported "Rows
   affected: 0", whatever it changed, so the agent could think nothing happened and send an INSERT
