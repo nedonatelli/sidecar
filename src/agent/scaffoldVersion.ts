@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.15** (2026-11) — inferred edits keep CRLF and bracket balance (#163).
+ *   An inferred region in a CRLF file no longer ends in the last line's `\r`,
+ *   which left a bare LF (ML-34). The not-found inference path applies the
+ *   delimiter-balance check the missing-search path already did, the only
+ *   structural guard for a file with no grammar (ML-46). Region scoring is one
+ *   sliding pass instead of a rescan per window, with identical results: 46.7 s
+ *   → 9 ms on a 730-line replace (ML-33). PATCH. No eval: inferred writes to
+ *   CRLF and no-grammar files are rare, and ML-33 changes only running time.
  * - **7.0.14** (2026-11) — edit_file failures are described more accurately
  *   (#161). The stub check reads only calls that changed a file, and skips a
  *   placeholder restated from that edit's `search` (ML-08). A multi-line
@@ -411,7 +419,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.14';
+export const SCAFFOLD_VERSION = '7.0.15';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
