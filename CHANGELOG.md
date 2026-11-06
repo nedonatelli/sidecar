@@ -19,6 +19,9 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The privacy guide describes `sidecar.outboundAllowlist` accurately.** It said the setting
+  blocks all outbound traffic and covers `web_search`; it limits only the URLs SideCar fetches from
+  chat messages.
 - **The audit log keeps its history, and leaves credentials out.** A log file that was briefly
   locked, as Windows does while another program reads it, was rewritten with only the newest line.
   Keys and tokens in tool inputs, results and the trace log are now replaced with a marker, as the

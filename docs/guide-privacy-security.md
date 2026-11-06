@@ -19,13 +19,7 @@ The honest answer is: it depends on your threat model and which features you tur
 
 When you use **Ollama** (`http://localhost:11434`), every LLM request stays on your machine. No prompt text, no file contents, no tool results ever travel over the network. SideCar has no built-in telemetry of its own — the only network egress is to the backend URL you configure and any web-search or MCP endpoints you add.
 
-If you're in a sensitive environment and want to verify this, set `sidecar.outboundAllowlist` to a single entry:
-
-```json
-"sidecar.outboundAllowlist": ["localhost"]
-```
-
-Any outbound URL that doesn't match `localhost` will be blocked.
+If you're in a sensitive environment and want to verify this, watch SideCar's traffic with a firewall or network monitor rather than relying on a setting. `sidecar.outboundAllowlist` does not block egress in general: it only limits which URLs SideCar fetches when you paste a link into chat (see [Lock URL fetching](#lock-url-fetching-with-the-outbound-allowlist)). The model backend, `web_search`, MCP servers, the vulnerability scanner and skill sync are not affected by it.
 
 ### Cloud backends: prompts go to their API
 
@@ -94,7 +88,7 @@ Patterns merge with the default excludes (`.git`, `.sidecar`, `node_modules`). F
 
 ### Lock URL fetching with the outbound allowlist
 
-By default, `web_search` and `fetch_url` can reach any public internet host (with built-in SSRF and private-IP blocking). If you want to restrict what the agent can fetch, set `sidecar.outboundAllowlist`:
+When a chat message contains a URL, SideCar fetches the page and adds its text to the context. By default it fetches any public host (private and loopback addresses are always blocked). To restrict which hosts it fetches, set `sidecar.outboundAllowlist`:
 
 ```json
 "sidecar.outboundAllowlist": [
@@ -104,7 +98,9 @@ By default, `web_search` and `fetch_url` can reach any public internet host (wit
 ]
 ```
 
-Requests to hosts that don't match any entry are blocked before they leave the extension. Leading `*.` matches all subdomains. An empty array (the default) allows all public URLs.
+A pasted URL whose host doesn't match any entry is not fetched, and every redirect is checked against the list too. Leading `*.` matches all subdomains. An empty array (the default) allows all public URLs. The same entries are added to the domains whose links the chat panel will open.
+
+The list applies to these URL fetches only. It does not restrict `web_search`, which talks to the search provider you configure, or any other network call; turn off the features you don't want instead.
 
 ### Per-tool allow/deny overrides
 
@@ -305,7 +301,7 @@ When `offline` is `true`, the loader reads only from what is already cached loca
 ]
 ```
 
-Every `web_search` and URL fetch that doesn't match the allowlist is blocked. The dependency drift scanner (OSV API calls) can be turned off separately:
+URLs pasted into chat that don't match the allowlist are not fetched. The allowlist does not cover `web_search` or other network calls. The dependency drift scanner (OSV API calls) is turned off separately:
 
 ```json
 "sidecar.deps.checkVulnerabilities": false
