@@ -28,9 +28,6 @@ All notable changes to the SideCar extension will be documented in this file.
   - A search that appears only above its `within` locator is described as such, rather than as
     "not found".
   - A multi-line `within` now works in files with Windows line endings.
-  - "This file changed since you read it" is kept until the agent actually reads the edited
-    lines; reading another part of the file, or an outline, no longer clears it. When an edit
-    changed several places, such as a `replace_all`, reading any one of them is enough.
   - The incomplete-code check no longer asks the agent to finish placeholders it only quoted from
     the existing code, or that were in an edit that was refused.
 - **The database tools read real DuckDB results, and Postgres row counts appear**

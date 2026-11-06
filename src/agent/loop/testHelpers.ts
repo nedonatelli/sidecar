@@ -63,7 +63,6 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     alreadyDoneChecked: false,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),
-    editedSpans: new Map(),
     unappliedEditNudged: false,
     toolCallCounts: new Map(),
     gateState: {} as LoopState['gateState'],

@@ -873,9 +873,9 @@ export async function readFile(input: Record<string, unknown>, context?: ToolExe
   // Track this file as read so editFile knows the model has current content.
   const readKey = path.posix.normalize(filePath.split(path.sep).join('/'));
   context?.filesReadThisTurn?.add(readKey);
-  // A read that shows the edited lines refreshes the model's memory of the
-  // file: it is no longer stale with respect to its own earlier edits.
-  refreshStaleRead(context, readKey, mode, startLine, endLine);
+  // A read refreshes the model's memory of the file: it is no longer stale
+  // with respect to its own earlier edits.
+  context?.editedSinceRead?.delete(readKey);
   return applyReadView(text, mode, startLine, endLine, filePath);
 }
 
@@ -1112,7 +1112,6 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     recordWrite();
     await getDefaultAuditBuffer().write(filePath, content, (p) => readDiskViaWorkspace(context, p));
     getAuditDecorationProvider()?.refresh();
-    forgetEditedSpan(context, filePath);
     context?.recordOutcome?.(mutated(filePath, 'audit'));
     return `File written: ${filePath} (buffered for audit review)`;
   }
@@ -1200,7 +1199,6 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
     if (patch) context.onOutput(DIFF_PREFIX + patch);
   }
 
-  forgetEditedSpan(context, filePath);
   context?.recordOutcome?.(mutated(filePath));
   return `File written: ${filePath}` + escapeRecoveryNote;
 }
@@ -1531,7 +1529,6 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
     clearEditFailure(context, filePath);
     const auditLine =
       resolvedAudit.summary ?? `File edited: ${filePath} (buffered for audit review)${partialReplaceWarning}`;
-    recordEditedSpan(context, filePath, currentText, resolvedAudit.newText);
     context?.recordOutcome?.(mutated(filePath, 'audit'));
     return `${resolvedAudit.prefixNote}${auditLine}${resolvedAudit.suffixNote}${editDiffSuffix(auditPatch, context)}`;
   }
@@ -1698,7 +1695,6 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // can overwhelm a weak model (LOCAL_MAX_SYSTEM_CHARS); the char cap is the config
   // value, and the A/B decides whether it helps or is just noise.
   const successLine = resolved.summary ?? `File edited: ${filePath}${partialReplaceWarning}`;
-  recordEditedSpan(context, filePath, text, newText);
   context?.recordOutcome?.(mutated(filePath));
   return `${resolved.prefixNote}${successLine}${resolved.suffixNote}${editDiffSuffix(patch, context)}`;
 }
@@ -1855,126 +1851,6 @@ function resolveWithin(text: string, within: string, filePath: string): number {
     );
   }
   return text.indexOf(within);
-}
-
-type LineSpan = { from: number; to: number };
-
-/** Edit distance past which changedLineSpans settles for one span. */
-const MAX_HUNK_DIFF = 200;
-
-/**
- * The 1-based lines of `newText` that differ from `oldText`, one range per
- * hunk. One span from the first change to the last made a replace_all, or two
- * edits far apart, clear only on a read of everything between: on #416's
- * canary an agent re-read the lines it was editing five times and was still
- * told the file had changed since it read it. A bounded Myers diff; past
- * MAX_HUNK_DIFF it returns that single span.
- */
-function changedLineSpans(oldText: string, newText: string): LineSpan[] {
-  const a = oldText.split('\n');
-  const b = newText.split('\n');
-  let head = 0;
-  while (head < a.length && head < b.length && a[head] === b[head]) head++;
-  let tail = 0;
-  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
-  const whole = [{ from: head + 1, to: Math.max(head + 1, b.length - tail) }];
-
-  const A = a.slice(head, a.length - tail);
-  const B = b.slice(head, b.length - tail);
-  const n = A.length;
-  const m = B.length;
-  if (n === 0 || m === 0) return whole;
-
-  // v[k] = furthest x on diagonal k; one snapshot per edit-distance step.
-  const v = new Map<number, number>([[1, 0]]);
-  const trace: Map<number, number>[] = [];
-  const at = (map: Map<number, number>, k: number) => map.get(k) ?? -1;
-  const down = (map: Map<number, number>, k: number, d: number) =>
-    k === -d || (k !== d && at(map, k - 1) < at(map, k + 1));
-  for (let d = 0; d <= Math.min(n + m, MAX_HUNK_DIFF); d++) {
-    trace.push(new Map(v));
-    for (let k = -d; k <= d; k += 2) {
-      let x = down(v, k, d) ? at(v, k + 1) : at(v, k - 1) + 1;
-      let y = x - k;
-      while (x < n && y < m && A[x] === B[y]) {
-        x++;
-        y++;
-      }
-      v.set(k, x);
-      if (x < n || y < m) continue;
-
-      // Walk back, noting where each insertion or deletion lands in B.
-      const points: number[] = [];
-      let bx = n;
-      let by = m;
-      for (let s = trace.length - 1; s > 0; s--) {
-        const sk = bx - by;
-        const pk = down(trace[s], sk, s) ? sk + 1 : sk - 1;
-        const px = at(trace[s], pk);
-        const py = px - pk;
-        bx = px;
-        by = py;
-        points.push(Math.min(py, m - 1));
-      }
-      points.sort((p, q) => p - q);
-      const spans: LineSpan[] = [];
-      for (const p of points) {
-        const last = spans[spans.length - 1];
-        if (last && p <= last.to) last.to = Math.max(last.to, p + 1);
-        else spans.push({ from: p + 1, to: p + 1 });
-      }
-      return spans.map((s) => ({ from: head + s.from, to: head + s.to }));
-    }
-  }
-  return whole;
-}
-
-const staleKey = (filePath: string) => path.posix.normalize(filePath.split(path.sep).join('/'));
-
-/** Note the lines an edit changed, so a read can tell whether it showed them (#161 ML-75). */
-function recordEditedSpan(
-  context: ToolExecutorContext | undefined,
-  filePath: string,
-  oldText: string,
-  newText: string,
-) {
-  const spans = context?.editedSpans;
-  if (!spans) return;
-  const key = staleKey(filePath);
-  spans.set(key, [...(spans.get(key) ?? []), ...changedLineSpans(oldText, newText)]);
-}
-
-/** A whole-file write has no span: only a full read refreshes it. */
-function forgetEditedSpan(context: ToolExecutorContext | undefined, filePath: string) {
-  context?.editedSpans?.delete(staleKey(filePath));
-}
-
-/**
- * Clear "edited since read" for a read that showed the edited lines. Any read
- * used to clear it -- another range, an outline -- so a later miss on text
- * quoted from before the edit lost the "changed since you read it" prefix
- * (#161 ML-75). A full read clears it; compact and outline never do (they are
- * not the verbatim text); a line range does when it covers one edited hunk.
- * Requiring every hunk kept a replace_all's warning up through repeated reads
- * of the very lines the agent was editing.
- */
-function refreshStaleRead(
-  context: ToolExecutorContext | undefined,
-  key: string,
-  mode: string | undefined,
-  startLine: number | undefined,
-  endLine: number | undefined,
-): void {
-  if (!context?.editedSinceRead?.has(key)) return;
-  if (startLine !== undefined || endLine !== undefined) {
-    // A line range takes precedence over mode, as in applyReadView.
-    const shown = (s: LineSpan) => (startLine ?? 1) <= s.from && (endLine === undefined || endLine >= s.to);
-    if (!context.editedSpans?.get(key)?.some(shown)) return;
-  } else if (mode && mode !== 'full') {
-    return;
-  }
-  context.editedSinceRead.delete(key);
-  context.editedSpans?.delete(key);
 }
 
 /**
@@ -2817,13 +2693,7 @@ function markRead(exec: ToolExecutor): ToolExecutor {
     if (p) {
       const key = path.posix.normalize(p.split(path.sep).join('/'));
       context?.filesReadThisTurn?.add(key);
-      refreshStaleRead(
-        context,
-        key,
-        input.mode as string | undefined,
-        toLineNum(input.start_line),
-        toLineNum(input.end_line),
-      );
+      context?.editedSinceRead?.delete(key);
     }
     return result;
   };

@@ -54,7 +54,6 @@ export async function executeMultiFilePlan(
     signal,
     filesReadThisTurn: state.filesReadThisRun,
     editedSinceRead: state.editedSinceRead,
-    editedSpans: state.editedSpans,
   };
 
   // Map each path → EVERY tool_use targeting it, in the order the model
