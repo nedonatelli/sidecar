@@ -40,6 +40,22 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.15 — inferred edits keep line endings and bracket balance (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.14,
+noting the patch.
+
+- **What changed:** When `edit_file` infers the region to replace (#163), the
+  region in a CRLF file no longer ends in the last line's `\r`, which left a
+  bare LF (ML-34). The not-found path now applies the delimiter-balance check
+  the missing-search path already did; for a file with no grammar, such as
+  HTML, it is the only structural guard (ML-46). Region scoring is one sliding
+  pass instead of a rescan of every window, with identical results: a 730-line
+  replace on a 3,824-line file went from 46.7 s to 9 ms (ML-33).
+- **Measured:** no eval. Inferred writes to CRLF and no-grammar files are rare,
+  and ML-33 changes only running time; 3,000 random snippets from 1,160 repo
+  files gave identical output under the old and new scoring.
+
 ### 7.0.14 — edit_file failures are described more accurately (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.13,

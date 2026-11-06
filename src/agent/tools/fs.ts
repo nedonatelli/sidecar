@@ -137,40 +137,82 @@ function buildGrepHint(fileText: string, searchOrReplace: string): string | null
   const readCall = `read_file(path="${'<file>'}", start_line=${Math.max(1, top[0].lineNo - 2)}, end_line=${top[0].lineNo + 2})`;
   return `Grep for [${keywords.slice(0, 2).join(', ')}] found these lines:\n${lineList}\n→ Call \`${readCall}\` to get the exact text, then use it verbatim as your search string.`;
 }
-function findNearestMatch(fileText: string, search: string): string | null {
+/**
+ * The score of every `windowSize`-line window of `fileLines`, by start line: the
+ * summed `weights` of the words it holds. No word spans a line, so a word is in
+ * a window when it is in one of its lines; each line is scanned once and the
+ * counts slide. Joining and rescanning every window took 48 s for a 730-line
+ * replace on a 3,824-line file, blocking the extension host (#163 ML-33).
+ * `wordsIn` returns the indices of the words a lowercased line holds.
+ */
+function windowScores(
+  fileLines: string[],
+  windowSize: number,
+  weights: number[],
+  wordsIn: (lowerLine: string) => number[],
+): number[] {
+  const perLine = fileLines.map((l) => wordsIn(l.toLowerCase()));
+  const counts = new Array<number>(weights.length).fill(0);
+  let score = 0;
+  const scores: number[] = [];
+  for (let i = 0; i < fileLines.length; i++) {
+    for (const w of perLine[i]) if (counts[w]++ === 0) score += weights[w];
+    if (i >= windowSize) for (const w of perLine[i - windowSize]) if (--counts[w] === 0) score -= weights[w];
+    if (i >= windowSize - 1) scores.push(score);
+  }
+  return scores;
+}
+
+/**
+ * The search-height window holding the most of the search's words (≥4 chars,
+ * as substrings, each occurrence in the search counted), earliest on a tie.
+ * Null below 30% of them, to avoid showing noise.
+ */
+function nearestWindow(
+  fileText: string,
+  search: string,
+): { fileLines: string[]; bestIdx: number; windowSize: number } | null {
   const searchLines = search
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
   if (searchLines.length === 0) return null;
 
-  // Extract significant words (≥4 chars, not common filler) from the search.
   const searchWords = search
     .split(/\W+/)
     .filter((w) => w.length >= 4)
     .map((w) => w.toLowerCase());
   if (searchWords.length === 0) return null;
 
+  const multiplicity = new Map<string, number>();
+  for (const w of searchWords) multiplicity.set(w, (multiplicity.get(w) ?? 0) + 1);
+  const words = [...multiplicity.keys()];
+
   const fileLines = fileText.split('\n');
   const windowSize = Math.max(searchLines.length, 1);
+  const scores = windowScores(
+    fileLines,
+    windowSize,
+    words.map((w) => multiplicity.get(w)!),
+    (lower) => words.flatMap((w, i) => (lower.includes(w) ? [i] : [])),
+  );
   let bestScore = 0;
   let bestIdx = -1;
-
-  for (let i = 0; i <= fileLines.length - windowSize; i++) {
-    const window = fileLines
-      .slice(i, i + windowSize)
-      .join('\n')
-      .toLowerCase();
-    // Score by fraction of search words that appear in the window.
-    const score = searchWords.filter((w) => window.includes(w)).length;
+  scores.forEach((score, i) => {
     if (score > bestScore) {
       bestScore = score;
       bestIdx = i;
     }
-  }
+  });
 
-  // Require at least 30% of search words to match to avoid showing noise.
   if (bestIdx < 0 || bestScore < Math.ceil(searchWords.length * 0.3)) return null;
+  return { fileLines, bestIdx, windowSize };
+}
+
+function findNearestMatch(fileText: string, search: string): string | null {
+  const nearest = nearestWindow(fileText, search);
+  if (!nearest) return null;
+  const { fileLines, bestIdx, windowSize } = nearest;
 
   const contextLines = 3;
   const start = Math.max(0, bestIdx - contextLines);
@@ -387,21 +429,31 @@ export function findIntentTarget(
   const fileLines = fileText.split('\n');
   const windowSize = Math.max(replace.split('\n').filter((l) => l.trim()).length, 1);
 
-  // Word-boundary scoring: `name` must not match `filename`.
-  const wordRes = words.map((w) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`));
+  // Word-boundary scoring: `name` must not match `filename`. A word holds only
+  // word characters, so it is bounded exactly when it is a whole token of the
+  // line split on non-word characters.
+  const index = new Map(words.map((w, i) => [w, i]));
+  const scores = windowScores(
+    fileLines,
+    windowSize,
+    words.map(() => 1),
+    (lower) => [
+      ...new Set(
+        lower
+          .split(/\W+/)
+          .map((t) => index.get(t))
+          .filter((i) => i !== undefined),
+      ),
+    ],
+  );
 
   let best = 0;
   let bestIdx = -1;
   let runnerUp = 0;
   let bestTied = false;
 
-  for (let i = 0; i <= fileLines.length - windowSize; i++) {
-    const window = fileLines
-      .slice(i, i + windowSize)
-      .join('\n')
-      .toLowerCase();
-    let score = 0;
-    for (const re of wordRes) if (re.test(window)) score++;
+  for (let i = 0; i < scores.length; i++) {
+    const score = scores[i];
 
     if (score > best) {
       runnerUp = best;
@@ -434,7 +486,9 @@ export function findIntentTarget(
   for (let seen = 0; end < fileLines.length && seen < windowSize; end++) {
     if (fileLines[end].trim()) seen++;
   }
-  return fileLines.slice(bestIdx, end).join('\n');
+  // In a CRLF file the last line keeps its '\r'. The replacement goes in
+  // without it, which left a bare LF where the region ended (#163 ML-34).
+  return fileLines.slice(bestIdx, end).join('\n').replace(/\r$/, '');
 }
 
 /**
@@ -493,36 +547,9 @@ function inferredWriteProblem(fileText: string, region: string, replace: string)
  * (comment + if statement + body) rather than just the comment line.
  */
 function findNearestMatchWide(fileText: string, search: string, maxLines = 25): string | null {
-  const searchLines = search
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (searchLines.length === 0) return null;
-
-  const searchWords = search
-    .split(/\W+/)
-    .filter((w) => w.length >= 4)
-    .map((w) => w.toLowerCase());
-  if (searchWords.length === 0) return null;
-
-  const fileLines = fileText.split('\n');
-  const windowSize = Math.max(searchLines.length, 1);
-  let bestScore = 0;
-  let bestIdx = -1;
-
-  for (let i = 0; i <= fileLines.length - windowSize; i++) {
-    const window = fileLines
-      .slice(i, i + windowSize)
-      .join('\n')
-      .toLowerCase();
-    const score = searchWords.filter((w) => window.includes(w)).length;
-    if (score > bestScore) {
-      bestScore = score;
-      bestIdx = i;
-    }
-  }
-
-  if (bestIdx < 0 || bestScore < Math.ceil(searchWords.length * 0.3)) return null;
+  const nearest = nearestWindow(fileText, search);
+  if (!nearest) return null;
+  const { fileLines, bestIdx, windowSize } = nearest;
 
   // Wide context: enough to show the full surrounding code block
   const half = Math.floor((maxLines - windowSize) / 2);
@@ -2150,7 +2177,10 @@ export async function resolveEditedText(params: {
       applyTarget &&
       text.includes(applyTarget) &&
       applyTarget !== replace &&
-      !inferredWriteProblem(text, applyTarget, replace)
+      !inferredWriteProblem(text, applyTarget, replace) &&
+      // The only structural guard where there is no grammar; the missing-search
+      // path already applied it (#163 ML-46).
+      isStructurallySafeReplacement(filePath, applyTarget, replace)
     ) {
       // Splice by offset with the replacement in the file's line endings — the
       // string form of String.replace would expand `$&`/`$1` in model text, and

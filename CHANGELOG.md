@@ -30,6 +30,14 @@ All notable changes to the SideCar extension will be documented in this file.
   - A multi-line `within` now works in files with Windows line endings.
   - The incomplete-code check no longer asks the agent to finish placeholders it only quoted from
     the existing code, or that were in an edit that was refused.
+- **Inferred edits are safer**
+  ([#163](https://github.com/nedonatelli/sidecar/issues/163)). When `edit_file` works out the
+  region to replace on its own:
+  - In a file with Windows line endings, the edited lines no longer end with a bare line feed.
+  - In a file SideCar has no syntax checker for, such as HTML, an edit that leaves brackets
+    unmatched is no longer written.
+  - Working out the region in a large file no longer freezes VS Code: a 730-line edit to a
+    3,800-line file took 47 seconds and now takes milliseconds, with the same result.
 - **The database tools read real DuckDB results, and Postgres row counts appear**
   ([#433](https://github.com/nedonatelli/sidecar/issues/433),
   [#434](https://github.com/nedonatelli/sidecar/issues/434)). Against a real DuckDB database,
