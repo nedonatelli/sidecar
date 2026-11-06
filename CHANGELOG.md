@@ -32,6 +32,13 @@ All notable changes to the SideCar extension will be documented in this file.
   - A multi-line `within` now works in files with Windows line endings.
   - The incomplete-code check no longer asks the agent to finish placeholders it only quoted from
     the existing code, or that were in an edit that was refused.
+- **Numbered lists in replies keep counting.** A list with a code block in one of its items used
+  to restart at 1 after each block ("1. Install it", code, "1. Run it"), both while streaming and
+  after a reload. A list now continues across code, diagram and edit blocks, and a list that
+  starts at another number, like 4, shows that number.
+- **The ☰ menu stays visible in a narrow chat panel.** The header used to run off the right edge,
+  hiding the menu and the buttons next to it. Now the model name shortens first, then the buttons
+  move to a second row.
 - **Inferred edits are safer**
   ([#163](https://github.com/nedonatelli/sidecar/issues/163)). When `edit_file` works out the
   region to replace on its own:
