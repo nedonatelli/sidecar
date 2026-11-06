@@ -19,6 +19,8 @@ All notable changes to the SideCar extension will be documented in this file.
   - A failed or no-op edit no longer triggers a `post-write` regression guard.
   - In review mode, a queued edit counts as a change everywhere.
   - A call under another tool's name (`str_replace`, `create_file`) is treated as the tool it runs as.
+  - Auto-fix (`sidecar.autoFixOnFailure`) checks only the files an edit changed. A refused or no-op
+    edit no longer spends one of its retries, and an edit sent as `str_replace` is checked.
 
 ### Fixed
 
