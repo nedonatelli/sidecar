@@ -380,10 +380,27 @@ describe('buildDispatchHandlers', () => {
     expect(env.openExternal).toHaveBeenCalledOnce();
   });
 
-  it('openExternal blocks unknown domains', async () => {
+  it('openExternal asks before opening an unknown domain, showing the whole URL', async () => {
     const { env } = await import('vscode');
-    await invoke(handlers, 'openExternal', { url: 'https://example.com' });
+    const requestConfirm = vi.fn().mockResolvedValue(undefined);
+    const h = buildDispatchHandlers({ ...deps, state: makeState({ requestConfirm } as Partial<ChatState>) });
+    await invoke(h, 'openExternal', { url: 'https://example.com/a?b=1' });
+    expect(requestConfirm).toHaveBeenCalledWith('Open a link to example.com?', ['Open'], {
+      modal: true,
+      detail: 'https://example.com/a?b=1',
+    });
     expect(env.openExternal).not.toHaveBeenCalled();
+
+    requestConfirm.mockResolvedValue('Open');
+    await invoke(h, 'openExternal', { url: 'https://example.com/a?b=1' });
+    expect(env.openExternal).toHaveBeenCalledOnce();
+  });
+
+  it('openExternal opens an allowlisted domain without asking', async () => {
+    const requestConfirm = vi.fn();
+    const h = buildDispatchHandlers({ ...deps, state: makeState({ requestConfirm } as Partial<ChatState>) });
+    await invoke(h, 'openExternal', { url: 'https://api.github.com/x' });
+    expect(requestConfirm).not.toHaveBeenCalled();
   });
 
   // ── runCommand ────────────────────────────────────────────────────────────

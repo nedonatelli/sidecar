@@ -444,7 +444,7 @@ export function buildDispatchHandlers(
     spec: (msg) => handleSpec(state, msg.text || ''),
     generateDoc: () => handleGenerateDoc(state),
 
-    openExternal: (msg) => {
+    openExternal: async (msg) => {
       if (!msg.url) return;
       const parsed = Uri.parse(msg.url);
       if (parsed.scheme !== 'https' && parsed.scheme !== 'http') return;
@@ -470,7 +470,15 @@ export function buildDispatchHandlers(
       const outboundAllowlist: string[] = cfg.outboundAllowlist ?? [];
       const allAllowed = [...SAFE_DOMAINS, ...outboundAllowlist];
       const allowed = allAllowed.some((d) => hostname === d || hostname.endsWith('.' + d));
-      if (!allowed) return;
+      // A link in a model's reply is the model's choice of destination, so any
+      // other host is opened only once the user has seen the whole URL.
+      if (!allowed) {
+        const pick = await state.requestConfirm(`Open a link to ${hostname}?`, ['Open'], {
+          modal: true,
+          detail: msg.url,
+        });
+        if (pick !== 'Open') return;
+      }
       env.openExternal(parsed);
     },
 

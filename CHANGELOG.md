@@ -19,6 +19,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Links in the chat open only where you can see they go.** Clicking a link in a reply opened
+  it directly, without SideCar's check on where links lead. A link to a site outside the built-in
+  list and `sidecar.outboundAllowlist` now shows its full address and asks before opening it.
+  Diagrams render in mermaid's strict mode.
 - **`mutation_test` and `db_migrate_up` follow the rules for commands and file writes.** The
   test command given to `mutation_test`, and a custom migration command, now get the same checks
   as `run_command`: a deny or ask on `run_command` applies, and destructive commands and installs

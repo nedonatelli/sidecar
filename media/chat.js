@@ -201,6 +201,11 @@
     return named.has(value.toLowerCase());
   }
 
+  // mermaid's render() puts the diagram in the page before sanitizeSvg sees
+  // it, so the labels have to be safe already: 'strict' sanitizes them and
+  // turns off click handlers. sanitizeSvg keeps only fragment links anyway.
+  const MERMAID_SECURITY = 'strict';
+
   function loadMermaid() {
     if (mermaidReady) return mermaidReady;
     mermaidReady = new Promise((resolve, reject) => {
@@ -208,7 +213,7 @@
       const unwrap = (m) => (m && m.default && typeof m.default.initialize === 'function' ? m.default : m);
       if (window.mermaid) {
         const m = unwrap(window.mermaid);
-        m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+        m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: MERMAID_SECURITY });
         resolve(m);
         return;
       }
@@ -226,7 +231,7 @@
         console.log('[SideCar] Mermaid loaded, initializing...');
         try {
           const m = unwrap(window.mermaid);
-          m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+          m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: MERMAID_SECURITY });
           console.log('[SideCar] Mermaid initialized successfully');
           resolve(m);
         } catch (initErr) {
@@ -2631,11 +2636,21 @@
         // [text](url) — only allow http/https
         const url = m[13];
         if (/^https?:\/\//i.test(url)) {
-          const el = document.createElement('a');
-          el.href = url;
+          // Not an <a href>: VS Code opens any clicked link in a webview
+          // itself, which skipped the extension's check on where it goes.
+          // The click goes through openExternal instead, as GitHub cards do.
+          const el = document.createElement('span');
+          el.className = 'md-link';
           el.textContent = m[12];
-          el.target = '_blank';
-          el.rel = 'noopener noreferrer';
+          el.title = url;
+          el.dataset.url = url;
+          el.setAttribute('role', 'link');
+          el.tabIndex = 0;
+          const open = () => vscode.postMessage({ command: 'openExternal', url });
+          el.addEventListener('click', open);
+          el.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') open();
+          });
           parent.appendChild(el);
         } else {
           // Not a safe URL, render as plain text
