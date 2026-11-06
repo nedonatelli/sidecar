@@ -4,11 +4,12 @@ import type { AgentCallbacks } from '../loop.js';
 import { getDiagnostics } from '../tools.js';
 import type { LoopState } from './state.js';
 import { injectNudge } from './nudge.js';
+import { changedFiles, fileToolName } from '../tools/toolOutcome.js';
 
 // ---------------------------------------------------------------------------
 // Auto-fix on diagnostics — post-turn policy.
 //
-// After the agent writes code via write_file or edit_file, this
+// After the agent changes a file via write_file or edit_file, this
 // helper waits a short beat for VS Code's language services to
 // update, then pulls diagnostics for every written file and feeds
 // errors back to the agent as a synthetic user message asking it to
@@ -45,14 +46,16 @@ export async function applyAutoFix(
 ): Promise<boolean> {
   if (!config.autoFixOnFailure) return false;
 
-  // De-duplicated: two edits to one file this turn checked its diagnostics
-  // twice, listed its errors twice, and spent two of its retries.
+  // The files a call changed, from its outcome (ADR-008): a refused or no-op
+  // edit has nothing new to diagnose, and an aliased call (`str_replace`) runs
+  // as edit_file. A deleted file has no diagnostics. De-duplicated: two edits
+  // to one file this turn checked its diagnostics twice, listed its errors
+  // twice, and spent two of its retries.
   const writtenFiles = [
     ...new Set(
       pendingToolUses
-        .filter((tu) => tu.name === 'write_file' || tu.name === 'edit_file')
-        .map((tu) => (tu.input.path || tu.input.file_path) as string)
-        .filter(Boolean),
+        .filter((tu) => fileToolName(tu.name) !== 'delete_file')
+        .flatMap((tu) => changedFiles(state.toolOutcomes.get(tu.id))),
     ),
   ];
 

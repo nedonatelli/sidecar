@@ -40,6 +40,20 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.16 — auto-fix reads which files a call changed (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.15,
+noting the patch.
+
+- **What changed:** The auto-fix pass took the files to diagnose from
+  `write_file` and `edit_file` calls by name and input path. It now reads each
+  call's outcome (ADR-008), as the stub check and circular-rewrite guard do: a
+  refused or no-op edit no longer spends an auto-fix retry, an aliased
+  `str_replace` is checked, and a deleted file is skipped.
+- **Measured:** no eval. Auto-fix (`sidecar.autoFixOnFailure`) is off by
+  default, and only the ablation arms turn it on; compare ablation runs either
+  side of this version on the autoFix arm by commit.
+
 ### 7.0.15 — inferred edits keep line endings and bracket balance (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.14,

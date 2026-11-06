@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.16** (2026-11) — auto-fix reads which files a call changed. The
+ *   auto-fix pass took its files from `write_file`/`edit_file` calls by name
+ *   and input path; it now reads each call's outcome (ADR-008), so a refused or
+ *   no-op edit no longer spends a retry, an aliased `str_replace` is checked,
+ *   and a deleted file is skipped. PATCH. No eval: auto-fix is off by default,
+ *   and only the ablation arms turn it on; ablation runs at 7.0.15 and 7.0.16
+ *   are not comparable on the autoFix arm.
  * - **7.0.15** (2026-11) — inferred edits keep CRLF and bracket balance (#163).
  *   An inferred region in a CRLF file no longer ends in the last line's `\r`,
  *   which left a bare LF (ML-34). The not-found inference path applies the
@@ -419,7 +426,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.15';
+export const SCAFFOLD_VERSION = '7.0.16';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

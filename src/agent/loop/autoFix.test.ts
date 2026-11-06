@@ -24,6 +24,8 @@ import { getDiagnostics } from '../tools.js';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { getConfig } from '../../config/settings.js';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
+import { fileToolName, mutated, failed, noop } from '../tools/toolOutcome.js';
+import type { LoopState } from './state.js';
 
 function stubConfig(overrides: Partial<ReturnType<typeof getConfig>> = {}): ReturnType<typeof getConfig> {
   return {
@@ -37,6 +39,20 @@ function writeFile(path: string): ToolUseContentBlock {
   return { type: 'tool_use', id: `tu-${path}`, name: 'write_file', input: { path, content: 'x' } };
 }
 
+/** applyAutoFix with every file-tool call recorded as having changed its file. */
+function run(
+  state: LoopState,
+  calls: ToolUseContentBlock[],
+  config: ReturnType<typeof getConfig>,
+  cb: ReturnType<typeof stubCallbacks>,
+): Promise<boolean> {
+  for (const tu of calls) {
+    const p = (tu.input.path || tu.input.file_path) as string;
+    if (fileToolName(tu.name) && !state.toolOutcomes.has(tu.id)) state.toolOutcomes.set(tu.id, mutated(p));
+  }
+  return applyAutoFix(state, calls, config, cb);
+}
+
 beforeEach(() => {
   vi.mocked(getDiagnostics).mockReset();
 });
@@ -45,7 +61,7 @@ describe('applyAutoFix', () => {
   it('returns false immediately when autoFixOnFailure is disabled', async () => {
     const state = stubLoopState();
     const cb = stubCallbacks();
-    const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig({ autoFixOnFailure: false }), cb);
+    const result = await run(state, [writeFile('a.ts')], stubConfig({ autoFixOnFailure: false }), cb);
     expect(result).toBe(false);
     expect(getDiagnostics).not.toHaveBeenCalled();
   });
@@ -59,7 +75,7 @@ describe('applyAutoFix', () => {
       name: 'read_file',
       input: { path: 'a.ts' },
     };
-    const result = await applyAutoFix(state, [readCall], stubConfig(), cb);
+    const result = await run(state, [readCall], stubConfig(), cb);
     expect(result).toBe(false);
     expect(getDiagnostics).not.toHaveBeenCalled();
   });
@@ -72,12 +88,7 @@ describe('applyAutoFix', () => {
       ]),
     });
     const cb = stubCallbacks();
-    const result = await applyAutoFix(
-      state,
-      [writeFile('a.ts'), writeFile('b.ts')],
-      stubConfig({ autoFixMaxRetries: 3 }),
-      cb,
-    );
+    const result = await run(state, [writeFile('a.ts'), writeFile('b.ts')], stubConfig({ autoFixMaxRetries: 3 }), cb);
     expect(result).toBe(false);
     expect(getDiagnostics).not.toHaveBeenCalled();
   });
@@ -86,7 +97,7 @@ describe('applyAutoFix', () => {
     vi.mocked(getDiagnostics).mockResolvedValueOnce('No diagnostics found.');
     const state = stubLoopState();
     const cb = stubCallbacks();
-    const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig(), cb);
+    const result = await run(state, [writeFile('a.ts')], stubConfig(), cb);
     expect(result).toBe(false);
     expect(state.messages).toHaveLength(0);
     expect(state.autoFixRetriesByFile.size).toBe(0);
@@ -96,7 +107,7 @@ describe('applyAutoFix', () => {
     vi.mocked(getDiagnostics).mockResolvedValueOnce('src/a.ts:10 [Error] TS2304: Cannot find name "foo".');
     const state = stubLoopState();
     const cb = stubCallbacks();
-    const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig(), cb);
+    const result = await run(state, [writeFile('a.ts')], stubConfig(), cb);
     expect(result).toBe(true);
     expect(state.autoFixRetriesByFile.get('a.ts')).toBe(1);
     expect(state.messages).toHaveLength(1);
@@ -116,7 +127,7 @@ describe('applyAutoFix', () => {
       .mockResolvedValueOnce('b.ts looks clean.');
     const state = stubLoopState();
     const cb = stubCallbacks();
-    await applyAutoFix(state, [writeFile('a.ts'), writeFile('b.ts')], stubConfig(), cb);
+    await run(state, [writeFile('a.ts'), writeFile('b.ts')], stubConfig(), cb);
     expect(state.autoFixRetriesByFile.get('a.ts')).toBe(1);
     expect(state.autoFixRetriesByFile.has('b.ts')).toBe(false);
   });
@@ -127,12 +138,7 @@ describe('applyAutoFix', () => {
       autoFixRetriesByFile: new Map([['a.ts', 3]]), // exhausted
     });
     const cb = stubCallbacks();
-    const result = await applyAutoFix(
-      state,
-      [writeFile('a.ts'), writeFile('b.ts')],
-      stubConfig({ autoFixMaxRetries: 3 }),
-      cb,
-    );
+    const result = await run(state, [writeFile('a.ts'), writeFile('b.ts')], stubConfig({ autoFixMaxRetries: 3 }), cb);
     expect(result).toBe(true);
     // a.ts was skipped before the diagnostics call — never examined, never bumped
     expect(state.autoFixRetriesByFile.get('a.ts')).toBe(3);
@@ -144,7 +150,7 @@ describe('applyAutoFix', () => {
     vi.mocked(getDiagnostics).mockRejectedValueOnce(new Error('LSP offline'));
     const state = stubLoopState();
     const cb = stubCallbacks();
-    const result = await applyAutoFix(state, [writeFile('a.ts')], stubConfig(), cb);
+    const result = await run(state, [writeFile('a.ts')], stubConfig(), cb);
     expect(result).toBe(false);
     expect(state.messages).toHaveLength(0);
   });
@@ -159,7 +165,7 @@ describe('applyAutoFix', () => {
       name: 'edit_file',
       input: { file_path: 'uses-file-path-key.ts', content: 'x' },
     };
-    const result = await applyAutoFix(state, [tu], stubConfig(), cb);
+    const result = await run(state, [tu], stubConfig(), cb);
     expect(result).toBe(true);
     expect(state.autoFixRetriesByFile.get('uses-file-path-key.ts')).toBe(1);
   });
@@ -171,8 +177,42 @@ describe('applyAutoFix — one file edited twice in a turn', () => {
     vi.mocked(getDiagnostics).mockResolvedValue('[Error] line 1: boom');
     const state = stubLoopState();
     const editA = { type: 'tool_use', id: 'e2', name: 'edit_file', input: { path: 'a.ts' } } as ToolUseContentBlock;
-    await applyAutoFix(state, [writeFile('a.ts'), editA], stubConfig(), stubCallbacks());
+    await run(state, [writeFile('a.ts'), editA], stubConfig(), stubCallbacks());
     expect(getDiagnostics).toHaveBeenCalledTimes(1);
     expect(state.autoFixRetriesByFile.get('a.ts')).toBe(1);
+  });
+});
+
+// ADR-008: which files changed is read from each call's outcome, not its name.
+describe('applyAutoFix — files are taken from tool outcomes', () => {
+  const edit = (id: string, name = 'edit_file'): ToolUseContentBlock =>
+    ({ type: 'tool_use', id, name, input: { path: 'a.ts' } }) as ToolUseContentBlock;
+
+  it('skips an edit that was refused or changed nothing', async () => {
+    vi.mocked(getDiagnostics).mockResolvedValue('[Error] line 1: boom');
+    const state = stubLoopState();
+    state.toolOutcomes.set('f', failed('a.ts'));
+    state.toolOutcomes.set('n', noop('a.ts'));
+    const result = await applyAutoFix(state, [edit('f'), edit('n')], stubConfig(), stubCallbacks());
+    expect(result).toBe(false);
+    expect(getDiagnostics).not.toHaveBeenCalled();
+    expect(state.autoFixRetriesByFile.size).toBe(0);
+  });
+
+  it('checks a file changed under an aliased tool name', async () => {
+    vi.mocked(getDiagnostics).mockResolvedValue('[Error] line 1: boom');
+    const state = stubLoopState();
+    state.toolOutcomes.set('s', mutated('a.ts'));
+    const result = await applyAutoFix(state, [edit('s', 'str_replace')], stubConfig(), stubCallbacks());
+    expect(result).toBe(true);
+    expect(state.autoFixRetriesByFile.get('a.ts')).toBe(1);
+  });
+
+  it('skips a deleted file', async () => {
+    const state = stubLoopState();
+    state.toolOutcomes.set('d', mutated('a.ts'));
+    const result = await applyAutoFix(state, [edit('d', 'delete_file')], stubConfig(), stubCallbacks());
+    expect(result).toBe(false);
+    expect(getDiagnostics).not.toHaveBeenCalled();
   });
 });
