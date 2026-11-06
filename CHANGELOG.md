@@ -6,6 +6,9 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Changed
 
+- **The backend menu no longer offers Kickstand**, which is not released. It is gone from the ☰
+  menu, the backend picker and `switch_backend`, and its four commands appear in the palette only
+  while `sidecar.provider` is `kickstand`. A setup that already uses it keeps working.
 - **The agent knows which edits changed a file**
   ([#367](https://github.com/nedonatelli/sidecar/issues/367),
   [ADR-008](docs/adr/008-structured-tool-outcomes.md)). `write_file`, `edit_file` and

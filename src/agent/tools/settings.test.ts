@@ -26,9 +26,10 @@ vi.mock('vscode', () => ({
 }));
 
 // Fake profile list + applyBackendProfile — we don't want to drag in
-// real SecretStorage bootstrapping for a unit test.
+// real SecretStorage bootstrapping for a unit test. The tool offers the menu
+// list, which leaves out hidden profiles such as Kickstand.
 vi.mock('../../config/settings.js', () => ({
-  BUILT_IN_BACKEND_PROFILES: [
+  MENU_BACKEND_PROFILES: [
     {
       id: 'local-ollama',
       name: 'Local Ollama',
@@ -52,14 +53,6 @@ vi.mock('../../config/settings.js', () => ({
       baseUrl: 'https://api.openai.com',
       defaultModel: 'gpt-4o',
       secretKey: 'sidecar.profileKey.openai',
-    },
-    {
-      id: 'kickstand',
-      name: 'Kickstand',
-      provider: 'kickstand',
-      baseUrl: 'http://localhost:11435',
-      defaultModel: '',
-      secretKey: null,
     },
   ],
   applyBackendProfile: mockApplyBackendProfile,
@@ -106,7 +99,12 @@ describe('settings tools', () => {
       expect(out).toContain('local-ollama');
       expect(out).toContain('anthropic');
       expect(out).toContain('openai');
-      expect(out).toContain('kickstand');
+      expect(out).not.toContain('kickstand');
+      expect(mockApplyBackendProfile).not.toHaveBeenCalled();
+    });
+
+    it('does not offer a hidden profile', async () => {
+      expect(await switchBackend({ profile: 'kickstand' })).toContain('Unknown backend profile');
       expect(mockApplyBackendProfile).not.toHaveBeenCalled();
     });
 

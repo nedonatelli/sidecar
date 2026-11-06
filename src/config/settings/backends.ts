@@ -39,6 +39,12 @@ export interface BackendProfile {
   secretKey: string | null;
   /** Short description shown in the menu under the name. */
   description: string;
+  /**
+   * Not offered in the backend menus or to `switch_backend`. The profile is
+   * kept so a configuration that already uses it is still recognized and
+   * still works.
+   */
+  hidden?: boolean;
 }
 
 /** Shipped default model (Ollama). Also used as a sentinel: when `sidecar.model`
@@ -121,6 +127,8 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
     secretKey: null,
     description:
       'Self-hosted Kickstand LLM client backend — manage, load, and run GGUF and MLX models locally with GPU acceleration. No API key required; SideCar reads the auto-generated token automatically.',
+    // Not released: kept working for existing setups, not offered.
+    hidden: true,
   },
   {
     id: 'bedrock',
@@ -159,6 +167,9 @@ export const BUILT_IN_BACKEND_PROFILES: readonly BackendProfile[] = [
       'Use SideCar with your existing GitHub Copilot subscription — no separate API key needed. Requires GitHub Copilot extension installed and signed in.',
   },
 ] as const;
+
+/** The profiles the backend menus and `switch_backend` offer. */
+export const MENU_BACKEND_PROFILES: readonly BackendProfile[] = BUILT_IN_BACKEND_PROFILES.filter((p) => !p.hidden);
 
 /** Match the current baseUrl against a built-in profile, if any. */
 export function detectActiveProfile(baseUrl: string): BackendProfile | null {

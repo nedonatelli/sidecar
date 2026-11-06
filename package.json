@@ -3311,6 +3311,22 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "sidecar.kickstand.loadModel",
+          "when": "config.sidecar.provider == kickstand"
+        },
+        {
+          "command": "sidecar.kickstand.unloadModel",
+          "when": "config.sidecar.provider == kickstand"
+        },
+        {
+          "command": "sidecar.kickstand.loadAdapter",
+          "when": "config.sidecar.provider == kickstand"
+        },
+        {
+          "command": "sidecar.kickstand.unloadAdapter",
+          "when": "config.sidecar.provider == kickstand"
+        },
+        {
           "command": "sidecar.ci.fixFromDiagnostic",
           "when": "false"
         },

@@ -2,7 +2,7 @@ import { redactSecrets as patternRedact } from '../securityScanner.js';
 import { workspace, ConfigurationTarget, extensions } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
 import { formatToolError, type RegisteredTool } from './shared.js';
-import { BUILT_IN_BACKEND_PROFILES, applyBackendProfile } from '../../config/settings.js';
+import { MENU_BACKEND_PROFILES, applyBackendProfile } from '../../config/settings.js';
 
 // Settings tools: read / modify SideCar's own VS Code configuration from
 // within an agent turn. The two mutating tools (`switch_backend`,
@@ -107,7 +107,7 @@ export const switchBackendDef: ToolDefinition = {
   nondeterministicOutput: true,
   description:
     'Switch SideCar to a different built-in backend profile. Always requires user approval. ' +
-    'Use when the user asks to change the overall backend or provider family ("switch to Claude", "use local Ollama", "go back to Kickstand"). ' +
+    'Use when the user asks to change the overall backend or provider family ("switch to Claude", "use local Ollama"). ' +
     'Not for changing the model within a backend — use `update_setting` with key "model" for that. ' +
     'Not for switching to a custom OpenAI-compatible endpoint — that requires changing `baseUrl` + `provider` + `model` together, which is deliberately not exposed and must be done manually by the user. ' +
     'If the target profile has no stored API key, the tool reports that so the user can run "SideCar: Set API Key" before retrying. ' +
@@ -117,9 +117,9 @@ export const switchBackendDef: ToolDefinition = {
     properties: {
       profile: {
         type: 'string',
-        enum: ['local-ollama', 'anthropic', 'openai', 'kickstand'],
+        enum: ['local-ollama', 'anthropic', 'openai'],
         description:
-          'Backend profile ID: "local-ollama" (free, private, requires Ollama running locally), "anthropic" (Claude via the Anthropic API, pay-per-token, needs API key), "openai" (GPT models via the OpenAI API, pay-per-token, needs API key), or "kickstand" (self-hosted Kickstand LLM client).',
+          'Backend profile ID: "local-ollama" (free, private, requires Ollama running locally), "anthropic" (Claude via the Anthropic API, pay-per-token, needs API key), or "openai" (GPT models via the OpenAI API, pay-per-token, needs API key).',
       },
     },
     required: ['profile'],
@@ -129,9 +129,9 @@ export const switchBackendDef: ToolDefinition = {
 export async function switchBackend(input: Record<string, unknown>): Promise<string> {
   const profileId = (input.profile as string) || '';
   if (!profileId) return 'Error: profile id is required.';
-  const profile = BUILT_IN_BACKEND_PROFILES.find((p) => p.id === profileId);
+  const profile = MENU_BACKEND_PROFILES.find((p) => p.id === profileId);
   if (!profile) {
-    const known = BUILT_IN_BACKEND_PROFILES.map((p) => p.id).join(', ');
+    const known = MENU_BACKEND_PROFILES.map((p) => p.id).join(', ');
     return `Unknown backend profile "${profileId}". Known profiles: ${known}.`;
   }
   try {
