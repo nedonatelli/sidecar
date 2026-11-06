@@ -11,6 +11,7 @@
 import { lm, workspace } from 'vscode';
 import { getSecretContext, storeActiveApiKey } from './secrets.js';
 import { invalidateConfigCache } from '../settings.js';
+import { trustFilteredConfig } from '../workspaceTrust.js';
 
 export interface BackendProfile {
   /** Stable identifier used in messages and SecretStorage keys. */
@@ -189,15 +190,51 @@ export function detectActiveProfileId(baseUrl: string, provider: string): string
 }
 
 /**
+ * The first of `written` -- values just saved to the user's settings -- that a
+ * workspace or folder value overrides, read the way requests read them (an
+ * untrusted workspace value is ignored there, so it does not count here).
+ */
+function overriddenSetting(written: Record<string, string>): { key: string; value: unknown } | null {
+  const cfg = trustFilteredConfig(workspace.getConfiguration('sidecar'));
+  const same = (a: unknown, b: string) => typeof a === 'string' && a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+  for (const [key, value] of Object.entries(written)) {
+    const effective = cfg.get(key);
+    if (effective !== undefined && !same(effective, value)) return { key, value: effective };
+  }
+  return null;
+}
+
+/**
+ * A switch the workspace overrides would send the key to the workspace's host:
+ * the active key is cleared instead, and the returned message says why.
+ */
+async function refuseOverriddenKey(target: string, written: Record<string, string>): Promise<string | null> {
+  const override = overriddenSetting(written);
+  if (!override) return null;
+  await storeActiveApiKey('');
+  invalidateConfigCache();
+  return (
+    `Switched to ${target} in your user settings, but this workspace sets sidecar.${override.key} to ` +
+    `${String(override.value)}, which takes precedence. The API key was not activated, so it is not sent there. ` +
+    `Remove the workspace setting, then switch again.`
+  );
+}
+
+/**
  * Point SideCar at a custom OpenAI-compatible endpoint. An empty `apiKey` means
  * the server needs none: the `'ollama'` placeholder is stored, which every
  * OpenAI-compatible request path treats as "send no Authorization header".
+ * Returns a warning, with no key activated, when a workspace setting
+ * overrides the endpoint; null once it is in use.
  */
-export async function applyCustomEndpoint(baseUrl: string, apiKey: string): Promise<void> {
+export async function applyCustomEndpoint(baseUrl: string, apiKey: string): Promise<string | null> {
   const cfg = workspace.getConfiguration('sidecar');
   await cfg.update('provider', 'openai-compat', true);
   await cfg.update('baseUrl', baseUrl, true);
+  const refused = await refuseOverriddenKey(baseUrl, { provider: 'openai-compat', baseUrl });
+  if (refused) return refused;
   await storeActiveApiKey(apiKey || 'ollama');
+  return null;
 }
 
 /**
@@ -241,7 +278,7 @@ async function queryCopilotFirstModel(): Promise<string> {
  */
 export async function applyBackendProfile(
   profile: BackendProfile,
-): Promise<{ status: 'applied' | 'missing-key'; message: string }> {
+): Promise<{ status: 'applied' | 'missing-key' | 'overridden'; message: string }> {
   const ctx = getSecretContext();
   if (!ctx) throw new Error('SecretStorage not initialized');
   const cfg = workspace.getConfiguration('sidecar');
@@ -261,6 +298,11 @@ export async function applyBackendProfile(
     await cfg.update('model', modelToSet, true);
   }
 
+  // Global settings are what this writes; a workspace value for the host or
+  // provider wins over them, and the profile's key would go to that host.
+  const refused = await refuseOverriddenKey(profile.name, { provider: profile.provider, baseUrl: profile.baseUrl });
+  if (refused) return { status: 'overridden', message: refused };
+
   if (profile.secretKey) {
     const stored = await ctx.secrets.get(profile.secretKey);
     if (!stored) {
@@ -279,7 +321,14 @@ export async function applyBackendProfile(
     await storeActiveApiKey('ollama');
   }
 
-  return { status: 'applied', message: `Switched to ${profile.name} (${modelToSet || 'no model available'})` };
+  const modelOverride = modelToSet ? overriddenSetting({ model: modelToSet }) : null;
+  const modelNote = modelOverride
+    ? `; this workspace's sidecar.model, ${String(modelOverride.value)}, is used instead`
+    : '';
+  return {
+    status: 'applied',
+    message: `Switched to ${profile.name} (${modelToSet || 'no model available'}${modelNote})`,
+  };
 }
 
 /**

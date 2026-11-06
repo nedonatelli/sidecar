@@ -126,7 +126,7 @@ describe('promptCustomEndpoint', () => {
 
   function stubApply() {
     stubConfig();
-    return vi.spyOn(settingsMod, 'applyCustomEndpoint').mockResolvedValue(undefined);
+    return vi.spyOn(settingsMod, 'applyCustomEndpoint').mockResolvedValue(null);
   }
 
   it('asks for the URL first, then the key, and applies both', async () => {
@@ -196,7 +196,7 @@ describe('sidecar.switchBackend — custom endpoint', () => {
 
   it('offers the custom endpoint in the picker and runs the URL → key prompts when chosen', async () => {
     stubConfig();
-    const apply = vi.spyOn(settingsMod, 'applyCustomEndpoint').mockResolvedValue(undefined);
+    const apply = vi.spyOn(settingsMod, 'applyCustomEndpoint').mockResolvedValue(null);
     const applyProfile = vi.spyOn(settingsMod, 'applyBackendProfile');
     const pick = vi
       .spyOn(window, 'showQuickPick')
@@ -215,7 +215,7 @@ describe('sidecar.switchBackend — custom endpoint', () => {
 
   it('goes straight to the prompts when the chat menu passes the custom-endpoint id', async () => {
     stubConfig();
-    const apply = vi.spyOn(settingsMod, 'applyCustomEndpoint').mockResolvedValue(undefined);
+    const apply = vi.spyOn(settingsMod, 'applyCustomEndpoint').mockResolvedValue(null);
     const pick = vi.spyOn(window, 'showQuickPick');
     vi.spyOn(window, 'showInputBox')
       .mockResolvedValueOnce('https://llm.example.com' as never)

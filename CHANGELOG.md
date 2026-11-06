@@ -19,6 +19,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Switching backends checks that the switch takes effect.** A switch saves the provider and URL
+  to your user settings, but a workspace that sets `sidecar.baseUrl` or `sidecar.provider` (and
+  whose settings you allowed) wins over them, so the new profile's API key went to the
+  workspace's server. The key is now left inactive in that case, and SideCar names the workspace
+  setting to remove. The same goes for a custom endpoint, and a workspace `sidecar.model` that
+  replaces the profile's model is mentioned.
 - **Links in the chat open only where you can see they go.** Clicking a link in a reply opened
   it directly, without SideCar's check on where links lead. A link to a site outside the built-in
   list and `sidecar.outboundAllowlist` now shows its full address and asks before opening it.
