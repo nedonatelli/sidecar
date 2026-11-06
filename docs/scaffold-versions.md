@@ -40,6 +40,19 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.13 — DuckDB and Postgres schema tools read real rows (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.12,
+noting the patch.
+
+- **What changed:** On DuckDB, `db_query`, `db_list_tables` and
+  `db_describe_table` read the driver's rows as objects, but it returns arrays:
+  column names and values did not line up, and table and column names came back
+  undefined. Primary keys are now detected. Row counts use the table's schema on
+  DuckDB and Postgres; Postgres looked in a schema named after the database.
+- **Measured:** no eval; the database tools are offered only when database
+  profiles are configured, and no eval configures one.
+
 ### 7.0.12 — switch_backend no longer offers Kickstand (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.11,

@@ -29,8 +29,9 @@ interface DuckDBConnection {
 interface DuckDBResult {
   // Returns column descriptors
   columnNames(): string[];
-  // Returns rows as plain JS objects
-  getRows(): Promise<Array<Record<string, unknown>>>;
+  // Rows keyed by column name, with JS values (lists as arrays). getRows()
+  // returns each row as an array of DuckDB values, which nothing here reads.
+  getRowObjectsJS(): Promise<Array<Record<string, unknown>>>;
   /** Rows an INSERT/UPDATE/DELETE changed. */
   readonly rowsChanged: number;
   /** ResultReturnType: CHANGED_ROWS (1) for a write without RETURNING. */
@@ -127,14 +128,16 @@ export class DuckDbProvider implements DatabaseProvider {
        ORDER BY table_name`,
     );
 
-    const rows = (await result.getRows()) as unknown as InfoSchemaTablesRow[];
+    const rows = (await result.getRowObjectsJS()) as unknown as InfoSchemaTablesRow[];
 
     const tables: TableInfo[] = [];
     for (const row of rows) {
       let rowCount: number | undefined;
       try {
-        const cntResult = await conn.run(`SELECT COUNT(*) AS cnt FROM "${escapeIdent(row.table_name)}"`);
-        const cntRows = await cntResult.getRows();
+        const cntResult = await conn.run(
+          `SELECT COUNT(*) AS cnt FROM "${escapeIdent(targetSchema)}"."${escapeIdent(row.table_name)}"`,
+        );
+        const cntRows = await cntResult.getRowObjectsJS();
         const val = cntRows[0]?.['cnt'];
         if (val !== undefined && val !== null) rowCount = Number(val);
       } catch {
@@ -161,7 +164,7 @@ export class DuckDbProvider implements DatabaseProvider {
          AND table_name = '${escapeString(table)}'
        ORDER BY ordinal_position`,
     );
-    const colRows = (await colResult.getRows()) as unknown as InfoSchemaColumnsRow[];
+    const colRows = (await colResult.getRowObjectsJS()) as unknown as InfoSchemaColumnsRow[];
 
     const columns: ColumnInfo[] = colRows.map((row) => ({
       name: row.column_name,
@@ -180,7 +183,7 @@ export class DuckDbProvider implements DatabaseProvider {
          WHERE schema_name = '${escapeString(targetSchema)}'
            AND table_name = '${escapeString(table)}'`,
       );
-      const idxRows = await idxResult.getRows();
+      const idxRows = await idxResult.getRowObjectsJS();
       indexes = idxRows.map((r) => String(r['index_name'] ?? ''));
     } catch {
       indexes = [];
@@ -196,7 +199,7 @@ export class DuckDbProvider implements DatabaseProvider {
            AND table_name = '${escapeString(table)}'
            AND constraint_type = 'PRIMARY KEY'`,
       );
-      const pkRows = await pkResult.getRows();
+      const pkRows = await pkResult.getRowObjectsJS();
       for (const row of pkRows) {
         const cols = row['constraint_column_names'];
         if (Array.isArray(cols)) {
@@ -215,8 +218,10 @@ export class DuckDbProvider implements DatabaseProvider {
     // Approx row count
     let approxRowCount: number | undefined;
     try {
-      const cntResult = await conn.run(`SELECT COUNT(*) AS cnt FROM "${escapeIdent(table)}"`);
-      const cntRows = await cntResult.getRows();
+      const cntResult = await conn.run(
+        `SELECT COUNT(*) AS cnt FROM "${escapeIdent(targetSchema)}"."${escapeIdent(table)}"`,
+      );
+      const cntRows = await cntResult.getRowObjectsJS();
       const val = cntRows[0]?.['cnt'];
       if (val !== undefined && val !== null) approxRowCount = Number(val);
     } catch {
@@ -249,7 +254,7 @@ export class DuckDbProvider implements DatabaseProvider {
     if (result.returnType === CHANGED_ROWS) {
       return { columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: Number(result.rowsChanged) };
     }
-    const rawRows = await result.getRows();
+    const rawRows = await result.getRowObjectsJS();
 
     const truncated = rawRows.length > limit;
     const slicedRows = truncated ? rawRows.slice(0, limit) : rawRows;

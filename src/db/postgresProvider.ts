@@ -97,7 +97,6 @@ export class PostgresProvider implements DatabaseProvider {
   private pool: PgPool | null = null;
   private connected = false;
   private readOnly = true;
-  private defaultDatabase = 'public';
 
   // -------------------------------------------------------------------------
   // connect / disconnect
@@ -108,7 +107,6 @@ export class PostgresProvider implements DatabaseProvider {
     const { Pool } = pgMod.default ?? pgMod;
 
     this.readOnly = profile.readOnly !== false;
-    this.defaultDatabase = profile.database ?? 'public';
 
     this.pool = new Pool({
       host: profile.host ?? 'localhost',
@@ -280,7 +278,7 @@ export class PostgresProvider implements DatabaseProvider {
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE c.relname = $1 AND n.nspname = $2 AND c.relkind = 'r'`,
-        [table, this.defaultDatabase],
+        [table, targetSchema],
       );
       const cntRow = cntResult.rows[0] as unknown as PgClassRow | undefined;
       if (cntRow?.reltuples !== undefined && cntRow.reltuples !== null) {

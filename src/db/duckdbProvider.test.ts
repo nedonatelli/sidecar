@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ---------------------------------------------------------------------------
 // Mock @duckdb/node-api (an optional devDependency). The provider's flow is:
 //   DuckDBInstance.create(path) -> instance.connect() -> conn.run(sql)
-//   -> result.columnNames() + result.getRows()
+//   -> result.columnNames() + result.getRowObjectsJS()
 // A single router maps each SQL string to { columns, rows } so tests declare
 // exactly what each information_schema / duckdb_* / COUNT(*) / user query returns.
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ const mock = vi.hoisted(() => {
   const conn = {
     run: vi.fn(async (sql: string) => {
       const r = state.route(sql);
-      return { columnNames: () => r.columns, getRows: async () => r.rows };
+      return { columnNames: () => r.columns, getRowObjectsJS: async () => r.rows };
     }),
     close: vi.fn(),
   };

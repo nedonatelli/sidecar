@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.13** (2026-11) — DuckDB and Postgres schema tools read real rows.
+ *   On DuckDB, `db_query` rows, `db_list_tables` and `db_describe_table` read
+ *   the driver's rows as objects, but it returns arrays: names and values did
+ *   not line up, and tables and columns came back undefined. Row counts now
+ *   use the table's schema on both engines. PATCH. No eval: the database tools
+ *   are offered only when database profiles are configured, and no eval
+ *   configures one.
  * - **7.0.12** (2026-11) — switch_backend no longer offers Kickstand.
  *   `switch_backend`'s description, `profile` enum and enum description drop
  *   the unreleased Kickstand profile. PATCH. No eval: the evals send
@@ -395,7 +402,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.12';
+export const SCAFFOLD_VERSION = '7.0.13';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

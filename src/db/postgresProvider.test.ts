@@ -213,6 +213,36 @@ describe('PostgresProvider', () => {
     expect(schema.approxRowCount).toBe(200);
   });
 
+  // The row count is looked up in the table's schema, not in a schema named
+  // after the profile's database (#434).
+  it.each([
+    [undefined, 'public'],
+    ['sales', 'sales'],
+  ])('describeTable(schema=%s) reads the row count from schema %s', async (schema, expected) => {
+    const nspnames: unknown[] = [];
+    mockPool = {
+      connect: async () => ({
+        query: (...a: unknown[]) => (mockPool.query as (...x: unknown[]) => unknown)(...a),
+        release: () => undefined,
+      }),
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (!sql.includes('pg_class')) return { rows: [], fields: [] };
+        nspnames.push(params?.[1]);
+        return { rows: params?.[1] === expected ? [{ reltuples: 42 }] : [], fields: [] };
+      }),
+      end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+    };
+
+    const provider = new PostgresProvider();
+    await provider.connect(makeProfile({ database: 'myapp', readOnly: false }));
+
+    const result = await provider.describeTable('orders', schema);
+
+    expect(nspnames).toEqual([expected]);
+    expect(result.approxRowCount).toBe(42);
+  });
+
   // ---- query ---------------------------------------------------------------
 
   it('query returns QueryResult with columns from fields', async () => {

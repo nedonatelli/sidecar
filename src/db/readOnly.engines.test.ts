@@ -85,3 +85,38 @@ describe('DuckDB: rows affected', () => {
     await p.disconnect().catch(() => undefined);
   });
 });
+
+// The real driver's getRows() returns each row as an array of DuckDB values;
+// the provider reads rows by column name (#433).
+describe('DuckDB: rows come back keyed by column name', () => {
+  it('db_query, list-tables and describe read real rows', async () => {
+    const p = new DuckDbProvider();
+    await p.connect({ id: 'r', type: 'duckdb', readOnly: false } as never);
+    await p.query('CREATE TABLE users (id INTEGER, org VARCHAR, name VARCHAR NOT NULL, PRIMARY KEY (id, org))');
+    await p.query("INSERT INTO users VALUES (1, 'a', 'Ada'), (2, 'a', 'Bo')");
+    await p.query('CREATE SCHEMA sales');
+    await p.query('CREATE TABLE sales.orders (n INTEGER)');
+    await p.query('INSERT INTO sales.orders VALUES (1), (2), (3)');
+
+    const q = await p.query('SELECT id, name FROM users ORDER BY id');
+    expect(q.columns).toEqual(['id', 'name']);
+    expect(q.rows).toEqual([
+      { id: 1, name: 'Ada' },
+      { id: 2, name: 'Bo' },
+    ]);
+
+    expect(await p.listTables()).toEqual([{ name: 'users', schema: 'main', rowCount: 2 }]);
+    expect(await p.listTables('sales')).toEqual([{ name: 'orders', schema: 'sales', rowCount: 3 }]);
+
+    const d = await p.describeTable('users');
+    expect(d.columns.map((c) => [c.name, c.type, c.nullable, c.isPK])).toEqual([
+      ['id', 'INTEGER', false, true],
+      ['org', 'VARCHAR', false, true],
+      ['name', 'VARCHAR', false, false],
+    ]);
+    expect(d.constraints).toEqual(['PRIMARY KEY (id, org)']);
+    expect(d.approxRowCount).toBe(2);
+    expect((await p.describeTable('orders', 'sales')).approxRowCount).toBe(3);
+    await p.disconnect().catch(() => undefined);
+  });
+});
