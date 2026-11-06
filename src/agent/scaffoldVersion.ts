@@ -80,6 +80,15 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.14** (2026-11) — edit_file failures are described more accurately
+ *   (#161). The stub check reads only calls that changed a file, and skips a
+ *   placeholder restated from that edit's `search` (ML-08). A multi-line
+ *   `within` written with LF resolves in a CRLF file (ML-31). A search found
+ *   only above its `within` is reported as such, not as "not found" (ML-74).
+ *   PATCH. e4b SWE canary, 150 pairs against 7.0.2: resolve 20 = 20 with no
+ *   discordant pair, stub reprompts 5 → 0; three P2P differences trace to
+ *   volatile tool output. The fourth, from a stale-read change since taken
+ *   out, re-ran identical to the base.
  * - **7.0.13** (2026-11) — DuckDB and Postgres schema tools read real rows.
  *   On DuckDB, `db_query` rows, `db_list_tables` and `db_describe_table` read
  *   the driver's rows as objects, but it returns arrays: names and values did
@@ -402,7 +411,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.13';
+export const SCAFFOLD_VERSION = '7.0.14';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
