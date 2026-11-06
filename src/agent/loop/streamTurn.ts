@@ -316,8 +316,16 @@ export async function streamOneTurn(
         case 'usage':
           // Store actual token counts for the next compression check.
           // Input + output because after this turn the model's output
-          // becomes part of the next turn's input context.
-          state.lastActualInputTokens = event.usage.inputTokens + event.usage.outputTokens;
+          // becomes part of the next turn's input context. Anthropic's
+          // inputTokens excludes the cached prefix (the other backends report
+          // 0 cache tokens), so the prompt is all three input counts: without
+          // the cache, a cached 100K prompt anchored at a few hundred tokens
+          // and compression never fired.
+          state.lastActualInputTokens =
+            event.usage.inputTokens +
+            event.usage.cacheCreationInputTokens +
+            event.usage.cacheReadInputTokens +
+            event.usage.outputTokens;
           // Anchor the projection: everything after this point is measured as a
           // delta from here, not re-estimated from scratch.
           state.charsAtLastMeasurement = state.totalChars;

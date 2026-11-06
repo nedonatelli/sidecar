@@ -149,6 +149,35 @@ All notable changes to the SideCar extension will be documented in this file.
     refused.
   - When the added definition comes after the existing one, the refusal now says the earlier line
     is left as dead code, instead of claiming the new line would be overridden.
+- **The fallback backend takes over when the primary is down**
+  ([#420](https://github.com/nedonatelli/sidecar/issues/420)). Each chat message reset the fallback,
+  so a primary returning errors never reached the two failures the switch needs, and a switch made
+  inside one message was undone by the next. The fallback now stays in place across messages for
+  two minutes before the primary is tried again. Changing the backend URL or key still returns
+  to the primary.
+- **The fallback speaks its own protocol**
+  ([#420](https://github.com/nedonatelli/sidecar/issues/420)). It was sent requests in the format of
+  the primary's `sidecar.provider`: an Ollama primary sent Ollama requests to an Anthropic fallback,
+  and a Bedrock primary called Bedrock again. The fallback's backend is now worked out from its
+  URL, as `auto` does, and its successes count toward its own circuit breaker, not the primary's.
+- **Anthropic prompt caching no longer stops context compression**
+  ([#420](https://github.com/nedonatelli/sidecar/issues/420)). With caching on, the agent measured a
+  long conversation as a few hundred tokens, because Anthropic counts cached tokens separately. It
+  never compressed, and the conversation grew until Anthropic refused it as too long. Cached tokens
+  now count toward the prompt size. Cost tracking is unchanged.
+- **Groq and OpenAI rate-limit waits are read correctly**
+  ([#420](https://github.com/nedonatelli/sidecar/issues/420)). A reset time with decimals, such as
+  `7.66s`, was read as 66 seconds. That is past the 60-second wait limit, so on Groq every request
+  after the first failed. Decimal values now parse.
+- **`sidecar.ollama.numCtx` sets the context budget too**
+  ([#420](https://github.com/nedonatelli/sidecar/issues/420)). The pinned window, from the setting
+  or `SIDECAR_OLLAMA_NUM_CTX`, was sent to Ollama, but the chat sized its prompt to the model's full
+  window. Ollama then cut the start of the prompt, system prompt included. The budget now uses the
+  pinned window.
+- **An error mentioning 401 or 403 in passing is no longer an API-key error**
+  ([#420](https://github.com/nedonatelli/sidecar/issues/420)). Any `401` or `403` in an error
+  message meant a bad key, so "prompt is too long: 240312 tokens" said to check the API key, and
+  skipped the fallback. Only a 401 or 403 HTTP status counts now.
 - **Accepting a pending review no longer overwrites your later edits**
   ([#423](https://github.com/nedonatelli/sidecar/issues/423)). Accept wrote the agent's version over
   the file even when you had changed it since the agent's edit was captured, and the review diff

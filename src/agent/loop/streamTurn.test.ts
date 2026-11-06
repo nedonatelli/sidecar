@@ -108,6 +108,26 @@ describe('streamOneTurn onStreamFailure capture', () => {
   });
 });
 
+describe('streamOneTurn usage anchoring (#420)', () => {
+  it('counts Anthropic cache tokens in the prompt size compression anchors on', async () => {
+    const client: any = {
+      getSystemPrompt: () => '',
+      async *streamChat() {
+        yield { type: 'text', text: 'ok' };
+        yield {
+          type: 'usage',
+          model: 'claude-sonnet-4-5',
+          usage: { inputTokens: 300, outputTokens: 50, cacheCreationInputTokens: 2_000, cacheReadInputTokens: 98_000 },
+        };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      },
+    };
+    const state = makeState();
+    await streamOneTurn(client, state, new AbortController().signal, makeCallbacks(), 0);
+    expect(state.lastActualInputTokens).toBe(100_350);
+  });
+});
+
 describe('streamOneTurn episodic memory abort race', () => {
   it('does not hang when buildContextBlock never resolves — abort signal wins the race', async () => {
     const ac = new AbortController();

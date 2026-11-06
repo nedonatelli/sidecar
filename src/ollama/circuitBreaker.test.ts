@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { CircuitBreaker, BackendCircuitOpenError } from './circuitBreaker';
+import { CircuitBreaker, BackendCircuitOpenError, isPermanentError } from './circuitBreaker';
 
 describe('CircuitBreaker', () => {
   let breaker: CircuitBreaker;
@@ -265,5 +265,26 @@ describe('CircuitBreaker — a probe that never reports back', () => {
     breaker.recordFailure('ollama');
     breaker.recordAbort('ollama');
     expect(breaker.describe('ollama')).toMatchObject({ state: 'closed', consecutiveFailures: 1 });
+  });
+});
+
+describe('isPermanentError (#420)', () => {
+  it('reads 401/403 from the status position of real backend errors', () => {
+    expect(isPermanentError(new Error('Anthropic API request failed: 401 Unauthorized'))).toBe(true);
+    expect(isPermanentError(new Error('Kickstand API error 403: denied'))).toBe(true);
+    expect(isPermanentError(new Error('LoRA load failed (401): bad token'))).toBe(true);
+    expect(isPermanentError(new Error('Failed to download x: HTTP 403 Forbidden'))).toBe(true);
+    expect(isPermanentError(Object.assign(new Error('request rejected'), { status: 401 }))).toBe(true);
+  });
+
+  it('does not read a 401/403 inside other numbers as an auth failure', () => {
+    expect(
+      isPermanentError(
+        new Error('Anthropic API request failed: 400 Bad Request — prompt is too long: 240312 tokens > 200000 maximum'),
+      ),
+    ).toBe(false);
+    expect(isPermanentError(new Error('Anthropic API request failed: 529 Overloaded — request id req_4013'))).toBe(
+      false,
+    );
   });
 });
