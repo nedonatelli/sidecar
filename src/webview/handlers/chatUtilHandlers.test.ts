@@ -101,7 +101,8 @@ describe('handleDeleteMessage', () => {
     expect(state.saveHistory).not.toHaveBeenCalled();
   });
 
-  it('posts an error and leaves the message intact when the agent is running', () => {
+  // A notice, not an error: the webview ends the run on an error (#419).
+  it('posts a notice and leaves the message intact when the agent is running', () => {
     const state = {
       messages: [{ role: 'user', content: 'hello' }],
       saveHistory: vi.fn(),
@@ -110,8 +111,9 @@ describe('handleDeleteMessage', () => {
     };
     handleDeleteMessage(state as never, 0);
     expect(state.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'error', content: expect.stringContaining('agent is running') }),
+      expect.objectContaining({ command: 'notice', content: expect.stringContaining('agent is running') }),
     );
+    expect(state.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
     expect(state.messages).toHaveLength(1);
     expect(state.saveHistory).not.toHaveBeenCalled();
   });

@@ -800,11 +800,11 @@ export async function handleUserMessage(
 
 export async function handleEditMessage(state: ChatState, index: number, text: string): Promise<void> {
   if (!text?.trim()) return;
+  // A notice, not an `error`: the webview ends the run on an error (#419).
   if (state.abortController) {
     state.postMessage({
-      command: 'error',
+      command: 'notice',
       content: 'Cannot edit a message while the agent is running. Press Escape to stop first.',
-      errorType: 'unknown',
     });
     return;
   }
@@ -822,6 +822,8 @@ export async function handleEditMessage(state: ChatState, index: number, text: s
   if (state.messages.length > 0) {
     state.postMessage({ command: 'init', messages: state.messages });
   }
+  // The cleared panel has no bubble for the edited prompt (#419).
+  state.postMessage({ command: 'addUserMessage', content: text });
   await handleUserMessage(state, text);
 }
 

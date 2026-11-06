@@ -19,6 +19,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Deleting or editing a message during a run no longer breaks the run**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The refusal came back as an error,
+  and the chat panel treated it as the end of the run: it removed the answer being streamed and
+  stopped showing the run as busy while the agent kept going. Every later chunk then became its own
+  bubble, and Enter sent a new prompt instead of steering. The panel now refuses a delete or edit
+  mid-run itself, and these refusals, and a rejected steer, show as a short note that leaves the
+  run alone.
+- **Edit and resend shows the edited prompt**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The chat panel showed the history
+  before the edited message and then the answer, but never the edited prompt itself.
+- **Rejecting a plan with the Reject button drops the plan**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The button only greyed out the plan
+  card. The plan stayed pending, so a later "ok" ran the rejected plan, and any other message was
+  taken as feedback to revise it. Reject now works like typing "no".
 - **Error cards no longer mistake numbers for status codes**
   ([#435](https://github.com/nedonatelli/sidecar/issues/435)). A code such as 429 or 401 was
   matched anywhere in the message, so "prompt is too long: 204291 tokens" showed as a rate limit

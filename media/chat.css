@@ -947,6 +947,13 @@ body {
   margin-bottom: 8px;
 }
 
+/* A refusal shown mid-run (delete, edit, steer) -- not an error card, so the run goes on. */
+.chat-notice {
+  margin: 4px 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
 .error-actions {
   display: flex;
   gap: 8px;

@@ -3309,6 +3309,10 @@
       if (!newText) return;
       const index = parseInt(div.dataset.msgIndex, 10);
       if (isNaN(index)) return;
+      if (isLoading) {
+        showNotice('Cannot edit a message while the agent is running. Press Escape to stop first.');
+        return;
+      }
       div.dataset.editing = 'false';
       vscode.postMessage({ command: 'editMessage', index, text: newText });
     }
@@ -3664,19 +3668,35 @@
   // Delete a bubble's message from history. Every later bubble's msgIndex
   // points one past its message once the extension removes this entry, so
   // shift them down with it; left alone, the next delete or edit hit the
-  // message AFTER the one clicked. During a run the extension refuses the
-  // delete, so the bubble stays.
+  // message AFTER the one clicked. During a run the delete is refused here,
+  // before anything is posted: the extension's refusal used to arrive as an
+  // `error`, and the error card tore down the live stream (#419).
   function deleteMessageBubble(div) {
     const index = parseInt(div.dataset.msgIndex, 10);
     if (isNaN(index)) return;
+    if (isLoading) {
+      showNotice('Cannot delete a message while the agent is running. Press Escape to stop the run first.');
+      return;
+    }
     vscode.postMessage({ command: 'deleteMessage', index });
-    if (isLoading) return;
     div.remove();
     for (const el of messagesContainer.querySelectorAll('.message[data-msg-index]')) {
       const i = parseInt(el.dataset.msgIndex, 10);
       if (i > index) el.dataset.msgIndex = String(i - 1);
     }
     if (messageCounter > index) messageCounter--;
+  }
+
+  // A one-line notice that leaves the run alone: no message index, no
+  // streaming or loading state touched. For refusals of a request made
+  // mid-run (delete, edit, steer), which must not end the run (#419).
+  function showNotice(text) {
+    const note = document.createElement('div');
+    note.className = 'chat-notice';
+    note.setAttribute('role', 'status');
+    note.textContent = text;
+    messagesContainer.appendChild(note);
+    scrollToBottom();
   }
 
   function appendMessage(role, content, isError = false) {
@@ -4887,11 +4907,14 @@
             rejectBtn.textContent = 'Reject';
             rejectBtn.className = 'plan-btn plan-reject';
             rejectBtn.addEventListener('click', () => {
+              // The extension drops its pending plan and answers the way it
+              // answers a typed "no"; greying the card alone left the plan
+              // pending, so a later "ok" ran it (#419).
+              vscode.postMessage({ command: 'rejectPlan' });
               lastMsg.style.opacity = '0.5';
               execBtn.disabled = true;
               reviseBtn.disabled = true;
               rejectBtn.disabled = true;
-              appendMessage('assistant', 'Plan rejected.');
             });
             btnRow.appendChild(execBtn);
             btnRow.appendChild(reviseBtn);
@@ -5062,6 +5085,10 @@
 
       case 'addUserMessage':
         appendMessage('user', content || '');
+        break;
+
+      case 'notice':
+        showNotice(content || '');
         break;
 
       case 'thinking': {
