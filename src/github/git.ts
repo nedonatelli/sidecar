@@ -399,10 +399,12 @@ export class GitCLI {
     // since one is /dev/null), so we can't route it through the normal
     // exec helper that rejects on non-zero exit — the diff itself IS
     // the stdout we need. Use execFile directly and ignore the 1-exit.
-    const untrackedList = await this.exec(['ls-files', '--others', '--exclude-standard']);
-    if (!untrackedList) return joinPatches([tracked]);
+    // NUL-separated: a plain listing C-quotes a non-ASCII name ("caf\303\251.md"),
+    // which is no path, so that file's diff came back empty and it was dropped.
+    const untrackedList = await this.listUntracked();
+    if (untrackedList.length === 0) return joinPatches([tracked]);
     const untrackedDiffs: string[] = [];
-    for (const file of untrackedList.split('\n').filter(Boolean)) {
+    for (const file of untrackedList) {
       const diff = await new Promise<string>((resolve) => {
         execFile(
           'git',

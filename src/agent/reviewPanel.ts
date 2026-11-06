@@ -78,8 +78,13 @@ export class ReviewTreeProvider implements TreeDataProvider<PendingEdit> {
     item.description = parentDir === '.' ? undefined : parentDir;
     item.tooltip = `${rel}\n\nTool: ${element.lastTool}\nUpdated: ${new Date(element.updatedAt).toLocaleTimeString()}`;
 
-    // Icon signals "new file" vs "modified file".
-    item.iconPath = element.originalContent === null ? new ThemeIcon('diff-added') : new ThemeIcon('diff-modified');
+    // Icon signals "new file" vs "modified file" vs "deleted file".
+    item.iconPath =
+      element.newContent === null
+        ? new ThemeIcon('diff-removed')
+        : element.originalContent === null
+          ? new ThemeIcon('diff-added')
+          : new ThemeIcon('diff-modified');
 
     // Stable resourceUri so VS Code can use file-type icons when the user's
     // theme prefers them. Also gives the context menu a sensible target.
@@ -107,16 +112,37 @@ export class ReviewTreeProvider implements TreeDataProvider<PendingEdit> {
 
 /**
  * Write a single pending edit to disk. Creates parent directories for
- * new files, overwrites existing files in place. Throws on I/O errors so
- * the caller can surface them to the user instead of swallowing silently.
+ * new files, overwrites existing files in place, deletes (to the trash)
+ * files the agent deleted. Throws on I/O errors so the caller can surface
+ * them to the user instead of swallowing silently.
  */
 export async function applyPendingEdit(edit: PendingEdit): Promise<void> {
   const fileUri = Uri.file(edit.filePath);
+  if (edit.newContent === null) {
+    await workspace.fs.delete(fileUri, { useTrash: true });
+    return;
+  }
   const dir = path.dirname(edit.filePath);
   if (dir && dir !== '/' && dir !== '.') {
     await workspace.fs.createDirectory(Uri.file(dir));
   }
   await writeTextFile(fileUri, edit.newContent);
+}
+
+/**
+ * True when the file on disk no longer matches the baseline the review diff
+ * is drawn against: the user (or another tool) changed it after the agent's
+ * first edit was captured, and accepting would overwrite that change unseen.
+ * Read the way the capture read it (reviewModeHandler's readDiskOrNull).
+ */
+export async function changedSinceCapture(edit: PendingEdit): Promise<boolean> {
+  let disk: string | null;
+  try {
+    disk = Buffer.from(await workspace.fs.readFile(Uri.file(edit.filePath))).toString('utf-8');
+  } catch {
+    disk = null;
+  }
+  return disk !== edit.originalContent;
 }
 
 /**
@@ -129,9 +155,14 @@ export async function openReviewDiff(edit: PendingEdit, contentProvider: Propose
   const beforeKey = BEFORE_SCHEME_KEY(edit.filePath);
   const afterKey = AFTER_SCHEME_KEY(edit.filePath);
   const beforeUri = contentProvider.addProposal(beforeKey, edit.originalContent ?? '');
-  const afterUri = contentProvider.addProposal(afterKey, edit.newContent);
+  const afterUri = contentProvider.addProposal(afterKey, edit.newContent ?? '');
   const label = path.basename(edit.filePath);
-  const title = edit.originalContent === null ? `${label} (new file)` : `${label} (pending review)`;
+  const title =
+    edit.newContent === null
+      ? `${label} (deleted)`
+      : edit.originalContent === null
+        ? `${label} (new file)`
+        : `${label} (pending review)`;
   await commands.executeCommand('vscode.diff', beforeUri, afterUri, title, { preview: true });
 }
 
@@ -169,14 +200,30 @@ export function registerReviewPanel(
   refreshBadge();
   const badgeSub = store.onChanged(refreshBadge);
 
+  // Writes a snapshot, then settles against the store: an edit the agent
+  // records while the write is in flight stays pending instead of dropped.
+  const accept = async (edit: PendingEdit): Promise<void> => {
+    const snapshot = { ...edit };
+    await applyPendingEdit(snapshot);
+    store.settle(edit.filePath, snapshot.newContent);
+    if (!store.has(edit.filePath)) cleanupProvider(edit, contentProvider);
+  };
+
   // --- Per-file accept ---
   const acceptFile = commands.registerCommand('sidecar.review.acceptFile', async (edit?: PendingEdit) => {
     const target = edit ?? (await pickPendingEdit(store, 'Select a file to accept'));
     if (!target) return;
+    if (await changedSinceCapture(target)) {
+      const choice = await window.showWarningMessage(
+        `${path.basename(target.filePath)} changed on disk since the agent's edit was captured, and the review ` +
+          `diff does not show those changes. Accepting will overwrite them.`,
+        { modal: true },
+        'Accept Anyway',
+      );
+      if (choice !== 'Accept Anyway') return;
+    }
     try {
-      await applyPendingEdit(target);
-      store.remove(target.filePath);
-      cleanupProvider(target, contentProvider);
+      await accept(target);
       window.setStatusBarMessage(`SideCar: accepted ${path.basename(target.filePath)}`, 3000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -195,25 +242,34 @@ export function registerReviewPanel(
 
   // --- Accept all ---
   const acceptAll = commands.registerCommand('sidecar.review.acceptAll', async () => {
-    const all = store.getAll();
+    let all = store.getAll();
     if (all.length === 0) {
       window.showInformationMessage('SideCar: no pending changes to accept.');
       return;
     }
+    const changed: PendingEdit[] = [];
+    for (const edit of all) {
+      if (await changedSinceCapture(edit)) changed.push(edit);
+    }
+    if (changed.length > 0) {
+      const choice = await window.showWarningMessage(
+        `${changed.length} file(s) changed on disk since the agent's edits were captured, and the review diff ` +
+          `does not show those changes:\n${changed.map((e) => e.filePath).join('\n')}\n\n` +
+          `Accepting them will overwrite those changes.`,
+        { modal: true },
+        'Accept All Anyway',
+        'Skip Changed Files',
+      );
+      if (choice === undefined) return;
+      if (choice === 'Skip Changed Files') all = all.filter((e) => !changed.includes(e));
+    }
+    // A failure stays in the store so the user can retry or investigate.
     const failures: string[] = [];
     for (const edit of all) {
       try {
-        await applyPendingEdit(edit);
-        cleanupProvider(edit, contentProvider);
+        await accept(edit);
       } catch (err) {
         failures.push(`${path.basename(edit.filePath)}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    // Only clear entries that actually succeeded — leave failures in the
-    // store so the user can retry or investigate.
-    for (const edit of all) {
-      if (!failures.some((f) => f.startsWith(path.basename(edit.filePath)))) {
-        store.remove(edit.filePath);
       }
     }
     if (failures.length > 0) {

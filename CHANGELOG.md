@@ -112,6 +112,32 @@ All notable changes to the SideCar extension will be documented in this file.
     refused.
   - When the added definition comes after the existing one, the refusal now says the earlier line
     is left as dead code, instead of claiming the new line would be overridden.
+- **Accepting a pending review no longer overwrites your later edits**
+  ([#423](https://github.com/nedonatelli/sidecar/issues/423)). Accept wrote the agent's version over
+  the file even when you had changed it since the agent's edit was captured, and the review diff
+  didn't show those changes. Accept now asks first; Accept All lets you overwrite them or skip
+  those files. An edit the agent made while an Accept was writing the file is kept for review
+  instead of dropped.
+- **`delete_file` in review mode waits for review.** It deleted the file from disk straight away.
+  The deletion is now queued in Pending Agent Changes like a write, and accepting it moves the file
+  to the trash.
+- **Accept All clears only the files it wrote.** When one file failed to write, another file with
+  the same name in a different folder stayed pending although it had been written.
+- **A shadow run that fails keeps its work.** When the agent run threw an error, the shadow
+  worktree and every change in it were removed. A failed run with changes now leaves the shadow in
+  place and says where it is.
+- **Audit mode keeps a write made during Accept.** A change the agent buffered for a file while
+  that file was being flushed was dropped from the buffer.
+- **Shadow, fork and facet patches include new files with non-ASCII names.** A new file such as
+  `café.md` was silently left out of the patch, and the shadow was then removed.
+- **The fork and facet review panel says when a diff is cut short.** It showed the first 12,000
+  characters of a long diff with no notice, while Accept applied all of it. A truncated diff now
+  ends with a line saying how much is hidden and that Accept applies the full diff.
+- **Closing the fork or facet review panel during Accept reports what was applied.** An Accept still
+  applying when the panel closed was reported as cancelled, although the patch then landed.
+- **Accepting an inline edit from the status bar applies it.** In hosts without a diff preview,
+  accepting from the status bar or the `SideCar: Accept Inline Edit` command told the agent the
+  edit was applied without inserting anything; only Tab inserted it.
 
 ### Documentation
 

@@ -67,6 +67,20 @@ function countDiffLines(diff: string): { added: number; removed: number } {
   return { added, removed };
 }
 
+const MAX_SHOWN_DIFF_CHARS = 12_000;
+
+/**
+ * The diff as the panel shows it: capped for the webview, cut on a line
+ * boundary, and saying so -- Accept applies the whole diff, not the part shown.
+ */
+export function diffForDisplay(diff: string): string {
+  if (diff.length <= MAX_SHOWN_DIFF_CHARS) return diff;
+  const cut = diff.lastIndexOf('\n', MAX_SHOWN_DIFF_CHARS);
+  const shown = diff.slice(0, cut > 0 ? cut : MAX_SHOWN_DIFF_CHARS);
+  const hidden = diff.split('\n').length - shown.split('\n').length;
+  return `${shown}\n… diff truncated: ${hidden} more line(s) not shown. Accepting applies the full diff.`;
+}
+
 async function applyPatch(
   mainRoot: string,
   diff: string,
@@ -123,6 +137,8 @@ class ReviewPanel {
   }
 
   post(msg: ExtToPanel): void {
+    // Closed while an Accept was still applying: there is no page to tell.
+    if (this.dismissed) return;
     void this.panel.webview.postMessage(msg);
   }
 
@@ -399,6 +415,9 @@ export async function reviewForkBatchWithPanel(
 
   return new Promise<ForkReviewOutcome>((resolve) => {
     let resolved = false;
+    // Closing the panel mid-apply must not report "no winner" for a fork
+    // whose patch then lands: a dismiss waits for the apply to settle.
+    let applying: Promise<void> = Promise.resolve();
     const resolveOnce = (outcome: ForkReviewOutcome) => {
       if (resolved) return;
       resolved = true;
@@ -415,7 +434,7 @@ export async function reviewForkBatchWithPanel(
             return {
               id: f.forkId,
               label: f.label,
-              diff: f.pendingDiff.slice(0, 12_000),
+              diff: diffForDisplay(f.pendingDiff),
               files: f.files,
               linesAdded: added,
               linesRemoved: removed,
@@ -430,17 +449,21 @@ export async function reviewForkBatchWithPanel(
         case 'applyFork': {
           const fork = plan.reviewable.find((f) => f.forkId === msg.forkId);
           if (!fork) return;
-          try {
-            await applyPatch(deps.mainRoot, fork.pendingDiff, deps.applyDiff);
-            panel.post({ command: 'applyResult', id: msg.forkId, ok: true });
-            resolveOnce({ winnerIndex: fork.index, appliedOk: true, skippedLabels });
-          } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : String(err);
-            panel.post({ command: 'applyResult', id: msg.forkId, ok: false, errorMessage });
-          }
+          applying = (async () => {
+            try {
+              await applyPatch(deps.mainRoot, fork.pendingDiff, deps.applyDiff);
+              panel.post({ command: 'applyResult', id: msg.forkId, ok: true });
+              resolveOnce({ winnerIndex: fork.index, appliedOk: true, skippedLabels });
+            } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
+              panel.post({ command: 'applyResult', id: msg.forkId, ok: false, errorMessage });
+            }
+          })();
+          await applying;
           break;
         }
         case 'dismiss':
+          await applying;
           resolveOnce({ winnerIndex: null, appliedOk: false, skippedLabels });
           break;
         case 'acceptFacet':
@@ -471,6 +494,9 @@ export async function reviewFacetBatchWithPanel(
     const failed: { facetId: string; error: string }[] = [];
     const pendingIds = new Set<string>(plan.entries.map((e) => e.facetId));
     let resolved = false;
+    // Accepts run one at a time, and a dismiss waits for them: closing the
+    // panel mid-apply reported an applied facet as cancelled.
+    let applying: Promise<void> = Promise.resolve();
 
     const resolveOnce = () => {
       if (resolved) return;
@@ -489,7 +515,7 @@ export async function reviewFacetBatchWithPanel(
             return {
               id: e.facetId,
               label: e.displayName,
-              diff: e.pendingDiff.slice(0, 12_000),
+              diff: diffForDisplay(e.pendingDiff),
               files: e.files,
               linesAdded: added,
               linesRemoved: removed,
@@ -505,17 +531,20 @@ export async function reviewFacetBatchWithPanel(
         case 'acceptFacet': {
           const entry = plan.entries.find((e) => e.facetId === msg.facetId);
           if (!entry) return;
-          try {
-            await applyPatch(deps.mainRoot, entry.pendingDiff, deps.applyDiff);
-            applied.push(msg.facetId);
-            pendingIds.delete(msg.facetId);
-            panel.post({ command: 'applyResult', id: msg.facetId, ok: true });
-          } catch (err) {
-            const error = err instanceof Error ? err.message : String(err);
-            failed.push({ facetId: msg.facetId, error });
-            pendingIds.delete(msg.facetId);
-            panel.post({ command: 'applyResult', id: msg.facetId, ok: false, errorMessage: error });
-          }
+          applying = applying.then(async () => {
+            try {
+              await applyPatch(deps.mainRoot, entry.pendingDiff, deps.applyDiff);
+              applied.push(msg.facetId);
+              pendingIds.delete(msg.facetId);
+              panel.post({ command: 'applyResult', id: msg.facetId, ok: true });
+            } catch (err) {
+              const error = err instanceof Error ? err.message : String(err);
+              failed.push({ facetId: msg.facetId, error });
+              pendingIds.delete(msg.facetId);
+              panel.post({ command: 'applyResult', id: msg.facetId, ok: false, errorMessage: error });
+            }
+          });
+          await applying;
           break;
         }
         case 'rejectFacet':
@@ -526,6 +555,7 @@ export async function reviewFacetBatchWithPanel(
           // stays in pendingIds → shows as cancelledRemaining on dismiss
           break;
         case 'dismiss':
+          await applying;
           resolveOnce();
           break;
         case 'applyFork':

@@ -169,6 +169,21 @@ describe('AuditBuffer', () => {
       // b.ts stays pending.
       expect(buf.has('b.ts')).toBe(true);
     });
+
+    it('keeps a write the agent buffered while the flush was writing that file (#423)', async () => {
+      await buf.write('existing.ts', 'v1', readDisk);
+      writeDisk.mockImplementationOnce(async (path: string, content: string) => {
+        await buf.write('existing.ts', 'v2', readDisk);
+        disk.set(path, content);
+      });
+
+      await buf.flush(writeDisk, deleteDisk);
+
+      expect(disk.get('existing.ts')).toBe('v1');
+      expect(buf.read('existing.ts').content).toBe('v2');
+      // Measured from what the flush wrote, so a later flush sees no conflict.
+      expect(buf.list()[0]).toMatchObject({ op: 'modify', originalContent: 'v1' });
+    });
   });
 
   describe('flush — failure & rollback', () => {

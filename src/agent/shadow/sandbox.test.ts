@@ -287,6 +287,23 @@ describe('runAgentLoopInSandbox', () => {
 
       expect(disposeMock).toHaveBeenCalledOnce();
     });
+
+    it('keeps the shadow when the agent loop throws after making changes (#423)', async () => {
+      vi.spyOn(settings, 'getConfig').mockReturnValue({
+        shadowWorkspaceMode: 'always',
+        shadowWorkspaceAutoCleanup: true,
+      } as never);
+      vi.spyOn(shared, 'getRoot').mockReturnValue('/mock-workspace');
+      const { disposeMock, fakeShadow } = stubShadow({ diff: 'diff --git a/x b/x\n+x\n' });
+      vi.spyOn(loopModule, 'runAgentLoop').mockRejectedValue(new Error('agent crashed'));
+
+      await expect(runAgentLoopInSandbox({} as never, [], callbacks, new AbortController().signal, {})).rejects.toThrow(
+        'agent crashed',
+      );
+
+      expect(disposeMock).not.toHaveBeenCalled();
+      expect(textMessages.join('')).toContain(`changes are preserved in the shadow at ${fakeShadow.path}`);
+    });
   });
 
   describe('deferPrompt', () => {

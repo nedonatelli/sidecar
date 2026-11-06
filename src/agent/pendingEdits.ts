@@ -21,13 +21,18 @@ export interface PendingEdit {
    * no-op since there was nothing to revert.
    */
   originalContent: string | null;
-  /** Contents as they would be after applying every pending edit. */
-  newContent: string;
+  /**
+   * Contents as they would be after applying every pending edit. `null` when
+   * the agent deleted the file: accepting removes it from disk.
+   */
+  newContent: string | null;
   /** Epoch timestamp of the most recent update to this entry. */
   updatedAt: number;
-  /** Which tool produced the most recent update (write_file / edit_file). */
-  lastTool: 'write_file' | 'edit_file';
+  /** Which tool produced the most recent update. */
+  lastTool: PendingEditTool;
 }
+
+export type PendingEditTool = 'write_file' | 'edit_file' | 'delete_file';
 
 /**
  * In-memory shadow of every file mutation an agent has proposed during a
@@ -53,12 +58,7 @@ export class PendingEditStore {
    * baseline. Subsequent edits to the same path overwrite `newContent`
    * but leave the baseline alone — one coherent pre/post pair per file.
    */
-  record(
-    filePath: string,
-    originalContent: string | null,
-    newContent: string,
-    lastTool: 'write_file' | 'edit_file',
-  ): void {
+  record(filePath: string, originalContent: string | null, newContent: string | null, lastTool: PendingEditTool): void {
     const existing = this.edits.get(filePath);
     if (existing) {
       existing.newContent = newContent;
@@ -103,6 +103,22 @@ export class PendingEditStore {
     const had = this.edits.delete(filePath);
     if (had) this.emitter.fire();
     return had;
+  }
+
+  /**
+   * The user accepted `written` for `filePath` and it is on disk now (`null`:
+   * deleted). Drops the entry -- unless the agent recorded a newer edit while
+   * the write was in flight, which is kept, measured from what is on disk.
+   */
+  settle(filePath: string, written: string | null): void {
+    const current = this.edits.get(filePath);
+    if (!current) return;
+    if (current.newContent === written) {
+      this.remove(filePath);
+      return;
+    }
+    current.originalContent = written;
+    this.emitter.fire();
   }
 
   /** Drop every pending edit at once. Used by accept-all / discard-all. */
