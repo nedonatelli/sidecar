@@ -40,6 +40,15 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.7 — untrusted-content markers stay intact (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.6,
+noting the patch.
+
+- **What changed:** Marker text inside untrusted content is made inert, so a
+  marked block runs to its end and already-marked-looking text is still checked.
+- **Measured:** no eval; the eval repos contain no marker text.
+
 ### 7.0.6 — git_diff leaves credential files out (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.5,
