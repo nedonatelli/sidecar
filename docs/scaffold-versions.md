@@ -40,6 +40,19 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.10 — db_execute reports the rows a write changed (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.9,
+noting the patch.
+
+- **What changed:** `db_execute` reported "Rows affected" from the rows
+  returned, and asked for none, so every write read as 0 and a model could send
+  an INSERT again. The count now comes from the driver, or reads `unknown`, and
+  `RETURNING` rows render. In Audit Mode the result says the statement did not
+  run, and the tool description says it is not executed there.
+- **Measured:** no eval; the database tools are offered only when database
+  profiles are configured, and no eval configures one.
+
 ### 7.0.9 — review mode queues delete_file (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.8,

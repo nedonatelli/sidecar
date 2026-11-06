@@ -98,6 +98,18 @@ describe('PostgresProvider', () => {
     await expect(provider.disconnect()).resolves.toBeUndefined();
   });
 
+  // A pg Pool connects lazily: without a check, a wrong password surfaced only
+  // on the first query, after connect() had reported success (#424).
+  it('connect fails, and closes the pool, when the server refuses the credentials', async () => {
+    mockPool.connect = async () => {
+      throw new Error('password authentication failed for user "tester"');
+    };
+    const provider = new PostgresProvider();
+    await expect(provider.connect(makeProfile())).rejects.toThrow('password authentication failed');
+    expect(provider.isConnected()).toBe(false);
+    expect(mockPool.end).toHaveBeenCalledTimes(1);
+  });
+
   // ---- listTables ----------------------------------------------------------
 
   it('listTables returns TableInfo[] with row counts', async () => {
@@ -297,6 +309,40 @@ describe('PostgresProvider', () => {
   it('query throws when not connected', async () => {
     const provider = new PostgresProvider();
     await expect(provider.query('SELECT 1')).rejects.toThrow('not connected');
+  });
+
+  // pg's Result: `rowCount` is rows changed for a write and rows read for a
+  // SELECT, `command` says which (#424).
+  describe('rows affected', () => {
+    async function run(reply: Record<string, unknown>, sql: string) {
+      mockPool.query = vi.fn().mockResolvedValue({ oid: 0, ...reply });
+      const provider = new PostgresProvider();
+      await provider.connect(makeProfile({ readOnly: false }));
+      return provider.query(sql);
+    }
+
+    it('a write reports the driver rowCount and returns no rows', async () => {
+      const r = await run({ command: 'UPDATE', rowCount: 3, rows: [], fields: [] }, 'UPDATE t SET a = 1');
+      expect(r).toMatchObject({ rows: [], rowCount: 0, rowsAffected: 3 });
+    });
+
+    it('a write with RETURNING reports both its rows and the count', async () => {
+      const r = await run(
+        { command: 'INSERT', rowCount: 2, rows: [{ id: 7 }, { id: 8 }], fields: [{ name: 'id' }] },
+        'INSERT INTO t (a) VALUES (1), (2) RETURNING id',
+      );
+      expect(r).toMatchObject({ rows: [{ id: 7 }, { id: 8 }], rowCount: 2, rowsAffected: 2 });
+    });
+
+    it('a SELECT and DDL report 0 rows affected', async () => {
+      const sel = await run(
+        { command: 'SELECT', rowCount: 1, rows: [{ n: 1 }], fields: [{ name: 'n' }] },
+        'SELECT 1 AS n',
+      );
+      expect(sel.rowsAffected).toBe(0);
+      const ddl = await run({ command: 'CREATE', rowCount: null, rows: [], fields: [] }, 'CREATE TABLE u (a int)');
+      expect(ddl.rowsAffected).toBe(0);
+    });
   });
 
   // -------------------------------------------------------------------------

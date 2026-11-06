@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../config/settings.js', () => ({
   getConfig: vi.fn(() => ({
@@ -35,7 +35,11 @@ vi.mock('./shared.js', async () => {
   return { ...actual, getRoot: vi.fn(() => '/workspace') };
 });
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { databaseTools } from './database.js';
+import { SqliteProvider } from '../../db/sqliteProvider.js';
 import { getConfig } from '../../config/settings.js';
 import { connectionManager } from '../../db/connectionManager.js';
 import { getDefaultAuditBuffer } from '../audit/auditBuffer.js';
@@ -327,6 +331,17 @@ describe('db_query', () => {
     const [, , opts] = querySpy.mock.calls[0] as [unknown, unknown, { limit: number }];
     expect(opts.limit).toBe(10000);
   });
+
+  // Passed through, 0 returned no rows and -1 dropped the last row (#424).
+  it.each([0, -1])('a limit of %d uses the default row limit', async (limit) => {
+    const querySpy = vi.fn().mockResolvedValue(makeQueryResult());
+    (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockResolvedValue({ query: querySpy });
+
+    await exec({ connection_id: 'test-db', sql: 'SELECT 1', limit });
+
+    const [, , opts] = querySpy.mock.calls[0] as [unknown, unknown, { limit: number }];
+    expect(opts.limit).toBe(10000);
+  });
 });
 
 describe('db_execute', () => {
@@ -360,23 +375,99 @@ describe('db_execute', () => {
     const writeStub = vi.fn().mockResolvedValue(undefined);
     vi.mocked(getDefaultAuditBuffer).mockReturnValue({ write: writeStub } as never);
 
+    vi.mocked(connectionManager.getOrConnect).mockClear();
+
     const result = await exec({ connection_id: 'test-db', sql: 'DELETE FROM logs' });
     expect(writeStub).toHaveBeenCalledOnce();
-    expect(result).toContain('buffered for audit review');
+    expect(connectionManager.getOrConnect).not.toHaveBeenCalled();
+    // Nothing runs the buffered .sql, so the agent must not read it as done (#424).
+    expect(result).toContain('did NOT run');
+    expect(result).toContain('database is unchanged');
+    expect(result).not.toMatch(/executing immediately|executes on accept/);
   });
 
-  it('executes the statement and returns rows affected when successful', async () => {
+  // Shaped like a provider's real answer to a write: no rows returned, the
+  // changed count in rowsAffected (#424).
+  it('reports the rows the statement changed', async () => {
+    vi.mocked(getConfig).mockReturnValue({
+      databaseProfiles: [makeProfile({ readOnly: false })],
+      databaseQueryRowLimit: 10000,
+      agentMode: 'cautious',
+    } as never);
+    const query = vi.fn().mockResolvedValue({ columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: 3 });
+    (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockResolvedValue({ query });
+
+    const result = await exec({ connection_id: 'test-db', sql: 'DELETE FROM logs WHERE old=1' });
+    expect(result).toBe('Statement executed on "Test DB". Rows affected: 3');
+    // limit 0 sliced every RETURNING row away.
+    expect((query.mock.calls[0] as [unknown, unknown, { limit: number }])[2].limit).toBe(10000);
+  });
+
+  it('says the count is unknown when the driver gives none', async () => {
     vi.mocked(getConfig).mockReturnValue({
       databaseProfiles: [makeProfile({ readOnly: false })],
       agentMode: 'cautious',
     } as never);
     (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockResolvedValue({
-      query: vi.fn().mockResolvedValue({ columns: [], rows: [], rowCount: 3, truncated: false }),
+      query: vi.fn().mockResolvedValue({ columns: [], rows: [], rowCount: 0, truncated: false }),
     });
 
-    const result = await exec({ connection_id: 'test-db', sql: 'DELETE FROM logs WHERE old=1' });
-    expect(result).toContain('3');
-    expect(result).toContain('Rows affected');
+    expect(await exec({ connection_id: 'test-db', sql: 'DELETE FROM logs' })).toContain('Rows affected: unknown');
+  });
+});
+
+// The same path against a real SQLite file (Node 24's node:sqlite).
+const hasNodeSqlite = !!(process as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule?.('node:sqlite');
+
+describe.skipIf(!hasNodeSqlite)('db_execute on a real SQLite database (#424)', () => {
+  const exec = getExecutor('db_execute');
+  let dir: string;
+  let provider: SqliteProvider;
+
+  beforeEach(async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-execute-'));
+    const profile = makeProfile({ readOnly: false, filePath: path.join(dir, 'app.db') });
+    vi.mocked(getConfig).mockReturnValue({
+      databaseProfiles: [profile],
+      databaseQueryRowLimit: 10000,
+      agentMode: 'cautious',
+    } as never);
+    provider = new SqliteProvider();
+    await provider.connect(profile as never);
+    await provider.query('CREATE TABLE logs (id INTEGER PRIMARY KEY, msg TEXT)');
+    (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockResolvedValue(provider);
+  });
+
+  afterEach(async () => {
+    await provider.disconnect();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('an INSERT reports the rows it added', async () => {
+    const result = await exec({ connection_id: 'test-db', sql: "INSERT INTO logs (msg) VALUES ('a'), ('b')" });
+    expect(result).toBe('Statement executed on "Test DB". Rows affected: 2');
+  });
+
+  it('an UPDATE that matches nothing reports 0, and DDL after a write does not repeat its count', async () => {
+    await exec({ connection_id: 'test-db', sql: "INSERT INTO logs (msg) VALUES ('a')" });
+    expect(await exec({ connection_id: 'test-db', sql: "UPDATE logs SET msg = 'z' WHERE id = 99" })).toContain(
+      'Rows affected: 0',
+    );
+    expect(await exec({ connection_id: 'test-db', sql: 'CREATE INDEX logs_msg ON logs (msg)' })).toContain(
+      'Rows affected: 0',
+    );
+  });
+
+  it('a RETURNING clause renders its rows', async () => {
+    const result = await exec({
+      connection_id: 'test-db',
+      sql: 'INSERT INTO logs (msg) VALUES (?), (?) RETURNING id, msg',
+      params: ['first', 'second'],
+    });
+    expect(result).toContain('<table');
+    expect(result).toContain('first');
+    expect(result).toContain('second');
+    expect(result).toContain('2 rows');
   });
 });
 

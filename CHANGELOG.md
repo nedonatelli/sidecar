@@ -19,6 +19,29 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **`db_execute` reports how many rows a write changed**
+  ([#424](https://github.com/nedonatelli/sidecar/issues/424)). Every write reported "Rows
+  affected: 0", whatever it changed, so the agent could think nothing happened and send an INSERT
+  again. The count now comes from the database driver. A `RETURNING` clause's rows are shown
+  again; they were always cut off. On MySQL, an INSERT, UPDATE or DELETE no longer fails with an
+  error after it has already been committed. On DuckDB, a write no longer comes back as a one-row
+  "Count" table.
+- **Database connections pick up changed settings**
+  ([#424](https://github.com/nedonatelli/sidecar/issues/424)). A connection stayed open with the
+  settings it started with until VS Code reloaded. Now it reconnects when the profile's host, port,
+  database, user, file or `readOnly` setting changes, or when a password is stored or cleared with
+  **SideCar: Set Database Password**. A Postgres connection now checks the host and password when
+  it connects, so a wrong password fails straight away and the hint to store one appears. A MySQL
+  connection the server has closed is reopened on the next call. Closing VS Code closes every
+  database connection, so an SQLite file is no longer left locked on Windows.
+- **`db_query` with a `limit` of 0 or less returns rows**
+  ([#424](https://github.com/nedonatelli/sidecar/issues/424)). A limit of 0 returned no rows and a
+  negative one dropped the last row. Both now use the default row limit.
+- **In Audit Mode, `db_execute` says it did not run the statement**
+  ([#424](https://github.com/nedonatelli/sidecar/issues/424)). It saves the SQL as a file for
+  review, and accepting the audit buffer only writes that file. The agent was told the write was
+  "buffered for audit review", which reads as if it would run later. It is now told the database
+  is unchanged and the statement was not run.
 - **Deleting or editing a message during a run no longer breaks the run**
   ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The refusal came back as an error,
   and the chat panel treated it as the end of the run: it removed the answer being streamed and

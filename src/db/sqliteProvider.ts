@@ -26,6 +26,7 @@ function validateIdentifier(name: string, label: string): void {
 
 interface NodeSqliteStatement {
   all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
   setReadBigInts(enabled: boolean): void;
 }
 
@@ -239,6 +240,7 @@ export class SqliteProvider implements DatabaseProvider {
     // duration of the query. The practical mitigation for SQLite is the row
     // limit below.
     let rawRows: Array<Record<string, unknown>>;
+    let totalBefore: number | undefined;
     if (readOnly && !this.readOnly) {
       // A read on a read-write connection: SQLite's query_only makes the
       // engine refuse any write, which covers what a text check cannot
@@ -256,6 +258,7 @@ export class SqliteProvider implements DatabaseProvider {
       }
     } else {
       try {
+        if (!readOnly) totalBefore = totalChanges(db);
         rawRows = statement.all(...params) as Array<Record<string, unknown>>;
       } catch (err) {
         if (readOnly && SQLITE_READONLY_WRITE.test(String(err))) {
@@ -273,11 +276,20 @@ export class SqliteProvider implements DatabaseProvider {
 
     const columns = rows.length > 0 ? Object.keys(rows[0]) : inferColumns(sql);
 
+    // changes() keeps the last INSERT/UPDATE/DELETE's count through a later
+    // read or DDL, so it only counts when total_changes() moved.
+    let rowsAffected = 0;
+    if (totalBefore !== undefined) {
+      const after = db.prepare('SELECT changes() AS c, total_changes() AS t').get() as { c: number; t: number };
+      if (after.t !== totalBefore) rowsAffected = after.c;
+    }
+
     return {
       columns,
       rows,
       rowCount: rawRows.length,
       truncated,
+      rowsAffected,
     };
   }
 
@@ -291,6 +303,10 @@ export class SqliteProvider implements DatabaseProvider {
     }
     return this.db;
   }
+}
+
+function totalChanges(db: NodeSqliteDatabase): number {
+  return (db.prepare('SELECT total_changes() AS t').get() as { t: number }).t;
 }
 
 function normaliseRow(row: Record<string, unknown>): Record<string, unknown> {

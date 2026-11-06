@@ -12,10 +12,19 @@ import { assertReadOnly, type QueryOptions } from './provider.js';
 // mysql2/promise type shim — only the surface we call at runtime
 // ---------------------------------------------------------------------------
 
+/** What a non-SELECT statement returns in place of rows. */
+interface MySqlResultSetHeader {
+  affectedRows: number;
+  insertId: number;
+}
+
+type MySqlQueryReturn = [unknown[] | MySqlResultSetHeader, Array<{ name: string }> | undefined];
+
 interface MySqlConnection {
-  query(sql: string, values?: unknown[]): Promise<[unknown[], Array<{ name: string }>]>;
-  execute(sql: string, values?: unknown[]): Promise<[unknown[], Array<{ name: string }>]>;
+  query(sql: string, values?: unknown[]): Promise<MySqlQueryReturn>;
+  execute(sql: string, values?: unknown[]): Promise<MySqlQueryReturn>;
   end(): Promise<void>;
+  on(event: 'error', listener: (err: { fatal?: boolean }) => void): void;
 }
 
 interface MySqlModule {
@@ -81,6 +90,13 @@ export class MysqlProvider implements DatabaseProvider {
       database: profile.database,
       user: profile.user,
       password,
+    });
+
+    // One connection, no pool: once the server drops it (wait_timeout, a
+    // restart) every query fails. Mark it disconnected so the next
+    // getOrConnect opens a new one.
+    this.conn.on('error', (err) => {
+      if (err.fatal) this.connected = false;
     });
 
     if (this.readOnly) {
@@ -238,14 +254,22 @@ export class MysqlProvider implements DatabaseProvider {
           ? await conn.query({ sql, values: params, timeout: opts.timeoutMs } as unknown as string, undefined)
           : await conn.query(sql, params);
 
+      // INSERT/UPDATE/DELETE/DDL return a ResultSetHeader, not rows.
+      if (!Array.isArray(rows)) {
+        return { columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: rows.affectedRows };
+      }
+
       const rawRows = rows as Array<Record<string, unknown>>;
       const truncated = rawRows.length > limit;
       const slicedRows = truncated ? rawRows.slice(0, limit) : rawRows;
       const normRows = slicedRows.map(normaliseRow);
 
-      const columns = (fields as Array<{ name: string }>).map((f) => f.name);
+      const columns = (fields ?? []).map((f) => f.name);
 
-      return { columns, rows: normRows, rowCount: normRows.length, truncated };
+      return { columns, rows: normRows, rowCount: rawRows.length, truncated, rowsAffected: 0 };
+    } catch (err) {
+      if ((err as { fatal?: boolean }).fatal) this.connected = false;
+      throw err;
     } finally {
       if (readOnly) await conn.query('ROLLBACK').catch(() => undefined);
     }

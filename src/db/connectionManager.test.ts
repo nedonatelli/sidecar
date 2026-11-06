@@ -140,6 +140,48 @@ describe('ConnectionManager', () => {
     expect(sqliteMock.connect).toHaveBeenCalledTimes(2);
   });
 
+  // A cached connection kept whatever it was opened with until reload: a
+  // stored password, a new host or a readOnly flip did nothing (#424).
+  it.each<[string, Partial<ConnectionProfile>]>([
+    ['host', { host: 'other-host' }],
+    ['port', { port: 6543 }],
+    ['database', { database: 'otherdb' }],
+    ['user', { user: 'someone-else' }],
+    ['readOnly', { readOnly: false }],
+  ])('closes and reopens the connection when the profile %s changes', async (_field, change) => {
+    const manager = new ConnectionManager();
+    const profile = makeProfile({ dialect: 'postgres', host: 'db', port: 5432, database: 'app', user: 'u' });
+
+    await manager.getOrConnect(profile);
+    await manager.getOrConnect({ ...profile, ...change });
+
+    expect(postgresMock.disconnect).toHaveBeenCalledTimes(1);
+    expect(postgresMock.connect).toHaveBeenCalledTimes(2);
+    expect(postgresMock.connect).toHaveBeenLastCalledWith({ ...profile, ...change }, undefined);
+  });
+
+  it('closes and reopens the connection when the stored password changes', async () => {
+    const manager = new ConnectionManager();
+    const profile = makeProfile({ dialect: 'postgres', host: 'db' });
+
+    await manager.getOrConnect(profile, undefined);
+    await manager.getOrConnect(profile, 'now-set');
+
+    expect(postgresMock.disconnect).toHaveBeenCalledTimes(1);
+    expect(postgresMock.connect).toHaveBeenLastCalledWith(profile, 'now-set');
+  });
+
+  it('keeps the connection when only the display name changes', async () => {
+    const manager = new ConnectionManager();
+    const profile = makeProfile();
+
+    await manager.getOrConnect(profile);
+    await manager.getOrConnect({ ...profile, name: 'Renamed' });
+
+    expect(sqliteMock.connect).toHaveBeenCalledTimes(1);
+    expect(sqliteMock.disconnect).not.toHaveBeenCalled();
+  });
+
   it('passes the password to connect', async () => {
     const manager = new ConnectionManager();
     const profile = makeProfile({ dialect: 'postgres' });

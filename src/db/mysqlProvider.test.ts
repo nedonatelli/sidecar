@@ -8,6 +8,7 @@ interface MockConnection {
   query: ReturnType<typeof vi.fn>;
   execute: ReturnType<typeof vi.fn>;
   end: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
 }
 
 let mockConn: MockConnection;
@@ -53,6 +54,7 @@ describe('MysqlProvider', () => {
       query: vi.fn().mockResolvedValue([[], []]),
       execute: vi.fn().mockResolvedValue([[], []]),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
   });
 
@@ -110,6 +112,7 @@ describe('MysqlProvider', () => {
       }),
       execute: vi.fn().mockResolvedValue([[], []]),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new MysqlProvider();
@@ -127,6 +130,7 @@ describe('MysqlProvider', () => {
       query: vi.fn().mockResolvedValue([[], []]),
       execute: vi.fn().mockResolvedValue([[], []]),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new MysqlProvider();
@@ -172,6 +176,7 @@ describe('MysqlProvider', () => {
       }),
       execute: vi.fn().mockResolvedValue([[], []]),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new MysqlProvider();
@@ -206,6 +211,7 @@ describe('MysqlProvider', () => {
       }),
       execute: vi.fn().mockResolvedValue([[], []]),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new MysqlProvider();
@@ -227,6 +233,7 @@ describe('MysqlProvider', () => {
       query: vi.fn().mockResolvedValue([rows, fields]),
       execute: vi.fn().mockResolvedValue([[], []]),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new MysqlProvider();
@@ -253,6 +260,7 @@ describe('MysqlProvider', () => {
       query: vi.fn().mockResolvedValue([rows, fields]),
       execute: vi.fn().mockResolvedValue([[], []]),
       end: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
     };
 
     const provider = new MysqlProvider();
@@ -266,5 +274,61 @@ describe('MysqlProvider', () => {
   it('query throws when not connected', async () => {
     const provider = new MysqlProvider();
     await expect(provider.query('SELECT 1')).rejects.toThrow('not connected');
+  });
+
+  // mysql2 answers INSERT/UPDATE/DELETE with a ResultSetHeader in place of the
+  // rows array, and no fields (#424).
+  it('a write reports affectedRows from the ResultSetHeader instead of throwing', async () => {
+    const header = {
+      fieldCount: 0,
+      affectedRows: 2,
+      insertId: 0,
+      info: 'Rows matched: 2  Changed: 2  Warnings: 0',
+      serverStatus: 2,
+      warningStatus: 0,
+      changedRows: 2,
+    };
+    mockConn.query = vi.fn().mockResolvedValue([header, undefined]);
+
+    const provider = new MysqlProvider();
+    await provider.connect(makeProfile({ readOnly: false }));
+
+    const result = await provider.query('UPDATE t SET a = 1 WHERE b = ?', [3]);
+    expect(result).toEqual({ columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: 2 });
+  });
+
+  it('a read reports 0 rows affected and the full row count when truncated', async () => {
+    mockConn.query = vi.fn().mockResolvedValue([[{ id: 1 }, { id: 2 }, { id: 3 }], [{ name: 'id' }]]);
+
+    const provider = new MysqlProvider();
+    await provider.connect(makeProfile({ readOnly: false }));
+
+    const result = await provider.query('SELECT id FROM t', [], { limit: 2 });
+    expect(result).toMatchObject({ rowCount: 3, truncated: true, rowsAffected: 0 });
+  });
+
+  it('a fatal connection error while idle marks the provider disconnected', async () => {
+    const provider = new MysqlProvider();
+    await provider.connect(makeProfile());
+    const onError = mockConn.on.mock.calls.find(([event]) => event === 'error')?.[1] as (err: object) => void;
+    expect(onError).toBeDefined();
+
+    onError({ fatal: false, code: 'ER_SOMETHING' });
+    expect(provider.isConnected()).toBe(true);
+    onError({ fatal: true, code: 'PROTOCOL_CONNECTION_LOST' });
+    expect(provider.isConnected()).toBe(false);
+  });
+
+  it('a query that fails because the connection is gone marks the provider disconnected', async () => {
+    const provider = new MysqlProvider();
+    await provider.connect(makeProfile({ readOnly: false }));
+    const lost = Object.assign(new Error('Connection lost: The server closed the connection.'), {
+      fatal: true,
+      code: 'PROTOCOL_CONNECTION_LOST',
+    });
+    mockConn.query = vi.fn().mockRejectedValue(lost);
+
+    await expect(provider.query('SELECT 1')).rejects.toThrow('Connection lost');
+    expect(provider.isConnected()).toBe(false);
   });
 });

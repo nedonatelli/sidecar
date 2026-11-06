@@ -18,6 +18,7 @@ import { registerLmTools } from './chat/lmTools.js';
 import { dispose as disposeDiagnostics } from './agent/sidecarDiagnostics.js';
 import { setGrammarsPath } from './parsing/registry.js';
 import { configureDuckDbEngine } from './db/duckdbEngine.js';
+import { connectionManager } from './db/connectionManager.js';
 import { disposeShellSession, disposeAgentTerminalExecutor } from './agent/tools.js';
 import { disposeAllShellSessions } from './terminal/shellSession.js';
 import { initBaseServices } from './activation/baseSetup.js';
@@ -194,7 +195,7 @@ export function activate(context: ExtensionContext) {
   return createSdkApi(context, pkg?.version ?? '0.0.0');
 }
 
-export function deactivate() {
+export function deactivate(): Promise<void> {
   chatProvider?.autoSave();
   chatProvider?.abort();
   disposeShellSession();
@@ -202,4 +203,10 @@ export function deactivate() {
   // aborted run to unwind, which the host may not live to see (#245).
   disposeAllShellSessions();
   disposeAgentTerminalExecutor();
+  // Close database connections: an open SQLite/DuckDB file stays locked on
+  // Windows, and network sessions stay open on the server (#424). VS Code
+  // waits for the returned promise.
+  return connectionManager.disconnectAll().catch((err) => {
+    logger.warn(`Closing database connections failed: ${String(err)}`);
+  });
 }

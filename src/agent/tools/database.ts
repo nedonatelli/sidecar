@@ -199,8 +199,10 @@ async function dbQuery(
   const sql = input.sql as string | undefined;
   const params = Array.isArray(input.params) ? (input.params as unknown[]) : [];
   const config = context?.config ?? getConfig();
+  // 0 or a negative limit means no limit was meant: use the default, which is
+  // also the cap. (Passed through, 0 returned no rows and -1 dropped the last.)
   const limit =
-    typeof input.limit === 'number'
+    typeof input.limit === 'number' && input.limit > 0
       ? Math.min(input.limit, config.databaseQueryRowLimit)
       : config.databaseQueryRowLimit;
   const timeoutMs =
@@ -267,9 +269,10 @@ async function dbExecute(
     return `Error: connection "${profile.name}" is read-only. Set "readOnly: false" in the profile to allow writes.`;
   }
 
-  // Audit Mode: buffer the SQL as a file so it appears in the audit review
-  // treeview instead of executing immediately. The file is stored at
-  // .sidecar/audit/db/{connectionId}/{timestamp}.sql for human inspection.
+  // Audit Mode: the statement is NOT run. It is buffered as a .sql file so it
+  // appears in the audit review treeview; accepting the buffer saves the file
+  // at .sidecar/audit/db/{connectionId}/{timestamp}.sql, and nothing executes
+  // it. The result says so, so the agent doesn't take the write as done.
   if (cfg.agentMode === 'audit') {
     const ts = Date.now();
     const safeId = connectionId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -280,7 +283,11 @@ async function dbExecute(
       `-- db_execute on "${profile.name}" (${profile.dialect})\n-- buffered ${new Date(ts).toISOString()}${paramsNote}\n${sql}\n`,
       async () => '',
     );
-    return `db_execute buffered for audit review: ${auditPath}`;
+    return (
+      `db_execute did NOT run, and the database is unchanged. Audit Mode saved the statement for review as ` +
+      `${auditPath}; accepting the audit buffer writes that file but does not execute it. ` +
+      `Do not re-send the statement or assume its effect.`
+    );
   }
 
   let provider;
@@ -292,15 +299,18 @@ async function dbExecute(
 
   let result: QueryResult;
   try {
-    result = await provider.query(sql, params, { limit: 0 });
+    // The row limit only caps what a RETURNING clause shows; a write's count
+    // comes back separately in rowsAffected.
+    result = await provider.query(sql, params, { limit: cfg.databaseQueryRowLimit });
   } catch (err) {
     return `Error: ${String(err)}`;
   }
 
+  // A RETURNING clause's rows: one per changed row.
   if (result.rows.length > 0) {
     return renderQueryTable(result, `Result from ${profile.name}`);
   }
-  return `Statement executed on "${profile.name}". Rows affected: ${result.rowCount}`;
+  return `Statement executed on "${profile.name}". Rows affected: ${result.rowsAffected ?? 'unknown'}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +524,7 @@ export const databaseTools: RegisteredTool[] = [
         'Execute a write SQL statement (INSERT, UPDATE, DELETE, DDL) on a database connection. ' +
         'Requires the connection profile to have readOnly set to false. ' +
         'Requires approval under your approval mode (autonomous mode skips the prompt, as with other mutating tools). ' +
-        'In Audit Mode the statement is buffered at .sidecar/audit/db/{connectionId}/{timestamp}.sql for review instead of executing immediately. ' +
+        'In Audit Mode the statement is not executed: it is saved for the user to review and run, at .sidecar/audit/db/{connectionId}/{timestamp}.sql. ' +
         'Example: `db_execute(connection_id="my-db", sql="INSERT INTO logs (msg) VALUES (?)", params=["hello"])`.',
       input_schema: {
         type: 'object',

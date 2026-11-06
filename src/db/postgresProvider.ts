@@ -26,6 +26,9 @@ interface PgPoolConfig {
 interface PgQueryResult {
   rows: Array<Record<string, unknown>>;
   fields: Array<{ name: string }>;
+  /** Rows the statement processed: changed for INSERT/UPDATE/DELETE, null for DDL. */
+  rowCount: number | null;
+  command: string;
 }
 
 interface PgPoolClient {
@@ -85,6 +88,9 @@ interface InfoSchemaRcuRow {
   constraint_name: string;
 }
 
+/** Command tags whose rowCount counts changed rows. */
+const WRITE_COMMANDS = new Set(['INSERT', 'UPDATE', 'DELETE', 'MERGE']);
+
 export class PostgresProvider implements DatabaseProvider {
   readonly dialect = 'postgres' as const;
 
@@ -123,6 +129,18 @@ export class PostgresProvider implements DatabaseProvider {
           /* ignore — assertReadOnly in query() is the authoritative guard */
         });
       });
+    }
+
+    // A pool connects lazily, so a wrong host or password would only show on
+    // the first query. Open one client now so connect() fails when they are.
+    try {
+      const client = await this.pool.connect();
+      client.release();
+    } catch (err) {
+      const pool = this.pool;
+      this.pool = null;
+      await pool.end().catch(() => undefined);
+      throw err;
     }
 
     this.connected = true;
@@ -316,8 +334,10 @@ export class PostgresProvider implements DatabaseProvider {
     const rows = slicedRows.map(normaliseRow);
 
     const columns = result.fields.map((f) => f.name);
+    // pg's rowCount is rows changed for a write, rows read for a SELECT.
+    const rowsAffected = WRITE_COMMANDS.has(result.command) ? (result.rowCount ?? 0) : 0;
 
-    return { columns, rows, rowCount: result.rows.length, truncated };
+    return { columns, rows, rowCount: result.rows.length, truncated, rowsAffected };
   }
 
   // -------------------------------------------------------------------------

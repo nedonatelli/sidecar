@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import * as os from 'os';
 import { ShellSession } from './terminal/shellSession.js';
+import * as fs from 'fs';
+import * as path from 'path';
 import { deactivate } from './extension.js';
+import { connectionManager } from './db/connectionManager.js';
 
 /** True when the pid is still running. `kill(pid, 0)` only probes. */
 function alive(pid: number): boolean {
@@ -37,10 +40,37 @@ describe.skipIf(os.platform() !== 'win32')('deactivate kills every agent shell (
     const childPid = await startChild(session);
     expect(alive(childPid), 'child should be running before deactivate').toBe(true);
 
-    deactivate();
+    void deactivate();
 
     for (let i = 0; i < 20 && alive(childPid); i++) await new Promise((r) => setTimeout(r, 100));
     expect(alive(childPid), `child ${childPid} survived deactivate`).toBe(false);
     expect(session.isAlive, 'the session should be disposed').toBe(false);
   }, 40_000);
+});
+
+// Nothing in production called disconnectAll, so database connections stayed
+// open until the host exited, and an SQLite file stayed locked on Windows (#424).
+const hasNodeSqlite = !!(process as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule?.('node:sqlite');
+
+describe.skipIf(!hasNodeSqlite)('deactivate closes database connections', () => {
+  it('disconnects every open connection', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deactivate-db-'));
+    try {
+      const provider = await connectionManager.getOrConnect({
+        id: 'deact',
+        name: 'Deact',
+        dialect: 'sqlite',
+        filePath: path.join(dir, 'app.db'),
+        readOnly: false,
+      });
+      expect(provider.isConnected()).toBe(true);
+
+      await deactivate();
+
+      expect(provider.isConnected()).toBe(false);
+      expect(connectionManager.getStatus()).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

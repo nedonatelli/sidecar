@@ -31,7 +31,14 @@ interface DuckDBResult {
   columnNames(): string[];
   // Returns rows as plain JS objects
   getRows(): Promise<Array<Record<string, unknown>>>;
+  /** Rows an INSERT/UPDATE/DELETE changed. */
+  readonly rowsChanged: number;
+  /** ResultReturnType: CHANGED_ROWS (1) for a write without RETURNING. */
+  readonly returnType: number;
 }
+
+/** DuckDB's ResultReturnType.CHANGED_ROWS: the result is one "Count" row. */
+const CHANGED_ROWS = 1;
 
 interface DuckDbModule {
   DuckDBInstance: DuckDBInstanceConstructor;
@@ -237,6 +244,11 @@ export class DuckDbProvider implements DatabaseProvider {
     // safely or use DuckDB's string escaping. This matches the Tier 1 read-only
     // scope where injection risk is bounded by assertReadOnly above.
     const result = await conn.run(sql);
+    // A write without RETURNING answers with a single "Count" row; that is a
+    // count, not a result, so it goes in rowsAffected instead.
+    if (result.returnType === CHANGED_ROWS) {
+      return { columns: [], rows: [], rowCount: 0, truncated: false, rowsAffected: Number(result.rowsChanged) };
+    }
     const rawRows = await result.getRows();
 
     const truncated = rawRows.length > limit;
@@ -245,7 +257,7 @@ export class DuckDbProvider implements DatabaseProvider {
 
     const columns = result.columnNames();
 
-    return { columns, rows, rowCount: rows.length, truncated };
+    return { columns, rows, rowCount: rawRows.length, truncated, rowsAffected: Number(result.rowsChanged ?? 0) };
   }
 
   // -------------------------------------------------------------------------
