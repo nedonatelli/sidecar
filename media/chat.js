@@ -2764,6 +2764,9 @@
       // Numbered list: 1. 2. etc (collect consecutive items, allow blank lines between)
       if (/^\s*\d+\.\s+/.test(line)) {
         const ol = document.createElement('ol');
+        // A list that starts at 4 shows 4, not 1.
+        const first = parseInt(line.trim(), 10);
+        if (first !== 1) ol.setAttribute('start', String(first));
         while (i < lines.length) {
           if (/^\s*\d+\.\s+/.test(lines[i])) {
             const li = document.createElement('li');
@@ -2995,7 +2998,31 @@
       }
     }
 
+    continueListsAcrossBlocks(fragment);
     return fragment;
+  }
+
+  // The reply is split at its code fences before its markdown is rendered, so a
+  // numbered list with a code block in an item came out as one <ol> per
+  // segment, each restarting at 1. A list that follows another with only code,
+  // diagram or edit blocks between them carries on the count, unless it says
+  // it starts further on. Run on a streamed message too, whose slices are
+  // rendered one at a time.
+  function continueListsAcrossBlocks(container) {
+    const between = ['code-block', 'diagram-block', 'edit-block'];
+    let prev = null;
+    for (const el of container.children) {
+      if (el.tagName === 'OL') {
+        const start = Number(el.getAttribute('start') || 1);
+        if (prev) {
+          const next = Number(prev.getAttribute('start') || 1) + prev.children.length;
+          if (start < next) el.setAttribute('start', String(next));
+        }
+        prev = el;
+      } else if (!between.some((c) => el.classList.contains(c))) {
+        prev = null;
+      }
+    }
   }
 
   let messageCounter = 0;
@@ -3825,6 +3852,7 @@
       const newSlice = text.slice(lastRenderedLen, boundary);
       if (newSlice) {
         currentAssistantDiv.appendChild(renderContent(newSlice, window.currentModelSupportsTools));
+        continueListsAcrossBlocks(currentAssistantDiv);
       }
       lastRenderedLen = boundary;
     }
@@ -3893,6 +3921,7 @@
         const finalSlice = currentAssistantText.slice(Math.max(0, lastRenderedLen));
         if (finalSlice) {
           currentAssistantDiv.appendChild(renderContent(finalSlice, window.currentModelSupportsTools));
+          continueListsAcrossBlocks(currentAssistantDiv);
         }
       } catch (err) {
         console.error('SideCar: finishAssistantMessage render failed:', err);
