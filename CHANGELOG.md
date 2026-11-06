@@ -19,6 +19,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Error cards no longer mistake numbers for status codes**
+  ([#435](https://github.com/nedonatelli/sidecar/issues/435)). A code such as 429 or 401 was
+  matched anywhere in the message, so "prompt is too long: 204291 tokens" showed as a rate limit
+  with a Retry button that resent the same prompt, and a request id containing 4013 showed as a
+  bad API key. A status code now counts only as a number of its own.
 - **Skills saved with Windows line endings keep their settings.** A skill file with CRLF line
   endings, or a byte-order mark, had its frontmatter read as empty, so its `allowed-tools`,
   `guards` and `max-iterations` did nothing. Facet files get the same handling.

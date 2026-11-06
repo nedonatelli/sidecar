@@ -123,6 +123,26 @@ describe('classifyError', () => {
     expect(classifyError('403 Forbidden').errorType).toBe('auth');
   });
 
+  // A status code counts only as a number of its own, not as digits inside a
+  // token count or a request id (#435).
+  it.each([
+    ['prompt is too long: 204291 tokens > 200000 maximum', 'token_limit'],
+    ['Anthropic API error 400: prompt is too long: 214290 tokens', 'token_limit'],
+    ['Request failed (req_01H4013XYZ): 500 internal server error', 'server_error'],
+    ['Request failed (req_01H4013XYZ): 400 bad request', 'unknown'],
+    ['OpenAI error: model gpt-x not found (request 7f5034)', 'unknown'],
+  ])('reads %j as %s', (message, errorType) => {
+    expect(classifyError(message).errorType).toBe(errorType);
+  });
+
+  it.each([
+    ['Anthropic API error 429: rate limit for 40,000 input tokens per minute exceeded', 'rate_limit'],
+    ['Request failed (401): bad key', 'auth'],
+    ['HTTP 503 from upstream', 'server_error'],
+  ])('still reads a status code in %j as %s', (message, errorType) => {
+    expect(classifyError(message).errorType).toBe(errorType);
+  });
+
   it('classifies invalid api key as auth error', () => {
     expect(classifyError('Invalid API key provided').errorType).toBe('auth');
   });

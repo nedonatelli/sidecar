@@ -3,6 +3,11 @@
  * recovery action the UI should offer (open settings, retry, compact context…).
  */
 
+// An HTTP status as a number of its own. A substring match read the 429 in
+// "204291 tokens" as a rate limit and the 401 in "req_01H4013" as an auth error.
+const hasStatus = (text: string, ...codes: number[]): boolean =>
+  codes.some((code) => new RegExp(`(?<![\\w.])${code}(?![\\w.])`).test(text));
+
 export function classifyError(message: string): {
   errorType:
     | 'connection'
@@ -40,7 +45,7 @@ export function classifyError(message: string): {
   if (lower.includes("too large for this account's tier") || lower.includes("doesn't offer this model")) {
     return { errorType: 'model', errorAction: 'Open Settings', errorActionCommand: 'openSettings' };
   }
-  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
+  if (hasStatus(lower, 429) || lower.includes('rate limit') || lower.includes('too many requests')) {
     return { errorType: 'rate_limit', errorAction: 'Retry', errorActionCommand: 'retry' };
   }
   if (
@@ -57,22 +62,14 @@ export function classifyError(message: string): {
   ) {
     return { errorType: 'token_limit', errorAction: 'Reduce Context', errorActionCommand: 'compactContext' };
   }
-  if (
-    lower.includes('401') ||
-    lower.includes('403') ||
-    lower.includes('unauthorized') ||
-    lower.includes('invalid api key')
-  ) {
+  if (hasStatus(lower, 401, 403) || lower.includes('unauthorized') || lower.includes('invalid api key')) {
     return { errorType: 'auth', errorAction: 'Check API Key', errorActionCommand: 'openSettings' };
   }
-  if (lower.includes('404') && (lower.includes('model') || lower.includes('not found'))) {
+  if (hasStatus(lower, 404) && (lower.includes('model') || lower.includes('not found'))) {
     return { errorType: 'model', errorAction: 'Install Model' };
   }
   if (
-    lower.includes('500') ||
-    lower.includes('502') ||
-    lower.includes('503') ||
-    lower.includes('504') ||
+    hasStatus(lower, 500, 502, 503, 504) ||
     lower.includes('internal server error') ||
     lower.includes('bad gateway') ||
     lower.includes('service unavailable') ||
