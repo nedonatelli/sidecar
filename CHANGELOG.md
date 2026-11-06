@@ -19,6 +19,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **`mutation_test` and `db_migrate_up` follow the rules for commands and file writes.** The
+  test command given to `mutation_test`, and a custom migration command, now get the same checks
+  as `run_command`: a deny or ask on `run_command` applies, and destructive commands and installs
+  are confirmed. The file `mutation_test` mutates must pass the checks `write_file` makes.
 - **The privacy guide describes `sidecar.outboundAllowlist` accurately.** It said the setting
   blocks all outbound traffic and covers `web_search`; it limits only the URLs SideCar fetches from
   chat messages.

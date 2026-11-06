@@ -388,8 +388,8 @@ async function runTool(toolUse: ToolUseContentBlock, opts: ExecuteToolOptions): 
     if (target.explicitPermission === 'ask') explicitPermission = 'ask';
   }
   // A tool that runs a free-form shell command (run_tests with `command`,
-  // research_log_experiment) is a run_command too: the user's deny or ask on
-  // run_command applies to it.
+  // research_log_experiment, mutation_test, db_migrate_up's custom command)
+  // is a run_command too: the user's deny or ask on run_command applies to it.
   if (toolUse.name !== 'run_command' && shellCommandOf(toolUse) !== null) {
     const asShell = await resolveToolPermission({ ...toolUse, name: 'run_command' }, executorContext);
     if (asShell.denied) return { ...asShell.denied, tool_use_id: toolUse.id };

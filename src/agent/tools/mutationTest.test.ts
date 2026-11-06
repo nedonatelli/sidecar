@@ -100,3 +100,23 @@ describe('mutation_test tool — file bytes', () => {
     expect(disk.equals(bom)).toBe(true);
   });
 });
+
+describe('mutation_test tool — where it may write', () => {
+  it.each(['.git/hooks/pre-commit', '../outside.py', '.env', '.sidecar/settings.json'])(
+    'refuses %s without writing',
+    async (file) => {
+      const writeFile = vi.spyOn(workspace.fs, 'writeFile');
+      writeFile.mockClear();
+      suite(() => true);
+      expect(await exec({ file, test_command: 'pytest' })).toMatch(/^Error: /);
+      expect(writeFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it('takes an absolute path inside the workspace relative to it', async () => {
+    suite((c) => c === ORIGINAL);
+    const out = await exec({ file: '/mock-workspace/m.py', test_command: 'pytest' });
+    expect(out).not.toMatch(/^Error: /);
+    expect(out).toContain('m.py');
+  });
+});

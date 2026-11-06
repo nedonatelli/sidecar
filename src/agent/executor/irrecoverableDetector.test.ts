@@ -126,4 +126,13 @@ describe('every tool that runs a shell command', () => {
   it('run_tests without a command (auto-detected runner) is not flagged', () => {
     expect(detectIrrecoverable({ type: 'tool_use', id: 'x', name: 'run_tests', input: {} } as never)).toBeNull();
   });
+
+  it("mutation_test's test_command and db_migrate_up's custom_command are read as commands", () => {
+    const use = (name: string, input: Record<string, unknown>) =>
+      detectIrrecoverable({ type: 'tool_use', id: 'x', name, input } as never);
+    expect(use('mutation_test', { file: 'a.py', test_command: 'pytest; rm -rf ~' })).not.toBeNull();
+    expect(use('db_migrate_up', { tool: 'custom', custom_command: 'git reset --hard HEAD~3' })).not.toBeNull();
+    // Only `custom` runs custom_command; the named tools run a fixed command.
+    expect(use('db_migrate_up', { tool: 'prisma', custom_command: 'rm -rf ~' })).toBeNull();
+  });
 });

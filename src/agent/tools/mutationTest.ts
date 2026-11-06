@@ -1,7 +1,15 @@
 import * as path from 'path';
 import { workspace, Uri } from 'vscode';
 import type { ToolDefinition } from '../../ollama/types.js';
-import { resolveRootUri, type ToolExecutorContext, type RegisteredTool } from './shared.js';
+import {
+  isProtectedWritePath,
+  isSensitiveFile,
+  realPathRefusal,
+  resolveRootUri,
+  validateFilePath,
+  type ToolExecutorContext,
+  type RegisteredTool,
+} from './shared.js';
 import { getConfig } from '../../config/settings.js';
 import { runVerificationCommand } from './shell.js';
 import { runMutationTest, type MutationIo } from '../mutation/mutationRunner.js';
@@ -43,7 +51,18 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
   const signal = context?.signal;
 
   const rootUri = resolveRootUri(context);
-  const uriFor = (p: string): Uri => (path.isAbsolute(p) ? Uri.file(p) : Uri.joinPath(rootUri, p));
+  // The file is overwritten once per mutant, so it gets write_file's checks: in
+  // the workspace, not .git or SideCar's own state, not a credential file, and
+  // judged on where a link really leads. An absolute path inside the workspace
+  // is taken relative to it.
+  const relFile = path.isAbsolute(file) ? path.relative(rootUri.fsPath, file).replace(/\\/g, '/') : file;
+  const pathError =
+    validateFilePath(relFile) ??
+    isProtectedWritePath(relFile) ??
+    (isSensitiveFile(relFile) ? `"${file}" looks like a credential file, which the agent may not write.` : null) ??
+    realPathRefusal(rootUri.fsPath, relFile, 'write');
+  if (pathError) return `Error: ${pathError}`;
+  const uriFor = (p: string): Uri => Uri.joinPath(rootUri, p);
 
   // The original's exact bytes, for the restore. Decoding and re-encoding as
   // UTF-8 permanently changed a Latin-1, cp1252 or UTF-16 file; such a file is
@@ -73,7 +92,7 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
 
   let run;
   try {
-    run = await runMutationTest(file, io, { operators, maxMutants, signal });
+    run = await runMutationTest(relFile, io, { operators, maxMutants, signal });
   } catch (err) {
     return `Error: mutation test failed to run: ${err instanceof Error ? err.message : String(err)}`;
   }

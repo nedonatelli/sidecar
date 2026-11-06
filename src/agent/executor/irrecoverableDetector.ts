@@ -15,15 +15,27 @@ import { isExecutionConfigPath } from '../tools/shared.js';
  */
 /**
  * The shell command a tool call would run, for the tools that take one:
- * run_command, run_tests with an explicit `command`, and
- * research_log_experiment. Null for every other call.
+ * run_command, run_tests with an explicit `command`, research_log_experiment,
+ * mutation_test's `test_command` and db_migrate_up's `custom_command`. Null
+ * for every other call. Every check on commands starts here, so a tool that
+ * takes a free-form command and is missing from this list skips them all.
  */
 export function shellCommandOf(toolUse: ToolUseContentBlock): string | null {
   const input = toolUse.input as Record<string, unknown>;
-  const cmd = typeof input.command === 'string' ? input.command : '';
-  if (!cmd) return null;
-  return ['run_command', 'run_tests', 'research_log_experiment'].includes(toolUse.name) ? cmd : null;
+  const field = SHELL_COMMAND_FIELDS[toolUse.name];
+  if (!field) return null;
+  if (toolUse.name === 'db_migrate_up' && input.tool !== 'custom') return null;
+  const cmd = input[field];
+  return typeof cmd === 'string' && cmd ? cmd : null;
 }
+
+const SHELL_COMMAND_FIELDS: Record<string, string> = {
+  run_command: 'command',
+  run_tests: 'command',
+  research_log_experiment: 'command',
+  mutation_test: 'test_command',
+  db_migrate_up: 'custom_command',
+};
 
 /** Commands that run the command after them: `sudo rm -rf x` is an rm. */
 const WRAPPERS = new Set(['sudo', 'doas', 'xargs', 'nohup', 'time', 'command', 'exec', 'env', 'nice']);
