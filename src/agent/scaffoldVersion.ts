@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.19** (2026-11) — image prompts run with their text; autonomy
+ *   answers only approvals (#419). A prompt with images ran with empty text,
+ *   so retrieval, skill matching and message framing saw nothing; it now runs
+ *   with its text, and keeps its images on regenerate and Reconnect.
+ *   Switching to autonomous answers "Allow" only on cards that offer it:
+ *   clarifying questions, checkpoints, diff previews and irrecoverable
+ *   reconfirms stay pending instead of getting "Allow". PATCH. No eval: the
+ *   evals send no images and never switch modes mid-run.
  * - **7.0.18** (2026-11) — graph-expanded retrieval hits use 1-based lines
  *   (#426). Caller and callee bodies in system-prompt retrieval and
  *   `project_knowledge_search` started a line early and lost their last line,
@@ -440,7 +448,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.18';
+export const SCAFFOLD_VERSION = '7.0.19';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

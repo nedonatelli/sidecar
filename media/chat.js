@@ -1720,8 +1720,8 @@
     const bareCmd = text.trim().match(/^(\/\w+)$/);
     if (bareCmd && usageHints[bareCmd[1]]) {
       const hint = usageHints[bareCmd[1]];
-      appendMessage('user', text);
-      appendMessage('assistant', `**Usage:** \`${hint.syntax}\`\n${hint.desc}`);
+      appendCommandMessage('user', text);
+      appendCommandMessage('assistant', `**Usage:** \`${hint.syntax}\`\n${hint.desc}`);
       input.value = '';
       input.style.height = 'auto';
       return;
@@ -1729,49 +1729,49 @@
 
     // Check for slash commands
     if (text.startsWith('/batch ') || text.startsWith('/batch\n')) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'batch', text: text.slice(7) });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.startsWith('/sandbox ')) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'sandboxTask', text: text.slice(9).trim() });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/commit') {
-      appendMessage('user', '/commit');
+      appendCommandMessage('user', '/commit');
       vscode.postMessage({ command: 'generateCommit' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/doc') {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'generateDoc' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.startsWith('/spec ')) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'spec', text: text.slice(6).trim() });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/insight') {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'insight' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/init') {
-      appendMessage('user', '/init');
+      appendCommandMessage('user', '/init');
       vscode.postMessage({ command: 'initProject' });
       input.value = '';
       input.style.height = 'auto';
@@ -1780,7 +1780,7 @@
     if (text.startsWith('/bg ')) {
       const bgTask = text.slice(4).trim();
       if (bgTask) {
-        appendMessage('user', text);
+        appendCommandMessage('user', text);
         vscode.postMessage({ command: 'bgStart', text: bgTask });
         input.value = '';
         input.style.height = 'auto';
@@ -1790,7 +1790,7 @@
     if (text.startsWith('/fork ')) {
       const forkTask = text.slice(6).trim();
       if (forkTask) {
-        appendMessage('user', text);
+        appendCommandMessage('user', text);
         vscode.postMessage({ command: 'forkStart', text: forkTask });
         input.value = '';
         input.style.height = 'auto';
@@ -1807,7 +1807,7 @@
             .map((s) => s.trim())
             .filter(Boolean)
         : [];
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'arenaStart', models });
       input.value = '';
       input.style.height = 'auto';
@@ -1816,7 +1816,7 @@
     if (text.startsWith('/arena agent ')) {
       const agentTask = text.slice(13).trim();
       if (agentTask) {
-        appendMessage('user', text);
+        appendCommandMessage('user', text);
         vscode.postMessage({ command: 'arenaAgentStart', text: agentTask });
         input.value = '';
         input.style.height = 'auto';
@@ -1824,14 +1824,14 @@
       }
     }
     if (text.trim() === '/notebook') {
-      appendMessage('user', '/notebook');
+      appendCommandMessage('user', '/notebook');
       vscode.postMessage({ command: 'notebookStart' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/code') {
-      appendMessage('user', '/code');
+      appendCommandMessage('user', '/code');
       vscode.postMessage({ command: 'notebookExit' });
       input.value = '';
       input.style.height = 'auto';
@@ -1851,147 +1851,147 @@
       return;
     }
     if (text.trim() === '/test') {
-      appendMessage('user', '/test');
+      appendCommandMessage('user', '/test');
       vscode.postMessage({ command: 'generateTests' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/lint' || text.startsWith('/lint ')) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'lint', text: text.slice(5).trim() || undefined });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/deps') {
-      appendMessage('user', '/deps');
+      appendCommandMessage('user', '/deps');
       vscode.postMessage({ command: 'deps' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.startsWith('/scaffold')) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'scaffold', text: text.slice(9).trim() });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/context') {
-      appendMessage('user', '/context');
+      appendCommandMessage('user', '/context');
       vscode.postMessage({ command: 'context' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/usage') {
-      appendMessage('user', '/usage');
+      appendCommandMessage('user', '/usage');
       vscode.postMessage({ command: 'usage' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/resume') {
-      appendMessage('user', '/resume');
+      appendCommandMessage('user', '/resume');
       vscode.postMessage({ command: 'resume' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/audit' || text.trim().startsWith('/audit ')) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'audit', text: text.slice(6).trim() });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/insights') {
-      appendMessage('user', '/insights');
+      appendCommandMessage('user', '/insights');
       vscode.postMessage({ command: 'insights' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/mcp') {
-      appendMessage('user', '/mcp');
+      appendCommandMessage('user', '/mcp');
       vscode.postMessage({ command: 'mcpStatus' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/scan') {
-      appendMessage('user', '/scan');
+      appendCommandMessage('user', '/scan');
       vscode.postMessage({ command: 'scanStaged' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/review') {
-      appendMessage('user', '/review');
+      appendCommandMessage('user', '/review');
       vscode.postMessage({ command: 'reviewChanges' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/pr-summary') {
-      appendMessage('user', '/pr-summary');
+      appendCommandMessage('user', '/pr-summary');
       vscode.postMessage({ command: 'prSummary' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/pr') {
-      appendMessage('user', '/pr');
+      appendCommandMessage('user', '/pr');
       vscode.postMessage({ command: 'createDraftPR' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/ci') {
-      appendMessage('user', '/ci');
+      appendCommandMessage('user', '/ci');
       vscode.postMessage({ command: 'analyzeCi' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/review-comments') {
-      appendMessage('user', '/review-comments');
+      appendCommandMessage('user', '/review-comments');
       vscode.postMessage({ command: 'reviewPrComments' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/pr-respond') {
-      appendMessage('user', '/pr-respond');
+      appendCommandMessage('user', '/pr-respond');
       vscode.postMessage({ command: 'respondPrComments' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/pr-ready') {
-      appendMessage('user', '/pr-ready');
+      appendCommandMessage('user', '/pr-ready');
       vscode.postMessage({ command: 'markPrReady' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/pr-ci') {
-      appendMessage('user', '/pr-ci');
+      appendCommandMessage('user', '/pr-ci');
       vscode.postMessage({ command: 'checkPrCi' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/commit-message') {
-      appendMessage('user', '/commit-message');
+      appendCommandMessage('user', '/commit-message');
       vscode.postMessage({ command: 'commitMessage' });
       input.value = '';
       input.style.height = 'auto';
       return;
     }
     if (text.trim() === '/memories') {
-      appendMessage('user', '/memories');
+      appendCommandMessage('user', '/memories');
       vscode.postMessage({ command: 'listMemories' });
       input.value = '';
       input.style.height = 'auto';
@@ -1999,7 +1999,7 @@
     }
     if (text.trim().startsWith('/memory-search ')) {
       const query = text.trim().slice('/memory-search '.length).trim();
-      appendMessage('user', '/memory-search ' + query);
+      appendCommandMessage('user', '/memory-search ' + query);
       vscode.postMessage({ command: 'searchMemories', text: query });
       input.value = '';
       input.style.height = 'auto';
@@ -2014,7 +2014,7 @@
     if (text.trim().startsWith('/revise ')) {
       const feedback = text.trim().slice(8);
       if (feedback) {
-        appendMessage('user', 'Revise: ' + feedback);
+        appendCommandMessage('user', 'Revise: ' + feedback);
         vscode.postMessage({ command: 'revisePlan', text: feedback });
       }
       input.value = '';
@@ -2042,8 +2042,8 @@
       return;
     }
     if (text.trim() === '/help') {
-      appendMessage('user', '/help');
-      appendMessage(
+      appendCommandMessage('user', '/help');
+      appendCommandMessage(
         'assistant',
         '**Available chat commands:**\n' +
           slashCommands.map((sc) => '`' + sc.cmd + '` — ' + sc.desc).join('\n') +
@@ -2057,7 +2057,7 @@
     // Check for move/rename commands
     const moveCmd = tryParseMoveCommand(text);
     if (moveCmd) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'moveFile', sourcePath: moveCmd.source, destPath: moveCmd.dest });
       input.value = '';
       input.style.height = 'auto';
@@ -2067,7 +2067,7 @@
     // Check for GitHub commands
     const ghCmd = tryParseGitHubCommand(text);
     if (ghCmd) {
-      appendMessage('user', text);
+      appendCommandMessage('user', text);
       vscode.postMessage({ command: 'github', ...ghCmd });
       input.value = '';
       input.style.height = 'auto';
@@ -2086,6 +2086,10 @@
       }
       messageText = prefix + text;
       const div = appendMessage('user', displayText);
+      // The bubble shows the typed text; the extension keeps it after the
+      // file blocks. Retry and Edit put them back in front, or Retry's exact
+      // match failed and both sent the text without the files (#419).
+      div.dataset.attachments = prefix;
       const label = document.createElement('span');
       label.className = 'attachment-label';
       label.textContent =
@@ -3085,7 +3089,7 @@
     // Disable entirely if IntersectionObserver isn't available (older webviews).
     const supported = typeof IntersectionObserver !== 'undefined';
 
-    // Map placeholder → { role, raw, wasErr } so we can rebuild on rehydrate.
+    // Map placeholder → { role, raw, wasErr, kept } so we can rebuild on rehydrate.
     const placeholderData = new WeakMap();
 
     let detachObserver = null;
@@ -3122,7 +3126,12 @@
 
       const role = el.classList.contains('user') ? 'user' : 'assistant';
       const wasErr = el.classList.contains('error');
-      placeholderData.set(el, { role, wasErr, raw: el.dataset.rawContent });
+      // Parts added after the bubble was rendered, which rawContent can't
+      // rebuild: a plan's buttons, an attachment label (#419).
+      const kept = [...el.children].filter(
+        (c) => c.classList.contains('plan-actions') || c.classList.contains('attachment-label'),
+      );
+      placeholderData.set(el, { role, wasErr, raw: el.dataset.rawContent, kept });
 
       el.classList.add('virtualized');
       el.style.height = height + 'px';
@@ -3150,7 +3159,10 @@
       } else {
         el.textContent = data.raw;
       }
-      addMessageActions(el);
+      // isAssistant as when first rendered: without it an answer came back
+      // with Edit in place of Regenerate (#419).
+      addMessageActions(el, data.role === 'assistant' && !data.wasErr);
+      for (const node of data.kept) el.appendChild(node);
 
       placeholderData.delete(el);
       reattachObserver.unobserve(el);
@@ -3209,12 +3221,22 @@
       regenBtn.title = 'Regenerate response';
       regenBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        // The extension regenerates the last turn, whichever bubble was
+        // clicked; an older answer's button used to redo the latest (#419).
+        if (!isInLatestTurn(div)) {
+          showNotice('Only the latest response can be regenerated.');
+          return;
+        }
+        if (isLoading) {
+          showNotice('Cannot regenerate while the agent is running. Press Escape to stop first.');
+          return;
+        }
         vscode.postMessage({ command: 'regenerateResponse' });
       });
       actions.appendChild(regenBtn);
     }
 
-    if (!isAssistant && div.dataset.rawContent) {
+    if (!isAssistant && div.dataset.rawContent && div.dataset.msgIndex !== undefined) {
       const editBtn = document.createElement('button');
       editBtn.className = 'message-action-btn message-edit-btn';
       editBtn.innerHTML = '&#x270e;';
@@ -3239,6 +3261,13 @@
     div.appendChild(actions);
   }
 
+  /** Whether no prompt the extension keeps comes after this bubble. */
+  function isInLatestTurn(div) {
+    const prompts = messagesContainer.querySelectorAll('.message.user[data-msg-index]');
+    const lastPrompt = prompts[prompts.length - 1];
+    return !lastPrompt || !(div.compareDocumentPosition(lastPrompt) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
   /**
    * Re-send the last user prompt for an error card's Retry button. Sends the
    * bubble's stored prompt, not its textContent: the copy/edit/delete buttons
@@ -3250,7 +3279,7 @@
   function retryLastUserPrompt() {
     const lastUser = [...messagesContainer.querySelectorAll('.message.user')].pop();
     const text = lastUser ? lastUser.dataset.rawContent || '' : '';
-    if (text) vscode.postMessage({ command: 'userMessage', text });
+    if (text) vscode.postMessage({ command: 'userMessage', text: (lastUser.dataset.attachments || '') + text });
   }
 
   // ------------------------------------------------------------------
@@ -3271,7 +3300,9 @@
     div.dataset.editing = 'true';
 
     const originalContent = div.dataset.rawContent || '';
-    const originalHTML = div.innerHTML;
+    // The nodes themselves, not innerHTML: a copy of the markup has none of
+    // the action buttons' listeners, so after Cancel they did nothing (#419).
+    const originalNodes = [...div.childNodes];
 
     // Dim subsequent messages to preview what will be removed on Resend
     setTruncatePreview(div, true);
@@ -3327,7 +3358,8 @@
 
     function cancelEdit() {
       div.dataset.editing = 'false';
-      div.innerHTML = originalHTML;
+      div.replaceChildren(...originalNodes);
+      if (actionsEl) actionsEl.style.display = '';
       setTruncatePreview(div, false);
     }
 
@@ -3341,7 +3373,7 @@
         return;
       }
       div.dataset.editing = 'false';
-      vscode.postMessage({ command: 'editMessage', index, text: newText });
+      vscode.postMessage({ command: 'editMessage', index, text: (div.dataset.attachments || '') + newText });
     }
 
     cancelBtn.addEventListener('click', cancelEdit);
@@ -3714,6 +3746,14 @@
     if (messageCounter > index) messageCounter--;
   }
 
+  // A bubble for a slash command handled here or by its own extension
+  // command. It is not a history entry, so it takes no message index: it
+  // used to take the next one, and a later delete or edit acted on the
+  // wrong message -- editing could send "/usage" to the model (#419).
+  function appendCommandMessage(role, content) {
+    return appendMessage(role, content, false, false);
+  }
+
   // A one-line notice that leaves the run alone: no message index, no
   // streaming or loading state touched. For refusals of a request made
   // mid-run (delete, edit, steer), which must not end the run (#419).
@@ -3726,11 +3766,11 @@
     scrollToBottom();
   }
 
-  function appendMessage(role, content, isError = false) {
+  function appendMessage(role, content, isError = false, indexed = true) {
     hideEmptyState();
     const div = document.createElement('div');
     div.className = 'message ' + role + (isError ? ' error' : '');
-    div.dataset.msgIndex = String(messageCounter++);
+    if (indexed) div.dataset.msgIndex = String(messageCounter++);
     // Store raw markdown content for the copy button (not rendered HTML)
     div.dataset.rawContent = content || '';
     if (role === 'assistant' && !isError) {
@@ -4867,6 +4907,12 @@
         // the wrong entry in state.messages.
         if (typeof event.data.messageCount === 'number') {
           messageCounter = event.data.messageCount;
+          // A bubble past the end of history has no message: small talk the
+          // extension answered itself, or a prompt it withdrew. Left with an
+          // index, a delete or edit there acted on the next prompt (#419).
+          for (const el of messagesContainer.querySelectorAll('.message[data-msg-index]')) {
+            if (parseInt(el.dataset.msgIndex, 10) >= messageCounter) delete el.dataset.msgIndex;
+          }
         }
         setLoading(false);
         toolOutputChars.clear();

@@ -10,7 +10,7 @@
 
 import { window, workspace } from 'vscode';
 import type { ChatState } from '../chatState.js';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, updateSettingWhereSet } from '../../config/settings.js';
 import { generateInsightReport } from '../../agent/insightReport.js';
 import { generateUsageReport } from '../../agent/usageReport.js';
 import { generateContextReport } from '../../agent/contextReport.js';
@@ -295,9 +295,9 @@ export function handleSearchMemories(state: ChatState, query: string): void {
   state.postMessage({ command: 'assistantMessage', content });
 }
 
-export function handleToggleVerbose(state: ChatState): void {
+export async function handleToggleVerbose(state: ChatState): Promise<void> {
   const current = getConfig().verboseMode;
-  workspace.getConfiguration('sidecar').update('verboseMode', !current, true);
+  await updateSettingWhereSet('verboseMode', !current);
   const label = !current ? 'on' : 'off';
   state.postMessage({
     command: 'assistantMessage',

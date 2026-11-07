@@ -116,6 +116,27 @@ All notable changes to the SideCar extension will be documented in this file.
   ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The button only greyed out the plan
   card. The plan stayed pending, so a later "ok" ran the rejected plan, and any other message was
   taken as feedback to revise it. Reject now works like typing "no".
+- **The chat panel's buttons act on the message they belong to**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)):
+  - ↻ on an older answer regenerated the latest one and left the old answer on screen. Only the
+    latest answer can now be regenerated, it replaces the old one, and the prompt's images go with it.
+  - After `/help`, `/usage`, a GitHub command or a "hi", deleting or editing a later message could
+    act on the wrong one, and editing a command bubble sent the command to the model. Those bubbles
+    no longer count as messages.
+  - Retry and Edit sent a prompt without its attached files. They now keep them.
+  - After Cancel on an edit, the message's buttons did nothing. They work again.
+  - A long chat's older messages, scrolled back into view, came back with Edit on answers and without
+    their plan buttons or attachment labels.
+  - A prompt with an image now runs with its text, so project context and skills apply to it, and
+    Reconnect re-sends it.
+  - Switching to autonomous mode answered open questions with "Allow" and stopped the run at a
+    checkpoint. It now approves only the pending tool approvals.
+  - A run replaced by a new message or New Chat could end the new run's answer early and show its
+    leftover text there.
+  - `/batch` can be stopped from the panel.
+  - `/verbose` changes the setting where it is set, so a workspace value no longer hides the change.
+  - Branch in the Sessions view asks for the name first; cancelling no longer loads the session and
+    stops the running agent.
 - **Error cards no longer mistake numbers for status codes**
   ([#435](https://github.com/nedonatelli/sidecar/issues/435)). A code such as 429 or 401 was
   matched anywhere in the message, so "prompt is too long: 204291 tokens" showed as a rate limit

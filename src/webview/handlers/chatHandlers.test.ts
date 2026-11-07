@@ -27,7 +27,6 @@ import {
   handleGenerateCommit,
   handleShowSystemPrompt,
   handleDroppedPaths,
-  handleUserMessageWithImages,
   handleReconnect,
   handleEditMessage,
   checkBudgetLimits,
@@ -2315,55 +2314,6 @@ describe('recordRunCost', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleUserMessageWithImages
-// ---------------------------------------------------------------------------
-describe('handleUserMessageWithImages', () => {
-  function makeState() {
-    return {
-      messages: [] as Array<{ role: string; content: unknown }>,
-      saveHistory: vi.fn(),
-    };
-  }
-
-  it('pushes a user message with image content blocks and trailing text', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, 'look at this', [{ mediaType: 'image/png', data: 'aGVsbG8=' }]);
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0].role).toBe('user');
-    const blocks = state.messages[0].content as Array<{ type: string; text?: string; source?: unknown }>;
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0].type).toBe('image');
-    expect(blocks[1]).toEqual({ type: 'text', text: 'look at this' });
-  });
-
-  it('handles multiple images in a single submission', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, 'compare', [
-      { mediaType: 'image/png', data: 'a' },
-      { mediaType: 'image/jpeg', data: 'b' },
-      { mediaType: 'image/png', data: 'c' },
-    ]);
-    const blocks = state.messages[0].content as Array<{ type: string }>;
-    expect(blocks).toHaveLength(4); // 3 images + 1 text
-    expect(blocks.slice(0, 3).every((b) => b.type === 'image')).toBe(true);
-    expect(blocks[3].type).toBe('text');
-  });
-
-  it('handles empty text by attaching an empty text block (preserves Anthropic content shape)', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, '', [{ mediaType: 'image/png', data: 'x' }]);
-    const blocks = state.messages[0].content as Array<{ type: string; text?: string }>;
-    expect(blocks[1]).toEqual({ type: 'text', text: '' });
-  });
-
-  it('persists history immediately after pushing', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, 'a', [{ mediaType: 'image/png', data: 'x' }]);
-    expect(state.saveHistory).toHaveBeenCalledOnce();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // handleReconnect
 // ---------------------------------------------------------------------------
 describe('handleReconnect', () => {
@@ -2789,7 +2739,7 @@ describe('handleReconnect', () => {
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
       messages,
-      pendingReconnectPrompt: 'count to 10' as string | null,
+      pendingReconnectPrompt: { text: 'count to 10', images: [] } as { text: string; images: never[] } | null,
       abortController: null as AbortController | null,
       chatGeneration: 0,
       currentSteerQueue: null,
@@ -2818,6 +2768,51 @@ describe('handleReconnect', () => {
     vi.restoreAllMocks();
   });
 
+  it('re-sends a failed image prompt with its images (#419)', async () => {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+    const messages: Array<{ role: string; content: unknown }> = [];
+    const state = {
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      messages,
+      pendingReconnectPrompt: { text: 'what is this?', images: [{ mediaType: 'image/png', data: 'aGk=' }] } as {
+        text: string;
+        images: Array<{ mediaType: string; data: string }>;
+      } | null,
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      currentSteerQueue: null,
+      currentSteerDisposer: null,
+      cancelCallbacks: null,
+      pendingSteerSnapshot: null,
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        getSystemPrompt: vi.fn().mockReturnValue(''),
+        streamChat: vi.fn().mockImplementation(async function* () {
+          throw new Error('stop');
+        }),
+      },
+    };
+
+    await handleReconnect(state as never);
+
+    const prompt = state.messages.find((m) => m.role === 'user');
+    expect(prompt?.content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } },
+      { type: 'text', text: 'what is this?' },
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it('with no failed prompt, reconnects and runs nothing', async () => {
     const providerReachability = await import('../../config/providerReachability.js');
     vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
@@ -2834,7 +2829,7 @@ describe('handleReconnect', () => {
       autoSave: vi.fn(),
       trimHistory: vi.fn(),
       messages,
-      pendingReconnectPrompt: null as string | null,
+      pendingReconnectPrompt: null as { text: string; images: never[] } | null,
       abortController: null as AbortController | null,
       chatGeneration: 0,
       currentSteerQueue: null,
@@ -3284,9 +3279,224 @@ describe('handleRegenerateResponse — content block array', () => {
 
     await handleRegenerateResponse(state as never);
 
-    // The prompt was re-submitted: it is back in the history as the user's text.
-    const resent = messages.find((m) => m.role === 'user' && typeof m.content === 'string');
-    expect(String(resent?.content)).toContain('block one');
+    // The prompt is re-run as it is: one user entry, its blocks intact.
+    expect(state.messages.filter((m) => m.role === 'user')).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'block one' },
+          { type: 'text', text: 'block two' },
+        ],
+      },
+    ]);
+    vi.restoreAllMocks();
+  });
+});
+
+describe('handleRegenerateResponse (#419)', () => {
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } };
+  function regenState(messages: Array<{ role: string; content: unknown }>) {
+    return {
+      messages,
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      metricsCollector: { getCurrentRunTokens: vi.fn().mockReturnValue(0), endRun: vi.fn() },
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      abort: vi.fn(),
+      currentSteerQueue: null,
+      currentSteerDisposer: null,
+      cancelCallbacks: null,
+      pendingSteerSnapshot: null,
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+        getSystemPrompt: vi.fn().mockReturnValue(''),
+        streamChat: vi.fn().mockImplementation(async function* () {
+          throw new Error('stop');
+        }),
+      },
+    };
+  }
+
+  it("keeps the prompt's images and re-renders the panel without the stale answer", async () => {
+    const { handleRegenerateResponse } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+    const prompt = { role: 'user', content: [image, { type: 'text', text: 'what is in this picture?' }] };
+    const state = regenState([prompt, { role: 'assistant', content: 'A cat.' }]);
+
+    await handleRegenerateResponse(state as never);
+
+    // Re-sending the text alone dropped the image.
+    expect(state.messages[0]).toBe(prompt);
+    expect(state.messages.filter((m) => m.role === 'user')).toHaveLength(1);
+    expect(state.messages.some((m) => m.content === 'A cat.')).toBe(false);
+    // The old answer's bubble used to stay above the new one.
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'chatCleared' });
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'init', messages: [prompt] });
+    vi.restoreAllMocks();
+  });
+
+  it('is refused with a notice, not an error, while a run is going', async () => {
+    const { handleRegenerateResponse } = await import('./chatHandlers.js');
+    const state = regenState([
+      { role: 'user', content: 'fix it' },
+      { role: 'assistant', content: 'Done.' },
+    ]);
+    const running = new AbortController();
+    state.abortController = running;
+
+    await handleRegenerateResponse(state as never);
+
+    expect(state.messages).toHaveLength(2);
+    expect(running.signal.aborted).toBe(false);
+    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'notice' }));
+    expect(state.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'error' }));
+  });
+});
+
+describe('handleUserMessage — image prompts (#419)', () => {
+  const img = { mediaType: 'image/png', data: 'aGk=' };
+  function blockedState(messages: Array<{ role: string; content: unknown }> = []) {
+    const saved: unknown[] = [];
+    const state = {
+      messages,
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(() => saved.push(structuredClone(state.messages))),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      abortController: null as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      pendingSteerSnapshot: null,
+      pendingReconnectPrompt: null as unknown,
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      cancelCallbacks: null as (() => void) | null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        // At the daily budget, so the run stops after connecting.
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 1.0, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+    return { state, saved };
+  }
+  async function budgetBlocked() {
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+    const settingsMod = await import('../../config/settings.js');
+    vi.spyOn(settingsMod, 'getConfig').mockReturnValue({
+      dailyBudget: 1.0,
+      weeklyBudget: 0,
+      steerQueueMaxPending: 10,
+      model: 'test-model',
+      baseUrl: 'http://localhost',
+      apiKey: '',
+      agentMode: 'cautious',
+      customModes: [],
+      agentMaxIterations: 20,
+      agentMaxTokens: 4096,
+      expandThinking: false,
+      verboseMode: false,
+    } as never);
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it('records the prompt with its images and text, and withdraws it when the run never starts', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    await budgetBlocked();
+    const { state, saved } = blockedState();
+
+    await handleUserMessage(state as never, 'what is this?', { images: [img] });
+
+    // The run used to get an empty prompt, so there was nothing to withdraw.
+    expect(saved[0]).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } },
+          { type: 'text', text: 'what is this?' },
+        ],
+      },
+    ]);
+    expect(state.messages).toEqual([]);
+  });
+
+  it('records an image sent with no text', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    await budgetBlocked();
+    const { state, saved } = blockedState();
+
+    await handleUserMessage(state as never, '', { images: [img] });
+
+    expect((saved[0] as Array<{ content: Array<{ type: string }> }>)[0].content[0].type).toBe('image');
+  });
+
+  it('does not take a trailing prompt with the same text as a retry of this one', async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    await budgetBlocked();
+    const { state, saved } = blockedState([{ role: 'user', content: 'what is this?' }]);
+
+    await handleUserMessage(state as never, 'what is this?', { images: [img] });
+
+    const recorded = saved[0] as Array<{ content: unknown }>;
+    expect(Array.isArray(recorded[recorded.length - 1].content)).toBe(true);
+  });
+});
+
+describe('handleUserMessage — a superseded run (#419)', () => {
+  it("cancels the old run's callbacks, so its done and buffered text stay out of the new run", async () => {
+    const { handleUserMessage } = await import('./chatHandlers.js');
+    const providerReachability = await import('../../config/providerReachability.js');
+    vi.spyOn(providerReachability, 'isProviderReachable').mockResolvedValue(true);
+    const cancelOld = vi.fn();
+    const state = {
+      messages: [],
+      postMessage: vi.fn(),
+      saveHistory: vi.fn(),
+      autoSave: vi.fn(),
+      trimHistory: vi.fn(),
+      abortController: new AbortController() as AbortController | null,
+      chatGeneration: 0,
+      pendingPartialAssistant: null,
+      pendingSteerSnapshot: null,
+      currentSteerQueue: null as unknown,
+      currentSteerDisposer: null as unknown,
+      cancelCallbacks: cancelOld as (() => void) | null,
+      metricsCollector: {
+        getCurrentRunTokens: vi.fn().mockReturnValue(0),
+        endRun: vi.fn(),
+        getSpendBreakdown: vi.fn().mockReturnValue({ daily: 10, weekly: 0 }),
+      },
+      client: {
+        getProviderType: vi.fn().mockReturnValue('anthropic'),
+        isLocalOllama: vi.fn().mockReturnValue(false),
+        isLocalEndpoint: vi.fn().mockReturnValue(false),
+        setTurnOverride: vi.fn(),
+        updateConnection: vi.fn(),
+        updateModel: vi.fn(),
+      },
+    };
+
+    await handleUserMessage(state as never, 'new message');
+
+    expect(cancelOld).toHaveBeenCalledOnce();
     vi.restoreAllMocks();
   });
 });

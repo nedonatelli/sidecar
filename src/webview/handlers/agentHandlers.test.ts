@@ -7,7 +7,7 @@ import {
   handleGetSkillsForMenu,
   handleToggleVerbose,
 } from './infoHandlers.js';
-import { window, workspace } from 'vscode';
+import { window, workspace, ConfigurationTarget } from 'vscode';
 
 // Mock dependent modules so agentHandlers can call them without real LLM/filesystem
 const { mockGenerateDocumentation } = vi.hoisted(() => ({
@@ -814,6 +814,30 @@ describe('handleBatch', () => {
     expect(runBatch).toHaveBeenCalled();
   });
 
+  // /batch never showed the run as busy, so the panel had no Stop for it (#419).
+  it('shows the run as busy while it runs, so Stop reaches it', async () => {
+    const { parseBatchInput, runBatch } = await import('../../agent/batch.js');
+    vi.mocked(parseBatchInput).mockReturnValueOnce({ mode: 'sequential', tasks: [{ id: 0, prompt: 't' }] } as never);
+    const mod = await import('./agentHandlers.js');
+    const state = {
+      client: { updateConnection: vi.fn(), updateModel: vi.fn(), updateSystemPrompt: vi.fn() },
+      postMessage: vi.fn(),
+      abortController: null as AbortController | null,
+    };
+    let busyDuringRun = false;
+    vi.mocked(runBatch).mockImplementationOnce((async () => {
+      busyDuringRun = state.postMessage.mock.calls.some(
+        (c: unknown[]) =>
+          (c[0] as { command?: string; isLoading?: boolean }).command === 'setLoading' &&
+          (c[0] as { isLoading?: boolean }).isLoading === true,
+      );
+      return [];
+    }) as never);
+    await mod.handleBatch(state as never, '- t');
+    expect(busyDuringRun).toBe(true);
+    expect(state.postMessage).toHaveBeenLastCalledWith({ command: 'setLoading', isLoading: false });
+  });
+
   // /batch used to pass only a logger, the MCP manager and the approval mode:
   // review-mode writes hit disk unreviewed, and with no confirmFn every
   // cautious-mode approval was denied.
@@ -1113,23 +1137,35 @@ describe('handleGetSkillsForMenu', () => {
 });
 
 describe('handleToggleVerbose', () => {
+  let update: ReturnType<typeof vi.fn>;
+  let inspected: Record<string, unknown> | undefined;
   beforeEach(() => {
+    update = vi.fn().mockResolvedValue(undefined);
+    inspected = undefined;
     vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
       get: (key: string, def?: unknown) => (key === 'verboseMode' ? false : def),
-      update: vi.fn().mockResolvedValue(undefined),
+      update,
       has: () => false,
-      inspect: () => undefined,
+      inspect: () => inspected,
     } as unknown as ReturnType<typeof workspace.getConfiguration>);
   });
 
-  it('toggles verbose off→on and posts "on" message', () => {
+  it('toggles verbose off→on and posts "on" message', async () => {
     const state = { postMessage: vi.fn() };
-    handleToggleVerbose(state as never);
+    await handleToggleVerbose(state as never);
     const call = (state.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
       (c: unknown[]) => (c[0] as { command?: string }).command === 'assistantMessage',
     );
     expect(call?.[0].content).toContain('on');
     expect(state.postMessage).toHaveBeenCalledWith({ command: 'done' });
+    expect(update).toHaveBeenCalledWith('verboseMode', expect.any(Boolean), ConfigurationTarget.Global);
+  });
+
+  it('writes the workspace value when the workspace sets one (#419)', async () => {
+    // A Global write under a workspace value left verbose mode unchanged.
+    inspected = { workspaceValue: false };
+    await handleToggleVerbose({ postMessage: vi.fn() } as never);
+    expect(update).toHaveBeenCalledWith('verboseMode', expect.any(Boolean), ConfigurationTarget.Workspace);
   });
 });
 

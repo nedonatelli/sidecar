@@ -67,6 +67,8 @@ export async function handleBatch(state: ChatState, text: string): Promise<void>
 
   const abortController = new AbortController();
   state.abortController = abortController;
+  // Shows the run as busy, so the panel's Stop reaches this abort controller (#419).
+  state.postMessage({ command: 'setLoading', isLoading: true });
 
   const config = getConfig();
   const resolved = resolveMode(config.agentMode, config.customModes);
