@@ -40,6 +40,20 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.19 — image prompts run with their text; autonomy answers only approvals (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.18,
+noting the patch.
+
+- **What changed:** A prompt with images ran with empty text, so retrieval,
+  skill matching and message framing saw nothing; it now runs with its text,
+  and keeps its images on regenerate and Reconnect (#419). Switching to
+  autonomous mode answers "Allow" only on cards that offer it. Clarifying
+  questions, checkpoints, diff previews and irrecoverable-operation reconfirms
+  stay pending, where before each got "Allow" as its answer.
+- **Measured:** no eval. The evals send no images and never switch modes during
+  a run.
+
 ### 7.0.18 — graph-expanded retrieval hits use 1-based lines (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.17,
