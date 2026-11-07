@@ -33,6 +33,18 @@ describe('commitCallOf', () => {
     expect(commitCallOf(use('run_command', { command: 'git commit --amend --no-edit' }))?.addsFiles).toBe(false);
   });
 
+  // #425: COMMIT_ALL_RE read the message too.
+  it('does not read flags or a `git add` inside the commit message', () => {
+    for (const command of [
+      'git commit -m "parser: accept -a as an alias"',
+      "git commit --message='drop the --all flag'",
+      'git commit -m "docs: say to git add the file first"',
+    ]) {
+      expect(commitCallOf(use('run_command', { command }))?.addsFiles, command).toBe(false);
+    }
+    expect(commitCallOf(use('run_command', { command: 'git commit -m "x -a" -a' }))?.addsFiles).toBe(true);
+  });
+
   it('notices a force-add in the same command', () => {
     for (const command of [
       'git add -f logs/a.txt && git commit -m x',

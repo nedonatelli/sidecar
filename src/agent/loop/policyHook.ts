@@ -51,6 +51,12 @@ export interface HookContext {
   toolResults?: ToolResultContentBlock[];
   /** Concatenated text content the model emitted this turn. */
   fullText?: string;
+  /**
+   * Set by the bus: a hook registered earlier already reported a mutation in
+   * this phase call. The completion gate reads it so one empty response gets
+   * one reprompt, not the action reprompt and the gate's both (#425).
+   */
+  earlierHookMutated?: boolean;
 }
 
 /**
@@ -183,6 +189,7 @@ export class HookBus {
       const method = h[phase];
       if (!method) continue;
       try {
+        ctx.earlierHookMutated = anyMutated;
         const result = await method.call(h, state, ctx);
         if (result && result.mutated) anyMutated = true;
       } catch (err) {

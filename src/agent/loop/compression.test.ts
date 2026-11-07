@@ -400,6 +400,35 @@ describe('compressMessages — state-establishing immunity', () => {
     expect(content.length).toBeLessThan(2000);
   });
 
+  // #425: the exemption covered the whole message, so a run_command anywhere
+  // in a batch kept every other result of that batch uncompressed.
+  it('immunity covers the state-establishing result, not the rest of its batch', () => {
+    const msgs: ChatMessage[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu-run', name: 'run_command', input: {} } as ContentBlock,
+          { type: 'tool_use', id: 'tu-read', name: 'read_file', input: {} } as ContentBlock,
+          { type: 'tool_use', id: 'tu-bash', name: 'bash', input: {} } as ContentBlock,
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu-run', content: LONG, is_error: false },
+          { type: 'tool_result', tool_use_id: 'tu-read', content: LONG, is_error: false },
+          { type: 'tool_result', tool_use_id: 'tu-bash', content: LONG, is_error: false },
+        ],
+      },
+      ...Array.from({ length: 12 }, () => ({ role: 'assistant' as const, content: 'pad' })),
+    ];
+    compressMessages(msgs);
+    const [run, read, bash] = (msgs[1].content as ContentBlock[]).map((b) => (b as { content: string }).content);
+    expect(run).toHaveLength(2000);
+    expect(read.length).toBeLessThan(2000);
+    expect(bash).toHaveLength(2000); // an alias of run_command
+  });
+
   it('immunity applies only to the immediately-following user message, not later ones', () => {
     // The state-establishing pair is at indices 0-1.
     // A second unrelated tool result at index 3 should still be compressed.

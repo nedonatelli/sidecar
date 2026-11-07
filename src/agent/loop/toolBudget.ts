@@ -14,6 +14,7 @@ import type { LoopState } from './state.js';
 import { TOOL_CALL_BUDGETS, DEFAULT_TOOL_CALL_BUDGET } from '../../config/constants.js';
 import { recordDecision } from '../decisions.js';
 import { TEST_RUNNER_RE } from '../completionGate/pathUtil.js';
+import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 
 /**
  * The budget for a tool in this run: the scaffolding profile's table when one
@@ -30,17 +31,28 @@ export function baseToolBudget(toolName: string): number {
 
 /** Commands that only search, print or filter. `sed` only as `sed -n`; `find` is checked for -exec/-delete. */
 const SHELL_SEARCH_RE = /^(grep|egrep|fgrep|rg|find|ls|cat|head|tail|wc|tree|awk|sed\s+-n|sort|uniq|cut)(\s|$)/;
-/** Writes a file: a redirect other than to /dev/null or between streams, tee, find's -exec/-delete, sed -i. */
-const SHELL_WRITE_RE = /(^|[^0-9&])>(?!\s*\/dev\/null|&)|\btee\b|\s-(exec|execdir|delete|ok)\b|\bsed\s+(-\w+\s+)*-i/;
+/**
+ * Writes a file: a redirect other than to /dev/null or between streams, tee,
+ * find's -exec/-delete, sed -i. A redirect is any `>` not followed by another
+ * `>`, `&` or /dev/null, so `2>err.txt`, `&>out` and `>>log` all write (#425:
+ * `2>file` used to read as a search). Tested on the raw command, quotes and
+ * all: a `>` inside quotes may be awk's own redirect.
+ */
+const SHELL_WRITE_RE = />(?!\s*\/dev\/null|&|>)|\btee\b|\s-(exec|execdir|delete|ok)\b|\bsed\s+(-\w+\s+)*-i/;
+
+/** The command with each quoted string emptied, so a `|` or `;` inside quotes does not split it. */
+function unquoted(command: string): string {
+  return command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
+}
 
 /**
  * True when a shell command only searches or prints files: every segment
- * (split on `&&`, `||`, `;` and `|`) is a `cd` or one of the search commands,
- * at least one is a search, and nothing writes a file.
+ * (split on `&&`, `||`, `;` and `|` outside quotes) is a `cd` or one of the
+ * search commands, at least one is a search, and nothing writes a file.
  */
 export function isShellSearch(command: string): boolean {
   if (SHELL_WRITE_RE.test(command)) return false;
-  const segments = command
+  const segments = unquoted(command)
     .split(/&&|\|\||;|\|/)
     .map((s) => s.trim())
     .filter(Boolean);
@@ -57,9 +69,13 @@ export function isShellSearch(command: string): boolean {
  * now draw on the search budget, so tests keep run_command's.
  */
 export function budgetKey(toolName: string, input: unknown): string {
-  if (toolName !== 'run_command') return toolName;
+  // Keyed by the tool the call runs as (#425): `bash`, `shell` and the other
+  // run_command aliases each had a budget of their own, and `str_replace` never
+  // counted against edit_file's.
+  const name = resolveToolNameAlias(toolName) ?? toolName;
+  if (name !== 'run_command') return name;
   const command = (input as { command?: unknown } | undefined)?.command;
-  return typeof command === 'string' && isShellSearch(command) ? 'grep' : toolName;
+  return typeof command === 'string' && isShellSearch(command) ? 'grep' : name;
 }
 
 /** What checkToolBudget needs to know about the call and the run. */
@@ -74,6 +90,12 @@ export interface ToolBudgetCheckOptions {
   isOffered?: (toolName: string) => boolean;
   /** The refused call's input: a test command sent through run_command is pointed at run_tests. */
   input?: unknown;
+  /**
+   * Tools already refused in this batch of parallel calls (#425). Three refused
+   * calls in one turn count as one refusal: the refused-repeat stop in cycle
+   * detection is meant to take three turns, not one.
+   */
+  refusedThisBatch?: Set<string>;
 }
 
 /**
@@ -98,9 +120,32 @@ export const FAILED_EDIT_FACTOR = 2;
  */
 export function isToolBudgetSpent(state: LoopState, toolName: string): boolean {
   const budget = toolBudgetFor(state, toolName);
-  const count = state.toolCallCounts.get(toolName) ?? 0;
+  const count = (state.toolCallCounts.get(toolName) ?? 0) + toolCallsInFlight(state, toolName);
   if (toolName !== 'edit_file') return count >= budget;
   return count >= budget || (state.failedEditCalls ?? 0) >= budget * FAILED_EDIT_FACTOR;
+}
+
+/** Calls to `toolName` that passed the budget check and have not finished. */
+function toolCallsInFlight(state: LoopState, toolName: string): number {
+  return state.toolCallsInFlight?.get(toolName) ?? 0;
+}
+
+/**
+ * Hold a slot of `toolName`'s budget for a call that passed checkToolBudget and
+ * is about to run, until `releaseToolUse` (#425). Every call of a parallel
+ * batch is checked before any of them runs, so without a hold a batch of 8
+ * edits at 19 of 20 all ran. An edit still running counts as applied.
+ */
+export function reserveToolUse(state: LoopState, toolName: string): void {
+  const inFlight = (state.toolCallsInFlight ??= new Map<string, number>());
+  inFlight.set(toolName, (inFlight.get(toolName) ?? 0) + 1);
+}
+
+/** Give back the slot `reserveToolUse` held, whether or not the call ran. */
+export function releaseToolUse(state: LoopState, toolName: string): void {
+  const n = toolCallsInFlight(state, toolName);
+  if (n <= 1) state.toolCallsInFlight?.delete(toolName);
+  else state.toolCallsInFlight?.set(toolName, n - 1);
 }
 
 /** How many times `toolName` has been refused for its budget this run. */
@@ -133,8 +178,9 @@ export function toolBudgetRefusals(state: LoopState, toolName: string): number {
 export function checkToolBudget(state: LoopState, toolName: string, opts: ToolBudgetCheckOptions = {}): string | null {
   if (!isToolBudgetSpent(state, toolName)) return null;
   const refusals = (state.toolBudgetRefusals ??= new Map<string, number>());
-  const nth = (refusals.get(toolName) ?? 0) + 1;
+  const nth = (refusals.get(toolName) ?? 0) + (opts.refusedThisBatch?.has(toolName) ? 0 : 1);
   refusals.set(toolName, nth);
+  opts.refusedThisBatch?.add(toolName);
 
   const facts = toolName === 'edit_file' ? refuseEdit(state, nth) : refuseTool(state, toolName, nth);
   if (nth > 1) return `${facts} ${repeatRefusal(state, toolName, nth, opts)}`;
@@ -154,7 +200,7 @@ export function checkToolBudget(state: LoopState, toolName: string, opts: ToolBu
 
 /** Record a refusal of `toolName` and say why it was refused. */
 function refuseTool(state: LoopState, toolName: string, nth: number): string {
-  const count = state.toolCallCounts.get(toolName) ?? 0;
+  const count = (state.toolCallCounts.get(toolName) ?? 0) + toolCallsInFlight(state, toolName);
   const budget = toolBudgetFor(state, toolName);
   recordDecision(
     state.logger,
@@ -168,6 +214,7 @@ function refuseTool(state: LoopState, toolName: string, nth: number): string {
 /** Record a refusal of edit_file and say why, and what became of the edits. */
 function refuseEdit(state: LoopState, nth: number): string {
   const applied = state.toolCallCounts.get('edit_file') ?? 0;
+  const running = toolCallsInFlight(state, 'edit_file');
   const failed = state.failedEditCalls ?? 0;
   const budget = toolBudgetFor(state, 'edit_file');
   const failedCap = budget * FAILED_EDIT_FACTOR;
@@ -178,8 +225,10 @@ function refuseEdit(state: LoopState, nth: number): string {
     'warn',
   );
   const why =
-    applied >= budget
-      ? `edit_file has applied ${applied} edits this session (budget: ${budget}).`
+    applied + running >= budget
+      ? `edit_file has applied ${applied} edits this session` +
+        (running > 0 ? `, and ${running} more from this turn ${running === 1 ? 'is' : 'are'} still running` : '') +
+        ` (budget: ${budget}).`
       : `${failed} edit_file calls this session failed and changed nothing (limit: ${failedCap}).`;
   const kept =
     applied === 0
@@ -259,7 +308,8 @@ function budgetAlternatives(state: LoopState, toolName: string, opts: ToolBudget
  * has actually been dispatched (success or error both count — we want to
  * limit total invocations, not just successful ones, to prevent retry
  * floods). NOT called for budget-exceeded or pre-execution aborts.
- * The exception is a FAILED edit_file call: it counts toward
+ * The exception is an edit_file call that changed nothing — it failed, or it
+ * was a no-op such as "No change needed" (#425): it counts toward
  * `failedEditCalls`, not edit_file's budget (isToolBudgetSpent).
  */
 export function recordToolUse(state: LoopState, toolName: string, outcome: { failed?: boolean } = {}): void {

@@ -8,7 +8,8 @@ import { advancePlanPastWrite } from '../plans/externalPlan.js';
 import { spawnSubAgent } from '../subagent.js';
 import { runLocalWorker } from '../localWorker.js';
 import type { LoopState } from './state.js';
-import { budgetKey, checkToolBudget, recordToolUse } from './toolBudget.js';
+import { budgetKey, checkToolBudget, recordToolUse, releaseToolUse, reserveToolUse } from './toolBudget.js';
+import { changedFiles } from '../tools/toolOutcome.js';
 import { resolveIterationTools } from './streamTurn.js';
 import { parseMangledToolName } from './textParsing.js';
 import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
@@ -57,6 +58,8 @@ interface ExecutionContext {
   signal: AbortSignal;
   filesReadThisTurn: Set<string>;
   editedSinceRead: Set<string>;
+  /** Tools refused for their budget in this batch: one turn is one refusal (#425). */
+  refusedThisBatch?: Set<string>;
 }
 
 /**
@@ -96,6 +99,7 @@ export async function executeToolUses(
     signal: batchSignal,
     filesReadThisTurn: state.filesReadThisRun,
     editedSinceRead: state.editedSinceRead,
+    refusedThisBatch: new Set<string>(),
   };
 
   // Snapshot the plan object identity so a successful update_plan in this
@@ -176,7 +180,7 @@ export async function executeOneToolUse(
 export type { ExecutionContext };
 
 async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): Promise<ToolResultContentBlock> {
-  const { state, options, callbacks, signal } = ctx;
+  const { state, options, callbacks } = ctx;
 
   // A call withheld from an unfinished turn never runs (#164 ML-15). Checked
   // first: spawn_agent and delegate_task below never reach executeTool's own
@@ -197,14 +201,16 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
   // recorded as a tool_budget decision there). ask_user is only suggested when
   // a clarification UI can answer it. A run_command that only searches spends
   // grep's budget (#311), and its refusal says so.
+  // Keyed by the tool an alias runs as (#425).
   const budget = budgetKey(toolUse.name, toolUse.input);
   const refusal = checkToolBudget(state, budget, {
     canAskUser: options.clarifyFn !== undefined,
     isOffered,
     input: toolUse.input,
+    refusedThisBatch: ctx.refusedThisBatch,
   });
   const budgetError =
-    refusal && budget !== toolUse.name
+    refusal && budget !== (resolveToolNameAlias(toolUse.name) ?? toolUse.name)
       ? `This ${toolUse.name} call only searches, so it counts against ${budget}'s budget. ${refusal}`
       : refusal;
   if (budgetError) {
@@ -216,6 +222,25 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
       is_error: true,
     };
   }
+
+  // Hold the budget slot until the call finishes (#425). Every call of a batch
+  // reaches the check above before any of them reaches an await, so without
+  // the hold each saw the same count and a batch overshot the budget.
+  reserveToolUse(state, budget);
+  try {
+    return await executeWithinBudget(ctx, toolUse, budget, isOffered);
+  } finally {
+    releaseToolUse(state, budget);
+  }
+}
+
+async function executeWithinBudget(
+  ctx: ExecutionContext,
+  toolUse: ToolUseContentBlock,
+  budget: string,
+  isOffered: (n: string) => boolean,
+): Promise<ToolResultContentBlock> {
+  const { state, options, callbacks, signal } = ctx;
 
   // Plan-mode runtime gate: only ask_user is permitted.
   // Returns an error block so the model sees the rejection and outputs
@@ -352,7 +377,13 @@ async function executeOne(ctx: ExecutionContext, toolUse: ToolUseContentBlock): 
     extraTools: options.extraTools,
     toolOutcomes: state.toolOutcomes,
   });
-  recordToolUse(state, budgetKey(toolUse.name, toolUse.input), { failed: result.is_error === true });
+  // An edit that changed nothing -- refused, or a no-op such as "No change
+  // needed" -- does not spend edit_file's budget (#268, #425). Read from the
+  // call's outcome (ADR-008): a no-op is not an error.
+  const changedNothing =
+    result.is_error === true ||
+    (budget === 'edit_file' && changedFiles(state.toolOutcomes.get(toolUse.id)).length === 0);
+  recordToolUse(state, budget, { failed: changedNothing });
   state.logger?.logToolResult(toolUse.name, result.content, result.is_error || false);
 
   // Record tool use in agent memory — both successes and failures

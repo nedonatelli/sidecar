@@ -73,16 +73,28 @@ const SHELL_COMMIT_RE = /\bgit\s+(?:-[Cc]\s+\S+\s+)*commit\b/;
 const SHELL_ADD_RE = /\bgit\s+(?:-[Cc]\s+\S+\s+)*add\b/;
 const FORCE_ADD_RE = /\bgit\s+(?:-[Cc]\s+\S+\s+)*add\b[^;&|\n]*\s(?:-[a-zA-Z]*f[a-zA-Z]*|--force)(?=\s|$)/;
 const COMMIT_ALL_RE = /\bcommit\b[^;&|\n]*\s(?:-[a-zA-Z]*a[a-zA-Z]*|--all)\b/;
+/** A commit message argument: `-m`/`-am`/`--message`, then a quoted string or one word. */
+const COMMIT_MESSAGE_RE = /(\s-[a-zA-Z]*m|\s--message)(=|\s+)("(?:[^"\\]|\\.)*"|'[^']*'|\S+)/g;
+
+/**
+ * The command with each commit message emptied (#425): a message such as
+ * "drop the -a flag" read as `commit -a`. The flags around it stay, so
+ * `-am "..."` still reads as `-a`.
+ */
+function withoutCommitMessages(cmd: string): string {
+  return cmd.replace(COMMIT_MESSAGE_RE, "$1$2''");
+}
 
 /** A tool call that makes a git commit, or null. */
 export function commitCallOf(toolUse: ToolUseContentBlock): CommitCall | null {
   if (toolUse.name === 'git_commit') return { via: 'git_commit', addsFiles: false, forceAdds: false };
   const cmd = shellCommandOf(toolUse);
   if (!cmd || !SHELL_COMMIT_RE.test(cmd)) return null;
+  const flags = withoutCommitMessages(cmd);
   return {
     via: 'command',
-    addsFiles: SHELL_ADD_RE.test(cmd) || COMMIT_ALL_RE.test(cmd),
-    forceAdds: FORCE_ADD_RE.test(cmd),
+    addsFiles: SHELL_ADD_RE.test(flags) || COMMIT_ALL_RE.test(flags),
+    forceAdds: FORCE_ADD_RE.test(flags),
   };
 }
 

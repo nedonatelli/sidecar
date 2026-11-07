@@ -1044,10 +1044,21 @@ describe('writeFile enforce-edit-over-rewrite block', () => {
     expect(r).toContain('edit_file');
   });
 
-  it('matches the edited file by basename (relative vs absolute path)', async () => {
-    const filesEditedViaEditTool = new Set<string>(['/abs/proj/gui_calculator.py']);
-    const r = await mockedWrite({ path: 'gui_calculator.py', content: 'x' }, { filesEditedViaEditTool });
-    expect(r).toContain('was NOT applied');
+  // #425: the set holds outcome paths (workspace-relative, forward-slashed), so
+  // a backslashed or ./ spelling of the same file is that file.
+  it('matches the edited file however the path is spelled', async () => {
+    const filesEditedViaEditTool = new Set<string>(['src/gui_calculator.py']);
+    for (const p of ['src\\gui_calculator.py', './src/gui_calculator.py', 'SRC/gui_calculator.py']) {
+      const r = await mockedWrite({ path: p, content: 'x' }, { filesEditedViaEditTool });
+      expect(r, p).toContain('was NOT applied');
+    }
+  });
+
+  // #425: a suffix match let a lock on tests/conftest.py hold the root one.
+  it('does NOT block a root file because a nested file of the same name is locked', async () => {
+    const filesEditedViaEditTool = new Set<string>(['tests/conftest.py']);
+    const r = await mockedWrite({ path: 'conftest.py', content: 'x' }, { filesEditedViaEditTool });
+    expect(r).toBe('File written: conftest.py');
   });
 
   it('allows write_file to a file that has NOT been edited (e.g. a fresh create)', async () => {
@@ -1137,6 +1148,31 @@ describe('writeFile verify-before-rewrite block', () => {
     const ctx = { writesSinceVerifyByFile };
     writesSinceVerifyByFile.set('gui.py', 0); // simulate a verification reset
     expect(await mockedWrite({ path: 'gui.py', content: 'fixed' }, ctx)).toBe('File written: gui.py');
+  });
+
+  // #425: the counter went up before the later guards ran, so writes they
+  // refused -- and this block's own refusals -- counted as rewrites.
+  it('counts only the writes that applied', async () => {
+    const writesSinceVerifyByFile = new Map<string, number>();
+    const ctx = { writesSinceVerifyByFile };
+    // Each write drops `import os` while still using `os`: the dropped-import guard refuses it.
+    vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(Buffer.from('import os\nprint(os.getcwd())\n') as never);
+    for (let i = 0; i < 4; i++) {
+      const r = await mockedWrite({ path: 'gui.py', content: `print(os.getcwd(), ${i})\n` }, ctx);
+      expect(r).not.toMatch(/^File written/);
+      expect(r).not.toContain('without running or checking it');
+    }
+    expect(writesSinceVerifyByFile.get('gui.py') ?? 0).toBe(0);
+    expect(await mockedWrite({ path: 'gui.py', content: 'import os\nprint(1)\n' }, ctx)).toBe('File written: gui.py');
+    expect(writesSinceVerifyByFile.get('gui.py')).toBe(1);
+
+    // The block's own refusals do not count either.
+    writesSinceVerifyByFile.set('gui.py', 3);
+    for (let i = 0; i < 2; i++) {
+      const blocked = await mockedWrite({ path: 'gui.py', content: `import os\nprint(${i + 2})\n` }, ctx);
+      expect(blocked).toContain('rewritten `gui.py` 3 times');
+    }
+    expect(writesSinceVerifyByFile.get('gui.py')).toBe(3);
   });
 
   it('tracks the counter per file (rewriting A does not block B)', async () => {

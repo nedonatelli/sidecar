@@ -263,6 +263,41 @@ describe('shell tool runtime resolution', () => {
         expect(injected.execute.mock.calls[0][0]).toBe('npm test');
         expect(out).toContain('(ignored `timeout`');
       });
+
+      // #425: `timeout` says how to run, not what, so it is no attempt to scope.
+      it('runs the whole suite for a call whose only extra key is `timeout`', async () => {
+        (workspace.findFiles as ReturnType<typeof vi.fn>).mockImplementation(async () => []);
+        await expect(runTests({ timeout: 600 }, makeContext(new ShellSessionStub()))).resolves.toContain(
+          'Could not detect test runner',
+        );
+      });
+    });
+
+    // #425: a refusal returned as a string was a successful call, so the
+    // completion gate credited a test run that never happened.
+    describe('a target it refuses is a tool error', () => {
+      it('throws for a path it will not run, and runs nothing', async () => {
+        const injected = new ShellSessionStub();
+        await expect(
+          runTests({ command: 'python3 -m pytest', file: '../outside/test_a.py' }, makeContext(injected)),
+        ).rejects.toThrow('Invalid file path for run_tests');
+        await expect(
+          runTests({ command: 'python3 -m pytest', file: 'tests/test_a.py;rm -rf x' }, makeContext(injected)),
+        ).rejects.toThrow('shell metacharacters');
+        expect(injected.execute).not.toHaveBeenCalled();
+      });
+
+      it('runs a pytest node id, and still refuses a colon that is not one', async () => {
+        const injected = new ShellSessionStub();
+        await runTests(
+          { command: 'python3 -m pytest', file: 'tests/test_a.py::TestParse::test_empty' },
+          makeContext(injected),
+        );
+        expect(injected.execute.mock.calls[0][0]).toBe('python3 -m pytest "tests/test_a.py::TestParse::test_empty"');
+        await expect(
+          runTests({ command: 'python3 -m pytest', file: 'tests/test_a.py:stream' }, makeContext(injected)),
+        ).rejects.toThrow('":" is not allowed');
+      });
     });
 
     it('prefers pytest when the pytest probe succeeds (collects pytest-style AND unittest tests)', async () => {
