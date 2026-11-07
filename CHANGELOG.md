@@ -24,6 +24,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A Copilot model id or family matches only Copilot's models**
+  ([#230](https://github.com/nedonatelli/sidecar/issues/230)). If another extension offered a
+  model with the configured id or family, SideCar used it without notice. Now only Copilot's
+  models match; otherwise SideCar uses Copilot's first model and says so.
 - **Retrieved context is more accurate, and compaction no longer holds up the next turn**
   ([#426](https://github.com/nedonatelli/sidecar/issues/426)):
   - A caller or callee found through the symbol graph now shows the right lines. Its body started
