@@ -89,19 +89,23 @@ function graphNeighbors(
   const callers: Neighbor[] = [];
   const callees: Neighbor[] = [];
 
+  // Graph symbol ranges are the analyzers' 0-based inclusive rows; call-site
+  // lines and EnrichedHit ranges are 1-based (like the direct hits, #113).
+  // Convert here, once, so a call on a function's last line is attributed and
+  // every consumer slices the right body (#426).
   if (directions.includes('callers')) {
     for (const call of graph.getCallers(symbolName)) {
       const containing = graph
         .getSymbolsInFile(call.callerFile)
-        .find((s) => s.startLine <= call.line && call.line <= s.endLine);
+        .find((s) => s.startLine + 1 <= call.line && call.line <= s.endLine + 1);
       if (containing) {
         callers.push({
           filePath: call.callerFile,
           qualifiedName: containing.qualifiedName,
           name: containing.name,
           kind: containing.type,
-          startLine: containing.startLine,
-          endLine: containing.endLine,
+          startLine: containing.startLine + 1,
+          endLine: containing.endLine + 1,
           direction: 'callers',
         });
       }
@@ -117,8 +121,8 @@ function graphNeighbors(
           qualifiedName: def.qualifiedName,
           name: def.name,
           kind: def.type,
-          startLine: def.startLine,
-          endLine: def.endLine,
+          startLine: def.startLine + 1,
+          endLine: def.endLine + 1,
           direction: 'callees',
         });
       }

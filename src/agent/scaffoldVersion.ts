@@ -80,6 +80,14 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.18** (2026-11) — graph-expanded retrieval hits use 1-based lines
+ *   (#426). Caller and callee bodies in system-prompt retrieval and
+ *   `project_knowledge_search` started a line early and lost their last line,
+ *   and a call on a function's last line was never attributed. The
+ *   summarizer's timeout and Stop cancel its request. The fallback workspace
+ *   context (index not ready) is passed verbatim; a filter that never filtered
+ *   and joined lines before `### ` headings is removed. PATCH. No eval: neither
+ *   eval harness attaches a symbol graph or calls injectSystemContext.
  * - **7.0.17** (2026-11) — integration tool results (#427). `mutation_test`
  *   in a shadow or fork runs its tests there, not on the main tree, so mutants
  *   can be killed. GitHub check runs and review comments are read past the
@@ -432,7 +440,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.17';
+export const SCAFFOLD_VERSION = '7.0.18';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

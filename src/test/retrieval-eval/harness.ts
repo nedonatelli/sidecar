@@ -146,8 +146,10 @@ function seedFileIntoGraph(file: FixtureFile, graph: SymbolGraph): void {
     qualifiedName: s.qualifiedName,
     type: s.kind as SymbolEntry['type'],
     filePath: file.path,
-    startLine: s.startLine,
-    endLine: s.endLine,
+    // The fixture numbers lines 1-based; graph symbols carry the analyzers'
+    // 0-based rows, which `enrichWithGraphWalk` converts back (#426).
+    startLine: s.startLine - 1,
+    endLine: s.endLine - 1,
     exported: s.exported,
   }));
   const callEdges: CallEdge[] = file.calls.map((c) => ({

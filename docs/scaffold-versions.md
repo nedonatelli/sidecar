@@ -40,6 +40,21 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.18 — graph-expanded retrieval hits use 1-based lines (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.17,
+noting the patch.
+
+- **What changed:** Graph-expanded caller and callee hits, in system-prompt
+  retrieval and `project_knowledge_search`, used the analyzers' 0-based rows as
+  1-based: each body started a line early and lost its last line, and a call on
+  a function's last line was never attributed (#426). The summarizer's timeout,
+  and Stop, now cancel its request. The fallback workspace context (used while
+  the index is not ready) is passed verbatim: a section filter that never
+  filtered, and joined the line before every `### ` heading, is removed.
+- **Measured:** no eval. Neither eval harness attaches a symbol graph to the
+  tool runtime or calls `injectSystemContext`, so no eval reaches this code.
+
 ### 7.0.17 — integration tool results (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.16,
