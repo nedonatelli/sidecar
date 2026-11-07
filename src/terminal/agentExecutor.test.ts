@@ -287,6 +287,88 @@ describe('AgentTerminalExecutor', () => {
       const result = await execPromise;
       expect(result!.exitCode).toBe(0); // NOT 99
     });
+
+    it('reports an unknown exit code as a failure, not 0 (#422)', async () => {
+      // VS Code sends `undefined` for a user ^C or an integration that could not tell.
+      const exec = fakeExecution(['partial\n']);
+      const { terminal } = makeFakeTerminal({ withIntegration: true, executions: [exec] });
+      vi.spyOn(window, 'createTerminal').mockReturnValue(terminal as never);
+      vi.spyOn(window, 'onDidCloseTerminal').mockReturnValue({ dispose: () => {} } as never);
+      let endListener: ((ev: any) => void) | null = null;
+      vi.spyOn(window as any, 'onDidEndTerminalShellExecution').mockImplementation(((listener: (ev: any) => void) => {
+        endListener = listener;
+        return { dispose: () => {} };
+      }) as never);
+
+      executor = new AgentTerminalExecutor({ shellIntegrationTimeoutMs: 100 });
+      const execPromise = executor.execute('npm test');
+      await exec.drained;
+      endListener!({ execution: exec, exitCode: undefined });
+
+      expect((await execPromise)!.exitCode).toBe(-1);
+    });
+  });
+
+  describe('execute — one command at a time (#422)', () => {
+    // A turn's tool calls run in parallel, and executeCommand ^C's whatever the
+    // terminal is running, so `npm test` + `npm run lint` cut the first short.
+    const setup = (executions: unknown[]) => {
+      const { terminal } = makeFakeTerminal({ withIntegration: true, executions: executions as never });
+      const started: string[] = [];
+      const original = terminal.shellIntegration.executeCommand;
+      terminal.shellIntegration.executeCommand = (cmd: string) => {
+        started.push(cmd);
+        return original(cmd);
+      };
+      vi.spyOn(window, 'createTerminal').mockReturnValue(terminal as never);
+      vi.spyOn(window, 'onDidCloseTerminal').mockReturnValue({ dispose: () => {} } as never);
+      const listeners: Array<(ev: any) => void> = [];
+      vi.spyOn(window as any, 'onDidEndTerminalShellExecution').mockImplementation(((l: (ev: any) => void) => {
+        listeners.push(l);
+        return { dispose: () => {} };
+      }) as never);
+      const end = (execution: unknown, exitCode = 0) => listeners.forEach((l) => l({ execution, exitCode }));
+      return { started, end };
+    };
+
+    it('starts the second command only after the first has finished', async () => {
+      const first = fakeExecution(['tests\n']);
+      const second = fakeExecution(['lint\n']);
+      const { started, end } = setup([first, second]);
+      executor = new AgentTerminalExecutor({ shellIntegrationTimeoutMs: 100 });
+
+      const a = executor.execute('npm test');
+      const b = executor.execute('npm run lint');
+      await first.drained;
+      await new Promise((r) => setImmediate(r));
+      expect(started).toHaveLength(1);
+
+      end(first, 3);
+      expect((await a)!.exitCode).toBe(3);
+      await second.drained;
+      expect(started).toHaveLength(2);
+      end(second);
+      expect((await b)!.stdout).toBe('lint\n');
+    });
+
+    it('does not start a queued command whose turn was stopped while it waited', async () => {
+      const first = fakeExecution([]);
+      const { started, end } = setup([first]);
+      executor = new AgentTerminalExecutor({ shellIntegrationTimeoutMs: 100 });
+      const controller = new AbortController();
+
+      const a = executor.execute('npm test');
+      const b = executor.execute('npm run lint', { signal: controller.signal });
+      await first.drained;
+      controller.abort();
+      end(first);
+      await a;
+
+      const result = await b;
+      expect(result!.timedOut).toBe(true);
+      expect(result!.stdout).toContain('aborted');
+      expect(started).toHaveLength(1);
+    });
   });
 
   describe('execute — timeout + abort', () => {

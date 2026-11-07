@@ -34,6 +34,12 @@ describe('guardStdin', () => {
     expect(guardStdin('dir 2>nul', 'C:\\Windows\\System32\\cmd.exe', 'win32')).toBe('(dir 2>nul) < NUL');
   });
 
+  it('recognizes Git Bash from the backslash path vscode.env.shell reports on Windows (#422)', () => {
+    const bash = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    expect(guardStdin('cat', bash, 'win32')).toBe('{ cat\n} < /dev/null');
+    expect(guardStdin('ls x 2>nul', bash, 'win32')).toBe('{ ls x 2>/dev/null\n} < /dev/null');
+  });
+
   it('uses cmd.exe syntax on cmd.exe', () => {
     expect(guardStdin('dir', 'C:\\Windows\\System32\\cmd.exe')).toBe('(dir) < NUL');
   });

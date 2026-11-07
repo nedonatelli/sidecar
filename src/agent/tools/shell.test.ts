@@ -274,17 +274,43 @@ describe('shell tool runtime resolution', () => {
       expect(injected.execute.mock.calls[1][0]).toBe('python3 -m pytest "test_calc.py"');
     });
 
-    it('falls back to `python -m unittest` when pytest is NOT available', async () => {
+    it('falls back to `python3 -m unittest` when python3 runs but pytest is NOT available (#422)', async () => {
       (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
       const injected = new ShellSessionStub();
-      // Probe (pytest --version) reports pytest missing → exitCode 1; the run keeps default.
+      // Probe (pytest --version) reports pytest missing → exitCode 1: python3 exists,
+      // and a bare `python` may not (Debian/Ubuntu without python-is-python3).
       injected.execute = vi.fn(async (cmd: string) =>
         cmd.includes('pytest --version')
           ? { stdout: 'No module named pytest', exitCode: 1, timedOut: false }
           : { stdout: 'ok', exitCode: 0, timedOut: false },
       );
       await runTests({ file: 'test_calc.py' }, makeContext(injected));
+      expect(injected.execute.mock.calls[1][0]).toBe('python3 -m unittest "test_calc.py"');
+    });
+
+    it('falls back to `python -m unittest` when python3 itself is not found', async () => {
+      (workspace.findFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ fsPath: '/mock/test_calc.py' }]);
+      const injected = new ShellSessionStub();
+      injected.execute = vi.fn(async (cmd: string) =>
+        cmd.includes('pytest --version')
+          ? { stdout: 'bash: python3: command not found', exitCode: 127, timedOut: false }
+          : { stdout: 'ok', exitCode: 0, timedOut: false },
+      );
+      await runTests({ file: 'test_calc.py' }, makeContext(injected));
       expect(injected.execute.mock.calls[1][0]).toBe('python -m unittest "test_calc.py"');
+    });
+
+    it('throws when the test run times out, so partial output is not read as a pass (#422)', async () => {
+      const injected = new ShellSessionStub();
+      // Terminal path: a timed-out run keeps exit code 0.
+      injected.execute = vi.fn(async () => ({
+        stdout: 'ok  \texample.com/pkg/a\t0.01s\n\n⚠️ Command timed out after 120s with no output',
+        exitCode: 0,
+        timedOut: true,
+      }));
+      await expect(runTests({ command: 'go test ./...' }, makeContext(injected))).rejects.toThrow(
+        /did not finish[\s\S]*neither a pass nor a fail/,
+      );
     });
 
     it('uses `unittest discover` (no file) when pytest is unavailable and no file is given', async () => {
@@ -296,7 +322,7 @@ describe('shell tool runtime resolution', () => {
           : { stdout: 'ok', exitCode: 0, timedOut: false },
       );
       await runTests({}, makeContext(injected));
-      expect(injected.execute.mock.calls[1][0]).toBe('python -m unittest discover');
+      expect(injected.execute.mock.calls[1][0]).toBe('python3 -m unittest discover');
     });
 
     it('still reports "could not detect" when no manifest and no Python test files exist', async () => {
