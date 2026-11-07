@@ -522,7 +522,7 @@
           "sidecar.scaffolding.scratchCleanup": {
             "type": "boolean",
             "default": true,
-            "description": "At the end of a run, move scratch files the agent created and left behind (reproduce_issue.py, verify_fix.py, a script in the workspace root, ...) to .sidecar/scratchpad/<run id>/, which git ignores, and list them in the reply. Only files the run created are moved, and only when nothing else in the change refers to them; a new file in a test directory with an ordinary name is kept, and so is a file your message names. Skipped when you stop the run and in audit mode."
+            "description": "At the end of a run, move scratch scripts the agent created and left behind (reproduce_issue.py, repro.py, scratch.py, test_repro.py; verify_*, debug_*, check_*, compare_* and test_* scripts in the workspace root) to .sidecar/scratchpad/<run id>/, which git ignores, and list them in the reply. Only files this run wrote with a file tool or named in one of its commands are moved, and only when nothing else in the change refers to them. Files in a test directory are never moved, and neither are other scripts (config files, setup.py, a script you asked for) or a file your message names. Skipped when you stop the run and in audit mode."
           },
           "sidecar.scaffolding.keepBestOverEngineerBytes": {
             "type": "number",
