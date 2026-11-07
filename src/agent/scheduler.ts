@@ -29,6 +29,29 @@ async function savePendingPatch(taskName: string, startedAt: number, diff: strin
   }
 }
 
+/**
+ * The paths an `onSave` glob is tested against for one saved file: the path
+ * relative to the workspace folder that holds it, then the absolute path, then
+ * the bare file name. All forward-slash. Globs are anchored at both ends, so
+ * while only the last two were tried, a workspace-relative pattern such as
+ * "src/**" never fired (#431).
+ * The prefix test ignores case and separators, as on Windows a URI's fsPath and
+ * a folder's can differ in drive-letter case. The innermost folder wins when
+ * folders nest. A file outside every folder has no relative form and is tested
+ * against the absolute path and the file name only.
+ */
+export function onSaveMatchPaths(fsPath: string, folderPaths: readonly string[]): string[] {
+  const abs = fsPath.replace(/\\/g, '/');
+  let rel: string | undefined;
+  for (const folder of folderPaths) {
+    const root = folder.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!root || !abs.toLowerCase().startsWith(root.toLowerCase() + '/')) continue;
+    const candidate = abs.slice(root.length + 1);
+    if (rel === undefined || candidate.length < rel.length) rel = candidate;
+  }
+  return [...(rel !== undefined ? [rel] : []), abs, path.posix.basename(abs)];
+}
+
 // ---------------------------------------------------------------------------
 // Scheduler — runs ScheduledTask entries on three trigger types:
 //
@@ -118,12 +141,13 @@ export class Scheduler implements Disposable {
     // File-save tasks: one workspace listener shared across all onSave tasks
     if (hasSave) {
       this.saveSub = workspace.onDidSaveTextDocument((doc) => {
-        const saved = doc.uri.fsPath.replace(/\\/g, '/');
+        const folders = (workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+        const candidates = onSaveMatchPaths(doc.uri.fsPath, folders);
         for (const task of enabled) {
           if (!task.onSave?.length) continue;
-          const matches = task.onSave.some((g) => matchGlob(g, saved) || matchGlob(g, path.basename(saved)));
+          const matches = task.onSave.some((g) => candidates.some((p) => matchGlob(g, p)));
           if (matches) {
-            this.logger?.info(`Scheduled task "${task.name}" triggered by save: ${path.basename(saved)}`);
+            this.logger?.info(`Scheduled task "${task.name}" triggered by save: ${candidates[0]}`);
             void this.runTask(task);
           }
         }

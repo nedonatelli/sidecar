@@ -38,6 +38,11 @@ All notable changes to the SideCar extension will be documented in this file.
   - The workspace context used before the index is ready now includes each file exactly as it is.
     A step meant to keep only the relevant parts never kept anything out, and it removed the line
     break before every `### ` line in a file. That step is gone.
+- **Scheduled-task `onSave` globs match workspace-relative paths**
+  ([#431](https://github.com/nedonatelli/sidecar/issues/431)). A glob was tested only against the
+  saved file's absolute path and its file name, so `src/**/*.ts` never fired and only `**/`-prefixed
+  or bare-name patterns worked. It is now also tested against the path relative to the workspace
+  folder. Patterns that worked before still do.
 - **Integration fixes** ([#427](https://github.com/nedonatelli/sidecar/issues/427)):
   - `mutation_test` in a shadow workspace or fork runs the tests there. It wrote each mutant into
     the shadow but ran the tests on the main tree, so every mutant "survived".
