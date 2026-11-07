@@ -161,12 +161,21 @@ const TEST_TARGET_ALIASES: readonly string[] = [
   'test_label',
 ];
 
+/**
+ * Keys that say how to run, not what to run (#425). A whole-suite call that
+ * carries one, such as `timeout`, still means the whole suite; it used to be
+ * refused as an attempt to scope the run with a key run_tests cannot read.
+ */
+const NOT_A_TARGET: readonly string[] = ['timeout', 'description'];
+
 export interface TestTarget {
   file?: string;
   /** Disclosure for the result: which key was read as `file`, what was ignored. */
   note: string;
   /** Keys run_tests neither declares nor reads as `file`. */
   unknown: string[];
+  /** The `unknown` keys that may have been meant as the target: all but NOT_A_TARGET. */
+  unreadTargets: string[];
 }
 
 /** Read `file`, or else the first alias that carries a string, from a run_tests input. */
@@ -187,5 +196,5 @@ export function resolveTestTarget(input: Record<string, unknown>): TestTarget {
   if (unknown.length > 0) {
     note += `\n(ignored ${unknown.map((k) => `\`${k}\``).join(', ')}: run_tests takes only \`command\` and \`file\`)`;
   }
-  return { file, note, unknown };
+  return { file, note, unknown, unreadTargets: unknown.filter((k) => !NOT_A_TARGET.includes(k)) };
 }

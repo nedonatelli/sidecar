@@ -4,7 +4,9 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/t
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { MAX_UNVERIFIED_REWRITES } from '../tools/fs.js';
-import { changedFiles, fileToolName } from '../tools/toolOutcome.js';
+import { changedFiles, fileToolName, outcomePath } from '../tools/toolOutcome.js';
+import { resolveTestTarget } from '../tools/testRunnerDetect.js';
+import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 import { injectNudge } from './nudge.js';
 
 /** Times the loop will defer a write-thrash bail per file to force a verify first. */
@@ -115,18 +117,15 @@ export function recordSuccessfulEdits(pendingToolUses: ToolUseContentBlock[], st
   }
 }
 
-/** True if any entry of `set` shares `filePath`'s basename. */
 /**
- * Path-suffix match: exact, or one path is a `/`-boundary suffix of the other
- * (handles the model using a relative path one place and an absolute/longer path
- * another). Crucially NOT a bare-basename match — `src/util.py` and
- * `test/util.py` do NOT match, so two same-named files in different dirs don't
- * share locks/budgets or release each other.
+ * The same file: both read as workspace-relative forward-slash paths (the form
+ * outcome paths take, ADR-008), ignoring case. `./src/a.py`, `src\a.py` and
+ * `src/a.py` match. Not a suffix match (#425): that let a root `conftest.py`
+ * share a lock with `tests/conftest.py`, while a backslash defeated it. Write
+ * tools refuse absolute paths, so no key is one.
  */
 function pathsMatch(a: string, b: string): boolean {
-  const x = a.toLowerCase();
-  const y = b.toLowerCase();
-  return x === y || x.endsWith('/' + y) || y.endsWith('/' + x);
+  return outcomePath(a).toLowerCase() === outcomePath(b).toLowerCase();
 }
 
 function setHasByBasename(set: Set<string>, filePath: string): boolean {
@@ -450,9 +449,13 @@ export function resetVerifyCountersForVerifications(pendingToolUses: ToolUseCont
   }
 
   for (const tu of pendingToolUses) {
-    if (tu.name !== 'run_command' && tu.name !== 'run_tests') continue;
+    const name = resolveToolNameAlias(tu.name) ?? tu.name;
+    if (name !== 'run_command' && name !== 'run_tests') continue;
     const input = tu.input as Record<string, unknown>;
-    const ref = `${String(input.command ?? '')} ${String(input.file ?? '')}`.toLowerCase();
+    // The target as run_tests reads it, as the completion gate does (#386,
+    // #425): a run scoped by `path` or `label` verified that file too.
+    const target = name === 'run_tests' ? resolveTestTarget(input).file : undefined;
+    const ref = `${String(input.command ?? '')} ${target ?? ''}`.toLowerCase();
     if (!ref.trim()) continue;
     for (const file of [...state.writesSinceVerifyByFile.keys()]) {
       if (ref.includes(file.toLowerCase()) || ref.includes(moduleNameOf(file))) {

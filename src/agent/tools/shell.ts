@@ -425,6 +425,20 @@ export async function runCommand(input: Record<string, unknown>, context?: ToolE
   return output + (maskWarning ?? '') + (checker ? missingCheckerNote(checker) : '');
 }
 
+/**
+ * validateFilePath for a test target, which may be a pytest node id
+ * (`tests/test_a.py::TestA::test_b`, #425). The colon rule exists for NTFS
+ * alternate data streams, so the path before the first `::` is checked as a
+ * path and each part after it must be a plain identifier.
+ */
+function validateTestTarget(target: string): string | null {
+  const [filePart, ...nodes] = target.split('::');
+  if (nodes.length > 0 && filePart && nodes.every((n) => /^[A-Za-z_]\w*$/.test(n))) {
+    return validateFilePath(filePart);
+  }
+  return validateFilePath(target);
+}
+
 export async function runTests(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   let command = input.command as string | undefined;
   const resolved = resolveTestTarget(input);
@@ -433,11 +447,11 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
   // A key we can't read and nothing else saying what to run: the model meant to
   // scope the run, and the whole suite can take longer than the task has left.
   // Say what the tool takes rather than guess.
-  if (!command && file === undefined && resolved.unknown.length > 0) {
+  if (!command && file === undefined && resolved.unreadTargets.length > 0) {
     // Thrown, not returned: a returned string is a successful call, and the
     // completion gate would count this as a whole-suite test run.
     throw new Error(
-      `run_tests did not run: it does not take ${resolved.unknown.map((k) => `\`${k}\``).join(', ')}. ` +
+      `run_tests did not run: it does not take ${resolved.unreadTargets.map((k) => `\`${k}\``).join(', ')}. ` +
         'Pass the test file or label as `file`, or a full test command as `command`. ' +
         'Call it with neither to run the whole suite.',
     );
@@ -555,10 +569,14 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
   }
 
   if (file) {
-    const pathError = validateFilePath(file);
-    if (pathError) return `Invalid file path for run_tests: ${pathError}`;
+    // Thrown, not returned (#425): a returned refusal read to the completion
+    // gate as a test run, and credited tests that never ran.
+    const pathError = validateTestTarget(file);
+    if (pathError) throw new Error(`Invalid file path for run_tests: ${pathError}`);
     if (hasShellMetachar(file)) {
-      return `Invalid file path for run_tests: "${file}" contains shell metacharacters. Use a plain relative path.`;
+      throw new Error(
+        `Invalid file path for run_tests: "${file}" contains shell metacharacters. Use a plain relative path.`,
+      );
     }
     // Convert the target to the form THIS runner accepts. Django's
     // runtests.py takes a dotted label, not a path: passing

@@ -24,6 +24,37 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Tool limits and checks count what actually happened**
+  ([#425](https://github.com/nedonatelli/sidecar/issues/425)):
+  - A call under another tool's name spends that tool's limit. `bash` and `shell` count against
+    `run_command`, and `str_replace` against `edit_file`, instead of each getting a limit of its
+    own.
+  - Calls made together in one turn no longer run past a limit. With one edit left, a turn of
+    eight edits runs one. Several refused calls in one turn count as one refusal, so the agent is
+    no longer stopped after a single turn of them.
+  - An `edit_file` that changed nothing ("No change needed") no longer uses up an edit.
+  - A shell search with `|` or `;` inside quotes counts as a search, and one that writes errors to
+    a file (`2>out.txt`) doesn't.
+  - A `run_tests` call it refused (a bad path) is reported as an error, so the agent is no longer
+    credited with tests that never ran. It now accepts a pytest test id
+    (`tests/test_a.py::test_b`), and a whole-suite call that also passes `timeout`.
+  - A `write_file` that was refused no longer counts toward "rewritten N times without verifying",
+    and a run of tests named by `path` or `label` resets that count, as one named by `file` does.
+  - The rule that keeps `write_file` off a file the agent is editing applies to that file only: a
+    lock on `tests/conftest.py` no longer covers the root `conftest.py`, and `src\a.py` is the
+    same file as `src/a.py`.
+  - When the agent replies without a tool call, it gets one prompt, not a request to use tools and
+    a request to verify at once.
+  - A regression guard that has used all its attempts says so. The notice never appeared after a
+    turn with tool calls.
+  - A `run_command` result kept whole in long sessions no longer keeps the other results of its
+    turn whole too.
+  - Keep-best revert covers files written under another tool's name or with the path sent as
+    `file_path` or `file`.
+  - A commit message that mentions `-a` or `git add` no longer makes a commit read as staging every
+    file.
+  - `git_push` reports a push blocked by branch protection as an error, and no longer retries a
+    failed push. `git_search_history` reports a git failure instead of "No commits found".
 - **Failed edits get more accurate guidance**
   ([#161](https://github.com/nedonatelli/sidecar/issues/161)). When an `edit_file` call doesn't
   land, the agent is told less that is wrong:

@@ -400,6 +400,10 @@ export interface LoopState {
   // run. A repeat refusal escalates, and cycle detection counts a turn of
   // nothing but refused repeats (#268). toolBudget.ts is the only writer.
   toolBudgetRefusals?: Map<string, number>;
+  // Calls that passed the budget check and have not finished yet (#425). The
+  // calls of one batch are all checked before any of them runs, so without
+  // this a batch of 8 edits at 19/20 all ran. toolBudget.ts is the only reader.
+  toolCallsInFlight?: Map<string, number>;
 
   // Completion-gate state (tracks edited files and verification calls).
   // gate.ts + executeToolUses.ts both touch it.

@@ -32,6 +32,8 @@ vi.mock('../localWorker.js', () => ({
 vi.mock('./toolBudget.js', async (importOriginal) => ({
   // The real budgetKey: which budget a call spends is what #311 tests here.
   budgetKey: (await importOriginal<typeof import('./toolBudget.js')>()).budgetKey,
+  reserveToolUse: (await importOriginal<typeof import('./toolBudget.js')>()).reserveToolUse,
+  releaseToolUse: (await importOriginal<typeof import('./toolBudget.js')>()).releaseToolUse,
   checkToolBudget: vi.fn(() => null),
   recordToolUse: vi.fn(),
 }));
@@ -343,9 +345,11 @@ describe('executeToolUses — budget check short-circuit', () => {
   // #268: a failed edit_file call must not spend edit_file's budget, so the
   // executor tells recordToolUse whether the call failed.
   it('tells recordToolUse whether the call failed', async () => {
+    const state = catalogState();
+    state.toolOutcomes.set('tu-edit_file', { kind: 'mutated', paths: ['a.ts'] });
     const run = () =>
       executeToolUses(
-        catalogState(),
+        state,
         [use('edit_file')],
         {} as SideCarClient,
         {} as AgentOptions,

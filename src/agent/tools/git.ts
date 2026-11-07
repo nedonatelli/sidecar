@@ -336,6 +336,11 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
   const push = () =>
     input.setUpstream ? git.pushWithUpstream(target.remote, target.branch) : git.push(target.remote, target.branch);
 
+  // The check only decides; the push runs once, below (#425). It used to run
+  // inside the check's try, so a failed push there was swallowed as a failed
+  // check and the push was tried a second time.
+  let protectionNote = '';
+  let blocked: string | null = null;
   if (config.branchProtectionEnabled) {
     try {
       const parsed = target.url ? GitHubAPI.parseRepo(target.url) : null;
@@ -346,17 +351,14 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
           const protection = await api.getBranchProtection(parsed.owner, parsed.repo, target.branch).catch(() => null);
           if (!canPushDirect(protection)) {
             const summary = formatProtectionMarkdown(summarizeProtection(protection));
-            return (
+            blocked =
               `Branch protection check: \`${target.branch}\` requires a pull request — direct push is blocked.\n\n` +
               summary +
-              `\n\nPush aborted. Create a PR from this branch instead of pushing directly.`
-            );
-          }
-          if (config.branchProtectionWarnEvenIfPassing && protection) {
+              `\n\nPush aborted. Create a PR from this branch instead of pushing directly.`;
+          } else if (config.branchProtectionWarnEvenIfPassing && protection) {
             const lines = summarizeProtection(protection);
             if (lines.length > 0) {
-              const pushResult = await push();
-              return `${pushResult}\n\nBranch protection on \`${target.branch}\`:\n${formatProtectionMarkdown(lines)}`;
+              protectionNote = `\n\nBranch protection on \`${target.branch}\`:\n${formatProtectionMarkdown(lines)}`;
             }
           }
         }
@@ -365,9 +367,11 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
       // Non-fatal — if the protection check fails for any reason, fall through to the push.
     }
   }
+  // Thrown, not returned (#425): nothing was pushed, and a returned string reads as is_error=false.
+  if (blocked) throw new Error(blocked);
 
   try {
-    return await push();
+    return (await push()) + protectionNote;
   } catch (err) {
     throw new Error(`git push failed: ${formatToolError(err)}`);
   }
@@ -581,6 +585,14 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
 
     const seen = new Set<string>();
     const results: Array<{ hash: string; date: string; author: string; subject: string; via: string }> = [];
+    // A failed search is not an empty one (#425): "No commits found" after git
+    // itself failed (not a repository, a bad path) told the model the history
+    // had no match. One search failing in "both" mode still reports the other's hits.
+    const failures: string[] = [];
+    const orFail = (err: unknown): string => {
+      failures.push(formatToolError(err));
+      return '';
+    };
 
     if (searchType === 'message' || searchType === 'both') {
       const raw = await runGit([
@@ -591,7 +603,7 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
         `--grep=${query}`,
         '--regexp-ignore-case',
         ...pathArgs,
-      ]).catch(() => '');
+      ]).catch(orFail);
       for (const c of parseCommits(raw)) {
         if (!seen.has(c.hash)) {
           seen.add(c.hash);
@@ -601,7 +613,7 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
     }
 
     if (searchType === 'content' || searchType === 'both') {
-      const raw = await runGit(['log', '--all', `-${maxResults}`, logFormat, '-S', query, ...pathArgs]).catch(() => '');
+      const raw = await runGit(['log', '--all', `-${maxResults}`, logFormat, '-S', query, ...pathArgs]).catch(orFail);
       for (const c of parseCommits(raw)) {
         if (!seen.has(c.hash)) {
           seen.add(c.hash);
@@ -611,6 +623,7 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
     }
 
     if (results.length === 0) {
+      if (failures.length > 0) throw new Error(failures[0]);
       return `No commits found matching "${query}"${pathArg ? ` in ${pathArg}` : ''}.`;
     }
 

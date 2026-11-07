@@ -34,6 +34,21 @@ const SYNONYMS: Record<string, readonly string[]> = {
   question: ['q', 'prompt', 'message'],
 };
 
+/**
+ * The file path a file-tool call names, read before dispatch the way the remap
+ * will read it: `path`, else the first path synonym holding a non-empty string.
+ * For code that looks at a call before executeTool remaps it (#425: the
+ * keep-best ratchet missed `file_path` writes).
+ */
+export function inputPath(input: unknown): string | undefined {
+  const record = (input ?? {}) as Record<string, unknown>;
+  for (const key of ['path', ...SYNONYMS.path]) {
+    const value = record[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return undefined;
+}
+
 export interface ParamRemapOutcome {
   /** Input with any synonym keys moved onto their canonical names. */
   input: Record<string, unknown>;

@@ -439,10 +439,11 @@ describe('gitPush — branch protection', () => {
       branchProtectionEnabled: true,
       branchProtectionWarnEvenIfPassing: false,
     } as never);
-    const result = await gitPush({});
-    expect(result).toContain('requires a pull request');
-    expect(result).toContain('direct push is blocked');
-    expect(result).toContain('Push aborted');
+    // Thrown (#425): nothing was pushed, and a returned string reads as success.
+    const call = gitPush({});
+    await expect(call).rejects.toThrow('requires a pull request');
+    await expect(call).rejects.toThrow('direct push is blocked');
+    await expect(call).rejects.toThrow('Push aborted');
     expect(git.push).not.toHaveBeenCalled();
   });
 
@@ -494,6 +495,34 @@ describe('gitPush — branch protection', () => {
     expect(result).toContain('pushed ok');
     expect(result).toContain('Branch protection on');
     expect(result).toContain('ci/test');
+  });
+
+  // #425: the warn path pushed inside the check's try, so a failed push was
+  // swallowed as a failed check and pushed again.
+  it('on the warn path, a failed push throws and is not retried', async () => {
+    const push = vi.fn().mockRejectedValue(new Error('rejected: non-fast-forward'));
+    await useGit(pushGit({ getRemoteUrl: vi.fn().mockResolvedValue('https://github.com/owner/repo.git'), push }));
+    const { GitHubAPI } = await import('../../github/api.js');
+    vi.mocked(GitHubAPI).mockImplementationOnce(function () {
+      return {
+        getBranchProtection: vi.fn().mockResolvedValue({
+          pullRequestRequired: false,
+          requiredApprovingReviews: undefined,
+          codeOwnersRequired: false,
+          requiredStatusChecks: ['ci/test'],
+          signedCommitsRequired: false,
+          linearHistoryRequired: false,
+          enforceAdmins: false,
+          forcePushesAllowed: false,
+        }),
+      };
+    });
+    vi.spyOn(settings, 'getConfig').mockReturnValue({
+      branchProtectionEnabled: true,
+      branchProtectionWarnEvenIfPassing: true,
+    } as never);
+    await expect(gitPush({})).rejects.toThrow('git push failed: rejected: non-fast-forward');
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
   it('falls through when branchProtectionEnabled is false', async () => {
@@ -708,12 +737,20 @@ describe('gitSearchHistory', () => {
     expect(argsArray).not.toContain('-9999');
   });
 
-  it('absorbs execFile failure via .catch and returns no commits', async () => {
-    // Both searches use .catch(() => '') so an error produces empty output
+  // #425: a git failure used to be absorbed as empty output, so it read as
+  // "No commits found" -- a claim about the history that nothing checked.
+  it('THROWS when git fails, instead of reporting no commits', async () => {
     mockExecFileReject(new Error('not a git repo'));
+    await expect(gitSearchHistory({ query: 'test', search_type: 'message' })).rejects.toThrow(
+      'git_search_history failed: not a git repo',
+    );
+  });
 
-    const result = await gitSearchHistory({ query: 'test', search_type: 'message' });
-    expect(result).toContain('No commits found');
+  it("still reports one search's hits when the other fails", async () => {
+    mockExecFileReject(new Error('fatal: bad regex'));
+    mockExecFileResolve('abc1234567|2024-01-15|Alice|feat: add rate limiting');
+    const result = await gitSearchHistory({ query: 'rate' });
+    expect(result).toContain('[matched via: content]');
   });
 });
 

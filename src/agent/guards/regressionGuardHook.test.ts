@@ -309,6 +309,25 @@ describe('RegressionGuardHook.afterToolResults', () => {
       expect(state.messages[2].content as string).toContain('exceeded 2 failed attempts');
     });
 
+    // #425: the check for an earlier notice parsed as `(!already || isString) ? … : false`,
+    // so when the last message was a tool-result array the notice never went out.
+    it('emits the escalation once when the last message is a tool-result array', async () => {
+      shellExecuteMock.mockResolvedValue({ exitCode: 1, stdout: 'still broken', timedOut: false });
+      const hook = new RegressionGuardHook({ name: 'g', command: 'c', trigger: 'post-turn', maxAttempts: 1 });
+      const state = makeState();
+      await hook.afterToolResults(state, makeCtx([]));
+      const toolTurn = () =>
+        state.messages.push({
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't', content: 'ok' }],
+        });
+      toolTurn();
+      expect(await hook.afterToolResults(state, makeCtx([]))).toMatchObject({ mutated: true });
+      expect(state.messages.at(-1)!.content as string).toContain('exceeded 1 failed attempts');
+      toolTurn();
+      expect(await hook.afterToolResults(state, makeCtx([]))).toBeUndefined();
+    });
+
     it('resets the attempt counter after a successful run', async () => {
       const hook = new RegressionGuardHook({
         name: 'g',

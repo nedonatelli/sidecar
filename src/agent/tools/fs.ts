@@ -21,7 +21,7 @@ import { DIFF_STREAM_PREFIX } from './diffStream.js';
 import { editWouldBreakSyntax, canParseSyntax, tryLiteralEscapeRecovery } from './syntaxCheck.js';
 import { findSkippedLinesMatch, skippedLinesError } from './skippedLines.js';
 import { droppedUsedImports, droppedImportError } from './droppedImports.js';
-import { changedFiles, mutated, noop, type ToolOutcome } from './toolOutcome.js';
+import { changedFiles, mutated, noop, outcomePath, type ToolOutcome } from './toolOutcome.js';
 import {
   findEditMatch,
   findEditMatches,
@@ -950,14 +950,16 @@ export function applyReadView(
  */
 export const MAX_UNVERIFIED_REWRITES = 3;
 
-/** True if `filePath` matches an entry in `set` exactly or as a `/`-boundary
- * path suffix (handles relative vs absolute). NOT a bare-basename match, so
- * `src/util.py` doesn't collide with `test/util.py`. */
-function pathInSetByBasename(filePath: string, set: Set<string>): boolean {
-  const f = filePath.toLowerCase();
+/**
+ * True if `filePath` names an entry of `set`, both read as workspace-relative
+ * forward-slash paths (ADR-008's outcome paths, which is what the set holds),
+ * ignoring case. Not a suffix match (#425): that let a root `conftest.py` match
+ * `tests/conftest.py`, and a backslashed `src\a.py` missed `src/a.py`.
+ */
+function pathInSet(filePath: string, set: Set<string>): boolean {
+  const f = outcomePath(filePath).toLowerCase();
   for (const p of set) {
-    const q = p.toLowerCase();
-    if (q === f || q.endsWith('/' + f) || f.endsWith('/' + q)) return true;
+    if (outcomePath(p).toLowerCase() === f) return true;
   }
   return false;
 }
@@ -1030,7 +1032,7 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // wrong there — v0.122 gemma4 fixed `max` via edit_file, printed the correct
   // final file, was told it "keeps re-introducing the bug", and spiralled into
   // re-fixing a file that was already right. Confirm the state instead.
-  if (context?.filesEditedViaEditTool && pathInSetByBasename(filePath, context.filesEditedViaEditTool)) {
+  if (context?.filesEditedViaEditTool && pathInSet(filePath, context.filesEditedViaEditTool)) {
     const currentText = isAuditModeActive(context)
       ? (getDefaultAuditBuffer().read(filePath).content ?? (await readDiskViaWorkspace(context, filePath)))
       : await readDiskViaWorkspace(context, filePath);
@@ -1103,18 +1105,17 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // verification in between. Rewriting blind never surfaces bugs — dogfooding
   // caught qwen3.5 rewriting a GUI 7× without ever running it, converging on a
   // NameError one execution would have caught. Force the feedback step.
-  if (context?.writesSinceVerifyByFile) {
-    const n = (context.writesSinceVerifyByFile.get(filePath) ?? 0) + 1;
-    context.writesSinceVerifyByFile.set(filePath, n);
-    if (n > MAX_UNVERIFIED_REWRITES) {
-      throw new Error(
-        `This write was NOT applied. You've rewritten \`${filePath}\` ${n} times without running or checking it ` +
-          `once — rewriting blind doesn't surface bugs (a NameError, a wrong result, a dead button only appear when ` +
-          `the code RUNS). Verify the current file before rewriting again: call get_diagnostics, or run it / a test ` +
-          `that imports it. Then fix exactly what the output reports with edit_file — change only the broken lines, ` +
-          `do not regenerate the whole file.`,
-      );
-    }
+  // Counted only once a write is committed (recordWrite below, #425): a write
+  // the guards refused, or this block itself, changed nothing to verify.
+  const unverifiedWrites = context?.writesSinceVerifyByFile?.get(filePath) ?? 0;
+  if (unverifiedWrites >= MAX_UNVERIFIED_REWRITES) {
+    throw new Error(
+      `This write was NOT applied. You've rewritten \`${filePath}\` ${unverifiedWrites} times without running or checking it ` +
+        `once — rewriting blind doesn't surface bugs (a NameError, a wrong result, a dead button only appear when ` +
+        `the code RUNS). Verify the current file before rewriting again: call get_diagnostics, or run it / a test ` +
+        `that imports it. Then fix exactly what the output reports with edit_file — change only the broken lines, ` +
+        `do not regenerate the whole file.`,
+    );
   }
 
   // Record the content hash for circular detection -- only once the write is
@@ -1122,6 +1123,8 @@ export async function writeFile(input: Record<string, unknown>, context?: ToolEx
   // refused write's next attempt was told it was "byte-identical to a version
   // you already wrote" when nothing had been written at all.
   const recordWrite = () => {
+    const counts = context?.writesSinceVerifyByFile;
+    counts?.set(filePath, (counts.get(filePath) ?? 0) + 1);
     if (!writeHistory || contentHash === undefined) return;
     const set = writeHistory.get(filePath);
     if (set) set.add(contentHash);
