@@ -882,3 +882,113 @@ describe('OpenAIBackend GPT-6 request bodies (#229)', () => {
     expect((await bodyFor('gpt-6-astra', { tools: true, baseUrl: 'http://localhost:1234' })).model).toBe('gpt-6-astra');
   });
 });
+
+// #421: image blocks were dropped, so a pasted screenshot never reached an
+// OpenAI-compatible model and visual_verify could pass one it never saw.
+describe('toOpenAIMessages sends image blocks (#421)', () => {
+  it('sends text and images as content parts, in block order', async () => {
+    const { toOpenAIMessages } = await import('./openaiBackend.js');
+    const out = toOpenAIMessages(
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+            { type: 'text', text: 'Does this match?' },
+          ],
+        },
+      ],
+      'sys',
+    );
+    expect(out[1]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+        { type: 'text', text: 'Does this match?' },
+      ],
+    });
+  });
+
+  it('keeps tool results as tool messages beside an image', async () => {
+    const { toOpenAIMessages } = await import('./openaiBackend.js');
+    const out = toOpenAIMessages(
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'c1', content: 'done' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBB' } },
+          ],
+        },
+      ],
+      '',
+    );
+    expect(out).toEqual([
+      { role: 'tool', content: 'done', tool_call_id: 'c1' },
+      { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,BBBB' } }] },
+    ]);
+  });
+
+  it('still sends text-only messages as a plain string', async () => {
+    const { toOpenAIMessages } = await import('./openaiBackend.js');
+    const out = toOpenAIMessages(
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'a' },
+            { type: 'text', text: 'b' },
+          ],
+        },
+      ],
+      '',
+    );
+    expect(out).toEqual([{ role: 'user', content: 'a\nb' }]);
+  });
+});
+
+// #421: a reasoning model could spend a 256-512 token cap on reasoning and
+// return '' as if that were the answer.
+describe('complete() on reasoning models (#421)', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  async function completeWith(model: string, baseUrl: string, choice: unknown, maxTokens = 256) {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [choice] }) });
+    const result = new OpenAIBackend(baseUrl, 'k').complete(model, '', [{ role: 'user', content: 'hi' }], maxTokens);
+    return {
+      result,
+      body: async () => {
+        await result.catch(() => {});
+        return JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string) as Record<string, unknown>;
+      },
+    };
+  }
+
+  it('gives a reasoning model room beyond the caller cap, clamped to the model limit', async () => {
+    const { body } = await completeWith('o3', 'https://api.openai.com', { message: { content: 'ok' } });
+    const sent = (await body()).max_completion_tokens as number;
+    expect(sent).toBeGreaterThan(256);
+    expect(sent).toBeLessThanOrEqual(100_000);
+  });
+
+  it("keeps the caller's cap for a non-reasoning model", async () => {
+    const { body } = await completeWith('gpt-4o', 'https://api.openai.com', { message: { content: 'ok' } });
+    expect((await body()).max_tokens).toBe(256);
+  });
+
+  it('throws instead of returning an empty answer cut off at the limit', async () => {
+    const { result } = await completeWith('gpt-5-mini', 'https://api.openai.com', {
+      message: { content: '' },
+      finish_reason: 'length',
+    });
+    await expect(result).rejects.toThrow(/reached its output limit .* before writing an answer/);
+  });
+
+  it('still returns an empty answer that finished normally', async () => {
+    const { result } = await completeWith('gpt-4o', 'https://api.openai.com', {
+      message: { content: '' },
+      finish_reason: 'stop',
+    });
+    await expect(result).resolves.toBe('');
+  });
+});

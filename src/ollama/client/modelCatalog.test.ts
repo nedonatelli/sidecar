@@ -93,6 +93,31 @@ describe('listInstalledModelsInner — anthropic', () => {
     const result = await listInstalledModelsInner(ctx({ provider: 'anthropic' }));
     expect(result).toHaveLength(ANTHROPIC_FALLBACK_MODELS.length);
   });
+
+  // #421: only the first page (20 by default) was read.
+  it('follows has_more / last_id across pages', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ data: [{ id: 'claude-a' }, { id: 'claude-b' }], has_more: true, last_id: 'claude-b' }),
+    );
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [{ id: 'claude-c' }], has_more: false, last_id: 'claude-c' }));
+    const result = await listInstalledModelsInner(ctx({ provider: 'anthropic' }));
+    expect(result.map((m) => m.model)).toEqual(['claude-a', 'claude-b', 'claude-c']);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://host/v1/models?limit=1000');
+    expect(fetchMock.mock.calls[1][0]).toBe('http://host/v1/models?limit=1000&after_id=claude-b');
+  });
+
+  it('keeps the pages already read when a later page fails', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [{ id: 'claude-a' }], has_more: true, last_id: 'claude-a' }));
+    fetchMock.mockRejectedValueOnce(new Error('network'));
+    const result = await listInstalledModelsInner(ctx({ provider: 'anthropic' }));
+    expect(result.map((m) => m.model)).toEqual(['claude-a']);
+  });
+
+  it('stops when a server repeats the same cursor', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: 'claude-a' }], has_more: true, last_id: 'claude-a' }));
+    await listInstalledModelsInner(ctx({ provider: 'anthropic' }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('listInstalledModelsInner — kickstand', () => {

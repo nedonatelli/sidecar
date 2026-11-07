@@ -9,7 +9,9 @@ import { RateLimitStore } from './rateLimitState.js';
 import { parseOpenAIRateLimitHeaders } from './rateLimitHeaders.js';
 import { sidecarFetch } from './sidecarFetch.js';
 import { estimateRequestTokens } from '../config/tokenEstimation.js';
-import { toOpenAIMessages } from './openaiBackend.js';
+import { toOpenAIMessages, type OpenAIContentPart } from './openaiBackend.js';
+import { prunePrompt, formatPruneStats } from './promptPruner.js';
+import { logger } from '../system/logger.js';
 import { getConfig } from '../config/settings.js';
 import { AGENT_MAX_OUTPUT_TOKENS, fitOutputBudget } from '../config/constants.js';
 
@@ -45,7 +47,7 @@ const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
 interface KickstandMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | null | OpenAIContentPart[];
   tool_calls?: Array<{
     id: string;
     type: 'function';
@@ -58,6 +60,7 @@ interface KickstandChatRequest {
   model: string;
   messages: KickstandMessage[];
   temperature?: number;
+  seed?: number;
   max_tokens?: number;
   stream?: boolean;
   stream_options?: { include_usage?: boolean };
@@ -181,23 +184,39 @@ export class KickstandBackend implements ApiBackend {
     signal?: AbortSignal,
     tools?: ToolDefinition[],
   ): AsyncGenerator<StreamEvent> {
-    const llmMessages = toOpenAIMessages(messages, systemPrompt);
+    const cfg = getConfig();
+    // The other backends' prompt pruning, temperature and seed were never
+    // applied here (#421): no tool-result cap or dedup, the server's default
+    // sampling, and no reproducible runs.
+    const pruned = prunePrompt(systemPrompt, messages, {
+      enabled: cfg.promptPruningEnabled,
+      maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
+      dedupExemptTools: tools ? new Set(tools.filter((t) => t.nondeterministicOutput).map((t) => t.name)) : undefined,
+    });
+    const pruneLog = formatPruneStats(pruned.stats);
+    if (pruneLog) logger.info(`[SideCar] ${pruneLog}`);
+    const llmMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
 
     // The `sidecar.maxOutputTokens` setting (reasoning counts against it),
     // fitted to the context this backend loads models with -- asking past it
     // is the 400 that makes Kickstand reload the model. Was a fixed 4096.
     const maxOutput = fitOutputBudget(
-      getConfig().maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS,
+      cfg.maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS,
       this.nCtx,
-      estimateRequestTokens(systemPrompt, messages, 0),
+      estimateRequestTokens(pruned.systemPrompt, pruned.messages, 0),
     );
     const body: KickstandChatRequest = {
       model,
       messages: llmMessages,
       stream: true,
       max_tokens: maxOutput,
+      temperature: cfg.agentTemperature,
       stream_options: { include_usage: true },
     };
+    // Same seed rule as the Ollama backend: the setting, else SIDECAR_AGENT_SEED.
+    const envSeed = process.env.SIDECAR_AGENT_SEED;
+    const seed = cfg.agentSeed ?? (envSeed !== undefined && envSeed !== '' ? Number(envSeed) : null);
+    if (seed !== null && Number.isFinite(seed)) body.seed = seed;
 
     if (tools && tools.length > 0) {
       body.tools = tools.map((tool) => ({
@@ -218,7 +237,7 @@ export class KickstandBackend implements ApiBackend {
     };
     const rateLimitOpts = {
       rateLimits: this.rateLimits,
-      estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxOutput),
+      estimatedTokens: estimateRequestTokens(pruned.systemPrompt, pruned.messages, maxOutput),
       maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
       parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
       label: 'kickstand',
@@ -264,7 +283,12 @@ export class KickstandBackend implements ApiBackend {
     maxTokens: number,
     signal?: AbortSignal,
   ): Promise<string> {
-    const llmMessages = toOpenAIMessages(messages, systemPrompt);
+    const cfg = getConfig();
+    const pruned = prunePrompt(systemPrompt, messages, {
+      enabled: cfg.promptPruningEnabled,
+      maxToolResultTokens: cfg.promptPruningMaxToolResultTokens,
+    });
+    const llmMessages = toOpenAIMessages(pruned.messages, pruned.systemPrompt);
 
     const body: KickstandChatRequest = {
       model,
@@ -281,7 +305,7 @@ export class KickstandBackend implements ApiBackend {
     };
     const rateLimitOpts = {
       rateLimits: this.rateLimits,
-      estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxTokens),
+      estimatedTokens: estimateRequestTokens(pruned.systemPrompt, pruned.messages, maxTokens),
       maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
       parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
       label: 'kickstand',

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Stub the kickstand token file so the bearer-token test is deterministic
 // regardless of whether the host has ~/.config/kickstand/token set up.
@@ -834,5 +834,54 @@ describe('KickstandBackend.nativeCapabilities — loraAdapters + modelBrowser', 
     const summary = await caps!.loraAdapters!.unloadAdapter('base', 'ad-1');
     expect(summary).toMatch(/ad-1/);
     expect(summary).toMatch(/base/);
+  });
+});
+
+// #421: streamChat sent no temperature or seed and skipped prompt pruning.
+describe('KickstandBackend request shape (#421)', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.SIDECAR_AGENT_SEED;
+  });
+
+  async function withConfig(overrides: Record<string, unknown>): Promise<void> {
+    const settings = await import('../config/settings.js');
+    const real = settings.getConfig();
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ ...real, ...overrides } as never);
+  }
+
+  async function streamBody(messages: Parameters<KickstandBackend['streamChat']>[2]): Promise<Record<string, unknown>> {
+    mockFetch.mockResolvedValueOnce({ ok: true, body: sseBody([chunk('ok', true), '[DONE]']) });
+    for await (const _ of new KickstandBackend('http://localhost:11435').streamChat('m', 'sys', messages)) void _;
+    return JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string);
+  }
+
+  it('sends the agent temperature and the configured seed', async () => {
+    await withConfig({ agentTemperature: 0.3, agentSeed: 42 });
+    const body = await streamBody([{ role: 'user', content: 'hi' }]);
+    expect(body.temperature).toBe(0.3);
+    expect(body.seed).toBe(42);
+  });
+
+  it('falls back to SIDECAR_AGENT_SEED, and sends no seed when neither is set', async () => {
+    await withConfig({ agentSeed: null });
+    expect((await streamBody([{ role: 'user', content: 'hi' }])).seed).toBeUndefined();
+    process.env.SIDECAR_AGENT_SEED = '7';
+    expect((await streamBody([{ role: 'user', content: 'hi' }])).seed).toBe(7);
+  });
+
+  it('prunes oversized tool results like the other backends', async () => {
+    await withConfig({ promptPruningEnabled: true, promptPruningMaxToolResultTokens: 100 });
+    const huge = 'line of tool output\n'.repeat(5_000);
+    const body = await streamBody([
+      { role: 'user', content: 'read it' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'read_file', input: { path: 'a' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: huge }] },
+    ]);
+    const tool = (body.messages as { role: string; content: string }[]).find((m) => m.role === 'tool')!;
+    expect(tool.content.length).toBeLessThan(huge.length / 10);
   });
 });
