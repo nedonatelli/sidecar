@@ -34,18 +34,6 @@ export const RECOMMENDED_LOCAL_MODEL = 'gemma4:e4b';
 export const MODELS_NEEDING_COLD_START: readonly string[] = ['gemma4:e4b'] as const;
 
 /**
- * Models where thinking/extended-reasoning mode interferes with tool-use reliability.
- * Thinking tokens cause these models to stall, time out, or fail to emit tool calls.
- */
-export const MODELS_WITH_PROBLEMATIC_THINKING: readonly string[] = [
-  'qwen3:8b',
-  'qwen3:14b',
-  'qwen3:32b',
-  'glm-4.7-flash:latest',
-  'laguna-xs.2:latest',
-] as const;
-
-/**
  * Returns true if the given model should be cold-started (no prior context injected).
  * Matches exact model IDs and the gemma4 variant prefix pattern.
  */
@@ -55,21 +43,6 @@ export function needsColdStart(model: string): boolean {
   }
   // Match any gemma4 variant (e.g. gemma4:27b, gemma4:12b, gemma4:e4b, gemma4-it:latest)
   if (/^gemma4[:/]/.test(model)) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Returns true if the given model has known issues when thinking mode is enabled.
- * Thinking mode should be suppressed for these models in the agent loop.
- */
-export function hasProblematicThinking(model: string): boolean {
-  if (MODELS_WITH_PROBLEMATIC_THINKING.includes(model)) {
-    return true;
-  }
-  // Match any qwen3 variant with a size suffix that has known thinking-mode issues
-  if (/^qwen3:(8b|14b|32b)$/i.test(model)) {
     return true;
   }
   return false;

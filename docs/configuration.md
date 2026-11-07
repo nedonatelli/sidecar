@@ -167,7 +167,7 @@ Rule `when` expressions support role names (`agent-loop`, `chat`, `summarize`, `
 | `sidecar.steerQueue.coalesceWindowMs` | number | `2000`  | Milliseconds to wait at an iteration boundary before draining pending steers, coalescing rapid follow-ups into one turn. `0` drains immediately. |
 | `sidecar.steerQueue.maxPending`       | number | `5`     | Maximum queued steers. When full, the oldest nudge is evicted; an all-interrupt queue rejects new submissions with an explicit error.            |
 | `sidecar.agentMaxMessages`            | number | `25`    | Soft ceiling on conversation message count before the agent wraps up.                                                                            |
-| `sidecar.firstTokenTimeout`           | number | `300`   | Seconds to wait for the first token from the model. Local models loading from disk may need the full window. `0` uses `requestTimeout` instead.   |
+| `sidecar.firstTokenTimeout`           | number | `300`   | Seconds to wait for the first token from the model. Local models loading from disk may need the full window. `0` uses `requestTimeout` instead.  |
 
 ## Context
 
@@ -611,10 +611,10 @@ These settings tune the Audit Mode buffer behaviour. See [Agent Mode → Review 
 
 ## Ollama Settings
 
-| Setting                          | Type    | Default | Description                                                                                                                                                                  |
-| -------------------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidecar.ollama.disableThinking` | boolean | `false` | Pass `think: false` with every Ollama request, disabling extended reasoning for models that support it (Qwen3, DeepSeek-R1). Reduces latency at the cost of reasoning depth. |
-| `sidecar.ollama.numCtx`          | number  | `null`  | Override the context window size (`num_ctx`). `null` = use the model's Modelfile default. Set to e.g. `32768` or `65536` to force a specific window. Ollama backend only.    |
+| Setting                          | Type    | Default | Description                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidecar.ollama.disableThinking` | boolean | `false` | Send `think: false` with every Ollama chat request, turning off extended reasoning for models that support it (Qwen3, DeepSeek-R1, Gemma 4). Reduces latency at the cost of reasoning depth. Off by default, so every model thinks. The **Thinking** switch (💭) in the chat header changes it; the change applies from the next request. |
+| `sidecar.ollama.numCtx`          | number  | `null`  | Override the context window size (`num_ctx`). `null` = use the model's Modelfile default. Set to e.g. `32768` or `65536` to force a specific window. Ollama backend only.                                                                                                                                                                 |
 
 ## Retrieval & Project Knowledge (advanced)
 

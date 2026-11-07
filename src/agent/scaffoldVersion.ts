@@ -80,6 +80,15 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.20** (2026-11) — Ollama's `think: false` is sent where Ollama reads
+ *   it; the per-model thinking list is removed (#469). Chat requests put
+ *   `think` inside `options`, which Ollama doesn't read, so neither
+ *   `ollama.disableThinking` nor the problematic-thinking model list ever
+ *   turned thinking off. `think` is now a top-level field, sent only when the
+ *   user turns thinking off (setting or chat header switch), and the list is
+ *   gone. PATCH. The default eval models (gemma4:e4b, gemma4:31b, ministral-3)
+ *   send the same requests; the eval backend's one-shot `complete()` (prompt
+ *   eval, retrieval judge) now really runs thinking-off.
  * - **7.0.19** (2026-11) — image prompts run with their text; autonomy
  *   answers only approvals (#419). A prompt with images ran with empty text,
  *   so retrieval, skill matching and message framing saw nothing; it now runs
@@ -448,7 +457,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.19';
+export const SCAFFOLD_VERSION = '7.0.20';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

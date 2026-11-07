@@ -49,6 +49,7 @@ export interface WebviewMessage {
     | 'acceptAllChanges'
     | 'deleteMessage'
     | 'toggleVerbose'
+    | 'setThinking'
     | 'compactContext'
     | 'showSystemPrompt'
     | 'reconnect'
@@ -157,6 +158,8 @@ export interface WebviewMessage {
   pcmBase64?: string;
   /** Voice input: 'audio/pcm-f32le' for local path, raw mime for server fallback path. */
   mimeType?: string;
+  /** setThinking: the header Thinking switch's new position (true = thinking on). */
+  thinkingEnabled?: boolean;
 }
 
 export interface ExtensionMessage {
@@ -213,6 +216,7 @@ export interface ExtensionMessage {
     | 'activeFileChanged'
     | 'contextFill'
     | 'setActiveBackendProfile'
+    | 'thinkingState'
     | 'fileCompletionList'
     | 'batchProgress'
     | 'regenSectionResult'
@@ -290,6 +294,10 @@ export interface ExtensionMessage {
   data?: string;
   changeSummary?: { filePath: string; diff: string; isNew: boolean; isDeleted: boolean }[];
   expandThinking?: boolean;
+  /** thinkingState: whether the header's Thinking switch applies (Ollama only). */
+  thinkingSupported?: boolean;
+  /** thinkingState: switch position; setThinking: the position the user chose. */
+  thinkingEnabled?: boolean;
   chatDensity?: 'compact' | 'normal' | 'comfortable';
   chatFontSize?: number;
   chatAccentColor?: string;
@@ -471,6 +479,8 @@ export function getChatWebviewHtml(webview: Webview, extensionUri: Uri): string 
         </option>
       </select>
       <div id="chat-actions">
+        <!-- Thinking switch: Ollama only; hidden until the extension sends thinkingState. -->
+        <button id="thinking-btn" class="hidden" aria-label="Thinking" aria-pressed="true" data-tooltip="Let the model think before answering (Ollama)"><span class="thinking-icon" aria-hidden="true">&#128173;</span></button>
         <button id="new-chat-btn" data-tooltip="New Chat" aria-label="New Chat">+</button>
         <button id="history-btn" data-tooltip="Conversation History" aria-label="Conversation History">&#128172;</button>
         <button id="compact-btn" data-tooltip="Compact Context" aria-label="Compact Context">&#9986;</button>

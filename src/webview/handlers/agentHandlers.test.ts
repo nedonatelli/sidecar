@@ -6,6 +6,7 @@ import {
   handleSearchMemories,
   handleGetSkillsForMenu,
   handleToggleVerbose,
+  handleSetThinking,
 } from './infoHandlers.js';
 import { window, workspace, ConfigurationTarget } from 'vscode';
 
@@ -1166,6 +1167,46 @@ describe('handleToggleVerbose', () => {
     inspected = { workspaceValue: false };
     await handleToggleVerbose({ postMessage: vi.fn() } as never);
     expect(update).toHaveBeenCalledWith('verboseMode', expect.any(Boolean), ConfigurationTarget.Workspace);
+  });
+});
+
+describe('handleSetThinking (header Thinking switch)', () => {
+  let update: ReturnType<typeof vi.fn>;
+  let inspected: Record<string, unknown> | undefined;
+  beforeEach(() => {
+    update = vi.fn().mockResolvedValue(undefined);
+    inspected = undefined;
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: (_key: string, def?: unknown) => def,
+      update,
+      has: () => false,
+      inspect: () => inspected,
+    } as unknown as ReturnType<typeof workspace.getConfiguration>);
+  });
+
+  it('switch on writes disableThinking false; switch off writes true', async () => {
+    await handleSetThinking({ postMessage: vi.fn() } as never, true);
+    expect(update).toHaveBeenLastCalledWith('ollama.disableThinking', false, ConfigurationTarget.Global);
+    await handleSetThinking({ postMessage: vi.fn() } as never, false);
+    expect(update).toHaveBeenLastCalledWith('ollama.disableThinking', true, ConfigurationTarget.Global);
+  });
+
+  it('writes the scope that already holds the value, like /verbose (#419)', async () => {
+    inspected = { workspaceValue: true };
+    await handleSetThinking({ postMessage: vi.fn() } as never, true);
+    expect(update).toHaveBeenCalledWith('ollama.disableThinking', false, ConfigurationTarget.Workspace);
+    inspected = { workspaceFolderValue: true };
+    await handleSetThinking({ postMessage: vi.fn() } as never, true);
+    expect(update).toHaveBeenLastCalledWith('ollama.disableThinking', false, ConfigurationTarget.WorkspaceFolder);
+  });
+
+  it('a failed write sends the switch back to the stored state and reports it', async () => {
+    update.mockRejectedValueOnce(new Error('read-only settings'));
+    const state = { postMessage: vi.fn() };
+    await handleSetThinking(state as never, false);
+    const sent = state.postMessage.mock.calls.map((c: unknown[]) => c[0] as { command: string });
+    expect(sent.map((m) => m.command)).toEqual(['thinkingState', 'error']);
+    expect(sent[0]).toMatchObject({ thinkingEnabled: true });
   });
 });
 
