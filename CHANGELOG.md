@@ -24,6 +24,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Bedrock reads static keys from the AWS config file**
+  ([#112](https://github.com/nedonatelli/sidecar/issues/112)). Keys set for the active profile in
+  `~/.aws/config` (or `AWS_CONFIG_FILE`) were ignored, as the AWS SDKs accept them there. The
+  credentials file still wins.
 - **A Copilot model id or family matches only Copilot's models**
   ([#230](https://github.com/nedonatelli/sidecar/issues/230)). If another extension offered a
   model with the configured id or family, SideCar used it without notice. Now only Copilot's
