@@ -66,7 +66,8 @@ export interface AgentTerminalOptions {
  */
 export function guardStdin(command: string, shellPath = env.shell, platform = process.platform): string {
   const shell = (shellPath || '').toLowerCase();
-  const posix = /(^|\/)(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
+  // Either separator: on Windows `env.shell` is `c:\program files\git\bin\bash.exe`.
+  const posix = /(^|[\\/])(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
   // Git Bash: a cmd-style `2>nul` would create an undeletable `nul` file (#395).
   if (posix) return `{ ${platform === 'win32' ? rewriteNulRedirects(command) : command}\n} < /dev/null`;
   if (/cmd\.exe$/.test(shell)) return `(${command}) < NUL`;
@@ -80,6 +81,8 @@ export class AgentTerminalExecutor implements Disposable {
   private readonly terminalName: string;
   private readonly shellIntegrationTimeoutMs: number;
   private disposables: Disposable[] = [];
+  /** Tail of the run queue. See execute. */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(options: AgentTerminalOptions = {}) {
     this.terminalName = options.terminalName ?? 'SideCar Agent';
@@ -98,8 +101,20 @@ export class AgentTerminalExecutor implements Disposable {
    * Returns a `ShellResult` on success (streamed output + exit code from
    * `onDidEndTerminalShellExecution`), or `null` if shell integration is
    * unavailable so the caller can fall back to `ShellSession`.
+   *
+   * One command at a time: a turn's tool calls run in parallel, and
+   * `executeCommand` interrupts whatever the terminal is running with ^C, so a
+   * second `run_command` (or a completion-gate check) cut the first one short.
    */
-  async execute(command: string, options: ShellExecuteOptions = {}): Promise<ShellResult | null> {
+  execute(command: string, options: ShellExecuteOptions = {}): Promise<ShellResult | null> {
+    const run = this.queue.then(() => this.executeNow(command, options));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async executeNow(command: string, options: ShellExecuteOptions): Promise<ShellResult | null> {
+    // Stopped while it waited for its turn; an abort listener added now would never fire.
+    if (options.signal?.aborted) return { stdout: '\n\n⚠️ Command aborted', exitCode: -1, timedOut: true };
     const terminal = await this.getReadyTerminal();
     if (!terminal) return null;
 
@@ -207,7 +222,9 @@ export class AgentTerminalExecutor implements Disposable {
       // execution in every terminal.
       const endListener = window.onDidEndTerminalShellExecution((ev: TerminalShellExecutionEndEvent) => {
         if (ev.execution === execution) {
-          exitCode = ev.exitCode ?? 0;
+          // Undefined when the user ^C'd the command or the integration could
+          // not tell; VS Code's docs advise reading that as a failure.
+          exitCode = ev.exitCode ?? -1;
           finish();
         }
       });

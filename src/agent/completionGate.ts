@@ -311,7 +311,9 @@ export function classifyTestResult(rawContent: string): 'pass' | 'fail' | 'empty
   // `\b\d+ passed\b`, so an unstripped pass reads as 'unknown' and the gate fires
   // on a genuinely passing run. Match any CSI sequence (ends in a letter) + OSC.
   const content = rawContent.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '');
-  const exitMatch = content.match(/exit code:\s*(\d+)/i);
+  // `-1` is what both executors report when there is no real exit code (an
+  // abort, a killed shell, a terminal that could not tell): not a pass.
+  const exitMatch = content.match(/exit code:\s*(-?\d+)/i);
   const exit = exitMatch ? parseInt(exitMatch[1], 10) : undefined;
   // Zero tests collected/ran — verified nothing.
   if (/no tests ran|ran 0 tests|collected 0 item|\b0 tests? (ran|passed|collected)/i.test(content) || exit === 5) {
