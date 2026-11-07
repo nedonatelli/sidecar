@@ -40,6 +40,19 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.17 — integration tool results (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.16,
+noting the patch.
+
+- **What changed:** `mutation_test` in a shadow workspace or fork runs its tests
+  there; it ran them on the main tree, so every mutant survived. GitHub check
+  runs and PR review comments are read past the first page of 100. The
+  dependency check asks OSV about the version an npm lockfile installed, not
+  the floor of the range. Custom tools get the Windows system variables they
+  need to start (#427).
+- **Measured:** no eval. The SWE and agent evals use none of these tools.
+
 ### 7.0.16 — auto-fix reads which files a call changed (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.15,

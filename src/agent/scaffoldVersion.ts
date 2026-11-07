@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.17** (2026-11) — integration tool results (#427). `mutation_test`
+ *   in a shadow or fork runs its tests there, not on the main tree, so mutants
+ *   can be killed. GitHub check runs and review comments are read past the
+ *   first page. The dependency check asks OSV about the version an npm
+ *   lockfile installed. Custom tools start on Windows. PATCH. No eval: the SWE
+ *   and agent evals use none of these tools.
  * - **7.0.16** (2026-11) — auto-fix reads which files a call changed. The
  *   auto-fix pass took its files from `write_file`/`edit_file` calls by name
  *   and input path; it now reads each call's outcome (ADR-008), so a refused or
@@ -426,7 +432,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.16';
+export const SCAFFOLD_VERSION = '7.0.17';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

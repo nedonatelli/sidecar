@@ -56,6 +56,13 @@ export class BackgroundAgentManager implements Disposable {
   private logger: AgentLogger | undefined;
   private mcpManager: MCPManager | undefined;
   private changeListeners: Array<() => void> = [];
+  /**
+   * Runs whose agent loop has not yet returned. A stopped run is marked
+   * cancelled at once but keeps its slot until its loop unwinds; freeing it
+   * on the status change let a queued run start beside it, exceeding
+   * bgMaxConcurrent. (#427)
+   */
+  private unwinding = new Set<string>();
 
   constructor(callbacks: BackgroundAgentCallbacks, logger?: AgentLogger, mcpManager?: MCPManager) {
     this.callbacks = callbacks;
@@ -138,11 +145,7 @@ export class BackgroundAgentManager implements Disposable {
   }
 
   private get runningCount(): number {
-    let count = 0;
-    for (const run of this.runs.values()) {
-      if (run.status === 'running') count++;
-    }
-    return count;
+    return this.unwinding.size;
   }
 
   private drainQueue(): void {
@@ -153,9 +156,15 @@ export class BackgroundAgentManager implements Disposable {
         run.status = 'running';
         this.callbacks.onStatusChange(serializeRun(run));
         this.notifyChange();
-        this.executeRun(run).catch(() => {
-          // Error already handled inside executeRun
-        });
+        this.unwinding.add(run.id);
+        this.executeRun(run)
+          .catch(() => {
+            // Error already handled inside executeRun
+          })
+          .finally(() => {
+            this.unwinding.delete(run.id);
+            this.drainQueue();
+          });
       }
     }
   }
@@ -237,7 +246,6 @@ export class BackgroundAgentManager implements Disposable {
       this.notifyChange();
     } finally {
       toolRuntime.dispose();
-      this.drainQueue();
     }
   }
 
