@@ -6,7 +6,7 @@ import { redactSecrets } from './securityScanner.js';
 
 import type { RegisteredTool, ToolExecutorContext } from './tools/shared.js';
 import { getRoot } from './tools/shared.js';
-import { parseArgv, execPortable } from './lintFix.js';
+import { parseArgv, execPortable, WINDOWS_STARTUP_ENV_KEYS } from './lintFix.js';
 import { findSdkTool, getSdkToolDefinitions } from '../sdk/registry.js';
 // Each tools/*.ts module exports its own `<name>Tools: RegisteredTool[]` array.
 // TOOL_REGISTRY is built by spreading them. Value-level re-exports below
@@ -373,8 +373,21 @@ function getCustomToolRegistry(injectedConfig?: SideCarConfig): RegisteredTool[]
       const userInput = (input.input as string) || '';
       // Whitelist safe env vars — never expose API keys or credentials to
       // custom tool subprocesses. SIDECAR_INPUT carries the redacted user
-      // input. Audit cycle-3 MEDIUM #7, cycle-4 T1-HIGH.
-      const safeEnvKeys = ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'TERM', 'LANG', 'LC_ALL', 'SHELL'];
+      // input. Audit cycle-3 MEDIUM #7, cycle-4 T1-HIGH. The Windows system
+      // variables are what interpreters need to start there: without
+      // SystemRoot, USERPROFILE or APPDATA, Python fails at startup (#427).
+      const safeEnvKeys = [
+        'PATH',
+        'HOME',
+        'TMPDIR',
+        'TEMP',
+        'TMP',
+        'TERM',
+        'LANG',
+        'LC_ALL',
+        'SHELL',
+        ...WINDOWS_STARTUP_ENV_KEYS,
+      ];
       const env: Record<string, string> = { SIDECAR_INPUT: redactSecrets(userInput) };
       for (const key of safeEnvKeys) {
         const val = process.env[key];

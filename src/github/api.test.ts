@@ -686,6 +686,18 @@ describe('GitHubAPI methods', () => {
       await api.getPRReviewComments('o', 'r', 7);
       expect(mockFetch.mock.calls[0][0]).toContain('per_page=100');
     });
+
+    // Only the first page was read. (#427)
+    it('reads every page, stopping at the first short page', async () => {
+      const full = Array.from({ length: 100 }, (_, i) => ({ ...rawComment, id: i + 1 }));
+      mockFetch
+        .mockResolvedValueOnce(mockJsonResponse(full))
+        .mockResolvedValueOnce(mockJsonResponse([{ ...rawComment, id: 101 }]));
+      const comments = await api.getPRReviewComments('o', 'r', 7);
+      expect(comments).toHaveLength(101);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[1][0]).toContain('page=2');
+    });
   });
 
   describe('getPRReviewThreads', () => {
@@ -970,6 +982,27 @@ describe('GitHubAPI methods', () => {
       mockFetch.mockResolvedValue(mockJsonResponse({ check_runs: [] }));
       await api.getPRCheckRuns('o', 'r', 'abc');
       expect(mockFetch.mock.calls[0][0]).toContain('per_page=100');
+    });
+
+    // A failing check on page 2 was missed, so allPassed could be true. (#427)
+    it('reads a failing check run on the second page', async () => {
+      const full = Array.from({ length: 100 }, (_, i) => ({ ...rawRun, id: i + 1 }));
+      mockFetch
+        .mockResolvedValueOnce(mockJsonResponse({ total_count: 101, check_runs: full }))
+        .mockResolvedValueOnce(
+          mockJsonResponse({ total_count: 101, check_runs: [{ ...rawRun, id: 101, conclusion: 'failure' }] }),
+        );
+      const runs = await api.getPRCheckRuns('o', 'r', 'abc');
+      expect(runs).toHaveLength(101);
+      expect(runs.some((r) => r.conclusion === 'failure')).toBe(true);
+      expect(mockFetch.mock.calls[1][0]).toContain('page=2');
+    });
+
+    it('stops at a page cap rather than reading without end', async () => {
+      const full = Array.from({ length: 100 }, (_, i) => ({ ...rawRun, id: i + 1 }));
+      mockFetch.mockResolvedValue(mockJsonResponse({ check_runs: full }));
+      await api.getPRCheckRuns('o', 'r', 'abc');
+      expect(mockFetch).toHaveBeenCalledTimes(10);
     });
 
     it('handles null conclusion for in-progress checks', async () => {

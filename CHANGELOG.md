@@ -24,6 +24,20 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Integration fixes** ([#427](https://github.com/nedonatelli/sidecar/issues/427)):
+  - `mutation_test` in a shadow workspace or fork runs the tests there. It wrote each mutant into
+    the shadow but ran the tests on the main tree, so every mutant "survived".
+  - The audit-recovery notice at startup no longer holds up the rest of startup. Until it was
+    answered, stale shadows were not swept and spending was not restored.
+  - GitHub check runs and PR review comments are read past the first page of 100, so a failing
+    check on page 2 is no longer missed.
+  - The dependency vulnerability check asks about the version `package-lock.json` (or
+    `npm-shrinkwrap.json`) installed. For `^4.17.0` it asked about 4.17.0 and reported advisories
+    fixed in the version actually installed. Without a lockfile it still uses the range's floor.
+  - Custom tools get the Windows system variables (`SystemRoot`, `windir`, `COMSPEC`, `PATHEXT`,
+    `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`), without which Python fails to start on Windows.
+  - Stopping a background agent keeps its slot until the run has stopped, so a queued run no
+    longer starts beside it and goes over `sidecar.bgMaxConcurrent`.
 - **Failed edits get more accurate guidance**
   ([#161](https://github.com/nedonatelli/sidecar/issues/161)). When an `edit_file` call doesn't
   land, the agent is told less that is wrong:
