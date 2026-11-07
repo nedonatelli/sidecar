@@ -1191,9 +1191,9 @@ describe('complete() and completeFIM() request options (#421)', () => {
     expect((body.options as Record<string, unknown>).num_predict).toBe(512);
   });
 
-  it('sends top-level think:false for a problematic-thinking model, and nothing for others', async () => {
+  it('sends no think field while thinking is left on, whatever the model', async () => {
     await withConfig({ ollamaDisableThinking: false });
-    expect((await completeBody('qwen3:8b', 256)).think).toBe(false);
+    expect((await completeBody('qwen3:8b', 256)).think).toBeUndefined();
     expect((await completeBody('qwen3.5:latest', 256)).think).toBeUndefined();
   });
 

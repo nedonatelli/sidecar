@@ -913,10 +913,9 @@ export class OllamaBackend implements ApiBackend {
       ...(completeNumCtx !== null ? { num_ctx: completeNumCtx } : {}),
       ...(completeNumGpu !== null ? { num_gpu: completeNumGpu } : {}),
     };
-    // Same thinking rule as streamChat, which these calls skipped -- and with
-    // thinking on, the reasoning would spend the cap above. `think` is a
+    // The user's thinking switch, which these calls skipped. `think` is a
     // top-level /api/chat field, not a model option.
-    if (completeCfg.ollamaDisableThinking || hasProblematicThinking(model)) body.think = false;
+    if (completeCfg.ollamaDisableThinking) body.think = false;
     // V3: Ollama enforces structured output via the `format` field — 'json'
     // for any valid JSON, or a JSON-schema object to constrain the shape.
     if (responseFormat !== undefined) {

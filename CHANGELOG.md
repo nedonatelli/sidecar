@@ -33,8 +33,8 @@ All notable changes to the SideCar extension will be documented in this file.
     chat once it is known. With the chat model as the completion model, each completion used to
     reload the model at the server default, and the next chat turn reloaded it again.
   - Ollama one-shot calls (conversation compaction, commit messages, conflict resolution, vision,
-    tool-call repair) honour their output cap, and turn thinking off for the same models the chat
-    does.
+    tool-call repair) honour their output cap, and turn thinking off when
+    `sidecar.ollama.disableThinking` is set.
   - On OpenAI reasoning models, one-shot calls get room for their reasoning, up to
     `sidecar.maxOutputTokens`. A small cap could go entirely on reasoning and come back as an empty
     answer; a call that still runs out now fails with an error instead.
