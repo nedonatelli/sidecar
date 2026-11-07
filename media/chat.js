@@ -1149,6 +1149,23 @@
     vscode.postMessage({ command: 'compactContext' });
   });
 
+  // --- Thinking switch (header, Ollama only) ---
+  // Pressed = thinking on = `sidecar.ollama.disableThinking` false. The
+  // extension owns the value: it sends `thinkingState` at load, on a backend
+  // switch and whenever the setting changes (settings UI, another window).
+  const thinkingBtn = document.getElementById('thinking-btn');
+  function applyThinkingState(supported, enabled) {
+    thinkingBtn.classList.toggle('hidden', !supported);
+    thinkingBtn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  }
+  thinkingBtn.addEventListener('click', () => {
+    const enabled = thinkingBtn.getAttribute('aria-pressed') !== 'true';
+    // Flip at once; the setting's change event confirms it, and a failed
+    // write sends the old state back.
+    applyThinkingState(true, enabled);
+    vscode.postMessage({ command: 'setThinking', thinkingEnabled: enabled });
+  });
+
   // --- Settings menu (☰ menu button in the header) ---
   // Replaces the old Export button — holds backend profile switching,
   // export, and an "Open settings" escape hatch. Values injected from
@@ -4688,6 +4705,10 @@
         if (settingsMenu && !settingsMenu.classList.contains('hidden')) {
           renderBackendProfiles();
         }
+        break;
+
+      case 'thinkingState':
+        applyThinkingState(event.data.thinkingSupported === true, event.data.thinkingEnabled !== false);
         break;
 
       case 'indexingStatus':

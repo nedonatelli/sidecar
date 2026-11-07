@@ -28,7 +28,6 @@ import { SideCarClient } from '../../src/ollama/client.js';
 import { ToolRuntime } from '../../src/agent/tools/runtime.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 import { getConfig } from '../../src/config/settings.js';
-import { hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
 import { installSandbox, type WorkspaceFixture } from './workspaceSandbox.js';
 import { scoreAgentCase } from './agentScorers.js';
 import type { AgentEvalBackend } from './agentHarness.js';
@@ -243,7 +242,7 @@ export async function runLongHorizonCase(
       throw new Error(`SIDECAR_EVAL_CONFIG_OVERRIDES is not valid JSON: ${raw}`);
     }
   })();
-  let baseConfig = { ...getConfig(), sandboxEnabled: false, ...lhCase.configOverrides, ...envOverrides };
+  const baseConfig = { ...getConfig(), sandboxEnabled: false, ...lhCase.configOverrides, ...envOverrides };
 
   let systemPrompt = buildBaseSystemPrompt({
     isLocal: backend.name === 'ollama',
@@ -258,7 +257,6 @@ export async function runLongHorizonCase(
     systemPrompt += `\n\nProject instructions (from SIDECAR.md):\n${lhCase.workspace['SIDECAR.md']}`;
   }
   client.updateSystemPrompt(systemPrompt);
-  if (hasProblematicThinking(model)) baseConfig = { ...baseConfig, ollamaDisableThinking: true };
   // NB: cold-start models (gemma4) perform worse WITH prior context — but a
   // long-horizon test is prior context by definition, so we deliberately do NOT
   // strip history here the way the single-turn harness does. If gemma4 degrades

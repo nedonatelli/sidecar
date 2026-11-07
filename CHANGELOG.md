@@ -4,8 +4,19 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **A Thinking switch in the chat header** (💭), shown when the backend is Ollama. It turns
+  the model's reasoning before an answer on or off, and is the same value as
+  `sidecar.ollama.disableThinking`: it writes the setting in whichever scope already holds it,
+  follows changes made in the Settings UI or another window, and applies from the next request.
+
 ### Changed
 
+- **Qwen3 8B/14B/32B, GLM-4.7-Flash and Laguna XS.2 now think unless you turn it off.** SideCar
+  kept a list of models to run with thinking off; nothing measured it, and it never took effect
+  ([#469](https://github.com/nedonatelli/sidecar/issues/469)). The list is gone: every Ollama model
+  thinks by default, and `sidecar.ollama.disableThinking` (or the new header switch) turns it off.
 - **The backend menu no longer offers Kickstand**, which is not released. It is gone from the ☰
   menu, the backend picker and `switch_backend`, and its four commands appear in the palette only
   while `sidecar.provider` is `kickstand`. A setup that already uses it keeps working.
@@ -24,6 +35,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Thinking could not be turned off on Ollama**
+  ([#469](https://github.com/nedonatelli/sidecar/issues/469)). With
+  `sidecar.ollama.disableThinking` on, chat requests sent `think: false` inside the model options,
+  which Ollama ignores, so the model kept thinking. It is now sent where Ollama reads it.
 - **Bedrock reads static keys from the AWS config file**
   ([#112](https://github.com/nedonatelli/sidecar/issues/112)). Keys set for the active profile in
   `~/.aws/config` (or `AWS_CONFIG_FILE`) were ignored, as the AWS SDKs accept them there. The

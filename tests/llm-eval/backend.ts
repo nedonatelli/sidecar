@@ -102,10 +102,12 @@ class OllamaEvalBackend implements ModelBackend {
     const body = {
       model: opts.model,
       stream: false,
+      // Top-level, not inside `options`: Ollama ignores option keys it doesn't
+      // recognise, so `options.think` left thinking on for every call (#469).
+      think: false,
       options: {
         temperature: opts.temperature ?? 0.2,
         num_predict: opts.maxTokens ?? 1024,
-        think: false,
       },
       messages: [
         { role: 'system', content: opts.systemPrompt },

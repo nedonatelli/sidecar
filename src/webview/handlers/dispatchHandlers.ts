@@ -78,6 +78,7 @@ import {
   handleListMemories,
   handleSearchMemories,
   handleToggleVerbose,
+  handleSetThinking,
   handleGetSkillsForMenu,
 } from './infoHandlers.js';
 import {
@@ -626,6 +627,7 @@ export function buildDispatchHandlers(
     deleteMessage: (msg) => handleDeleteMessage(state, msg.index ?? -1),
     editMessage: (msg) => handleEditMessage(state, msg.index ?? -1, msg.text ?? ''),
     toggleVerbose: () => handleToggleVerbose(state),
+    setThinking: (msg) => handleSetThinking(state, msg.thinkingEnabled === true),
     compactContext: () => handleCompactContext(state),
     getSkillsForMenu: () => handleGetSkillsForMenu(state),
     openSkillPicker: async (msg) => {
