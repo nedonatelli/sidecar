@@ -293,13 +293,13 @@ No API key is required. The model name must match the identifier LM Studio repor
 
 ### LM Studio vs. Ollama
 
-|                          | LM Studio              | Ollama                 |
-| ------------------------ | ---------------------- | ---------------------- |
-| Model management         | GUI                    | CLI (`ollama pull`)    |
-| Auto-launch from SideCar | No                     | Yes                    |
-| FIM / inline completions | Yes                    | Yes                    |
-| Modelfile customization  | No                     | Yes                    |
-| API surface              | OpenAI-compat only     | Native + OpenAI-compat |
+|                          | LM Studio              | Ollama                  |
+| ------------------------ | ---------------------- | ----------------------- |
+| Model management         | GUI                    | CLI (`ollama pull`)     |
+| Auto-launch from SideCar | No                     | Yes                     |
+| FIM / inline completions | Yes                    | Yes                     |
+| Modelfile customization  | No                     | Yes                     |
+| API surface              | OpenAI-compat only     | Native + OpenAI-compat  |
 | Context window config    | Per-model slider in UI | `sidecar.ollama.numCtx` |
 
 If you only need a CLI workflow, Ollama is simpler. If you prefer a GUI for organizing and loading models, LM Studio works equally well as a backend.
@@ -364,6 +364,7 @@ No API key prompt. SideCar uses the standard AWS credential chain, in order:
 
 1. Environment: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` (for temporary creds).
 2. The shared credentials file `~/.aws/credentials` (or the file `AWS_SHARED_CREDENTIALS_FILE` names) for the active profile (`AWS_PROFILE`, default `default`).
+3. Static keys (`aws_access_key_id`, `aws_secret_access_key`) in that profile of the shared config file `~/.aws/config` (or the file `AWS_CONFIG_FILE` names). The credentials file wins when both have keys.
 
 > SSO / role-assumption / IMDS are not resolved natively — export static keys (e.g. via `aws sso login` + `aws configure export-credentials`, or your own tooling) into the environment.
 
