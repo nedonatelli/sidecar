@@ -24,6 +24,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Retrieved context is more accurate, and compaction no longer holds up the next turn**
+  ([#426](https://github.com/nedonatelli/sidecar/issues/426)):
+  - A caller or callee found through the symbol graph now shows the right lines. Its body started
+    one line early and lost its last line, and a call on a function's last line, including any
+    one-line function, was not linked to its caller.
+  - When summarizing old turns takes too long, the request is cancelled instead of left running.
+    On a local Ollama the agent's next turn used to wait behind it. Stop cancels it too.
+  - The workspace context used before the index is ready now includes each file exactly as it is.
+    A step meant to keep only the relevant parts never kept anything out, and it removed the line
+    break before every `### ` line in a file. That step is gone.
 - **Integration fixes** ([#427](https://github.com/nedonatelli/sidecar/issues/427)):
   - `mutation_test` in a shadow workspace or fork runs the tests there. It wrote each mutant into
     the shadow but ran the tests on the main tree, so every mutant "survived".
