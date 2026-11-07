@@ -61,7 +61,7 @@ import {
   evaluateRatchetAtTermination,
   makeWorkspaceRatchetIo,
 } from './loop/keepBestRatchetWiring.js';
-import { captureScratchBaseline, cleanupScratchAtTermination } from './loop/scratchCleanup.js';
+import { captureScratchBaseline, cleanupScratchAtTermination, noteScratchToolCalls } from './loop/scratchCleanup.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
@@ -1062,6 +1062,8 @@ export async function runAgentLoop(
       // Record files successfully edited via edit_file so write_file blocks a
       // full rewrite that would clobber those targeted fixes.
       recordSuccessfulEdits(pendingToolUses, state);
+      // Scratch cleanup only considers files this run's own tools wrote or named (#418).
+      noteScratchToolCalls(state, pendingToolUses);
       // Any write that changed a file invalidates every cached shell result: a
       // command that was a no-op repeat a moment ago may now produce something
       // new. A no-op edit is not a change (#361).
