@@ -375,7 +375,11 @@ describe('OllamaBackend', () => {
         // complete() must send the same value, or Ollama reloads the model between calls.
         mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ message: { content: 'ok' } }) });
         await backend.complete('gemma4:31b', '', [{ role: 'user', content: 'hi' }]);
-        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options).toEqual({ num_ctx: 131_072, num_gpu: 57 });
+        expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).options).toEqual({
+          num_predict: 256,
+          num_ctx: 131_072,
+          num_gpu: 57,
+        });
 
         process.env.SIDECAR_OLLAMA_NUM_GPU = 'lots';
         mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
@@ -587,7 +591,7 @@ describe('OllamaBackend', () => {
     it('sends the chat context window with complete() once it is known', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ message: { content: 'ok' } }) });
       await backend.complete('m', 'sys', [{ role: 'user', content: 'hi' }], 256);
-      expect(JSON.parse(mockFetch.mock.calls[0][1].body).options).toEqual({ num_ctx: 65_536 });
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body).options).toEqual({ num_predict: 256, num_ctx: 65_536 });
     });
   });
 
@@ -1155,5 +1159,149 @@ describe('ollamaStopReason (#164 ML-15)', () => {
     expect(ollamaStopReason(undefined, true)).toBe('tool_use');
     expect(ollamaStopReason('stop', false)).toBe('end_turn');
     expect(ollamaStopReason(undefined, false)).toBe('end_turn');
+  });
+});
+
+// #421: complete() and completeFIM() request shapes.
+describe('complete() and completeFIM() request options (#421)', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    __resetNumCtxProbesForTests();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.SIDECAR_OLLAMA_NUM_CTX;
+    delete process.env.SIDECAR_OLLAMA_NUM_GPU;
+  });
+
+  async function withConfig(overrides: Record<string, unknown>): Promise<void> {
+    const settings = await import('../config/settings.js');
+    const real = settings.getConfig();
+    vi.spyOn(settings, 'getConfig').mockReturnValue({ ...real, ...overrides } as never);
+  }
+
+  async function completeBody(model: string, maxTokens: number): Promise<Record<string, unknown>> {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ message: { content: 'ok' } }) });
+    await new OllamaBackend('http://localhost:11434').complete(model, '', [{ role: 'user', content: 'hi' }], maxTokens);
+    return JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string);
+  }
+
+  it("sends the caller's maxTokens as num_predict", async () => {
+    const body = await completeBody('gemma4:e4b', 512);
+    expect((body.options as Record<string, unknown>).num_predict).toBe(512);
+  });
+
+  it('sends top-level think:false for a problematic-thinking model, and nothing for others', async () => {
+    await withConfig({ ollamaDisableThinking: false });
+    expect((await completeBody('qwen3:8b', 256)).think).toBe(false);
+    expect((await completeBody('qwen3.5:latest', 256)).think).toBeUndefined();
+  });
+
+  it('sends think:false when the user turned thinking off', async () => {
+    await withConfig({ ollamaDisableThinking: true });
+    expect((await completeBody('qwen3.5:latest', 256)).think).toBe(false);
+  });
+
+  it('FIM sends the same num_ctx and num_gpu as chat once the window is known', async () => {
+    process.env.SIDECAR_OLLAMA_NUM_CTX = '131072';
+    process.env.SIDECAR_OLLAMA_NUM_GPU = '57';
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ response: 'x' }) });
+    await new OllamaBackend('http://localhost:11434').completeFIM('gemma4:31b', 'a', 'b', 64);
+    const body = JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string);
+    expect(mockFetch.mock.calls.at(-1)![0]).toBe('http://localhost:11434/api/generate');
+    expect(body.options).toEqual({ num_predict: 64, num_ctx: 131_072, num_gpu: 57 });
+  });
+
+  it('FIM uses the window the chat probed, without probing itself', async () => {
+    const backend = new OllamaBackend('http://localhost:11434');
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ model_info: { 'x.context_length': 131_072 } }) });
+    mockFetch.mockResolvedValueOnce({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+    for await (const _ of backend.streamChat('fim-chat:7b', '', [{ role: 'user', content: 'hi' }])) void _;
+
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ response: 'x' }) });
+    await backend.completeFIM('fim-chat:7b', 'a', 'b', 64);
+    expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string).options.num_ctx).toBe(131_072);
+
+    // A model never probed gets no num_ctx, and no /api/show on the keystroke path.
+    const before = mockFetch.mock.calls.length;
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ response: 'x' }) });
+    await backend.completeFIM('other-fim:1b', 'a', 'b', 64);
+    expect(mockFetch.mock.calls.length).toBe(before + 1);
+    expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string).options).toEqual({ num_predict: 64 });
+  });
+});
+
+// #421: the /api/show probe caches.
+describe('Ollama probe caches (#421)', () => {
+  const show131k = () => ({ ok: true, json: async () => ({ model_info: { 'x.context_length': 131_072 } }) });
+  const chatOk = () => ({ ok: true, body: ndjsonBody([{ message: { content: 'hi' }, done: true }]) });
+  const sentNumCtx = () => JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string).options.num_ctx;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    __resetNumCtxProbesForTests();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('retries a failed /api/show after the retry interval instead of keeping the 32K floor', async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const backend = new OllamaBackend('http://localhost:11434');
+
+    mockFetch.mockRejectedValueOnce(new Error('timeout'));
+    mockFetch.mockResolvedValueOnce(chatOk());
+    for await (const _ of backend.streamChat('slow:31b', '', [{ role: 'user', content: 'hi' }])) void _;
+    expect(sentNumCtx()).toBe(32_768);
+
+    // Within the interval: no second probe.
+    const before = mockFetch.mock.calls.length;
+    mockFetch.mockResolvedValueOnce(chatOk());
+    for await (const _ of backend.streamChat('slow:31b', '', [{ role: 'user', content: 'hi' }])) void _;
+    expect(mockFetch.mock.calls.length).toBe(before + 1);
+
+    now += 61_000;
+    mockFetch.mockResolvedValueOnce(show131k());
+    mockFetch.mockResolvedValueOnce(chatOk());
+    for await (const _ of backend.streamChat('slow:31b', '', [{ role: 'user', content: 'hi' }])) void _;
+    expect(sentNumCtx()).toBe(131_072);
+  });
+
+  it("keeps each host's context window separate", async () => {
+    const local = new OllamaBackend('http://localhost:11434');
+    const remote = new OllamaBackend('http://gpu-box:11434');
+
+    mockFetch.mockResolvedValueOnce(show131k());
+    mockFetch.mockResolvedValueOnce(chatOk());
+    for await (const _ of local.streamChat('same:12b', '', [{ role: 'user', content: 'hi' }])) void _;
+    expect(sentNumCtx()).toBe(131_072);
+
+    // The remote host is probed on its own, not served the local answer.
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ parameters: 'num_ctx 65536' }) });
+    mockFetch.mockResolvedValueOnce(chatOk());
+    for await (const _ of remote.streamChat('same:12b', '', [{ role: 'user', content: 'hi' }])) void _;
+    expect(mockFetch.mock.calls.at(-2)![0]).toBe('http://gpu-box:11434/api/show');
+    expect(sentNumCtx()).toBe(65_536);
+  });
+
+  it("keeps each host's tool support separate", async () => {
+    const tools: ToolDefinition[] = [{ name: 't', description: 'd', input_schema: { type: 'object', properties: {} } }];
+    // Probed as no-tools on the local host...
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ capabilities: ['completion'] }) });
+    await probeModelToolSupport('http://localhost:11434', 'hostkey:7b');
+
+    // ...which must not strip the tools from a request to another host.
+    process.env.SIDECAR_OLLAMA_NUM_CTX = '32768';
+    try {
+      mockFetch.mockResolvedValueOnce(chatOk());
+      const remote = new OllamaBackend('http://gpu-box:11434');
+      for await (const _ of remote.streamChat('hostkey:7b', '', [{ role: 'user', content: 'hi' }], undefined, tools)) {
+        void _;
+      }
+      expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string).tools).toHaveLength(1);
+    } finally {
+      delete process.env.SIDECAR_OLLAMA_NUM_CTX;
+    }
   });
 });

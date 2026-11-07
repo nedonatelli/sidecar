@@ -201,9 +201,12 @@ function logRequestSizeBreakdown(
 // backend that speaks /v1/chat/completions can share it. This file
 // only keeps the request-side message shape and the format conversion.
 
+/** A user content part: OpenAI's multi-part form, needed only when the message carries an image. */
+export type OpenAIContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | null | OpenAIContentPart[];
   tool_calls?: OpenAIToolCall[];
   tool_call_id?: string;
 }
@@ -240,6 +243,7 @@ export function toOpenAIMessages(messages: ChatMessage[], systemPrompt: string):
     if (msg.role === 'user') {
       const toolResults = blocks.filter((b) => b.type === 'tool_result');
       const textBlocks = blocks.filter((b) => b.type === 'text');
+      const hasImage = blocks.some((b) => b.type === 'image');
 
       // Emit tool result messages
       for (const tr of toolResults) {
@@ -248,8 +252,23 @@ export function toOpenAIMessages(messages: ChatMessage[], systemPrompt: string):
         }
       }
 
-      // Emit text as user message
-      if (textBlocks.length > 0) {
+      if (hasImage) {
+        // Images were dropped here, so a pasted screenshot never reached the
+        // model and visual_verify could pass a screenshot it never saw (#421).
+        // They go as data-URL `image_url` parts, in block order with the text.
+        const parts: OpenAIContentPart[] = [];
+        for (const b of blocks) {
+          if (b.type === 'text') parts.push({ type: 'text', text: b.text });
+          else if (b.type === 'image') {
+            parts.push({
+              type: 'image_url',
+              image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` },
+            });
+          }
+        }
+        result.push({ role: 'user', content: parts });
+      } else if (textBlocks.length > 0) {
+        // Text only: a plain string, the form every OpenAI-compatible server takes.
         const text = textBlocks.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
         result.push({ role: 'user', content: text });
       }
@@ -450,10 +469,17 @@ export class OpenAIBackend implements ApiBackend {
     maxTokens: number,
     signal?: AbortSignal,
   ): Promise<string> {
+    // A reasoning model's `max_completion_tokens` covers its reasoning too, so
+    // the 256-512 a caller asks for could all go on thinking, leaving no answer
+    // (#421). Such a model gets at least the streamChat cap; it still stops
+    // when its answer is done.
+    const cap = isReasoningModel(model)
+      ? outputCapFor(model, this.baseUrl, Math.max(maxTokens, getConfig().maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS))
+      : maxTokens;
     const body = {
       model,
       messages: toOpenAIMessages(messages, systemPrompt),
-      [maxTokensKey(model)]: maxTokens,
+      [maxTokensKey(model)]: cap,
       stream: false,
     };
 
@@ -467,7 +493,7 @@ export class OpenAIBackend implements ApiBackend {
       },
       {
         rateLimits: this.rateLimits,
-        estimatedTokens: estimateRequestTokens(systemPrompt, messages, maxTokens),
+        estimatedTokens: estimateRequestTokens(systemPrompt, messages, cap),
         maxRateLimitWaitMs: MAX_RATE_LIMIT_WAIT_MS,
         parseRateLimitHeaders: parseOpenAIRateLimitHeaders,
         label: 'openai',
@@ -479,8 +505,20 @@ export class OpenAIBackend implements ApiBackend {
       throw new Error(apiFailureMessage(response.status, response.statusText, errorText));
     }
 
-    const data = (await response.json()) as { choices: { message: { content: string } }[] };
-    return data.choices?.[0]?.message?.content || '';
+    const data = (await response.json()) as {
+      choices: { message: { content: string | null }; finish_reason?: string | null }[];
+    };
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content || '';
+    // Empty and cut off: the cap ran out before any answer. Returned as '',
+    // that read as a real (empty) answer to every caller.
+    if (!content && choice?.finish_reason === 'length') {
+      throw new Error(
+        `${model} reached its output limit (${cap} tokens) before writing an answer.` +
+          (isReasoningModel(model) ? ' Its reasoning counts against that limit; raise sidecar.maxOutputTokens.' : ''),
+      );
+    }
+    return content;
   }
 
   /**

@@ -24,6 +24,26 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Provider requests carry what they were missing**
+  ([#421](https://github.com/nedonatelli/sidecar/issues/421)):
+  - Images reach OpenAI-compatible backends (OpenAI, OpenRouter, Groq, Fireworks, Gemini). They
+    were dropped, so a pasted screenshot never reached the model and `visual_verify` could pass a
+    screenshot the model never saw.
+  - Ollama inline completions send the same context window (and `SIDECAR_OLLAMA_NUM_GPU`) as the
+    chat once it is known. With the chat model as the completion model, each completion used to
+    reload the model at the server default, and the next chat turn reloaded it again.
+  - Ollama one-shot calls (conversation compaction, commit messages, conflict resolution, vision,
+    tool-call repair) honour their output cap, and turn thinking off for the same models the chat
+    does.
+  - On OpenAI reasoning models, one-shot calls get room for their reasoning, up to
+    `sidecar.maxOutputTokens`. A small cap could go entirely on reasoning and come back as an empty
+    answer; a call that still runs out now fails with an error instead.
+  - The Anthropic model list reads every page. Models after the first 20 were missing from the
+    picker and from routing.
+  - A failed Ollama context-window probe is retried after a minute. One slow probe left the model
+    at the 32K floor for the whole session.
+  - Ollama's context-window and tool-support caches are per host, so switching between a local
+    and a remote Ollama no longer uses the other host's values.
 - **Retrieved context is more accurate, and compaction no longer holds up the next turn**
   ([#426](https://github.com/nedonatelli/sidecar/issues/426)):
   - A caller or callee found through the symbol graph now shows the right lines. Its body started

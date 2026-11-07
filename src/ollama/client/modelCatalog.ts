@@ -90,6 +90,9 @@ export const ANTHROPIC_FALLBACK_MODELS = [
   'claude-3-opus-latest',
 ];
 
+/** Most `/v1/models` pages read (1000 models each) before the listing stops. */
+const ANTHROPIC_MODEL_PAGE_LIMIT = 10;
+
 // Bedrock has no cheap model-list endpoint (ListFoundationModels needs a
 // separate signed call), so the picker shows a static set of common Claude
 // model / cross-region inference-profile IDs. Users can type any other Bedrock
@@ -133,20 +136,35 @@ export async function listInstalledModelsInner(ctx: ModelListContext): Promise<I
 
   if (provider === 'anthropic') {
     const fallback = (): InstalledModel[] => ANTHROPIC_FALLBACK_MODELS.map((id) => ({ name: id, model: id, size: 0 }));
+    // The list is paged (default 20 per page): reading only the first page
+    // left later models out of the picker and routing (#421). Follow
+    // `has_more` / `last_id`, bounded in case a server never stops. A later
+    // page failing keeps the pages already read.
+    const fetched: InstalledModel[] = [];
     try {
-      const response = await fetch(`${baseUrl}/v1/models`, {
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-      });
-      if (!response.ok) return fallback();
-      const data = (await response.json()) as { data?: { id: string; display_name?: string }[] };
-      const fetched = (data.data || []).map((m) => ({ name: m.id, model: m.id, size: 0 }));
-      return fetched.length > 0 ? fetched : fallback();
+      let afterId: string | undefined;
+      for (let page = 0; page < ANTHROPIC_MODEL_PAGE_LIMIT; page++) {
+        const query = `limit=1000${afterId ? `&after_id=${encodeURIComponent(afterId)}` : ''}`;
+        const response = await fetch(`${baseUrl}/v1/models?${query}`, {
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+        });
+        if (!response.ok) break;
+        const data = (await response.json()) as {
+          data?: { id: string; display_name?: string }[];
+          has_more?: boolean;
+          last_id?: string | null;
+        };
+        fetched.push(...(data.data || []).map((m) => ({ name: m.id, model: m.id, size: 0 })));
+        if (!data.has_more || !data.last_id || data.last_id === afterId) break;
+        afterId = data.last_id;
+      }
     } catch {
-      return fallback();
+      // Unreachable, or a page that failed mid-list: keep what was read.
     }
+    return fetched.length > 0 ? fetched : fallback();
   }
 
   if (provider === 'kickstand') {

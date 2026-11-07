@@ -52,15 +52,37 @@ export function ollamaStopReason(doneReason: string | undefined, sawToolCall: bo
 // ---------------------------------------------------------------------------
 
 /**
- * Cache of model tool support queried from Ollama's /api/show endpoint.
- * true = supports tools, false = does not.
+ * The Ollama host the most recent request or probe went to. The model-only
+ * readers below (`modelSupportsTools`, `getCachedOllamaNumCtx`) answer for it.
+ */
+let lastHost: string | null = null;
+
+/**
+ * Cache key for one model on one host. Keyed by model name alone, switching
+ * between a local and a remote Ollama reused the other host's window and tool
+ * support (#421).
+ */
+function hostModelKey(baseUrl: string, model: string): string {
+  const host = ollamaApiRoot(baseUrl);
+  lastHost = host;
+  return `${host}\n${model}`;
+}
+
+/** The key a model-only reader uses: the model on the last host talked to. */
+function lastHostKey(model: string): string {
+  return `${lastHost ?? ''}\n${model}`;
+}
+
+/**
+ * Cache of model tool support queried from Ollama's /api/show endpoint, per
+ * host and model (hostModelKey). true = supports tools, false = does not.
  * Models not in the cache haven't been probed yet — we optimistically
  * assume tool support until proven otherwise (by probing or runtime failure).
  */
 const toolCapabilityCache = new Map<string, boolean>();
 
 /**
- * Cache of resolved context lengths (tokens) per model name, populated by
+ * Cache of resolved context lengths (tokens) per host and model, populated by
  * probeModelToolSupport which already calls /api/show. Prefers the runtime
  * `num_ctx` from model parameters (set via Modelfile) so a user who customised
  * their model gets the right value; falls back to the native context length
@@ -114,6 +136,16 @@ export function ollamaNumCtxOverride(ollamaNumCtx: number | null | undefined): n
 const numCtxProbes = new Map<string, Promise<void>>();
 
 /**
+ * When a model's `/api/show` last FAILED (non-2xx, timeout, unreachable). A
+ * failure used to be cached as `null` for the session, which pinned the budget
+ * at the 32 K floor after one slow probe (#421); it is now retried once
+ * NUM_CTX_PROBE_RETRY_MS has passed. A probe that succeeded but reported no
+ * window is still cached as `null` for good.
+ */
+const numCtxProbeFailedAt = new Map<string, number>();
+const NUM_CTX_PROBE_RETRY_MS = 60_000;
+
+/**
  * Guarantee `numCtxCache` holds an entry for `model`, probing once if it does not.
  *
  * `numCtxCache` used to be filled ONLY as a side effect of
@@ -129,12 +161,16 @@ const numCtxProbes = new Map<string, Promise<void>>();
  * drifting again: the window is now a property of talking to Ollama, not of
  * having come through the UI first.
  *
- * A failed or uninformative probe caches `null` so a model that cannot report
- * its window is not re-probed on every single request.
+ * An uninformative probe caches `null` so a model that cannot report its
+ * window is not re-probed on every single request; a failed one is retried
+ * after NUM_CTX_PROBE_RETRY_MS (see numCtxProbeFailedAt).
  */
 async function ensureNumCtxProbed(baseUrl: string, model: string): Promise<void> {
-  if (numCtxCache.has(model)) return;
-  let inflight = numCtxProbes.get(model);
+  const key = hostModelKey(baseUrl, model);
+  if (numCtxCache.has(key)) return;
+  const failedAt = numCtxProbeFailedAt.get(key);
+  if (failedAt !== undefined && Date.now() - failedAt < NUM_CTX_PROBE_RETRY_MS) return;
+  let inflight = numCtxProbes.get(key);
   if (!inflight) {
     inflight = (async () => {
       // Deliberately NOT routed through probeModelToolSupport: that function
@@ -150,20 +186,21 @@ async function ensureNumCtxProbed(baseUrl: string, model: string): Promise<void>
           signal: AbortSignal.timeout(3000),
         });
         if (!response.ok) {
-          numCtxCache.set(model, null);
+          numCtxProbeFailedAt.set(key, Date.now());
           return;
         }
         const data = (await response.json()) as { parameters?: string; model_info?: Record<string, unknown> };
-        numCtxCache.set(model, readNumCtx(data));
+        numCtxCache.set(key, readNumCtx(data));
+        numCtxProbeFailedAt.delete(key);
       } catch {
-        // Unreachable Ollama, timeout, malformed payload: cache the miss so we
-        // do not re-probe on every request, and fall back to the 32 K floor.
-        numCtxCache.set(model, null);
+        // Unreachable Ollama, timeout, malformed payload: fall back to the
+        // 32 K floor for now, and probe again after the retry interval.
+        numCtxProbeFailedAt.set(key, Date.now());
       }
     })().finally(() => {
-      numCtxProbes.delete(model);
+      numCtxProbes.delete(key);
     });
-    numCtxProbes.set(model, inflight);
+    numCtxProbes.set(key, inflight);
   }
   await inflight;
 }
@@ -172,11 +209,12 @@ async function ensureNumCtxProbed(baseUrl: string, model: string): Promise<void>
 export function __resetNumCtxProbesForTests(): void {
   numCtxCache.clear();
   numCtxProbes.clear();
+  numCtxProbeFailedAt.clear();
 }
 
-/** Return the cached context length for a model, or null if not yet probed. */
+/** Return the cached context length for a model on the last host used, or null if not yet probed. */
 export function getCachedOllamaNumCtx(model: string): number | null {
-  return numCtxCache.get(model) ?? null;
+  return numCtxCache.get(lastHostKey(model)) ?? null;
 }
 
 /**
@@ -191,11 +229,11 @@ const toolSupportFailures = new Map<string, number>();
  * Returns false if the model is known not to support tools (via probe or runtime failure).
  * Returns true if the model is known to support tools OR hasn't been probed yet (optimistic).
  */
-function supportsTools(model: string): boolean {
+function supportsTools(key: string, model: string): boolean {
   // Check the probed capability cache first. Both answers are explicit signals
   // (Ollama's /api/show capabilities, or its 400 "does not support tools"),
   // and both win over the runtime heuristic below.
-  const cached = toolCapabilityCache.get(model);
+  const cached = toolCapabilityCache.get(key);
   if (cached === false) return false;
   // #314: the failure count is an inference from text that LOOKED like a tool
   // call (loop.ts). It used to override a probed `tools` capability, and a
@@ -216,8 +254,9 @@ function supportsTools(model: string): boolean {
  * On network/parse errors, returns true (optimistic — let runtime detection handle it).
  */
 export async function probeModelToolSupport(baseUrl: string, model: string): Promise<boolean> {
+  const key = hostModelKey(baseUrl, model);
   // Return cached result if available
-  const cached = toolCapabilityCache.get(model);
+  const cached = toolCapabilityCache.get(key);
   if (cached !== undefined) return cached;
 
   try {
@@ -239,12 +278,12 @@ export async function probeModelToolSupport(baseUrl: string, model: string): Pro
       model_info?: Record<string, unknown>;
     };
     const hasTools = Array.isArray(data.capabilities) && data.capabilities.includes('tools');
-    toolCapabilityCache.set(model, hasTools);
+    toolCapabilityCache.set(key, hasTools);
 
     // Extract context length while we have the /api/show response.
     // Prefer the runtime num_ctx (reflects Modelfile overrides); fall back to
     // the native GGUF context_length for stock pulls.
-    numCtxCache.set(model, readNumCtx(data));
+    numCtxCache.set(key, readNumCtx(data));
 
     return hasTools;
   } catch {
@@ -271,9 +310,11 @@ export async function deleteOllamaModel(baseUrl: string, model: string): Promise
   }
 
   // Evict capability caches for the deleted model
-  toolCapabilityCache.delete(model);
-  numCtxCache.delete(model);
-  numCtxProbes.delete(model);
+  const key = hostModelKey(baseUrl, model);
+  toolCapabilityCache.delete(key);
+  numCtxCache.delete(key);
+  numCtxProbes.delete(key);
+  numCtxProbeFailedAt.delete(key);
   toolSupportFailures.delete(model);
 }
 
@@ -283,7 +324,7 @@ export async function deleteOllamaModel(baseUrl: string, model: string): Promise
  */
 export async function probeAllModelToolSupport(baseUrl: string, modelNames: string[]): Promise<Map<string, boolean>> {
   const results = new Map<string, boolean>();
-  const uncached = modelNames.filter((m) => !toolCapabilityCache.has(m));
+  const uncached = modelNames.filter((m) => !toolCapabilityCache.has(hostModelKey(baseUrl, m)));
 
   // Probe uncached models in parallel (limit concurrency to avoid hammering Ollama)
   const BATCH_SIZE = MODEL_PROBE_BATCH_SIZE;
@@ -293,7 +334,7 @@ export async function probeAllModelToolSupport(baseUrl: string, modelNames: stri
   }
 
   for (const name of modelNames) {
-    results.set(name, toolCapabilityCache.get(name) ?? true);
+    results.set(name, toolCapabilityCache.get(hostModelKey(baseUrl, name)) ?? true);
   }
   return results;
 }
@@ -303,7 +344,7 @@ export function recordToolFailure(model: string): void {
   const count = (toolSupportFailures.get(model) || 0) + 1;
   toolSupportFailures.set(model, count);
   // Only true when the capability is unknown: a probed `tools` model keeps them (#314).
-  if (count === TOOL_FAILURE_THRESHOLD && toolCapabilityCache.get(model) !== true) {
+  if (count === TOOL_FAILURE_THRESHOLD && toolCapabilityCache.get(lastHostKey(model)) !== true) {
     logger.warn(`[SideCar] Model "${model}" has not used tools after ${count} attempts — disabling tool sending`);
   }
 }
@@ -318,7 +359,7 @@ export function recordToolSuccess(model: string): void {
  * For accurate results, call probeModelToolSupport() first (e.g. during model loading).
  */
 export function modelSupportsTools(model: string): boolean {
-  return supportsTools(model);
+  return supportsTools(lastHostKey(model), model);
 }
 
 // ---------------------------------------------------------------------------
@@ -583,7 +624,7 @@ export class OllamaBackend implements ApiBackend {
     };
 
     if (tools && tools.length > 0) {
-      if (supportsTools(model)) {
+      if (supportsTools(hostModelKey(this.baseUrl, model), model)) {
         body.tools = toFunctionTools(tools);
       } else {
         yield {
@@ -609,7 +650,7 @@ export class OllamaBackend implements ApiBackend {
 
       // If Ollama says the model doesn't support tools, update both caches
       if (response.status === 400 && errorText.includes('does not support tools')) {
-        toolCapabilityCache.set(model, false);
+        toolCapabilityCache.set(hostModelKey(this.baseUrl, model), false);
         toolSupportFailures.set(model, TOOL_FAILURE_THRESHOLD);
         logger.warn(`[SideCar] Model "${model}" does not support tools — disabling tool sending`);
       }
@@ -829,7 +870,7 @@ export class OllamaBackend implements ApiBackend {
     // Without an override the model's real window has to be known, so probe it
     // here rather than trusting some earlier caller to have done it.
     if (!hasOverride && probe) await ensureNumCtxProbed(this.baseUrl, model);
-    const probedNumCtx = numCtxCache.get(model) ?? null;
+    const probedNumCtx = numCtxCache.get(hostModelKey(this.baseUrl, model)) ?? null;
     // Without probing, an unknown window stays unknown rather than defaulting.
     if (!hasOverride && !probe && probedNumCtx === null) return null;
     // Use the probed num_ctx, floored at 32 768 (models that report < 32 K still
@@ -847,7 +888,7 @@ export class OllamaBackend implements ApiBackend {
     model: string,
     systemPrompt: string,
     messages: ChatMessage[],
-    _maxTokens: number = 256,
+    maxTokens: number = 256,
     signal?: AbortSignal,
     responseFormat?: ResponseFormat,
   ): Promise<string> {
@@ -865,12 +906,17 @@ export class OllamaBackend implements ApiBackend {
     // repair call) or from the override; no extra probe round-trip here.
     const completeNumCtx = await this.resolveNumCtx(model, completeCfg.ollamaNumCtx, false);
     const completeNumGpu = envNumGpu();
-    if (completeNumCtx !== null || completeNumGpu !== null) {
-      body.options = {
-        ...(completeNumCtx !== null ? { num_ctx: completeNumCtx } : {}),
-        ...(completeNumGpu !== null ? { num_gpu: completeNumGpu } : {}),
-      };
-    }
+    // The caller's cap was ignored, so commit messages, conflict resolution,
+    // vision and tool-call repair ran unbounded (#421).
+    body.options = {
+      num_predict: maxTokens,
+      ...(completeNumCtx !== null ? { num_ctx: completeNumCtx } : {}),
+      ...(completeNumGpu !== null ? { num_gpu: completeNumGpu } : {}),
+    };
+    // Same thinking rule as streamChat, which these calls skipped -- and with
+    // thinking on, the reasoning would spend the cap above. `think` is a
+    // top-level /api/chat field, not a model option.
+    if (completeCfg.ollamaDisableThinking || hasProblematicThinking(model)) body.think = false;
     // V3: Ollama enforces structured output via the `format` field — 'json'
     // for any valid JSON, or a JSON-schema object to constrain the shape.
     if (responseFormat !== undefined) {
@@ -907,6 +953,12 @@ export class OllamaBackend implements ApiBackend {
     signal?: AbortSignal,
   ): Promise<string> {
     const generateUrl = `${this.baseUrl}/api/generate`;
+    // Same num_ctx/num_gpu as the chat requests to this model (when known; no
+    // probe on the keystroke path). Without them, with the chat model as the
+    // completion model (the default), each completion reloaded it at the
+    // server default and the next chat turn reloaded it again (#421).
+    const fimNumCtx = await this.resolveNumCtx(model, getConfig().ollamaNumCtx, false);
+    const fimNumGpu = envNumGpu();
     const response = await sidecarFetch(
       generateUrl,
       {
@@ -917,7 +969,11 @@ export class OllamaBackend implements ApiBackend {
           prompt: prefix,
           suffix,
           stream: false,
-          options: { num_predict: maxTokens },
+          options: {
+            num_predict: maxTokens,
+            ...(fimNumCtx !== null ? { num_ctx: fimNumCtx } : {}),
+            ...(fimNumGpu !== null ? { num_gpu: fimNumGpu } : {}),
+          },
         }),
         signal,
       },
