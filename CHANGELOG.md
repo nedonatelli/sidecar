@@ -38,6 +38,19 @@ All notable changes to the SideCar extension will be documented in this file.
 - **A commit SideCar couldn't check is held for approval.** Before a commit, SideCar looks at
   what it would contain. If a git call failed or timed out during that look, the commit went
   ahead unchecked; it now waits for approval and says the check couldn't run.
+- **Scratch cleanup no longer moves files you wanted**
+  ([#418](https://github.com/nedonatelli/sidecar/issues/418)). At the end of a run,
+  `sidecar.scaffolding.scratchCleanup` used to move any new script in the workspace root, so
+  `jest.config.js`, `conftest.py`, `setup.py` or the `convert.py` you asked for ended up in
+  `.sidecar/scratchpad/`, along with new tests in `tests/` and files like `verifier.py` or
+  `src/VerifyEmail.tsx`. Now it moves only scripts named like scratch (`reproduce_issue.py`,
+  `repro.py`, `scratch.py`, `test_repro.py`; `verify_*`, `debug_*`, `check_*`, `compare_*` and
+  `test_*` only in the workspace root, and not where the project already keeps such files), never
+  anything in a test directory, and only files this run wrote with a file tool or named in one of
+  its commands. A file you or a background agent created during the run stays where it is.
+- **A link whose target doesn't exist is judged by where it points.** File tools refuse paths
+  that lead out of the workspace through a link. A link to a missing file couldn't be
+  followed, so it was treated as a new file inside the workspace; it's now judged by its target.
 
 - **Thinking could not be turned off on Ollama**
   ([#469](https://github.com/nedonatelli/sidecar/issues/469)). With
