@@ -40,6 +40,27 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.23 — scratch cleanup moves only scratch this run made (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.22, noting the patch.
+
+- **What changed:** `scaffolding.scratchCleanup` moves a file only if it is
+  new on disk and this run made it: a `write_file` or `edit_file` outcome
+  names it, or one of the run's `run_command` commands contains its name. The
+  name rules are narrower: script extensions only; `repro`, `reproduce`,
+  `scratch` and `test_(repro|issue|fix|bug)` anywhere; `verify`, `debug`,
+  `check`, `compare` and `test` only in the workspace root, and only where the
+  root has no such file already; never under a test directory. The bare
+  root-script rule is gone (#418).
+- **Eval impact:** a scratch test file written under a test directory now
+  stays in the patch.
+- **Measured:** gemma4:31b SWE canary on the 24 #387 tasks, seed 11, vs main.
+  Cleanup fired in 15/24 runs on main and 13/24 here. Patches carrying
+  scratch 0/24 → 3/24, exactly the three test-directory files now kept
+  (pre-registered: up to 5/24). Resolve 10 vs 11, one discordant pair that
+  split at volatile tool output; 19/24 patches byte-identical.
+
 ### 7.0.20 — Ollama's thinking switch reaches Ollama; the per-model list is removed (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

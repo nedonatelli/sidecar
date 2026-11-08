@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.23** (2026-11) — scratch cleanup moves only scratch this run made,
+ *   by narrower name rules (#418). A file is moved only if this run's file
+ *   tools wrote it or one of its commands names it, never from a test
+ *   directory, and bare root scripts (`conftest.py`, `setup.py`) are kept.
+ *   PATCH. gemma4:31b SWE canary on the #387 tasks: patches carrying scratch
+ *   0/24 → 3/24 (the three test-directory files now kept), resolve 10 vs 11
+ *   (1 discordant pair, traced to volatile tool output).
  * - **7.0.20** (2026-11) — Ollama's `think: false` is sent where Ollama reads
  *   it; the per-model thinking list is removed (#469). Chat requests put
  *   `think` inside `options`, which Ollama doesn't read, so neither
@@ -457,7 +464,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.20';
+export const SCAFFOLD_VERSION = '7.0.23';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
