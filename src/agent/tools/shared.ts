@@ -141,6 +141,14 @@ export interface ToolExecutorContext {
    */
   editedSinceRead?: Set<string>;
   /**
+   * The edit_file calls that changed each file this run, oldest first, as the
+   * model sent them. A later miss whose search is text one of them replaced
+   * names that edit: a re-read clears `editedSinceRead`, but the model still
+   * searched for its own replaced text in 24-29% of failed edits on e4b.
+   * Threaded from `LoopState.appliedEdits`; absent in unit tests.
+   */
+  appliedEdits?: Map<string, Array<{ search: string; replace: string }>>;
+  /**
    * Workspace index for the current session. When set, `write_file` and
    * `edit_file` call `invalidateFile` after each successful disk write so
    * the next `loadFileContent` call gets fresh content rather than the
