@@ -150,6 +150,19 @@ describe('reviewCommit', () => {
     expect(text).toMatch(/Paths: 1 longer than 20 characters \(longest 29\)/);
   });
 
+  it('holds the commit when git fails inside the repository, instead of letting it through', async () => {
+    write('bench/results/audit.jsonl', '{"tool":"get_setting","result":"machine-specific"}\n');
+    git('add', 'bench');
+    fs.writeFileSync(path.join(repo, '.git', 'index'), 'not an index');
+    const review = await reviewCommit(staged, repo);
+    expect(review?.concerns).toHaveLength(1);
+    expect(review?.concerns[0]).toMatch(/^SideCar could not check what this commit would contain \(.+\)/);
+    // A concern found before the failure is kept.
+    const forced = await reviewCommit({ via: 'command', addsFiles: true, forceAdds: true }, repo);
+    expect(forced?.concerns[0]).toMatch(/force-adds files/);
+    expect(forced?.concerns[1]).toMatch(/could not check/);
+  });
+
   it('is null outside a repository, leaving the commit to fail by itself', async () => {
     const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'not-a-repo-'));
     try {

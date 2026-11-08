@@ -35,6 +35,9 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A commit SideCar couldn't check is held for approval.** Before a commit, SideCar looks at
+  what it would contain. If a git call failed or timed out during that look, the commit went
+  ahead unchecked; it now waits for approval and says the check couldn't run.
 - **Scratch cleanup no longer moves files you wanted**
   ([#418](https://github.com/nedonatelli/sidecar/issues/418)). At the end of a run,
   `sidecar.scaffolding.scratchCleanup` used to move any new script in the workspace root, so
