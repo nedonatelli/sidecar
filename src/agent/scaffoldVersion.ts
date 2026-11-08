@@ -80,6 +80,37 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.20** (2026-11) — Ollama's `think: false` is sent where Ollama reads
+ *   it; the per-model thinking list is removed (#469). Chat requests put
+ *   `think` inside `options`, which Ollama doesn't read, so neither
+ *   `ollama.disableThinking` nor the problematic-thinking model list ever
+ *   turned thinking off. `think` is now a top-level field, sent only when the
+ *   user turns thinking off (setting or chat header switch), and the list is
+ *   gone. PATCH. The default eval models (gemma4:e4b, gemma4:31b, ministral-3)
+ *   send the same requests; the eval backend's one-shot `complete()` (prompt
+ *   eval, retrieval judge) now really runs thinking-off.
+ * - **7.0.19** (2026-11) — image prompts run with their text; autonomy
+ *   answers only approvals (#419). A prompt with images ran with empty text,
+ *   so retrieval, skill matching and message framing saw nothing; it now runs
+ *   with its text, and keeps its images on regenerate and Reconnect.
+ *   Switching to autonomous answers "Allow" only on cards that offer it:
+ *   clarifying questions, checkpoints, diff previews and irrecoverable
+ *   reconfirms stay pending instead of getting "Allow". PATCH. No eval: the
+ *   evals send no images and never switch modes mid-run.
+ * - **7.0.18** (2026-11) — graph-expanded retrieval hits use 1-based lines
+ *   (#426). Caller and callee bodies in system-prompt retrieval and
+ *   `project_knowledge_search` started a line early and lost their last line,
+ *   and a call on a function's last line was never attributed. The
+ *   summarizer's timeout and Stop cancel its request. The fallback workspace
+ *   context (index not ready) is passed verbatim; a filter that never filtered
+ *   and joined lines before `### ` headings is removed. PATCH. No eval: neither
+ *   eval harness attaches a symbol graph or calls injectSystemContext.
+ * - **7.0.17** (2026-11) — integration tool results (#427). `mutation_test`
+ *   in a shadow or fork runs its tests there, not on the main tree, so mutants
+ *   can be killed. GitHub check runs and review comments are read past the
+ *   first page. The dependency check asks OSV about the version an npm
+ *   lockfile installed. Custom tools start on Windows. PATCH. No eval: the SWE
+ *   and agent evals use none of these tools.
  * - **7.0.16** (2026-11) — auto-fix reads which files a call changed. The
  *   auto-fix pass took its files from `write_file`/`edit_file` calls by name
  *   and input path; it now reads each call's outcome (ADR-008), so a refused or
@@ -426,7 +457,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.16';
+export const SCAFFOLD_VERSION = '7.0.20';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

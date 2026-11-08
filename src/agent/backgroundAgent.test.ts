@@ -245,7 +245,10 @@ describe('BackgroundAgentManager slot limit + queue drain', () => {
     await flush();
   });
 
-  it('stopping a running run frees the slot; the next queued run drains into it', async () => {
+  // The slot was freed on the status change, before the stopped run's loop had
+  // unwound, so a queued run started beside it and bgMaxConcurrent was
+  // briefly exceeded. (#427)
+  it('a stopped running run keeps its slot until its loop unwinds; then the next queued run drains into it', async () => {
     const deferreds: Array<() => void> = [];
     runAgentLoopMock.mockImplementation(() => new Promise<void>((r) => deferreds.push(r)));
 
@@ -258,9 +261,18 @@ describe('BackgroundAgentManager slot limit + queue drain', () => {
 
     expect(mgr.get(idQueued)?.status).toBe('queued');
 
-    // Abort A while it's running. The abort triggers cancelled state
-    // + drainQueue — D should pick up the freed slot.
+    // Abort A while it's running. It shows cancelled at once, but its loop
+    // is still unwinding, so D must not start yet.
     mgr.stop(idA);
+    await flush();
+    await flush();
+
+    expect(mgr.get(idA)?.status).toBe('cancelled');
+    expect(mgr.get(idQueued)?.status).toBe('queued');
+    expect(toolRuntimeInstances).toHaveLength(3);
+
+    // A's loop returns: the slot is free and D drains into it.
+    deferreds[0]();
     await flush();
     await flush();
 
@@ -268,10 +280,6 @@ describe('BackgroundAgentManager slot limit + queue drain', () => {
     expect(mgr.get(idQueued)?.status).toBe('running');
     expect(toolRuntimeInstances).toHaveLength(4);
 
-    // Drain remaining so the test exits cleanly. (Note: A's deferred
-    // never resolves because we aborted it; executeRun's catch handles
-    // that via the cancelled-status early return.)
-    deferreds[0](); // A — still resolves, but status stays cancelled
     deferreds[1](); // B
     deferreds[2](); // C
     deferreds[3](); // D

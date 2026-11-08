@@ -498,6 +498,17 @@ describe('applyBudgetCompression', () => {
     expect(info).toHaveBeenCalled();
   });
 
+  it("passes the run's abort signal to the summarizer so Stop cancels its request (#426)", async () => {
+    makeSummarizerMock({ freedChars: 100_000, turnsSummarized: 3, turnsCount: 5, messages: [] });
+    const state = stubLoopState({ maxTokens: 100_000, totalChars: 300_000 });
+    const stop = new AbortController();
+    await applyBudgetCompression({} as SideCarClient, state, undefined, stop.signal);
+    expect(mockSummarize).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ signal: stop.signal, summaryTimeoutMs: 5000 }),
+    );
+  });
+
   it("S2: passes the capability tier's compaction shape to the summarizer", async () => {
     makeSummarizerMock({ freedChars: 100_000, turnsSummarized: 3, turnsCount: 5, messages: [] });
     const state = stubLoopState({

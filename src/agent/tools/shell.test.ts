@@ -53,6 +53,7 @@ vi.mock('./runtime.js', () => ({
 import {
   runCommand,
   runTests,
+  runVerificationCommand,
   detectLanguageMismatchedLint,
   detectMaskedVerification,
   missingChecker,
@@ -136,6 +137,23 @@ describe('shell tool runtime resolution', () => {
       } as unknown as ToolExecutorContext;
       await expect(runCommand({ command: 'npm test' }, ctx)).resolves.toBeDefined();
       expect(injected.execute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // mutation_test in a shadow wrote its mutants into the shadow but ran the
+  // tests through the main-tree terminal, so every mutant "survived". (#427)
+  describe('runVerificationCommand', () => {
+    it('runs in the shadow session when given a context with a cwd override', async () => {
+      const injected = new ShellSessionStub();
+      const ctx = {
+        cwd: '/tmp/.sidecar/shadows/task-1',
+        config: { shellTimeout: 120, shellMaxOutputMB: 10, terminalExecutionEnabled: true },
+        toolRuntime: { getShellSession: () => injected, dispose: () => undefined, symbolGraph: null },
+      } as unknown as ToolExecutorContext;
+      const r = await runVerificationCommand('pytest -q', 5_000, undefined, ctx);
+      expect(r.exitCode).toBe(0);
+      expect(injected.execute).toHaveBeenCalledTimes(1);
+      expect(defaultRuntimeSpy.getShellSession).not.toHaveBeenCalled();
     });
   });
 

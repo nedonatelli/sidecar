@@ -10,7 +10,8 @@
 
 import { window, workspace } from 'vscode';
 import type { ChatState } from '../chatState.js';
-import { getConfig } from '../../config/settings.js';
+import { getConfig, updateSettingWhereSet } from '../../config/settings.js';
+import { buildThinkingStateMessage } from '../chatViewLifecycle.js';
 import { generateInsightReport } from '../../agent/insightReport.js';
 import { generateUsageReport } from '../../agent/usageReport.js';
 import { generateContextReport } from '../../agent/contextReport.js';
@@ -295,15 +296,33 @@ export function handleSearchMemories(state: ChatState, query: string): void {
   state.postMessage({ command: 'assistantMessage', content });
 }
 
-export function handleToggleVerbose(state: ChatState): void {
+export async function handleToggleVerbose(state: ChatState): Promise<void> {
   const current = getConfig().verboseMode;
-  workspace.getConfiguration('sidecar').update('verboseMode', !current, true);
+  await updateSettingWhereSet('verboseMode', !current);
   const label = !current ? 'on' : 'off';
   state.postMessage({
     command: 'assistantMessage',
     content: `Verbose mode ${label}. ${!current ? 'Agent reasoning will be shown during runs.' : 'Agent reasoning hidden.'}`,
   });
   state.postMessage({ command: 'done' });
+}
+
+/**
+ * The chat header's Thinking switch. On = thinking on = `ollama.disableThinking`
+ * false. The setting's change event re-syncs the switch in every window, and
+ * the backend reads the setting per request, so the next turn uses it.
+ */
+export async function handleSetThinking(state: ChatState, enabled: boolean): Promise<void> {
+  try {
+    await updateSettingWhereSet('ollama.disableThinking', !enabled);
+  } catch (err) {
+    // No change event will come, so put the switch back where the setting is.
+    state.postMessage(buildThinkingStateMessage(getConfig()));
+    state.postMessage({
+      command: 'error',
+      content: `Could not change the thinking setting: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
 }
 
 export function handleGetSkillsForMenu(state: ChatState): void {

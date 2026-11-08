@@ -90,4 +90,21 @@ describe('gpt-oss is not the hosted GPT family', () => {
     expect(buildCapabilityProfile('gpt-oss:20b').tier).not.toBe('strong');
     expect(detectModelFamily('gpt-4o')).toBe('gpt');
   });
+
+  it('gets the 20B local-model tier', () => {
+    expect(buildCapabilityProfile('gpt-oss:20b')).toMatchObject({ family: 'unknown', tier: 'weak' });
+  });
+
+  // The eval models' scaffolding must not move with this change.
+  it.each([
+    ['gemma4:e4b', 'gemma', 'medium'],
+    ['gemma4:31b', 'gemma', 'medium'],
+    ['ministral-3', 'unknown', 'weak'],
+    ['ministral-3:latest', 'unknown', 'weak'],
+    ['qwen2.5-coder:7b', 'qwen', 'medium'],
+    ['qwen3.5', 'qwen', 'medium'],
+    ['qwen3-coder:30b', 'qwen', 'medium'],
+  ])('%s stays %s / %s', (model, family, tier) => {
+    expect(buildCapabilityProfile(model)).toMatchObject({ family, tier });
+  });
 });

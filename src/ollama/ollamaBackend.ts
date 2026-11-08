@@ -14,7 +14,6 @@ import {
   type TextToolCallState,
 } from './streamUtils.js';
 import { getConfig, ollamaApiRoot } from '../config/settings.js';
-import { hasProblematicThinking } from '../config/modelAgentBehavior.js';
 import {
   TOOL_FAILURE_THRESHOLD,
   MODEL_PROBE_BATCH_SIZE,
@@ -546,12 +545,6 @@ export class OllamaBackend implements ApiBackend {
     if (seed !== null && Number.isFinite(seed)) options.seed = seed;
     const numGpu = envNumGpu();
     if (numGpu !== null) options.num_gpu = numGpu;
-    // Thinking: ON by default for models that support it. Disabled when the
-    // user opts out, OR when the model is on the known-problematic list —
-    // thinking tokens make those models stall, time out, or stop emitting tool
-    // calls. That list was previously honored ONLY by the eval harness, so we
-    // protected our own tests from a failure mode we then shipped to users.
-    if (ollamaDisableThinking || hasProblematicThinking(model)) options.think = false;
     // The pruner was wired into the Anthropic, Bedrock and OpenAI backends but
     // never into this one, so the local path -- SideCar's default, and the one
     // every benchmark run uses -- had no tool-result cap and no dedup at all.
@@ -572,6 +565,12 @@ export class OllamaBackend implements ApiBackend {
       messages: toOllamaMessages(pruned.messages, pruned.systemPrompt),
       stream: true,
       options,
+      // Thinking: ON by default for every model that supports it; off only
+      // when the user opts out (`sidecar.ollama.disableThinking`, or the chat
+      // header switch). `think` is a TOP-LEVEL /api/chat field -- Ollama
+      // ignores option keys it doesn't recognise, so `options.think` never
+      // turned anything off (#469).
+      ...(ollamaDisableThinking ? { think: false } : {}),
       // Keep the model warm between requests — every request refreshes the
       // TTL, so an active session never pays the 10-60s cold-reload penalty
       // (Ollama's default unload is only 5 min idle). BOUNDED, never -1:

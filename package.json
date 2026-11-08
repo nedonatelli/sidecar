@@ -393,7 +393,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Disable the extended reasoning (`think`) phase for Ollama models that support it (e.g. Qwen3, DeepSeek-R1). When `true`, SideCar passes `think: false` with every request, skipping the internal chain-of-thought and reducing latency significantly at the cost of reasoning depth.\n\nLeave `false` (default) to keep thinking enabled — recommended for complex coding tasks. Enable when speed matters more than depth, or when running evals."
+            "markdownDescription": "Turn off the extended reasoning (`think`) phase for Ollama models that support it (e.g. Qwen3, DeepSeek-R1, Gemma 4). When `true`, SideCar sends `think: false` with every chat request, skipping the model's chain-of-thought and reducing latency significantly at the cost of reasoning depth.\n\nLeave `false` (default) to keep thinking on, for every model — recommended for complex coding tasks. Enable when speed matters more than depth.\n\nThe **Thinking** switch in the chat header (💭, shown on the Ollama backend) changes this setting; the change applies from the next request."
           },
           "sidecar.agentMaxIterations": {
             "type": "number",

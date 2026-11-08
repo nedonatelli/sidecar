@@ -4,6 +4,22 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Windows system variables a child process needs to start: Python, Node and
+ * cmd.exe fail or misbehave without them. For the whitelisted environment
+ * given to custom tools, which otherwise carries only POSIX names. Paths and
+ * settings, never credentials. (#427)
+ */
+export const WINDOWS_STARTUP_ENV_KEYS = [
+  'SystemRoot',
+  'windir',
+  'COMSPEC',
+  'PATHEXT',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+] as const;
+
 /** Package-manager launchers that are `.cmd` scripts on Windows. */
 const WINDOWS_CMD_SHIMS = /^(npm|npx|yarn|pnpm|bun|bunx)$/i;
 

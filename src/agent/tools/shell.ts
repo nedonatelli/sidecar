@@ -299,13 +299,18 @@ async function executeShell(
  * integrated terminal runs the user's login shell with the real PATH, exactly
  * like `run_tests`. Returns `timedOut` so callers can tell a timeout (which
  * must NOT be read as "parses cleanly") from a genuine result.
+ *
+ * Pass the tool `context` when the command must run where the agent is
+ * editing: in a shadow or fork run (`context.cwd`) it routes through that
+ * run's cwd-rooted ShellSession instead of the main-tree terminal.
  */
 export async function runVerificationCommand(
   command: string,
   timeoutMs: number,
   signal?: AbortSignal,
+  context?: ToolExecutorContext,
 ): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
-  const executor = buildExecutor();
+  const executor = buildExecutor(context);
   const r = await executor.execute(command, { timeout: timeoutMs, signal });
   return { exitCode: r.exitCode, output: r.stdout, timedOut: r.timedOut };
 }

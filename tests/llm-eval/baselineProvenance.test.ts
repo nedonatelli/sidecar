@@ -37,15 +37,11 @@ const withScaffold = (version: string, features?: Record<string, boolean>): Base
 });
 
 describe('currentProvenance', () => {
-  it('reports thinking on for a model with no known thinking problems', () => {
+  it('reports thinking on by default, for any model', () => {
     expect(currentProvenance('qwen2.5-coder:7b', {}).thinkingEnabled).toBe(true);
-  });
-
-  it('reports thinking off for a model the agent loop suppresses it for', () => {
-    // The snapshot has to describe what the run ACTUALLY did. Recording
-    // `thinking: on` for a model the loop silently suppresses it for would
-    // reintroduce the exact mislabelling this guard exists to catch.
-    expect(currentProvenance('qwen3:8b', {}).thinkingEnabled).toBe(false);
+    // qwen3:8b was on a per-model suppression list that never reached Ollama
+    // (#469) and has been removed: its runs think unless the config says not to.
+    expect(currentProvenance('qwen3:8b', {}).thinkingEnabled).toBe(true);
   });
 
   it('reports thinking off when the run config disables it', () => {

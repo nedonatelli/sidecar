@@ -4,8 +4,19 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **A Thinking switch in the chat header** (💭), shown when the backend is Ollama. It turns
+  the model's reasoning before an answer on or off, and is the same value as
+  `sidecar.ollama.disableThinking`: it writes the setting in whichever scope already holds it,
+  follows changes made in the Settings UI or another window, and applies from the next request.
+
 ### Changed
 
+- **Qwen3 8B/14B/32B, GLM-4.7-Flash and Laguna XS.2 now think unless you turn it off.** SideCar
+  kept a list of models to run with thinking off; nothing measured it, and it never took effect
+  ([#469](https://github.com/nedonatelli/sidecar/issues/469)). The list is gone: every Ollama model
+  thinks by default, and `sidecar.ollama.disableThinking` (or the new header switch) turns it off.
 - **The backend menu no longer offers Kickstand**, which is not released. It is gone from the ☰
   menu, the backend picker and `switch_backend`, and its four commands appear in the palette only
   while `sidecar.provider` is `kickstand`. A setup that already uses it keeps working.
@@ -24,6 +35,47 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Thinking could not be turned off on Ollama**
+  ([#469](https://github.com/nedonatelli/sidecar/issues/469)). With
+  `sidecar.ollama.disableThinking` on, chat requests sent `think: false` inside the model options,
+  which Ollama ignores, so the model kept thinking. It is now sent where Ollama reads it.
+- **Bedrock reads static keys from the AWS config file**
+  ([#112](https://github.com/nedonatelli/sidecar/issues/112)). Keys set for the active profile in
+  `~/.aws/config` (or `AWS_CONFIG_FILE`) were ignored, as the AWS SDKs accept them there. The
+  credentials file still wins.
+- **A Copilot model id or family matches only Copilot's models**
+  ([#230](https://github.com/nedonatelli/sidecar/issues/230)). If another extension offered a
+  model with the configured id or family, SideCar used it without notice. Now only Copilot's
+  models match; otherwise SideCar uses Copilot's first model and says so.
+- **Retrieved context is more accurate, and compaction no longer holds up the next turn**
+  ([#426](https://github.com/nedonatelli/sidecar/issues/426)):
+  - A caller or callee found through the symbol graph now shows the right lines. Its body started
+    one line early and lost its last line, and a call on a function's last line, including any
+    one-line function, was not linked to its caller.
+  - When summarizing old turns takes too long, the request is cancelled instead of left running.
+    On a local Ollama the agent's next turn used to wait behind it. Stop cancels it too.
+  - The workspace context used before the index is ready now includes each file exactly as it is.
+    A step meant to keep only the relevant parts never kept anything out, and it removed the line
+    break before every `### ` line in a file. That step is gone.
+- **Scheduled-task `onSave` globs match workspace-relative paths**
+  ([#431](https://github.com/nedonatelli/sidecar/issues/431)). A glob was tested only against the
+  saved file's absolute path and its file name, so `src/**/*.ts` never fired and only `**/`-prefixed
+  or bare-name patterns worked. It is now also tested against the path relative to the workspace
+  folder. Patterns that worked before still do.
+- **Integration fixes** ([#427](https://github.com/nedonatelli/sidecar/issues/427)):
+  - `mutation_test` in a shadow workspace or fork runs the tests there. It wrote each mutant into
+    the shadow but ran the tests on the main tree, so every mutant "survived".
+  - The audit-recovery notice at startup no longer holds up the rest of startup. Until it was
+    answered, stale shadows were not swept and spending was not restored.
+  - GitHub check runs and PR review comments are read past the first page of 100, so a failing
+    check on page 2 is no longer missed.
+  - The dependency vulnerability check asks about the version `package-lock.json` (or
+    `npm-shrinkwrap.json`) installed. For `^4.17.0` it asked about 4.17.0 and reported advisories
+    fixed in the version actually installed. Without a lockfile it still uses the range's floor.
+  - Custom tools get the Windows system variables (`SystemRoot`, `windir`, `COMSPEC`, `PATHEXT`,
+    `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`), without which Python fails to start on Windows.
+  - Stopping a background agent keeps its slot until the run has stopped, so a queued run no
+    longer starts beside it and goes over `sidecar.bgMaxConcurrent`.
 - **Failed edits get more accurate guidance**
   ([#161](https://github.com/nedonatelli/sidecar/issues/161)). When an `edit_file` call doesn't
   land, the agent is told less that is wrong:
@@ -92,6 +144,27 @@ All notable changes to the SideCar extension will be documented in this file.
   ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The button only greyed out the plan
   card. The plan stayed pending, so a later "ok" ran the rejected plan, and any other message was
   taken as feedback to revise it. Reject now works like typing "no".
+- **The chat panel's buttons act on the message they belong to**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)):
+  - ↻ on an older answer regenerated the latest one and left the old answer on screen. Only the
+    latest answer can now be regenerated, it replaces the old one, and the prompt's images go with it.
+  - After `/help`, `/usage`, a GitHub command or a "hi", deleting or editing a later message could
+    act on the wrong one, and editing a command bubble sent the command to the model. Those bubbles
+    no longer count as messages.
+  - Retry and Edit sent a prompt without its attached files. They now keep them.
+  - After Cancel on an edit, the message's buttons did nothing. They work again.
+  - A long chat's older messages, scrolled back into view, came back with Edit on answers and without
+    their plan buttons or attachment labels.
+  - A prompt with an image now runs with its text, so project context and skills apply to it, and
+    Reconnect re-sends it.
+  - Switching to autonomous mode answered open questions with "Allow" and stopped the run at a
+    checkpoint. It now approves only the pending tool approvals.
+  - A run replaced by a new message or New Chat could end the new run's answer early and show its
+    leftover text there.
+  - `/batch` can be stopped from the panel.
+  - `/verbose` changes the setting where it is set, so a workspace value no longer hides the change.
+  - Branch in the Sessions view asks for the name first; cancelling no longer loads the session and
+    stops the running agent.
 - **Error cards no longer mistake numbers for status codes**
   ([#435](https://github.com/nedonatelli/sidecar/issues/435)). A code such as 429 or 401 was
   matched anywhere in the message, so "prompt is too long: 204291 tokens" showed as a rate limit
