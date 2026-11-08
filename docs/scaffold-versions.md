@@ -65,6 +65,59 @@ re-defaulted. Comparable with 7.0.23, noting the patch.
   5/10 said it couldn't confirm the fix, against 0/10. The Git Bash path is
   covered by an integration test in a real terminal.
 
+### 7.0.23 — a commit SideCar couldn't check is held for approval (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.22, noting the patch.
+
+- **What changed:** before a commit, SideCar runs git to see what the commit
+  would hold. When one of those git calls failed or timed out inside the
+  repository, the review returned no concerns and the commit went ahead
+  unchecked. It now holds the commit for approval, saying the check couldn't
+  run, and keeps any concern found before the failure. Outside a repository it
+  still returns nothing, leaving the commit to fail by itself.
+- **Eval impact:** none expected. SWE and agent-eval runs don't commit.
+- **Measured:** no eval. Unit test: a damaged index inside a repository now
+  holds the commit, and a force-add concern found before the failure is kept.
+
+### 7.0.22 — scratch cleanup moves only scratch this run made (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.21, noting the patch.
+
+- **What changed:** `scaffolding.scratchCleanup` moves a file only if it is
+  new on disk and this run made it: a `write_file` or `edit_file` outcome
+  names it, or one of the run's `run_command` commands contains its name. The
+  name rules are narrower: script extensions only; `repro`, `reproduce`,
+  `scratch` and `test_(repro|issue|fix|bug)` anywhere; `verify`, `debug`,
+  `check`, `compare` and `test` only in the workspace root, and only where the
+  root has no such file already; never under a test directory. The bare
+  root-script rule is gone (#418).
+- **Eval impact:** a scratch test file written under a test directory now
+  stays in the patch.
+- **Measured:** gemma4:31b SWE canary on the 24 #387 tasks, seed 11, vs main.
+  Cleanup fired in 15/24 runs on main and 13/24 here. Patches carrying
+  scratch 0/24 → 3/24, exactly the three test-directory files now kept
+  (pre-registered: up to 5/24). Resolve 10 vs 11, one discordant pair that
+  split at volatile tool output; 19/24 patches byte-identical.
+
+### 7.0.21 — a link whose target doesn't exist is judged by that target (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.20, noting the patch.
+
+- **What changed:** the check that keeps file tools inside the workspace
+  follows links to where they really lead. A link whose target doesn't exist
+  couldn't be followed, so it was judged as a new file at the link's own
+  path. It is now judged by the path it points to, and a chain of links that
+  never ends is refused.
+- **Eval impact:** none expected. SWE and agent-eval tasks contain no such
+  links.
+- **Measured:** no eval. Unit tests: a broken link out of the workspace is
+  refused, one pointing inside resolves to its target, and (where links can
+  be created) a write through a file link to a missing file outside is
+  refused.
+
 ### 7.0.20 — Ollama's thinking switch reaches Ollama; the per-model list is removed (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
