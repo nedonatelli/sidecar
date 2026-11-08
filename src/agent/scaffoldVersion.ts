@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.21** (2026-11) — a commit SideCar couldn't check is held for
+ *   approval. The commit review returned "no concerns" when a git call inside
+ *   the repository failed or timed out, so the commit went ahead unchecked; it
+ *   now holds the commit, keeping whatever it found before the failure. PATCH.
+ *   SWE runs make no commits, so eval runs are unaffected.
  * - **7.0.20** (2026-11) — Ollama's `think: false` is sent where Ollama reads
  *   it; the per-model thinking list is removed (#469). Chat requests put
  *   `think` inside `options`, which Ollama doesn't read, so neither
@@ -457,7 +462,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.20';
+export const SCAFFOLD_VERSION = '7.0.21';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

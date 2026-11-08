@@ -40,6 +40,21 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.21 — a commit SideCar couldn't check is held for approval (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.20, noting the patch.
+
+- **What changed:** before a commit, SideCar runs git to see what the commit
+  would hold. When one of those git calls failed or timed out inside the
+  repository, the review returned no concerns and the commit went ahead
+  unchecked. It now holds the commit for approval, saying the check couldn't
+  run, and keeps any concern found before the failure. Outside a repository it
+  still returns nothing, leaving the commit to fail by itself.
+- **Eval impact:** none expected. SWE and agent-eval runs don't commit.
+- **Measured:** no eval. Unit test: a damaged index inside a repository now
+  holds the commit, and a force-add concern found before the failure is kept.
+
 ### 7.0.20 — Ollama's thinking switch reaches Ollama; the per-model list is removed (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

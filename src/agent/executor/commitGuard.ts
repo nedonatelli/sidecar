@@ -27,8 +27,11 @@ import { gitEnvForCwd } from '../loop/treeSignature.js';
  *  - hold a path longer than COMMIT_LIMITS.pathChars.
  * An ordinary source change passes all of these, so it adds no prompts.
  *
- * Unlike detectConfigEdit this runs git, so it runs only for a commit. Any git
- * failure returns null and leaves the commit to fail or succeed by itself.
+ * Unlike detectConfigEdit this runs git, so it runs only for a commit. Outside
+ * a repository it returns null and leaves the commit to fail by itself. A git
+ * failure inside one -- a timeout while hashing a large ignored tree, a
+ * damaged index -- is itself a concern: nothing was checked, so the commit is
+ * held rather than let through.
  */
 
 export const COMMIT_LIMITS = {
@@ -252,18 +255,31 @@ function mb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** The problems with the commit `call` would make in `cwd`, or null when there are none (or git cannot say). */
+/** Why a git call failed, in a few words. */
+function gitFailure(err: unknown): string {
+  const e = err as { killed?: boolean; signal?: string | null; message?: string };
+  if (e.killed || e.signal) return 'git did not finish within 10 s';
+  const line = (e.message ?? String(err)).split('\n').find((l) => l.trim()) ?? 'git failed';
+  return line.trim().slice(0, 200);
+}
+
+/** The problems with the commit `call` would make in `cwd`, or null when there are none (or `cwd` is not a repository). */
 export async function reviewCommit(call: CommitCall, cwd: string): Promise<CommitReview | null> {
+  let root: string;
   try {
-    const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
-    if (!root) return null;
+    root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  } catch {
+    return null;
+  }
+  if (!root) return null;
+  const concerns: string[] = [];
+  if (call.forceAdds) {
+    concerns.push(
+      'The command force-adds files (git add -f), which stages files .gitignore keeps out of the repository.',
+    );
+  }
+  try {
     const files = await candidates(root, call.addsFiles);
-    const concerns: string[] = [];
-    if (call.forceAdds) {
-      concerns.push(
-        'The command force-adds files (git add -f), which stages files .gitignore keeps out of the repository.',
-      );
-    }
     if (files.length === 0) return concerns.length > 0 ? { concerns } : null;
 
     const ignored = new Set(await ignoredPaths(root, files));
@@ -318,10 +334,15 @@ export async function reviewCommit(call: CommitCall, cwd: string): Promise<Commi
           'A Windows clone without core.longpaths cannot check them out.',
       );
     }
-    return concerns.length > 0 ? { concerns } : null;
-  } catch {
-    return null;
+  } catch (err) {
+    // Whatever was found before the failure stays; the rest is unknown, which
+    // is not the same as fine.
+    concerns.push(
+      `SideCar could not check what this commit would contain (${gitFailure(err)}), so it cannot rule out ` +
+        'ignored files, copies of them, or an unusually large commit.',
+    );
   }
+  return concerns.length > 0 ? { concerns } : null;
 }
 
 /** The approval question. */

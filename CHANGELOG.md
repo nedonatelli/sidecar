@@ -35,6 +35,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A commit SideCar couldn't check is held for approval.** Before a commit, SideCar looks at
+  what it would contain. If a git call failed or timed out during that look, the commit went
+  ahead unchecked; it now waits for approval and says the check couldn't run.
+
 - **Thinking could not be turned off on Ollama**
   ([#469](https://github.com/nedonatelli/sidecar/issues/469)). With
   `sidecar.ollama.disableThinking` on, chat requests sent `think: false` inside the model options,
