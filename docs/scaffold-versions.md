@@ -40,6 +40,23 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.22 — a link whose target doesn't exist is judged by that target (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.21, noting the patch.
+
+- **What changed:** the check that keeps file tools inside the workspace
+  follows links to where they really lead. A link whose target doesn't exist
+  couldn't be followed, so it was judged as a new file at the link's own
+  path. It is now judged by the path it points to, and a chain of links that
+  never ends is refused.
+- **Eval impact:** none expected. SWE and agent-eval tasks contain no such
+  links.
+- **Measured:** no eval. Unit tests: a broken link out of the workspace is
+  refused, one pointing inside resolves to its target, and (where links can
+  be created) a write through a file link to a missing file outside is
+  refused.
+
 ### 7.0.20 — Ollama's thinking switch reaches Ollama; the per-model list is removed (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
