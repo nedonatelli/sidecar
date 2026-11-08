@@ -45,6 +45,10 @@ All notable changes to the SideCar extension will be documented in this file.
   `test_*` only in the workspace root, and not where the project already keeps such files), never
   anything in a test directory, and only files this run wrote with a file tool or named in one of
   its commands. A file you or a background agent created during the run stays where it is.
+- **A link whose target doesn't exist is judged by where it points.** File tools refuse paths
+  that lead out of the workspace through a link. A link to a missing file couldn't be
+  followed, so it was treated as a new file inside the workspace; it's now judged by its target.
+
 - **Thinking could not be turned off on Ollama**
   ([#469](https://github.com/nedonatelli/sidecar/issues/469)). With
   `sidecar.ollama.disableThinking` on, chat requests sent `think: false` inside the model options,
