@@ -35,6 +35,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A link whose target doesn't exist is judged by where it points.** File tools refuse paths
+  that lead out of the workspace through a link. A link to a missing file couldn't be
+  followed, so it was treated as a new file inside the workspace; it's now judged by its target.
+
 - **Thinking could not be turned off on Ollama**
   ([#469](https://github.com/nedonatelli/sidecar/issues/469)). With
   `sidecar.ollama.disableThinking` on, chat requests sent `think: false` inside the model options,

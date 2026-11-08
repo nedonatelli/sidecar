@@ -328,13 +328,16 @@ export function validateFilePath(filePath: string): string | null {
  * Where a path under `root` really lands, as a forward-slash path relative to
  * the real root: symbolic links and junctions followed, Windows 8.3 short
  * names (`SIDECA~1`) expanded. A path that does not exist yet is resolved
- * through its deepest existing ancestor. Null when it lands outside the root.
+ * through its deepest existing ancestor. A link whose target does not exist
+ * is judged by that target: writing through it creates the target. Null when
+ * it lands outside the root.
  */
 export function realWorkspaceRelative(root: string, filePath: string): string | null {
   const absRoot = path.resolve(root);
   const realRoot = realpathOrSelf(absRoot);
   let existing = path.resolve(absRoot, filePath);
   const rest: string[] = [];
+  let hops = 0;
   for (;;) {
     if (existing === absRoot) {
       existing = realRoot;
@@ -344,6 +347,13 @@ export function realWorkspaceRelative(root: string, filePath: string): string | 
       existing = fs.realpathSync.native(existing);
       break;
     } catch {
+      const target = readlinkOrNull(existing);
+      if (target !== null) {
+        // A chain this long is a loop; the OS gives up sooner.
+        if (++hops > 40) return null;
+        existing = path.resolve(path.dirname(existing), target);
+        continue;
+      }
       const parent = path.dirname(existing);
       if (parent === existing) return null;
       rest.unshift(path.basename(existing));
@@ -353,6 +363,14 @@ export function realWorkspaceRelative(root: string, filePath: string): string | 
   const rel = path.relative(realRoot, path.join(existing, ...rest));
   if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
   return rel.split(path.sep).join('/');
+}
+
+function readlinkOrNull(p: string): string | null {
+  try {
+    return fs.readlinkSync(p);
+  } catch {
+    return null;
+  }
 }
 
 function realpathOrSelf(p: string): string {
