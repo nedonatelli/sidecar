@@ -301,8 +301,8 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
   const badPath = checkGrepPath(searchPath, cwd);
   if (badPath) return badPath;
 
-  /** The relaxed search: matches, a proven absence (null), or 'timeout' -- which proves nothing. */
-  const runGrep = async (pat: string, where: string): Promise<string | null | 'timeout'> => {
+  /** The relaxed search: matches, a proven absence (null), or 'timeout' / 'error' -- which prove nothing. */
+  const runGrep = async (pat: string, where: string): Promise<string | null | 'timeout' | 'error'> => {
     try {
       const { stdout } = await execGrep(pat, where, { cwd, timeout: GREP_TIMEOUT_MS, maxBuffer: 512 * 1024 });
       const capped = stdout.split('\n').slice(0, 200).join('\n');
@@ -310,9 +310,10 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     } catch (err) {
       if (isGrepMissing(err)) throw new Error(GREP_MISSING_MESSAGE);
       const e = err as GrepError;
+      if (e.code === 1) return null;
       const partial = (e.stdout ?? '').split('\n').slice(0, 200).join('\n');
       if (partial.trim()) return partial;
-      return isTimeout(e) ? 'timeout' : null;
+      return isTimeout(e) ? 'timeout' : 'error';
     }
   };
 
@@ -346,13 +347,14 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
     const relaxed = relaxSnippetPattern(pattern);
     if (relaxed) {
       const out = await runGrep(relaxed, searchPath);
-      if (out === 'timeout') {
-        // A search that did not finish proves nothing. Saying the identifier is
+      if (out === 'timeout' || out === 'error') {
+        // A search that did not finish cleanly proves nothing. Saying the identifier is
         // "not in the repository" here would send the model away from a term
         // that may be exactly what it needs.
+        const why = out === 'timeout' ? 'TIMED OUT' : 'encountered a search error';
         return (
           `No matches found for "${pattern}" — it looks like a block of code rather than a single term, and grep ` +
-          `matches one line at a time. Searching for its identifier "${relaxed}" TIMED OUT, so whether it is in the ` +
+          `matches one line at a time. Searching for its identifier "${relaxed}" ${why}, so whether it is in the ` +
           `repository is unknown: grep for "${relaxed}" with \`path\` narrowed to the package you expect.`
         );
       }
@@ -405,12 +407,18 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
         `not mean the pattern is absent. Narrow \`path\` to the directory you expect and search again.`;
       return partial.trim() ? `${compressGrepOutput(partial)}\n\n[Partial results — ${note}]` : note;
     }
-    if (partial.trim()) return compressGrepOutput(partial);
+    const detail = error.stderr || error.stdout || '';
+    if (partial.trim()) {
+      const errFirstLine = (error.stderr ?? '').trim().split('\n')[0];
+      const partialNote = errFirstLine
+        ? `grep exited with status ${error.code ?? 'unknown'} (${errFirstLine}); some files or matches may be missing.`
+        : `grep exited with status ${error.code ?? 'unknown'}; some files or matches may be missing.`;
+      return `${compressGrepOutput(partial)}\n\n[Partial results — ${partialNote}]`;
+    }
     // A glob is not a valid ERE on every grep: BSD grep (macOS) rejects `**` and a
     // leading `*` where GNU grep runs them and finds nothing. Either way nothing
     // matched, and the model needs the search_files redirect, not a regex hint.
     if (looksLikePathQuery(pattern)) return await explainZeroHit();
-    const detail = error.stderr || error.stdout || '';
     // Not a valid extended regex: `def refine(`, `plt.style.library["`. A model
     // that types that means the text, and the error alone sent it to
     // `rg`, which was not installed ("command not found", SWE canary #315).
@@ -428,12 +436,32 @@ export async function grep(input: Record<string, unknown>, context?: ToolExecuto
         });
         const found = literal.stdout.split('\n').slice(0, 200).join('\n');
         if (found.trim()) return `${note}\n${compressGrepOutput(found)}`;
+        return `${note}\n${await explainZeroHit()}`;
       } catch (literalErr) {
         if (isGrepMissing(literalErr)) throw new Error(GREP_MISSING_MESSAGE);
-        const partialLiteral = ((literalErr as GrepError).stdout ?? '').split('\n').slice(0, 200).join('\n');
-        if (partialLiteral.trim()) return `${note}\n${compressGrepOutput(partialLiteral)}`;
+        const le = literalErr as GrepError;
+        if (le.code === 1) return `${note}\n${await explainZeroHit()}`;
+        const partialLiteral = (le.stdout ?? '').split('\n').slice(0, 200).join('\n');
+        if (isTimeout(le)) {
+          const where = searchPath === '.' ? 'the whole repository' : searchPath;
+          const timeoutNote =
+            `grep timed out after ${GREP_TIMEOUT_MS / 1000}s searching ${where}. This is not a regex error, and it does ` +
+            `not mean the pattern is absent. Narrow \`path\` to the directory you expect and search again.`;
+          return partialLiteral.trim()
+            ? `${note}\n${compressGrepOutput(partialLiteral)}\n\n[Partial results — ${timeoutNote}]`
+            : `${note}\n${timeoutNote}`;
+        }
+        const literalErrDetail = (le.stderr ?? '').trim().split('\n')[0];
+        if (partialLiteral.trim()) {
+          const partialNote = literalErrDetail
+            ? `grep exited with status ${le.code ?? 'unknown'} (${literalErrDetail}); some files or matches may be missing.`
+            : `grep exited with status ${le.code ?? 'unknown'}; some files or matches may be missing.`;
+          return `${note}\n${compressGrepOutput(partialLiteral)}\n\n[Partial results — ${partialNote}]`;
+        }
+        return literalErrDetail
+          ? `${note}\nGrep error: ${literalErrDetail}`
+          : `${note}\nGrep failed during literal fallback search.`;
       }
-      return `${note}\n${await explainZeroHit()}`;
     }
     // Any other failure. The grep tool is POSIX ERE (-E): \s, \d, \w are not ERE
     // syntax; Perl-style escapes need grep -P through run_command.
@@ -526,3 +554,4 @@ export const searchTools: RegisteredTool[] = [
   { definition: grepDef, executor: grep, requiresApproval: false },
   { definition: findReferencesDef, executor: findReferences, requiresApproval: false },
 ];
+
