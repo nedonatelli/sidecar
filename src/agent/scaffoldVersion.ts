@@ -80,6 +80,15 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.24** (2026-11) — a timed-out `run_tests` is an error, not a result;
+ *   shell fixes (Part of #422). The model gets "did not finish, so this
+ *   output is partial" with `is_error`, and the completion gate doesn't count
+ *   the run; `exit code: -1` classifies as a fail. Also: terminal commands run
+ *   one at a time, an unknown terminal exit code is -1, the Git Bash stdin
+ *   guard applies on Windows, and the unittest fallback uses `python3` when
+ *   that's what was found. PATCH. e4b SWE canary (150 pairs): resolve 13% in
+ *   both arms, no discordant pairs; no `run_tests` timed out, so the error
+ *   path wasn't exercised there.
  * - **7.0.23** (2026-11) — a commit SideCar couldn't check is held for
  *   approval. The commit review returned "no concerns" when a git call inside
  *   the repository failed or timed out, so the commit went ahead unchecked; it
@@ -473,7 +482,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.23';
+export const SCAFFOLD_VERSION = '7.0.24';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

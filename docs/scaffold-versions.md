@@ -40,6 +40,31 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.24 — a timed-out test run is an error, not a result (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.23, noting the patch.
+
+- **What changed:** a `run_tests` call that times out now returns an error
+  with its partial output: "The test run did not finish, so this output is
+  partial: it is neither a pass nor a fail." The completion gate no longer
+  counts it as a test run, and `exit code: -1` classifies as a fail. Shell
+  fixes in the same change (#422): commands in the VS Code terminal run one at
+  a time instead of interrupting each other; an unknown terminal exit code is
+  -1, not 0; the stdin guard applies to Git Bash on Windows, on one line; the
+  `2>nul` rewrite leaves heredoc bodies alone; the unittest fallback runs
+  `python3` when the probe found only that.
+- **Eval impact:** only runs where `run_tests` times out. In 20,477 recorded
+  SWE runs that happened 10 times, in 8 runs, all on one task. The terminal
+  changes don't reach the evals, which use the hidden shell.
+- **Measured:** e4b SWE canary, 50 tasks × seeds 11/22/33 vs the merge base:
+  resolve 13% in both arms with no discordant pairs, every metric null; no
+  `run_tests` call timed out, so the error path wasn't exercised. A replay from
+  a recorded timeout (one context × 10 seeds, 3 turns): the model stopped and
+  reported its fix in 8/10 runs with the old result and 10/10 with the error;
+  5/10 said it couldn't confirm the fix, against 0/10. The Git Bash path is
+  covered by an integration test in a real terminal.
+
 ### 7.0.23 — a commit SideCar couldn't check is held for approval (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

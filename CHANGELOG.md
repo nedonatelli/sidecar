@@ -330,6 +330,19 @@ All notable changes to the SideCar extension will be documented in this file.
 - **Accepting an inline edit from the status bar applies it.** In hosts without a diff preview,
   accepting from the status bar or the `SideCar: Accept Inline Edit` command told the agent the
   edit was applied without inserting anything; only Tab inserted it.
+- **Agent commands run reliably in the terminal and report what really happened**
+  ([#422](https://github.com/nedonatelli/sidecar/issues/422)):
+  - On Windows with Git Bash, a command that waits for input, such as `cat` or `git commit` with
+    no message, no longer hangs for two minutes, and `2>nul` no longer creates a `nul` file.
+  - Two commands in one turn no longer interrupt each other in the agent terminal; they run one
+    after the other.
+  - A `run_tests` run that times out is reported as unfinished, not as a pass. A command the
+    terminal reports no exit code for, such as one you stopped with Ctrl+C, counts as failed.
+  - Stop cancels a command still waiting for the shell, and closing a session no longer leaves a
+    waiting command hanging.
+  - A `.bat` file written with a heredoc keeps its `2>nul` as written.
+  - When pytest is not installed, `run_tests` runs `unittest` with `python3` if that is the
+    Python it found, so it no longer fails on Debian and Ubuntu.
 
 ### Documentation
 

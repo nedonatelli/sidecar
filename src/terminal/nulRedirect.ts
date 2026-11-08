@@ -9,7 +9,8 @@
 //
 // The command clearly meant the null device, so redirect targets of `nul` are
 // rewritten to `/dev/null`. Only unquoted redirect targets change: a quoted
-// "nul" argument, `null`, `nul.txt` and heredoc delimiters stay as written.
+// "nul" argument, `null`, `nul.txt`, heredoc delimiters and heredoc bodies (a
+// .bat file written with `cat <<'EOF'` means cmd's `nul`) stay as written.
 // ---------------------------------------------------------------------------
 
 /** `>nul`, `2>nul`, `>>nul`, `&>nul`, `2>>nul`, `<nul` (any case, optional space), not `<<nul`. */
@@ -39,10 +40,42 @@ function maskQuoted(command: string): string {
   return out;
 }
 
-/** Rewrite cmd-style `nul` redirect targets to `/dev/null`, outside quotes. */
+/** `<<EOF`, `<<-EOF`, `<<'EOF'`, `<< "EOF"`; not the here-string `<<<`. */
+const HEREDOC = /(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([\w.-]+)\2/g;
+
+/** Blank out heredoc bodies (same length, newlines kept), like maskQuoted. */
+function maskHeredocBodies(command: string): string {
+  let out = command;
+  let from = 0;
+  for (const m of command.matchAll(HEREDOC)) {
+    // Skip an operator inside an earlier body (masked by now) or inside quotes.
+    if (maskQuoted(out)[m.index] !== '<') continue;
+    const nl = command.indexOf('\n', m.index);
+    if (nl === -1) break;
+    // Several heredocs on one line take their bodies in turn.
+    const bodyStart = Math.max(nl + 1, from);
+    let end = command.length;
+    from = command.length; // no delimiter line: the body runs to the end
+    for (let i = bodyStart; i < command.length; ) {
+      const next = command.indexOf('\n', i);
+      const lineEnd = next === -1 ? command.length : next;
+      const line = command.slice(i, lineEnd).replace(/\r$/, '');
+      if ((m[1] ? line.replace(/^\t+/, '') : line) === m[3]) {
+        end = i;
+        from = lineEnd + 1;
+        break;
+      }
+      i = lineEnd + 1;
+    }
+    out = out.slice(0, bodyStart) + out.slice(bodyStart, end).replace(/[^\n]/g, '_') + out.slice(end);
+  }
+  return out;
+}
+
+/** Rewrite cmd-style `nul` redirect targets to `/dev/null`, outside quotes and heredoc bodies. */
 export function rewriteNulRedirects(command: string): string {
   if (!/nul/i.test(command)) return command;
-  const masked = maskQuoted(command);
+  const masked = maskQuoted(maskHeredocBodies(command));
   let out = '';
   let last = 0;
   for (const m of masked.matchAll(NUL_TARGET)) {
