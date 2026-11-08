@@ -85,7 +85,9 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
       await workspace.fs.writeFile(uriFor(p), bytes);
     },
     async runTest(): Promise<{ passed: boolean; output: string }> {
-      const r = await runVerificationCommand(testCommand, perTestTimeoutMs, signal);
+      // The mutants are written under the run's root (a shadow or fork when
+      // context.cwd is set), so the tests must run there too, not in the main tree.
+      const r = await runVerificationCommand(testCommand, perTestTimeoutMs, signal, context);
       return { passed: r.exitCode === 0 && !r.timedOut, output: r.output };
     },
   };

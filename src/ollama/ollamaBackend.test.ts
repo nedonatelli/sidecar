@@ -1102,8 +1102,8 @@ describe('runtime tool failure tracking', () => {
 });
 
 describe('thinking mode', () => {
-  /** Run one streamChat and return the `options` object we sent to Ollama. */
-  async function capturedOptions(model: string, config: Record<string, unknown>): Promise<Record<string, unknown>> {
+  /** Run one streamChat and return the request body we sent to Ollama. */
+  async function capturedBody(model: string, config: Record<string, unknown>): Promise<Record<string, unknown>> {
     const settings = await import('../config/settings.js');
     vi.spyOn(settings, 'getConfig').mockReturnValue({
       agentTemperature: 0,
@@ -1120,26 +1120,29 @@ describe('thinking mode', () => {
     for await (const _ of b.streamChat(model, '', [{ role: 'user', content: 'hi' }])) {
       // drain
     }
-    const body = JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string);
-    return body.options as Record<string, unknown>;
+    return JSON.parse(mockFetch.mock.calls.at(-1)![1].body as string) as Record<string, unknown>;
   }
 
-  it('leaves thinking ON by default for models that support it', async () => {
-    const options = await capturedOptions('qwen3.5:latest', { ollamaDisableThinking: false });
-    expect(options.think).toBeUndefined(); // unset → Ollama uses the model default
+  // Includes qwen3:8b and glm-4.7-flash: they were on a per-model suppression
+  // list that has been removed, so they follow the setting like any other model.
+  const MODELS = ['qwen3.5:latest', 'gemma4:e4b', 'qwen3:8b', 'glm-4.7-flash:latest'];
+
+  it('leaves thinking ON by default: no think field at all, for any model', async () => {
+    for (const model of MODELS) {
+      const body = await capturedBody(model, { ollamaDisableThinking: false });
+      // Unset → Ollama uses the model default (thinking on where supported).
+      expect({ model, hasThink: 'think' in body }).toEqual({ model, hasThink: false });
+      expect({ model, optThink: 'think' in (body.options as object) }).toEqual({ model, optThink: false });
+    }
   });
 
-  it('disables thinking when the user opts out', async () => {
-    const options = await capturedOptions('qwen3.5:latest', { ollamaDisableThinking: true });
-    expect(options.think).toBe(false);
-  });
-
-  it('disables thinking for known-problematic models even without an opt-out', async () => {
-    // These stall / stop emitting tool calls with thinking on. The list was
-    // honored ONLY by the eval harness — production shipped the failure mode.
-    for (const model of ['qwen3:8b', 'qwen3:14b', 'qwen3:32b', 'glm-4.7-flash:latest']) {
-      const options = await capturedOptions(model, { ollamaDisableThinking: false });
-      expect({ model, think: options.think }).toEqual({ model, think: false });
+  it('sends think:false at the TOP LEVEL, never inside options, when the user opts out (#469)', async () => {
+    // Ollama reads `think` beside model/messages/options and ignores option
+    // keys it doesn't recognise, so `options.think` never turned thinking off.
+    for (const model of MODELS) {
+      const body = await capturedBody(model, { ollamaDisableThinking: true });
+      expect({ model, think: body.think }).toEqual({ model, think: false });
+      expect({ model, optThink: 'think' in (body.options as object) }).toEqual({ model, optThink: false });
     }
   });
 });

@@ -11,7 +11,7 @@ import type { AgentEvalCase, AgentCaseResult, TrajectoryEvent } from './agentTyp
 import { scoreAgentCase } from './agentScorers.js';
 import { buildBaseSystemPrompt } from '../../src/webview/handlers/basePrompt.js';
 import { getConfig } from '../../src/config/settings.js';
-import { needsColdStart, hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
+import { needsColdStart } from '../../src/config/modelAgentBehavior.js';
 import { startSuspendWatch } from '../../bench/swe/hostSuspend.js';
 import type { AgentDecision } from '../../src/agent/decisions.js';
 
@@ -232,8 +232,7 @@ export const DEFAULT_CASE_TIMEOUT_MS = (() => {
   //
   // A cap-hit is NOT automatically a failure: the abort stops the loop and the
   // workspace is scored as it stands, so a truncated run can still pass — which
-  // is exactly why this was easy to miss. Per-model exceptions belong in
-  // MODELS_WITH_PROBLEMATIC_THINKING.
+  // is exactly why this was easy to miss.
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000;
 })();
 
@@ -776,13 +775,6 @@ export async function runAgentCase(
     ragOrientationChars: orientationChars,
   });
   const surface = session.surface;
-
-  // Suppress thinking mode for models where it causes stalling or text-only output.
-  if (hasProblematicThinking(model) && options.config) {
-    options.config = { ...options.config, ollamaDisableThinking: true };
-  } else if (hasProblematicThinking(model)) {
-    options.config = { ...getConfig(), ollamaDisableThinking: true };
-  }
 
   let runError: Error | null = null;
   try {

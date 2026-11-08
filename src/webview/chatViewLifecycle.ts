@@ -8,6 +8,7 @@
 
 import * as path from 'path';
 import type { ExtensionMessage } from './chatWebview.js';
+import { detectProvider, type SideCarConfig } from '../config/settings.js';
 
 /** Config keys whose changes should trigger a UI settings push. */
 export const UI_CONFIG_KEYS = [
@@ -29,6 +30,27 @@ export function buildUiSettingsMessage(cfg: {
     chatFontSize: cfg.chatFontSize,
     chatAccentColor: cfg.chatAccentColor,
     voiceEnabled: cfg.voiceEnabled,
+  };
+}
+
+/**
+ * Config keys whose changes should re-sync the header's Thinking switch: its
+ * value, and the backend that decides whether the switch is shown at all.
+ */
+export const THINKING_CONFIG_KEYS = ['sidecar.ollama.disableThinking', 'sidecar.baseUrl', 'sidecar.provider'] as const;
+
+/**
+ * The header's Thinking switch state. Shown only when the active backend is
+ * Ollama, the one backend that reads `ollama.disableThinking`; on means the
+ * setting is false.
+ */
+export function buildThinkingStateMessage(
+  cfg: Pick<SideCarConfig, 'baseUrl' | 'provider' | 'ollamaDisableThinking'>,
+): ExtensionMessage {
+  return {
+    command: 'thinkingState',
+    thinkingSupported: detectProvider(cfg.baseUrl, cfg.provider) === 'ollama',
+    thinkingEnabled: cfg.ollamaDisableThinking !== true,
   };
 }
 

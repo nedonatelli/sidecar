@@ -3,7 +3,9 @@ import {
   buildUiSettingsMessage,
   buildAgentModeMessage,
   buildActiveFileMessage,
+  buildThinkingStateMessage,
   UI_CONFIG_KEYS,
+  THINKING_CONFIG_KEYS,
 } from './chatViewLifecycle.js';
 
 describe('buildUiSettingsMessage', () => {
@@ -80,5 +82,31 @@ describe('UI_CONFIG_KEYS', () => {
 
   it('has exactly four entries', () => {
     expect(UI_CONFIG_KEYS).toHaveLength(4);
+  });
+});
+
+describe('buildThinkingStateMessage (header Thinking switch)', () => {
+  it('shows the switch only when the active backend is Ollama', () => {
+    const msg = (baseUrl: string, provider: string) =>
+      buildThinkingStateMessage({ baseUrl, provider, ollamaDisableThinking: false } as never);
+    expect(msg('http://localhost:11434', 'auto').thinkingSupported).toBe(true);
+    expect(msg('http://gpu-box:8080', 'ollama').thinkingSupported).toBe(true);
+    expect(msg('https://api.anthropic.com', 'auto').thinkingSupported).toBe(false);
+    expect(msg('http://localhost:11435', 'auto').thinkingSupported).toBe(false);
+    expect(msg('http://localhost:11434', 'openai').thinkingSupported).toBe(false);
+  });
+
+  it('switch on means disableThinking is false', () => {
+    const base = { baseUrl: 'http://localhost:11434', provider: 'auto' } as const;
+    expect(buildThinkingStateMessage({ ...base, ollamaDisableThinking: false })).toEqual({
+      command: 'thinkingState',
+      thinkingSupported: true,
+      thinkingEnabled: true,
+    });
+    expect(buildThinkingStateMessage({ ...base, ollamaDisableThinking: true }).thinkingEnabled).toBe(false);
+  });
+
+  it('re-syncs on the setting itself and on a backend switch', () => {
+    expect(THINKING_CONFIG_KEYS).toEqual(['sidecar.ollama.disableThinking', 'sidecar.baseUrl', 'sidecar.provider']);
   });
 });

@@ -2367,6 +2367,31 @@ body {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
+/* Thinking switch: a toggle, styled like VS Code's own option toggles
+   (search's regex / match-case buttons). Off is the plain header button with
+   the icon dimmed -- on the icon, not the button, so the tooltip stays solid. */
+#thinking-btn[aria-pressed='true'] {
+  background: var(--vscode-inputOption-activeBackground, rgba(0, 127, 212, 0.4));
+  border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder, #007acc));
+  color: var(--vscode-inputOption-activeForeground, var(--vscode-editor-foreground));
+}
+
+#thinking-btn[aria-pressed='false'] .thinking-icon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+/* The tooltip is longer than the others. Centred, it ran off the left edge of a
+   240px panel; anchored to the button's left edge and wrapped, it fits from
+   240px up, since the switch never sits closer than ~200px to the right edge. */
+#thinking-btn[data-tooltip]::after {
+  left: 0;
+  transform: none;
+  width: 160px;
+  white-space: normal;
+  text-align: left;
+}
+
 .plan-message {
   border-left: 3px solid var(--vscode-charts-blue, #4fc1ff);
 }

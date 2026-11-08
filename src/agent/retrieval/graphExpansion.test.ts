@@ -376,3 +376,67 @@ describe('enrichWithGraphWalk — ordering + overlap', () => {
     expect(logins).toHaveLength(1);
   });
 });
+
+describe('enrichWithGraphWalk — line convention on a real parse (#426)', () => {
+  // The analyzers report 0-based inclusive symbol rows and 1-based call lines;
+  // EnrichedHit ranges are 1-based like the direct hits (#113). Built from a
+  // real parse + SymbolGraph so the test pins the analyzer's convention, not a
+  // mock's.
+  const SOURCE = [
+    'export function target(): number {', //                      line 1
+    '  return 1;', //                                             line 2
+    '}', //                                                       line 3
+    '', //                                                        line 4
+    'function oneLiner(): number { return target(); }', //        line 5
+    '', //                                                        line 6
+    'export function multi(): number {', //                       line 7
+    '  const a = 2;', //                                          line 8
+    '  return target() * a; }', //                                line 9
+    '',
+  ].join('\n');
+
+  async function realGraph(): Promise<SymbolGraph> {
+    const { getAnalyzer } = await import('../../parsing/registry.js');
+    const { SymbolGraph: Graph } = await import('../../config/symbolGraph.js');
+    const parsed = (await getAnalyzer('ts')).parseFileContent('src/m.ts', SOURCE);
+    const g = new Graph();
+    g.addFile(
+      'src/m.ts',
+      parsed.elements
+        .filter((el) => el.type === 'function')
+        .map((el) => ({
+          name: el.name,
+          qualifiedName: el.name,
+          type: 'function' as const,
+          filePath: 'src/m.ts',
+          startLine: el.startLine,
+          endLine: el.endLine,
+          exported: true,
+        })),
+      [],
+      'h',
+      (parsed.calls ?? []).map((c) => ({ callerFile: 'src/m.ts', ...c })),
+    );
+    return g;
+  }
+
+  it('attributes calls on a symbol’s last line (one-liners included) and reports 1-based ranges', async () => {
+    const out = enrichWithGraphWalk(
+      [directHit({ filePath: 'src/m.ts', qualifiedName: 'target', name: 'target', startLine: 1, endLine: 3 })],
+      await realGraph(),
+      { maxDepth: 1, maxGraphHits: 10, directions: ['callers'] },
+    );
+    const byName = Object.fromEntries(out.map((h) => [h.name, h]));
+    expect(byName.oneLiner).toMatchObject({ startLine: 5, endLine: 5 });
+    expect(byName.multi).toMatchObject({ startLine: 7, endLine: 9 });
+  });
+
+  it('reports a callee definition’s range 1-based', async () => {
+    const out = enrichWithGraphWalk(
+      [directHit({ filePath: 'src/m.ts', qualifiedName: 'multi', name: 'multi', startLine: 7, endLine: 9 })],
+      await realGraph(),
+      { maxDepth: 1, maxGraphHits: 10, directions: ['callees'] },
+    );
+    expect(out.find((h) => h.name === 'target')).toMatchObject({ startLine: 1, endLine: 3 });
+  });
+});

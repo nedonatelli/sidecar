@@ -40,6 +40,69 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.20 — Ollama's thinking switch reaches Ollama; the per-model list is removed (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.19, noting the patch.
+
+- **What changed:** Ollama chat requests put `think: false` inside `options`,
+  which Ollama doesn't read, so neither `sidecar.ollama.disableThinking` nor
+  the problematic-thinking model list (qwen3 8B/14B/32B, GLM-4.7-Flash,
+  Laguna XS.2) ever turned thinking off on the chat path (#469). `think` is now
+  a top-level field, sent only when the user turns thinking off, from the
+  setting or the new chat header switch. The list is removed: it had no
+  measurement behind it, and it never took effect.
+- **Eval impact:** the default eval models send the same requests. The eval
+  backend's one-shot `complete()`, used by the prompt eval and the retrieval
+  judge, always asked for thinking off the same broken way; it now gets it, so
+  those numbers can move for thinking models. Baseline provenance now records
+  thinking on for the formerly listed models.
+- **Measured:** no eval. Pre-registered live check: one request each way to a
+  formerly listed model, confirming Ollama returns `message.thinking` without
+  `think` and none with top-level `think: false`.
+
+### 7.0.19 — image prompts run with their text; autonomy answers only approvals (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.18,
+noting the patch.
+
+- **What changed:** A prompt with images ran with empty text, so retrieval,
+  skill matching and message framing saw nothing; it now runs with its text,
+  and keeps its images on regenerate and Reconnect (#419). Switching to
+  autonomous mode answers "Allow" only on cards that offer it. Clarifying
+  questions, checkpoints, diff previews and irrecoverable-operation reconfirms
+  stay pending, where before each got "Allow" as its answer.
+- **Measured:** no eval. The evals send no images and never switch modes during
+  a run.
+
+### 7.0.18 — graph-expanded retrieval hits use 1-based lines (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.17,
+noting the patch.
+
+- **What changed:** Graph-expanded caller and callee hits, in system-prompt
+  retrieval and `project_knowledge_search`, used the analyzers' 0-based rows as
+  1-based: each body started a line early and lost its last line, and a call on
+  a function's last line was never attributed (#426). The summarizer's timeout,
+  and Stop, now cancel its request. The fallback workspace context (used while
+  the index is not ready) is passed verbatim: a section filter that never
+  filtered, and joined the line before every `### ` heading, is removed.
+- **Measured:** no eval. Neither eval harness attaches a symbol graph to the
+  tool runtime or calls `injectSystemContext`, so no eval reaches this code.
+
+### 7.0.17 — integration tool results (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.16,
+noting the patch.
+
+- **What changed:** `mutation_test` in a shadow workspace or fork runs its tests
+  there; it ran them on the main tree, so every mutant survived. GitHub check
+  runs and PR review comments are read past the first page of 100. The
+  dependency check asks OSV about the version an npm lockfile installed, not
+  the floor of the range. Custom tools get the Windows system variables they
+  need to start (#427).
+- **Measured:** no eval. The SWE and agent evals use none of these tools.
+
 ### 7.0.16 — auto-fix reads which files a call changed (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.15,

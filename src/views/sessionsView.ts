@@ -146,15 +146,16 @@ export function registerSessionsView(
   });
 
   const branchCmd = commands.registerCommand('sidecar.sessions.branch', async (item?: SessionItem) => {
-    // If invoked from the tree (on a specific session), load it first then branch.
-    if (item) {
-      deps.loadSession(item.session.id);
-    }
     const name = await window.showInputBox({
       prompt: 'Name for this branch',
       placeHolder: 'e.g. "try-different-approach"',
     });
     if (!name?.trim()) return;
+    // Invoked on a session in the tree: load it, then branch. Only once named --
+    // loading stops a running agent, and a cancelled prompt still did that (#419).
+    if (item) {
+      deps.loadSession(item.session.id);
+    }
     deps.branchCurrentSession(name.trim());
     provider.refresh();
   });

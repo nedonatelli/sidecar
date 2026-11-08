@@ -85,6 +85,60 @@ describe('DriftScanner', () => {
   });
 
   // #119: a failed lookup read as "no vulnerabilities" and was cached as clean.
+  // A range was queried at its floor, so `^4.17.0` reported advisories fixed
+  // in the version the lockfile actually installs. (#427)
+  describe('the version queried for vulnerabilities', () => {
+    const manifest = JSON.stringify({ dependencies: { lodash: '^4.17.0', '@s/p': '~1.0.0', left: '^1.0.0' } });
+    afterEach(() => mockReadFile.mockReset());
+    function files(byName: Record<string, string>): void {
+      mockReadFile.mockImplementation(async (p: string) => {
+        const name = String(p).replace(/\\/g, '/').split('/').pop() ?? '';
+        if (name in byName) return byName[name];
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      });
+    }
+    function queried(): Record<string, string> {
+      const queries = mockOsv.mock.calls[0][0] as { name: string; version: string }[];
+      return Object.fromEntries(queries.map((q) => [q.name, q.version]));
+    }
+
+    it('is the version package-lock.json installed', async () => {
+      files({
+        'package.json': manifest,
+        'package-lock.json': JSON.stringify({
+          lockfileVersion: 3,
+          packages: {
+            '': { dependencies: {} },
+            'node_modules/lodash': { version: '4.17.21' },
+            'node_modules/@s/p': { version: '1.0.9' },
+            'node_modules/other/node_modules/left': { version: '9.9.9' },
+          },
+        }),
+      });
+      mockNpmLatest.mockResolvedValue(undefined);
+      await scanner.scan(['/workspace/package.json']);
+      // A nested copy is not the top-level install, so `left` falls back to the floor.
+      expect(queried()).toEqual({ lodash: '4.17.21', '@s/p': '1.0.9', left: '1.0.0' });
+    });
+
+    it('reads a lockfileVersion 1 lockfile', async () => {
+      files({
+        'package.json': manifest,
+        'package-lock.json': JSON.stringify({ lockfileVersion: 1, dependencies: { lodash: { version: '4.17.21' } } }),
+      });
+      mockNpmLatest.mockResolvedValue(undefined);
+      await scanner.scan(['/workspace/package.json']);
+      expect(queried().lodash).toBe('4.17.21');
+    });
+
+    it('is the floor of the range when there is no lockfile', async () => {
+      files({ 'package.json': manifest });
+      mockNpmLatest.mockResolvedValue(undefined);
+      await scanner.scan(['/workspace/package.json']);
+      expect(queried()).toEqual({ lodash: '4.17.0', '@s/p': '1.0.0', left: '1.0.0' });
+    });
+  });
+
   it('marks the result incomplete when the vulnerability lookup fails', async () => {
     mockReadFile.mockResolvedValueOnce(JSON.stringify({ dependencies: { lodash: '^4.17.0' }, devDependencies: {} }));
     mockNpmLatest.mockResolvedValue('4.17.21');

@@ -1,9 +1,5 @@
 import type { ChatMessage, ContentBlock, ToolResultContentBlock, ToolUseContentBlock } from '../ollama/types.js';
-import { logger } from '../system/logger.js';
 import { getContentLength } from '../ollama/types.js';
-import { getRegexAnalyzer } from '../parsing/registry.js';
-import { AgentMemory } from './agentMemory.js';
-import { stripCodeFences } from '../util/text.js';
 
 /**
  * Prune conversation history between user turns to keep context manageable.
@@ -213,93 +209,4 @@ function compressText(block: { type: 'text'; text: string }, level: CompressionL
     return { type: 'text', text: block.text.slice(0, 1500) + '\n... (truncated)' };
   }
   return block;
-}
-
-/**
- * Enhance context with smart code element selection for better relevance
- */
-export function enhanceContextWithSmartElements(context: string, query: string, agentMemory?: AgentMemory): string {
-  // Parse the context to identify code files and their content
-  // Extract relevant code elements based on the query using AST analysis
-  const fileSections = context.match(/### (.*?)(?=\n### |$)/gs);
-  if (!fileSections || fileSections.length === 0) {
-    return context;
-  }
-
-  const enhancedSections = [];
-
-  for (const section of fileSections) {
-    // Extract file path from section header
-    const match = section.match(/### (.*?)(?:\s*\(.*?\))?/);
-    if (!match) {
-      enhancedSections.push(section);
-      continue;
-    }
-
-    const filePath = match[1];
-    const fileContent = section.substring(match[0].length).trim();
-
-    // Skip if it's not a code file
-    const codeExtensions = [
-      '.js',
-      '.ts',
-      '.jsx',
-      '.tsx',
-      '.py',
-      '.rs',
-      '.go',
-      '.java',
-      '.cpp',
-      '.c',
-      '.cs',
-      '.kt',
-      '.swift',
-    ];
-    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
-    if (!codeExtensions.includes(ext)) {
-      enhancedSections.push(section);
-      continue;
-    }
-
-    // Strip code fence markers so the parser sees raw source
-    const rawContent = stripCodeFences(fileContent);
-
-    // Try to extract relevant code elements using AST analysis
-    let enhancedContent = rawContent;
-
-    try {
-      const analyzer = getRegexAnalyzer();
-      const parsedFile = analyzer.parseFileContent(filePath, rawContent);
-      const relevantElements = analyzer.findRelevantElements(parsedFile, query);
-
-      // If we have agent memory, enhance relevance scoring with learned patterns
-      if (agentMemory) {
-        const memoryEntries = agentMemory.getRelevantMemories(query);
-        if (memoryEntries.length > 0) {
-          // Boost relevance scores based on learned patterns
-          for (const element of relevantElements) {
-            for (const memory of memoryEntries) {
-              if (memory.content.toLowerCase().includes(element.name.toLowerCase())) {
-                element.relevanceScore += 0.2;
-              }
-            }
-          }
-          // Re-sort by updated scores
-          relevantElements.sort((a, b) => b.relevanceScore - a.relevanceScore);
-        }
-      }
-
-      if (relevantElements.length > 0) {
-        enhancedContent = analyzer.extractRelevantContent(parsedFile, relevantElements);
-      }
-    } catch (error) {
-      // If AST parsing fails, keep the original content
-      logger.warn(`Failed to parse ${filePath} for smart context enhancement:`, error);
-    }
-
-    // Create enhanced section
-    enhancedSections.push(`### ${filePath}\n\`\`\`\n${enhancedContent}\n\`\`\`\n`);
-  }
-
-  return enhancedSections.join('');
 }
