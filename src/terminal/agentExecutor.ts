@@ -63,13 +63,23 @@ export interface AgentTerminalOptions {
  *
  * Grouped rather than appended because `<cmd> < /dev/null` binds the redirect to
  * the LAST element of a pipeline and would break `echo x | cat`.
+ *
+ * Git Bash on Windows gets the group on one line. Its shell integration never
+ * reports the end of a command sent across two lines, so the newline form timed
+ * out every command, `echo` included. The newline is there for a trailing `#`
+ * comment, a heredoc, or a closing `&`, which one line can't hold, so those
+ * commands go unwrapped instead.
  */
 export function guardStdin(command: string, shellPath = env.shell, platform = process.platform): string {
   const shell = (shellPath || '').toLowerCase();
   // Either separator: on Windows `env.shell` is `c:\program files\git\bin\bash.exe`.
   const posix = /(^|[\\/])(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
-  // Git Bash: a cmd-style `2>nul` would create an undeletable `nul` file (#395).
-  if (posix) return `{ ${platform === 'win32' ? rewriteNulRedirects(command) : command}\n} < /dev/null`;
+  if (posix && platform === 'win32') {
+    // A cmd-style `2>nul` would create an undeletable `nul` file (#395).
+    const cmd = rewriteNulRedirects(command);
+    return /[\n#]|<<|[;&|]\s*$/.test(cmd) ? cmd : `{ ${cmd}; } < /dev/null`;
+  }
+  if (posix) return `{ ${command}\n} < /dev/null`;
   if (/cmd\.exe$/.test(shell)) return `(${command}) < NUL`;
   // fish, nushell, PowerShell, or anything unrecognized: leave alone. A command
   // that hangs is recoverable; a command that cannot parse is not.
