@@ -40,10 +40,10 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
-### 7.0.22 — a link whose target doesn't exist is judged by that target (2026-11)
+### 7.0.21 — a link whose target doesn't exist is judged by that target (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
-re-defaulted. Comparable with 7.0.21, noting the patch.
+re-defaulted. Comparable with 7.0.20, noting the patch.
 
 - **What changed:** the check that keeps file tools inside the workspace
   follows links to where they really lead. A link whose target doesn't exist

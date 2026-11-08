@@ -80,7 +80,7 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
- * - **7.0.22** (2026-11) — a link whose target doesn't exist is judged by
+ * - **7.0.21** (2026-11) — a link whose target doesn't exist is judged by
  *   that target. The workspace path check couldn't follow such a link, so it
  *   judged it as a new file at the link's own path. PATCH. Eval tasks contain
  *   no such links.
@@ -461,7 +461,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.22';
+export const SCAFFOLD_VERSION = '7.0.21';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
