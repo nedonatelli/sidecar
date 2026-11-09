@@ -4,6 +4,17 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.136.0] - 2026-11-08
+
+`edit_file` refuses fewer edits that were fine, and a failed edit says more accurately what to
+fix. Inferred edits keep line endings and bracket balance, and no longer write a region they got
+wrong. The agent now knows which of its edits changed a file, so verification, nudges, regression
+guards and auto-fix all agree on it. Commits from the chat ask first and commit only the files
+they name, and a commit SideCar couldn't check waits for approval. Agent commands run reliably in
+a Git Bash terminal on Windows, one at a time. Review, Accept and shadow flows no longer lose or
+overwrite work, the fallback backend takes over when the primary is down, and the database tools
+report real results. Ollama gets a Thinking switch in the chat header.
+
 ### Added
 
 - **A Thinking switch in the chat header** (💭), shown when the backend is Ollama. It turns
@@ -17,9 +28,15 @@ All notable changes to the SideCar extension will be documented in this file.
   kept a list of models to run with thinking off; nothing measured it, and it never took effect
   ([#469](https://github.com/nedonatelli/sidecar/issues/469)). The list is gone: every Ollama model
   thinks by default, and `sidecar.ollama.disableThinking` (or the new header switch) turns it off.
-- **The backend menu no longer offers Kickstand**, which is not released. It is gone from the ☰
-  menu, the backend picker and `switch_backend`, and its four commands appear in the palette only
-  while `sidecar.provider` is `kickstand`. A setup that already uses it keeps working.
+- **The backend menu no longer offers an unreleased backend.** It is gone from the ☰ menu, the
+  backend picker and `switch_backend`, and its commands appear in the palette only while it is the
+  selected provider. A setup that already uses it keeps working.
+- **The agent no longer sets up a toolchain to check its work**
+  ([#279](https://github.com/nedonatelli/sidecar/issues/279)). When a checker such as `tsc`,
+  `eslint`, `jest` or `mypy` can't run because it isn't installed, `run_command` now says so and
+  tells the agent to rely on the editor's diagnostics and say the change is unverified, instead of
+  running `npm init` and installing packages. `run_tests` suggests `npx tsc --noEmit` only where
+  the workspace has TypeScript installed. It sets up a toolchain only when you ask for one.
 - **The agent knows which edits changed a file**
   ([#367](https://github.com/nedonatelli/sidecar/issues/367),
   [ADR-008](docs/adr/008-structured-tool-outcomes.md)). `write_file`, `edit_file` and
@@ -358,6 +375,10 @@ All notable changes to the SideCar extension will be documented in this file.
 - **The CI tool's error and description name the GitHub sign-in in VS Code** instead of a "Set
   GitHub Token" command that does not exist. The `sidecar.firstTokenTimeout` description says
   that `0` falls back to `sidecar.requestTimeout` rather than disabling the timeout.
+
+### Stats
+- 11115 total tests (611 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.135.0] - 2026-11-03
 
