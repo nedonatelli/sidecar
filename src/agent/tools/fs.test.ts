@@ -530,6 +530,92 @@ describe('editFile audit mode', () => {
     expect(editedSinceRead.size).toBe(0);
   });
 
+  describe('a search for text your own earlier edit replaced', () => {
+    const source = [
+      'def settle(account, amount):',
+      '    if account.frozen:',
+      '        raise AccountFrozen(account.id)',
+      '    account.balance = account.balance + amount',
+      '    return account.balance',
+      '',
+    ].join('\n');
+    const setup = async (file: string) => {
+      await buf.write(file, source, async () => undefined);
+      const context = {
+        config: { agentMode: 'audit' } as never,
+        filesReadThisTurn: new Set([file]),
+        editedSinceRead: new Set<string>(),
+        appliedEdits: new Map<string, Array<{ search: string; replace: string }>>(),
+      };
+      const tool = (name: string) => fsTools.find((t) => t.definition.name === name)!;
+      const run = (name: string, input: Record<string, unknown>) =>
+        tool(name)
+          .executor(input, context as never)
+          .then(String, (e: Error) => e.message);
+      return { context, run };
+    };
+
+    it('names that edit and shows what it wrote, even after a re-read', async () => {
+      const { run } = await setup('ledger.py');
+      expect(
+        await run('edit_file', {
+          path: 'ledger.py',
+          search: '    account.balance = account.balance + amount',
+          replace: '    account.balance = round(account.balance + amount, 2)',
+        }),
+      ).toMatch(/File edited/);
+      // The re-read clears the "CHANGED since you last read it" note; this one still fires.
+      await run('read_file', { path: 'ledger.py' });
+      const out = await run('edit_file', {
+        path: 'ledger.py',
+        search: '    account.balance = account.balance + amount',
+        replace: '    account.balance = account.balance + amount\n    audit(account)',
+      });
+      expect(out).toMatch(/one of your own earlier edit_file calls already replaced/);
+      expect(out).toContain('round(account.balance + amount, 2)');
+      expect(out).toMatch(/do not edit again/);
+      expect(out).not.toMatch(/has CHANGED/);
+    });
+
+    it('says to re-read when what that edit wrote has changed again', async () => {
+      const { run } = await setup('ledger2.py');
+      await run('edit_file', {
+        path: 'ledger2.py',
+        search: '    account.balance = account.balance + amount',
+        replace: '    account.balance = round(account.balance + amount, 2)',
+      });
+      await run('edit_file', {
+        path: 'ledger2.py',
+        search: '    account.balance = round(account.balance + amount, 2)',
+        replace: '    account.balance = account.balance.add(amount)',
+      });
+      const out = await run('edit_file', {
+        path: 'ledger2.py',
+        // Only the first edit's search contains this; the second searched for `= round(`.
+        search: 'balance = account.balance + amount',
+        replace: 'balance = account.credit(amount)',
+      });
+      expect(out).toMatch(/already replaced/);
+      expect(out).toMatch(/changed again since then; call read_file/);
+      expect(out).not.toContain('round(');
+    });
+
+    it('stays quiet for a search no applied edit removed, and forgets edits after write_file', async () => {
+      const { context, run } = await setup('ledger3.py');
+      await run('edit_file', {
+        path: 'ledger3.py',
+        search: '    account.balance = account.balance + amount',
+        replace: '    account.balance = round(account.balance + amount, 2)',
+      });
+      expect(
+        await run('edit_file', { path: 'ledger3.py', search: '    raise Frozen(account)', replace: '    pass' }),
+      ).not.toMatch(/already replaced/);
+      expect(context.appliedEdits.get('ledger3.py')).toHaveLength(1);
+      await run('write_file', { path: 'ledger3.py', content: source });
+      expect(context.appliedEdits.has('ledger3.py')).toBe(false);
+    });
+  });
+
   it('records an inferred edit as "edited since read" too (#362)', async () => {
     const source =
       'def compute_total(prices, tax_rate):\n' +

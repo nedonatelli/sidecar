@@ -1538,7 +1538,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
       // Audit mode gets the same locator as a direct edit; without it a
       // `within` call was resolved against the whole file (#109).
       within,
-      stalePrefix: buildStalePrefix(filePath, context),
+      stalePrefix: buildStalePrefix(filePath, context, search, currentText),
       context,
     });
     if (resolvedAudit.newText === null) {
@@ -1605,7 +1605,7 @@ export async function editFile(input: Record<string, unknown>, context?: ToolExe
   // misses now is most likely quoted from the version BEFORE that change.
   // Measured on a 300-run SWE-bench matrix: 27% of search-not-found edits
   // (91 of 337) were exactly this, and the error said only "not found".
-  const stalePrefix = buildStalePrefix(filePath, context);
+  const stalePrefix = buildStalePrefix(filePath, context, search, text);
   const unreadPrefix =
     !hasReadFile && context?.filesReadThisTurn !== undefined
       ? (() => {
@@ -1887,8 +1887,10 @@ function resolveWithin(text: string, within: string, filePath: string): number {
  * Measured on a 300-run SWE-bench matrix: 27% of search-not-found edits (91
  * of 337) were exactly this, and the error said only "not found".
  */
-function buildStalePrefix(filePath: string, context?: ToolExecutorContext): string {
+function buildStalePrefix(filePath: string, context?: ToolExecutorContext, search?: string, text?: string): string {
   const key = path.posix.normalize(filePath.split(path.sep).join('/'));
+  const own = search === undefined ? undefined : replacedByOwnEdit(context?.appliedEdits?.get(key), search);
+  if (own) return ownEditPrefix(filePath, own, text);
   const hasRead = context?.filesReadThisTurn?.has(key) ?? false;
   const changed = context?.editedSinceRead?.has(key) ?? false;
   return hasRead && changed
@@ -1896,6 +1898,63 @@ function buildStalePrefix(filePath: string, context?: ToolExecutorContext): stri
         `remember may no longer be there. The recovery text below is from the CURRENT file; use it, or ` +
         `call read_file on the region you are changing before retrying.]\n\n`
     : '';
+}
+
+/** Line endings and trailing spaces aside, as the comparison a reader would make. */
+function normalizeForStale(s: string): string {
+  return s
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .join('\n')
+    .trim();
+}
+
+/**
+ * The model's own earlier edit to this file that removed `search`: the search
+ * is part of what that edit searched for and not part of what it wrote. A
+ * re-read clears editedSinceRead, so the "CHANGED" note above stays silent,
+ * yet in e4b's SWE-bench runs 24-29% of failed edits were exactly this: the
+ * model searched for text its own applied edit had replaced, often to make the
+ * same change again. The most recent such edit wins.
+ */
+function replacedByOwnEdit(
+  edits: Array<{ search: string; replace: string }> | undefined,
+  search: string,
+): { search: string; replace: string } | undefined {
+  const s = normalizeForStale(search);
+  // A brace or a bare keyword is in every edit; it says nothing about which one.
+  if (!edits || s.replace(/\s/g, '').length < 8) return undefined;
+  for (let i = edits.length - 1; i >= 0; i--) {
+    const e = edits[i];
+    if (normalizeForStale(e.search).includes(s) && !normalizeForStale(e.replace).includes(s)) return e;
+  }
+  return undefined;
+}
+
+const OWN_EDIT_SHOWN_LINES = 20;
+
+/**
+ * Names the edit, and shows what it wrote while that text is still in the
+ * file: the usual next step is to edit the new text, or to notice the change
+ * is already made.
+ */
+function ownEditPrefix(filePath: string, edit: { replace: string }, text?: string): string {
+  const written = normalizeForStale(edit.replace);
+  const stillThere = written.length > 0 && text !== undefined && normalizeForStale(text).includes(written);
+  const lines = written.split('\n');
+  const shown =
+    lines.length > OWN_EDIT_SHOWN_LINES
+      ? `${lines.slice(0, OWN_EDIT_SHOWN_LINES).join('\n')}\n… (${lines.length - OWN_EDIT_SHOWN_LINES} more lines)`
+      : written;
+  return (
+    `[Your search is text that one of your own earlier edit_file calls already replaced in ${filePath}, ` +
+    `so it is no longer in the file. ` +
+    (stillThere
+      ? `That edit wrote:\n\`\`\`\n${shown}\n\`\`\`\nIf that already makes the change you want, do not edit ` +
+        `again. Otherwise search for the text as it is now.]\n\n`
+      : `Its text has changed again since then; call read_file on the region before retrying.]\n\n`)
+  );
 }
 
 /**
@@ -2239,11 +2298,13 @@ export async function resolveEditedText(params: {
       const looseTarget = findIntentTarget(text, replace, 0.2);
       if (looseTarget && text.includes(looseTarget) && looseTarget !== replace) {
         throw new Error(
-          suggestRegionError(
-            filePath,
-            looseTarget,
-            `your 'search' text still does not appear in the file after ${failureCount} attempts`,
-          ),
+          stalePrefix +
+            unreadPrefix +
+            suggestRegionError(
+              filePath,
+              looseTarget,
+              `your 'search' text still does not appear in the file after ${failureCount} attempts`,
+            ),
         );
       }
     }
@@ -2707,7 +2768,17 @@ function markWrittenSinceRead(exec: ToolExecutor): ToolExecutor {
       },
     };
     const result = await exec(input, ctx);
-    for (const p of changedFiles(outcome)) context.editedSinceRead.add(p);
+    for (const p of changedFiles(outcome)) {
+      context.editedSinceRead.add(p);
+      // write_file replaces the whole file, so earlier edits say nothing about it.
+      if (typeof input.search !== 'string' || typeof input.replace !== 'string') {
+        context.appliedEdits?.delete(p);
+        continue;
+      }
+      const edits = context.appliedEdits?.get(p) ?? [];
+      edits.push({ search: input.search, replace: input.replace });
+      context.appliedEdits?.set(p, edits);
+    }
     return result;
   };
 }

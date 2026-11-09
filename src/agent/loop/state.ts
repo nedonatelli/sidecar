@@ -371,6 +371,9 @@ export interface LoopState {
    */
   editedSinceRead: Set<string>;
 
+  /** See ToolExecutorContext.appliedEdits. Maintained by the fs tools. */
+  appliedEdits: Map<string, Array<{ search: string; replace: string }>>;
+
   // True once the unapplied-edit nudge has fired this run. Bounds the nudge to
   // one injection so a false positive (an explanatory code block) costs at most
   // one extra message. unappliedEditHook is the only writer.
@@ -516,6 +519,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     alreadyDoneChecked: false,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),
+    appliedEdits: new Map(),
     unappliedEditNudged: false,
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(lastUserText(copiedMessages), {
