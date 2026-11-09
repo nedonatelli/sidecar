@@ -24,7 +24,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          # macos-14 was retired: the v0.136.0 publish run was refused ("not supported").
+          # macos-latest is Apple Silicon and tracks the supported image.
+          - os: macos-latest
             target: darwin-arm64
           # darwin-x64 (Intel Mac) dropped: GitHub's macos-13 Intel runners are
           # scarce/being deprecated and left releases stuck queued. Apple Silicon
