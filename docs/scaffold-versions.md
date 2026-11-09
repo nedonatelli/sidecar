@@ -40,6 +40,29 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.25, noting the patch.
+
+- **What changed** (#481): `edit_file` keeps, per file, the edits it applied
+  in the run; `write_file` clears that file's list. When a missed search,
+  normalized, is inside an earlier applied edit's search and not inside its
+  replace (at least 8 non-space characters), the error names that edit and
+  shows what it wrote, or says to re-read if the text has changed since. This
+  note takes precedence over "CHANGED since you last read it", and is also on
+  the third-failure loose-suggestion error.
+- **Eval impact:** runs where the model searches for text it already
+  replaced. Replayed over recorded e4b runs, that happens 150–183 times per
+  150 runs, in 19–23 runs; on 31b, 2 times in 24 runs.
+- **Measured:** e4b SWE canary, 50 tasks × seeds 11/22/33 vs the merge base
+  (v0.136.0 code). The note was shown 26 times in 15 runs. Stale-anchor
+  failures 173 → 40 (15 pairs lower, 5 higher, sign test p = 0.041); runs
+  with 10 or more of them 5 → 0. Failed `edit_file` calls 655 → 495, not
+  significant per pair (17 lower, 11 higher, p = 0.34). Resolve 13% in both
+  arms (1 fixed, 0 broken), every outcome null. 118 of the 135 pairs where
+  the note never fired have identical tool-call sequences.
+
 ### 7.0.24 — a timed-out test run is an error, not a result (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

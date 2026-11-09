@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.26** (2026-11) — a missed `edit_file` search that the run's own
+ *   earlier edit replaced says so and shows what that edit wrote
+ *   (`LoopState.appliedEdits`, cleared by `write_file`). PATCH. e4b SWE canary
+ *   (150 pairs): stale-anchor failures 173→40 (15 pairs lower, 5 higher,
+ *   p=0.041), failed edits 655→495 (p=0.34), runs with ≥10 stale failures
+ *   5→0; resolve 13% in both arms, every outcome null.
  * - **7.0.24** (2026-11) — a timed-out `run_tests` is an error, not a result;
  *   shell fixes (Part of #422). The model gets "did not finish, so this
  *   output is partial" with `is_error`, and the completion gate doesn't count
@@ -482,7 +488,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.24';
+export const SCAFFOLD_VERSION = '7.0.26';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
