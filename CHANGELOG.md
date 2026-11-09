@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`grep` no longer says a pattern is absent when the search itself failed**
+  ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
+  absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an
+  invalid regex, fails or times out, the reply says so, quotes grep's error and says the answer is
+  unknown. These searches are no longer recorded as "already searched, found nothing", so a retry
+  isn't told it found nothing before. Matches printed before grep failed are marked as partial
+  results, as a timeout already was.
+
 ## [0.136.0] - 2026-11-08
 
 `edit_file` refuses fewer edits that were fine, and a failed edit says more accurately what to
