@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.25** (2026-11) — a failed `grep` is not a proven absence (#474).
+ *   Only exit 1 (or an empty exit 0) counts as absent and is recorded in
+ *   `zeroHitPatterns`; a failed or timed-out relaxed-identifier search or
+ *   literal retry says the answer is unknown and quotes grep's stderr, and
+ *   matches printed before a failure carry a partial-results note. PATCH. Not
+ *   canaried: these paths need grep itself to fail, and recorded runs show
+ *   no reply from them.
  * - **7.0.24** (2026-11) — a timed-out `run_tests` is an error, not a result;
  *   shell fixes (Part of #422). The model gets "did not finish, so this
  *   output is partial" with `is_error`, and the completion gate doesn't count
@@ -482,7 +489,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.24';
+export const SCAFFOLD_VERSION = '7.0.25';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
