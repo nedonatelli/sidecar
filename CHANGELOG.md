@@ -4,6 +4,14 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **A failed edit says when the agent's own earlier edit replaced the text it searched for.**
+  `edit_file` remembers the edits it applied to each file in a run. When a later search misses
+  because it is text one of those edits replaced, the error says so and shows what that edit
+  wrote, so the agent can edit the new text or see the change is already made. It used to say only
+  that the file had changed since the last read, and said nothing once the agent had re-read it.
+
 ## [0.136.0] - 2026-11-08
 
 `edit_file` refuses fewer edits that were fine, and a failed edit says more accurately what to
