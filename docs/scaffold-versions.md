@@ -63,6 +63,28 @@ re-defaulted. Comparable with 7.0.25, noting the patch.
   arms (1 fixed, 0 broken), every outcome null. 118 of the 135 pairs where
   the note never fired have identical tool-call sequences.
 
+### 7.0.25 — a failed grep is not a proven absence (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.24, noting the patch.
+
+- **What changed** (#474): `grep` treats only exit 1, or an exit 0 that
+  printed nothing, as proof that a pattern is absent; only those are recorded
+  in `zeroHitPatterns`. When the follow-up search for a snippet's identifier,
+  or the literal retry of an invalid regex, fails or times out, the reply says
+  the answer is unknown and quotes the first line of grep's stderr, instead of
+  "not in the repository". Matches printed before grep failed carry a
+  "[Partial results — grep exited with status 2 (…)]" note.
+- **Eval impact:** only searches where grep itself fails. In the #461 and #464
+  e4b canaries (600 runs), the identifier search said "not in the repository
+  either" 39 times and the literal retry ran 49 times. The recordings don't
+  hold grep's exit code, so how many of those were failures can't be counted,
+  and no reply in them came from a failed search ("Grep error" and the
+  relaxed-search timeout: 0 each).
+- **Measured:** not canaried. Unit tests cover each path: the relaxed search
+  failing, with and without output; the literal retry timing out, failing,
+  and finding nothing cleanly; partial output on the main search.
+
 ### 7.0.24 — a timed-out test run is an error, not a result (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

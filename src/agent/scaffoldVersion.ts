@@ -86,6 +86,13 @@
  *   (150 pairs): stale-anchor failures 173→40 (15 pairs lower, 5 higher,
  *   p=0.041), failed edits 655→495 (p=0.34), runs with ≥10 stale failures
  *   5→0; resolve 13% in both arms, every outcome null.
+ * - **7.0.25** (2026-11) — a failed `grep` is not a proven absence (#474).
+ *   Only exit 1 (or an empty exit 0) counts as absent and is recorded in
+ *   `zeroHitPatterns`; a failed or timed-out relaxed-identifier search or
+ *   literal retry says the answer is unknown and quotes grep's stderr, and
+ *   matches printed before a failure carry a partial-results note. PATCH. Not
+ *   canaried: these paths need grep itself to fail, and recorded runs show
+ *   no reply from them.
  * - **7.0.24** (2026-11) — a timed-out `run_tests` is an error, not a result;
  *   shell fixes (Part of #422). The model gets "did not finish, so this
  *   output is partial" with `is_error`, and the completion gate doesn't count
