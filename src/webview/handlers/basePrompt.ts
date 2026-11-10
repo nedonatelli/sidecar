@@ -18,6 +18,12 @@ export interface SystemPromptParams {
    * cacheable-prefix constraint holds.
    */
   wholeFileRewrite?: boolean;
+  /**
+   * Whether this session offers a tool. The prompt names only offered tools:
+   * told to call a tool it was not given, a model calls it, and on Ollama
+   * that call ends the run (#485). Omitted: every tool is offered.
+   */
+  offersTool?: (name: string) => boolean;
 }
 
 /**
@@ -48,6 +54,10 @@ export interface SystemPromptParams {
  */
 export function buildBaseSystemPrompt(p: SystemPromptParams): string {
   const remoteFooter = p.isLocal ? '' : `\nGitHub: ${p.repoUrl} | Docs: ${p.docsUrl}`;
+  const offers = p.offersTool ?? (() => true);
+  const offered = (names: string[]): string => names.filter(offers).join(', ');
+  const hasRunTests = offers('run_tests');
+  const hasWebSearch = offers('web_search');
 
   // Identity comes before the rules — it's the single most-referenced
   // block when the user asks meta-questions like "what model is this".
@@ -65,9 +75,9 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '**Backends:** Ollama (local), Anthropic Claude, OpenAI-compatible servers, Kickstand (self-hosted manager), OpenRouter, Groq, Fireworks.',
     '**Agent loop:** Autonomous multi-step agent with 80+ built-in tools. Runs until the task is done or the iteration cap is hit.',
     '**File tools:** read_file, write_file, edit_file, search_files, list_directory, grep.',
-    '**Shell:** run_command (interactive terminal integration with exit-code capture), run_tests.',
-    '**Git/GitHub**: git_status, git_diff, git_commit, git_log, create_pr_review, submit_pr_review, check_pr_ci, analyze_ci_failure, and more.',
-    '**Web:** web_search (DuckDuckGo), screenshot_page, analyze_screenshot.',
+    `**Shell:** run_command (interactive terminal integration with exit-code capture)${hasRunTests ? ', run_tests' : ''}.`,
+    `**Git/GitHub**: ${offered(['git_status', 'git_diff', 'git_commit', 'git_log', 'create_pr_review', 'submit_pr_review', 'check_pr_ci', 'analyze_ci_failure'])}, and more.`,
+    `**Web:** ${offered(['web_search', 'screenshot_page', 'analyze_screenshot']).replace('web_search', 'web_search (DuckDuckGo)')}.`,
     '**Project knowledge:** Symbol-level semantic index (tree-sitter + MiniLM embeddings + Merkle tree), injected workspace instructions, RAG over docs.',
     '**Memory:** Per-project agent memory that persists across sessions.',
     '**Shadow Workspaces:** Ephemeral git worktrees so agent writes never touch the main tree until the user accepts.',
@@ -103,8 +113,10 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '6. **Read files before editing them.** Use `grep` or `search_files` to locate code first, then `read_file` to see its current shape. When `read_file` returns a not-found error, pivot immediately: call `list_directory` or `grep` to find the correct path, then `read_file` it and answer — all in one uninterrupted chain. Do not end your turn between discovering a path and reading it. Once `list_directory` reveals a candidate file, your next action must be `read_file` on that file — not a message to the user, not a question, not a summary of what you found, and NOT more searching. If `list_directory` returns `utils.ts` when you asked about `helpers.ts`, read `utils.ts` — the user likely had the wrong filename; reading the candidate is how you find out. Do not search further for the originally-requested name. After reading it, answer directly from its contents — do not ask "is that the file you meant?" The file you read IS the answer; your job is to describe what is in it. Do not ask permission ("Would you like me to read X?", "Shall I look at X instead?", "Want me to describe it?"). When an obvious next file exists, reading it IS the response; stopping to ask is not. **For large files** you only need to understand structurally, use `read_file(mode="outline")` for a signatures-only map or `mode="compact"` for code without comments — both are faster and cheaper than reading the full file. **For multi-file changes** (rename, replace a string everywhere), run `grep` first to find every occurrence across the codebase, then edit each file in turn.',
     '7. **Before editing, check if the code already satisfies the requirement.** Read the file first. If the code is already correct, say so explicitly and do NOT make any edits. Making an unnecessary change to code that already works is a bug.',
     '8. **Make the minimal edit the request calls for.** When asked to change a specific part (only the return type, only one function, only the import), change exactly that and leave adjacent code untouched. Read the file first so you know what is adjacent. Do not "improve" or "clean up" code that was not mentioned.',
-    '9. **After every `run_command` or `run_tests` that shows an error, fix the error, then re-run the same command to verify the fix worked.** Do not stop after the edit. Iterate — fix → re-run → fix → re-run — until the command exits cleanly.',
-    '10. **After editing files, verify with a check that actually runs.** `get_diagnostics` is a good fast first look and any diagnostics it reports are real — but it reads what a language server has already analyzed, so "No diagnostics" on a file you just wrote usually means nothing examined it, not that the file is clean. To confirm an edit type-checks, call `run_command` with the project\'s checker (`npx tsc --noEmit`, `npx eslint <file>`, or this language\'s equivalent). After fixing bugs, call `run_tests`; if it reports the project has no tests, stop there — do not write tests or install a test framework to have something to run. Re-running the application is a runtime check and does not substitute for either.',
+    `9. **After every ${hasRunTests ? '`run_command` or `run_tests`' : '`run_command`'} that shows an error, fix the error, then re-run the same command to verify the fix worked.** Do not stop after the edit. Iterate — fix → re-run → fix → re-run — until the command exits cleanly.`,
+    '10. **After editing files, verify with a check that actually runs.** `get_diagnostics` is a good fast first look and any diagnostics it reports are real — but it reads what a language server has already analyzed, so "No diagnostics" on a file you just wrote usually means nothing examined it, not that the file is clean. To confirm an edit type-checks, call `run_command` with the project\'s checker (`npx tsc --noEmit`, `npx eslint <file>`, or this language\'s equivalent). After fixing bugs, ' +
+      (hasRunTests ? 'call `run_tests`' : "run the project's tests with `run_command`") +
+      '; if it reports the project has no tests, stop there — do not write tests or install a test framework to have something to run. Re-running the application is a runtime check and does not substitute for either.',
     '11. **Chain tool calls without narrating each step.** For unambiguous requests, proceed directly. (Avoid "Now I will read the file" / "Let me now call get_diagnostics" filler between tool calls — it adds tokens and noise.) **A message that announces an action ("I\'ll make the edit now", "I will update X", "Let me fix that") MUST include that tool call in the same turn.** Announcing an action and then ending the turn without calling the tool is a hard failure — the workspace is unchanged. If you intend to call a tool, call it immediately. Intent is not action.',
     '12. **Write complete, working implementations.** Build the full feature in one pass, including all error handling. (Avoid `// TODO` placeholders, stub functions, empty catch blocks, or "handle error later" comments. If something truly can\'t be implemented, explain why and ask before shipping a stub.)',
     '13. **If the request uses singular-target language ("rename the function", "fix the method", "update the variable") but the file has multiple candidates, stop and call `ask_user` before editing anything.** A guess followed by "let me know if you meant the other one" is not acceptable — the edit has already landed and may be wrong. Reasoning from name similarity, position, or lack of external references can still be wrong — ask rather than risk the wrong target. **Editing first and asking afterward ("I renamed X — was that the right one?") is equally not acceptable.** The edit has already landed on disk. Call `ask_user` BEFORE any tool that writes, renames, or deletes. **For any genuinely ambiguous request with meaningful alternatives**, use `ask_user`. For clearly-stated, unambiguous requests proceed directly without asking permission.',
@@ -131,8 +143,13 @@ export function buildBaseSystemPrompt(p: SystemPromptParams): string {
     '**For file metadata:** `stat file` for size, mtime, permissions — no need to read content for metadata. ' +
     '**For quick one-off computations:** `node -e "console.log(...)"` or `python3 -c "print(...)"` inline > writing a temp script file. ' +
     'System tools (rg, grep, sed, jq, find, awk, xargs, diff, sort, stat) are stateless and exact — delegate mechanical work to them so you can focus on reasoning and decisions. ' +
-    'For test running: `run_tests`. For git: `git_*` tools. ' +
-    'Use `web_search` to discover sources for an unfamiliar topic; when you already have a URL and need the page content, `run_command` with `curl -sL <url>` fetches it. ' +
+    (hasRunTests
+      ? 'For test running: `run_tests`. '
+      : "For test running: `run_command` with the project's test runner. ") +
+    'For git: `git_*` tools. ' +
+    (hasWebSearch
+      ? 'Use `web_search` to discover sources for an unfamiliar topic; when you already have a URL and need the page content, `run_command` with `curl -sL <url>` fetches it. '
+      : 'When you already have a URL and need the page content, `run_command` with `curl -sL <url>` fetches it. ') +
     'Full tool schemas are available in the tools list.';
 
   const safetyRules = [
