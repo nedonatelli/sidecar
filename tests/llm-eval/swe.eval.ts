@@ -56,7 +56,7 @@ import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type Task
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree, warmLogLine } from '../../bench/swe/warmTree.js';
 import { removeCleanFailures } from '../../bench/swe/cleanFailures.js';
-import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
+import { sweToolCatalog, SWE_EXCLUDED_TOOLS } from '../../bench/swe/toolCatalog.js';
 import { unloadModelRequest, coldStartPerTask } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
@@ -639,6 +639,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       docsUrl: '',
       root: dir,
       approvalMode: 'autonomous',
+      // The prompt names only tools the catalog below offers (#485).
+      offersTool: (name) => !SWE_EXCLUDED_TOOLS.has(name),
     });
     const systemPrompt = HARNESS_OVERRIDES ? applyToSystemPrompt(basePrompt, HARNESS_OVERRIDES.overrides) : basePrompt;
     // Trajectory: append every event to disk LIVE (not buffered-then-dumped), so
