@@ -56,7 +56,7 @@ import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type Task
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree, warmLogLine } from '../../bench/swe/warmTree.js';
 import { removeCleanFailures } from '../../bench/swe/cleanFailures.js';
-import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
+import { offeredToolFinder, sweToolCatalog } from '../../bench/swe/toolCatalog.js';
 import { unloadModelRequest, coldStartPerTask } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
@@ -757,7 +757,15 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         ? { scaffoldingOverrides: withToolBudgets(getConfig().scaffoldingOverrides, TOOL_BUDGETS)! }
         : {}),
     };
-    const findArmTool = (name: string) => findTool(name, undefined, armConfig);
+    // The product's catalog minus the tools the benchmark must not offer --
+    // run_tests (wrong runner, false "ok") and web_search (the fix for a
+    // public upstream bug can be searched for). Reasons: bench/swe/toolCatalog.ts.
+    const toolCatalog = (() => {
+      const catalog = sweToolCatalog(getToolDefinitionsForTier('full', undefined, armConfig));
+      return HARNESS_OVERRIDES ? applyToToolDefinitions(catalog, HARNESS_OVERRIDES.overrides) : catalog;
+    })();
+    // Wrappers wrap only offered tools: an extraTool bypasses the catalog gate (#484).
+    const findArmTool = offeredToolFinder(toolCatalog, (name) => findTool(name, undefined, armConfig));
     const stableTools = STABLE_OUTPUT ? stableOutputTools(findArmTool) : [];
     const extraTools = SHELL_GUARD ? shellGuardTools(stableTools, findArmTool, new ShellRootGuard(dir)) : stableTools;
     const options: AgentOptions = {
@@ -776,13 +784,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       fileReferenceText: task.problem_statement,
       confirmFn: async () => 'Allow',
       config: armConfig,
-      // The product's catalog minus the tools the benchmark must not offer --
-      // run_tests (wrong runner, false "ok") and web_search (the fix for a
-      // public upstream bug can be searched for). Reasons: bench/swe/toolCatalog.ts.
-      toolOverride: (() => {
-        const catalog = sweToolCatalog(getToolDefinitionsForTier('full', undefined, armConfig));
-        return HARNESS_OVERRIDES ? applyToToolDefinitions(catalog, HARNESS_OVERRIDES.overrides) : catalog;
-      })(),
+      toolOverride: toolCatalog,
       // Runs in BOTH arms: this is a zero-token deterministic control, like cycle
       // detection and the thrash defenses, not part of the verification
       // scaffolding under test. A whole-suite invocation is a harness-cost bug
