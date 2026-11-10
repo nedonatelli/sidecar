@@ -36,6 +36,7 @@ export const NUDGE_SOURCES = [
   'syntax',
   // the loop's own turn handling (loop.ts)
   'tool-call-parse',
+  'tool-not-offered',
   'degenerate-output',
   'output-limit',
   'empty-response',
