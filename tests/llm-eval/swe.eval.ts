@@ -63,6 +63,7 @@ import { summarizeDecisions } from '../../src/agent/decisions.js';
 import { emptyTotals, addUsage, cacheHitRate, runCostUsd } from '../../bench/swe/runCost.js';
 import { sweTerminationBucket } from '../../bench/swe/termination.js';
 import { PrepFailureStreak } from '../../bench/swe/prepStreak.js';
+import { planResume, resumeKey } from '../../bench/swe/resume.js';
 import { sweepTaskSurvivors } from '../../bench/swe/survivorSweep.js';
 import { missingCachedRepos, repoCacheDir, repoCacheMissMessage } from '../../bench/swe/repoCache.js';
 
@@ -100,6 +101,9 @@ const REPOS = (process.env.SIDECAR_SWE_REPOS || '')
 // it). Default 1×0 = the whole slice, single process (unchanged behavior).
 const SHARD_INDEX = parseInt(process.env.SIDECAR_SWE_SHARD_INDEX ?? '0', 10);
 const SHARD_COUNT = parseInt(process.env.SIDECAR_SWE_SHARD_COUNT ?? '1', 10);
+// Rerun into the same SIDECAR_SWE_OUT and keep the task-arms that already have
+// a real row, instead of starting the slice over (bench/swe/resume.ts).
+const RESUME = process.env.SIDECAR_SWE_RESUME === '1';
 // The SHIPPED ceiling, not a harness-local one. This driver once kept its own 30
 // while the product shipped 50, and every SWE matrix through 2026-09-12 ran
 // under a budget nobody ships: the control arm hit the cap on 24% of tasks and
@@ -1050,6 +1054,30 @@ describe('SWE-bench Lite — prediction generation', () => {
       }
       fs.mkdirSync(OUT, { recursive: true });
 
+      const metaPath = path.join(OUT, 'predictions.meta.jsonl');
+      const manifestPath = path.join(OUT, 'run.manifest.json');
+      const resume = RESUME
+        ? planResume(
+            fs.existsSync(metaPath) ? fs.readFileSync(metaPath, 'utf-8') : '',
+            new Set(tasks.flatMap((t) => ARMS.map((arm) => resumeKey(t.instance_id, arm)))),
+          )
+        : { kept: [], superseded: [] };
+      const done = new Set(resume.kept.map((p) => resumeKey(p.instance_id, p.arm)));
+      if (RESUME) {
+        // The earlier run's manifest stays beside the new one: the kept rows came from it.
+        if (fs.existsSync(manifestPath)) fs.renameSync(manifestPath, path.join(OUT, `run.manifest.${Date.now()}.json`));
+        if (resume.superseded.length > 0) {
+          fs.appendFileSync(
+            path.join(OUT, 'predictions.meta.superseded.jsonl'),
+            resume.superseded.map((p) => JSON.stringify(p) + '\n').join(''),
+          );
+        }
+        console.info(
+          `[swe] resume: ${done.size} task-arms kept, ${resume.superseded.length} infra/suspended rows set aside to rerun, ` +
+            `${tasks.length * ARMS.length - done.size} to run`,
+        );
+      }
+
       // Provenance manifest (workstreams #1): every run records exactly what
       // produced it — model, seed, temperature, slice, arms — so a resolve/lift
       // number is reproducible and attributable, not a floating point estimate.
@@ -1120,16 +1148,19 @@ describe('SWE-bench Lite — prediction generation', () => {
         envCacheBase: ENV_CACHE_BASE,
         nodeVersion: process.version,
         createdAt: new Date().toISOString(),
+        // Task-arms carried over from an earlier run into this directory (0 = a fresh run).
+        resumedRows: done.size,
       };
-      fs.writeFileSync(path.join(OUT, 'run.manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
       console.info(
         `[swe] ${MODEL}: ${tasks.length} tasks × ${ARMS.length} arms, ` +
           `max ${iterationCeiling().maxIterations} iterations (${iterationCeiling().source})`,
       );
 
-      const predictions: SwePrediction[] = [];
-      const metaPath = path.join(OUT, 'predictions.meta.jsonl');
-      fs.writeFileSync(metaPath, ''); // truncate; we append per prediction so a crash mid-run keeps progress
+      // Appended per prediction, so a crash mid-run keeps progress; a resumed run
+      // starts the file from the rows it kept.
+      const predictions: SwePrediction[] = [...resume.kept];
+      fs.writeFileSync(metaPath, predictions.map((p) => JSON.stringify(p) + '\n').join(''));
       // A run that can no longer prepare repositories stops instead of recording
       // a column of instant [infra] rows (bench/swe/prepStreak.ts).
       const prepStreak = new PrepFailureStreak();
@@ -1137,6 +1168,7 @@ describe('SWE-bench Lite — prediction generation', () => {
       try {
         tasks: for (const task of tasks) {
           for (const arm of ARMS) {
+            if (done.has(resumeKey(task.instance_id, arm))) continue;
             const p = await solve(task, arm);
             predictions.push(p);
             fs.appendFileSync(metaPath, JSON.stringify(p) + '\n');
