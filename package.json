@@ -2562,7 +2562,7 @@
       {
         "id": "sidecar.sidecar",
         "name": "sidecar",
-        "description": "Ask SideCar — your local or cloud AI coding assistant — directly in Copilot Chat",
+        "description": "Deprecated: use #sidecar_delegate or the SideCar panel. Ask SideCar — your local or cloud AI coding assistant — directly in Copilot Chat",
         "isSticky": true,
         "commands": [
           {
@@ -2639,6 +2639,45 @@
         "name": "sidecar_web_search",
         "displayName": "Web Search (SideCar)",
         "modelDescription": "Search the web for up-to-date information. Returns ranked result snippets. Use for library docs, error messages, or anything not in the workspace."
+      },
+      {
+        "name": "sidecar_delegate",
+        "displayName": "Delegate to SideCar",
+        "toolReferenceName": "sidecar_delegate",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(robot)",
+        "userDescription": "Hand a task to SideCar, which runs it on your configured model (Ollama, Anthropic, ...) under your SideCar agent mode.",
+        "modelDescription": "Hand a coding task to SideCar, a separate agent that runs on the user's own configured model. Use when the user asks for SideCar, or to have SideCar do a task with its own tools. mode 'agent' (default) lets SideCar read files, edit and run commands in the workspace under the user's approval settings; 'review', 'fix', 'explain' and 'commit-message' give one answer without changing files. Returns SideCar's final answer and the files it changed.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "What SideCar should do, with enough detail to work without the conversation so far."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "review",
+                "fix",
+                "explain",
+                "commit-message"
+              ],
+              "description": "agent (default) runs SideCar's agent with tools; the others give one answer without changing files."
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Workspace-relative files to attach to the task."
+            }
+          },
+          "required": [
+            "task"
+          ]
+        }
       }
     ],
     "commands": [

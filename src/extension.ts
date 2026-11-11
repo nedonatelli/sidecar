@@ -15,6 +15,7 @@ import { runSkillPublishCommand } from './commands/skillPublish.js';
 import { registerStatusBar } from './ui/statusBar.js';
 import { registerSidecarParticipant } from './chat/sidecarParticipant.js';
 import { registerLmTools } from './chat/lmTools.js';
+import { registerDelegateTool } from './chat/delegateTool.js';
 import { dispose as disposeDiagnostics } from './agent/sidecarDiagnostics.js';
 import { setGrammarsPath } from './parsing/registry.js';
 import { configureDuckDbEngine } from './db/duckdbEngine.js';
@@ -151,6 +152,7 @@ export function activate(context: ExtensionContext) {
   registerBackendCommands(context, () => chatProvider!.client);
   registerSidecarParticipant(context, () => chatProvider!.client, mcpManager);
   registerLmTools(context);
+  registerDelegateTool(context, () => chatProvider!.client, mcpManager);
   registerArenaCommands(context, createClient, sidecarDir, mcpManager);
   registerDepsFeature(context);
   initExecutiveFunctionSetup(context, sidecarDir, () => chatProvider);

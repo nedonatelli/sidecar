@@ -29,7 +29,9 @@ Tab to accept, Escape to dismiss — same as Copilot.
 
 **Inline edit (`Cmd+I`)** — Same shortcut as Copilot's inline chat. Select code, press `Cmd+I`, describe the change. SideCar streams the result and shows a side-by-side diff with Accept / Dismiss before touching anything.
 
-**@sidecar in Copilot Chat** — If you keep the Copilot panel open, SideCar registers as a native VS Code chat participant. Type `@sidecar` in the Copilot Chat panel to route a message through your configured backend (Ollama, Anthropic, etc.) without opening the SideCar sidebar. Slash commands `/review`, `/fix`, `/explain`, and `/commit-message` work from there too. Agent requests follow your `sidecar.agentMode` and ask before writes and commands in a dialog; `plan` and `review` modes run as `cautious` there, since they need the SideCar panel.
+**SideCar in Copilot Chat** — If you keep the Copilot panel open, type `#sidecar_delegate` with a task (or just ask Copilot to hand the task to SideCar) to run it through your configured backend (Ollama, Anthropic, etc.) without opening the SideCar sidebar. SideCar runs its own agent on your model and returns its answer and the files it changed. The tool also takes a `review`, `fix`, `explain` or `commit-message` mode, which gives one answer without changing files. VS Code asks before the tool runs; after that, SideCar follows your `sidecar.agentMode` and asks before writes and commands in a dialog. `plan` and `review` agent modes run as `cautious` there, since they need the SideCar panel.
+
+**@sidecar (deprecated)** — The `@sidecar` chat participant does the same thing, with slash commands `/review`, `/fix`, `/explain` and `/commit-message`. VS Code has deprecated chat participants: the Copilot harness does not run them, and the Local harness that still does is removed in February 2027. Use `#sidecar_delegate` or the SideCar panel instead.
 
 ### What is different
 
@@ -120,16 +122,16 @@ Later sources override earlier on name conflict, and a warning is logged when a 
 
 **Slash commands** — The commands you use every day have direct equivalents:
 
-| Claude Code command | SideCar equivalent                                          |
-| ------------------- | ----------------------------------------------------------- |
-| `/review`           | `/review` (reviews your uncommitted changes, not a branch)  |
+| Claude Code command | SideCar equivalent                                                                                                          |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `/review`           | `/review` (reviews your uncommitted changes, not a branch)                                                                  |
 | `/commit-message`   | `/commit-message` (generates a message to copy; never commits) or `/commit` (stages all changes and commits; does not push) |
-| `/help`             | `/help`                                                     |
-| `#<file>` mention   | Drag file into chat, or click the file pill above the input |
-| `/clear`            | `Cmd+L` / `Ctrl+L`                                          |
-| `/compact`          | `/compact`                                                  |
-| `/model`            | `/model <name>`                                             |
-| `/pr`               | `/pr`                                                       |
+| `/help`             | `/help`                                                                                                                     |
+| `#<file>` mention   | Drag file into chat, or click the file pill above the input                                                                 |
+| `/clear`            | `Cmd+L` / `Ctrl+L`                                                                                                          |
+| `/compact`          | `/compact`                                                                                                                  |
+| `/model`            | `/model <name>`                                                                                                             |
+| `/pr`               | `/pr`                                                                                                                       |
 
 SideCar has additional slash commands with no Claude Code equivalent: `/fork`, `/arena`, `/bg`, `/notebook`, `/guards`, `/deps`, `/scan`, and others. See [Slash Commands](slash-commands) for the full reference.
 
