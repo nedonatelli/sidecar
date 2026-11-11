@@ -95,6 +95,25 @@ export function editableTarget(install: string | undefined): string {
 }
 
 /**
+ * Build tools for a repo whose own build-system pin is too old for an editable
+ * install. setuptools added editable builds (PEP 660 `build_editable`) in 64.
+ * pylint's 2.15 tasks after it dropped setup.py pin `setuptools~=62.6` in
+ * pyproject.toml, so `uv pip install -e .` failed before the agent started:
+ * pylint-7114, 7228 and 7993 in the Lite-300 run. SWE-bench's pip install
+ * does not hit this, because pip falls back to `setup.py develop`. The upper
+ * bound keeps the era's setuptools behavior.
+ */
+export const EDITABLE_BUILD_DEPS: readonly string[] = ['setuptools>=64,<70', 'wheel'];
+
+/** True when an install failed because the build backend has no `build_editable`. */
+export function isMissingBuildEditable(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const stderr = (err as { stderr?: unknown }).stderr;
+  const text = `${err.message}\n${stderr instanceof Buffer ? stderr.toString('utf-8') : (stderr ?? '')}`;
+  return /has no attribute\s+'build_editable'/.test(text);
+}
+
+/**
  * Test-requirements files SWE-bench installs for a repo's environment and that
  * the spec's `pip_packages` does not carry (its MAP_REPO_TO_REQS_PATHS). pylint
  * pins astroid and pytest there; without them the agent's tests run against the
@@ -328,7 +347,18 @@ export function setupTaskEnv(
     }
     execFileSync(uv, ['pip', 'install', '--python', pythonBin, ...args, ...extra], { cwd: repoDir, stdio: 'pipe' });
   };
-  const installRepo = (): void => install(['-e', editableTarget(spec.install)]);
+  const installRepo = (): void => {
+    const target = editableTarget(spec.install);
+    try {
+      install(['-e', target]);
+    } catch (err) {
+      if (!isMissingBuildEditable(err)) throw err;
+      // Build in the venv, with a setuptools that has editable builds, instead
+      // of the isolated environment the repo's old pin creates.
+      install([...EDITABLE_BUILD_DEPS]);
+      install(['--no-build-isolation', '-e', target]);
+    }
+  };
   try {
     installRepo();
   } catch (err) {
