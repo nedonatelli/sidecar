@@ -4,7 +4,23 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`sidecar_delegate`: hand a task to SideCar from Copilot Chat**
+  ([#493](https://github.com/nedonatelli/sidecar/issues/493)). A language model tool that runs SideCar's
+  own agent on your configured model and returns its answer and the files it changed. Its `review`,
+  `fix`, `explain` and `commit-message` modes give one answer without changing files. It follows your
+  `sidecar.agentMode`, as `@sidecar` does, and works in Copilot harness sessions, which do not run
+  chat participants.
+
 ### Changed
+
+- **`@sidecar` is deprecated.** VS Code no longer runs chat participants in the Copilot harness, and
+  removes the Local harness that still does in February 2027. Use `#sidecar_delegate` or the SideCar
+  panel. `@sidecar` keeps working until then.
+- **`@sidecar`'s slash commands no longer change the system prompt of a SideCar panel run in
+  progress.** They set their prompt on the client the panel shares, so a panel run's later turns
+  picked it up; it is now passed per request.
 
 - **A failed edit says when the agent's own earlier edit replaced the text it searched for.**
   `edit_file` remembers the edits it applied to each file in a run. When a later search misses
