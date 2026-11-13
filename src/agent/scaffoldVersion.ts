@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.27** (2026-11) — `git_search_history` is bounded: each `git log`
+ *   has a 45 s timeout, takes the run's abort signal and runs with
+ *   GIT_NO_LAZY_FETCH, so a partial clone reports content search unavailable
+ *   instead of downloading its history. A failed search says why; if every
+ *   search failed the tool errors instead of saying "No commits found".
+ *   PATCH. Not canaried: only qwen3-coder calls the tool (0 calls in ~16k
+ *   recorded runs of other models; 3 stalls in qwen's first 25 Lite tasks).
  * - **7.0.26** (2026-11) — a missed `edit_file` search that the run's own
  *   earlier edit replaced says so and shows what that edit wrote
  *   (`LoopState.appliedEdits`, cleared by `write_file`). PATCH. e4b SWE canary
@@ -495,7 +502,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.26';
+export const SCAFFOLD_VERSION = '7.0.27';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
