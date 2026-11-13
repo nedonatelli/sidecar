@@ -40,6 +40,28 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.27 — git history search is bounded and says why it found nothing (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.26, noting the patch.
+
+- **What changed:** each `git log` that `git_search_history` runs has a 45 s
+  timeout, takes the run's abort signal, and runs with `GIT_NO_LAZY_FETCH=1`.
+  On a partial clone (the SWE harness clones with `--filter=blob:none`) the
+  content search (`-S`) now fails at once and the reply says it is
+  unavailable and to use grep, instead of downloading every historical blob.
+  A timed-out or failed search is named in a note under the results; when
+  every search failed, the tool returns an error rather than "No commits
+  found".
+- **Eval impact:** only runs that call `git_search_history`. In the run
+  index, no model other than qwen3-coder:30b has called it (0 calls in about
+  16,000 SWE runs). qwen3-coder called it in its first Lite-300 tasks at
+  7.0.26: three content searches on Django ran 11 to 43 minutes each, one
+  past the per-task timeout, and that cell was stopped.
+- **Measured:** not canaried (the trigger is absent from other models'
+  runs). A real-git test on a blobless clone shows the old code fetching the
+  history blobs and the new code fetching none.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
