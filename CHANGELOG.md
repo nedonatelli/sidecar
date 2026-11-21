@@ -14,6 +14,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **`git_search_history` accepts `pattern` for its search text**
+  ([#504](https://github.com/nedonatelli/sidecar/issues/504)). Models used to `grep` and
+  `search_files` send `pattern`; the call used to fail with "missing required parameter 'query'".
+  It's now read as `query`, and the result says to use `query` next time.
+
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
   absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an

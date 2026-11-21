@@ -4,6 +4,9 @@ import { shellTools } from '../tools/shell.js';
 import { gitTools } from '../tools/git.js';
 import { databaseTools } from '../tools/database.js';
 import { fsTools } from '../tools/fs.js';
+import { gitSearchHistoryDef } from '../tools/git.js';
+import { grepDef } from '../tools/search.js';
+import { validateToolInput } from './inputValidator.js';
 import type { ToolDefinition } from '../../ollama/types.js';
 
 type ToolInputSchema = ToolDefinition['input_schema'];
@@ -121,6 +124,7 @@ describe('remapParamSynonyms', () => {
       ['replacement', 'replace'],
       ['q', 'query'],
       ['search_query', 'query'],
+      ['pattern', 'query'],
       ['regex', 'pattern'],
       ['glob', 'pattern'],
       ['q', 'question'],
@@ -135,6 +139,35 @@ describe('remapParamSynonyms', () => {
       expect(out.input, `${syn} → ${canonical}`).toEqual({ [canonical]: 'VALUE' });
       expect(out.notes, `${syn} → ${canonical} note`).toHaveLength(1);
     }
+  });
+
+  describe("git_search_history: 'pattern' for 'query' (#504)", () => {
+    const schema: ToolInputSchema = gitSearchHistoryDef.input_schema;
+
+    it('reads {pattern} as {query} against the real schema, and says so', () => {
+      const out = remapParamSynonyms({ pattern: 'models.E028' }, schema);
+      expect(out.input).toEqual({ query: 'models.E028' });
+      expect(out.notes).toEqual([
+        "parameter 'pattern' is not valid for this tool — interpreted as 'query'; use 'query' next time",
+      ]);
+      expect(validateToolInput(out.input, schema)).toBeNull();
+    });
+
+    it('keeps query when both are sent', () => {
+      const out = remapParamSynonyms({ query: 'kept', pattern: 'ignored' }, schema);
+      expect(out.input).toEqual({ query: 'kept', pattern: 'ignored' });
+      expect(out.notes).toEqual([]);
+    });
+
+    it("leaves grep's own 'pattern' alone", () => {
+      const out = remapParamSynonyms({ pattern: 'foo' }, grepDef.input_schema);
+      expect(out.input).toEqual({ pattern: 'foo' });
+      expect(out.notes).toEqual([]);
+    });
+
+    it('does not add pattern to the schema the model is shown', () => {
+      expect(Object.keys(schema.properties)).not.toContain('pattern');
+    });
   });
 
   it('the disclosure note names both the wrong and the canonical key', () => {
