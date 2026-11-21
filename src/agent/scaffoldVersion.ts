@@ -80,6 +80,17 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **8.0.0** (2026-11) — budget enforcement is separate from cycle detection,
+ *   and a spent tool is withdrawn (#510). A tool refused 3 times for its spent
+ *   budget is taken out of the catalog (`LoopState.withdrawnTools`; text-form
+ *   calls to it are still parsed and refused), and the run stops only when a
+ *   turn of nothing but refused calls reaches a withdrawn tool's 4th refusal
+ *   (#268's stop came at the 3rd). That stop now runs with
+ *   SIDECAR_DISABLE_CYCLE_DETECTION set, as in every SWE cell, where before
+ *   nothing enforced a spent budget. MAJOR: SWE results with cycle detection
+ *   off are not comparable across it. Lite-300 (seed 11): the old stop
+ *   point is reached in 165/290 nemotron-3.5-lightning:30b runs, 56 qwen3.5:9b,
+ *   85 bonsai-2:4b; at most 10 resolved runs edited after it.
  * - **7.0.26** (2026-11) — a missed `edit_file` search that the run's own
  *   earlier edit replaced says so and shows what that edit wrote
  *   (`LoopState.appliedEdits`, cleared by `write_file`). PATCH. e4b SWE canary
@@ -495,7 +506,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.26';
+export const SCAFFOLD_VERSION = '8.0.0';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

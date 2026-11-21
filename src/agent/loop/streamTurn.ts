@@ -147,9 +147,30 @@ async function buildEpisodicAddon(client: SideCarClient, state: LoopState): Prom
  * model passed. One catalog, consumed twice, cannot drift.
  */
 export function resolveIterationTools(state: LoopState): ToolDefinition[] {
-  if (state.approvalMode !== 'plan') return state.tools;
-  if (state.scaffoldingProfile?.planModeAskUser === false) return [];
-  return state.tools.filter((t) => t.name === 'ask_user');
+  const offered =
+    state.approvalMode !== 'plan'
+      ? state.tools
+      : state.scaffoldingProfile?.planModeAskUser === false
+        ? []
+        : state.tools.filter((t) => t.name === 'ask_user');
+  // A tool withdrawn for its spent budget (#510) is no longer offered.
+  const withdrawn = state.withdrawnTools;
+  return withdrawn && withdrawn.size > 0 ? offered.filter((t) => !withdrawn.has(t.name)) : offered;
+}
+
+/**
+ * The tools a text-form call is parsed against: this iteration's catalog plus
+ * any tool withdrawn for its budget (#510). A text-form call to a withdrawn
+ * tool is still recognized as a call, so dispatch refuses it and the refusal
+ * is counted, as it is for a native call; read as prose it would slip past the
+ * budget stop. Plan mode is not widened: there a call parsed from text is
+ * exactly what resolveIterationTools exists to prevent.
+ */
+export function resolveTextCallTools(state: LoopState): ToolDefinition[] {
+  const offered = resolveIterationTools(state);
+  const withdrawn = state.withdrawnTools;
+  if (state.approvalMode === 'plan' || !withdrawn || withdrawn.size === 0) return offered;
+  return [...offered, ...state.tools.filter((t) => withdrawn.has(t.name))];
 }
 
 function abortedPromise(signal: AbortSignal): Promise<undefined> {
@@ -450,7 +471,7 @@ export function resolveTurnContent(turn: TurnResult, state: LoopState, callbacks
     // set — otherwise a text-form call to a tool that plan mode has removed is
     // still parsed and recorded as a call. See resolveIterationTools.
     const iterationTools = resolveIterationTools(state);
-    const { calls: textCalls, cleanedText } = parseTextToolCallsCleaned(rawText, iterationTools, {
+    const { calls: textCalls, cleanedText } = parseTextToolCallsCleaned(rawText, resolveTextCallTools(state), {
       callExpressions: state.config.codeAsTextRecoveryEnabled === true,
       echoSource: toolOutputText(state.messages),
     });

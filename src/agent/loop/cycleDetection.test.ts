@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
-import { exceedsBurstCap, detectCycleAndBail } from './cycleDetection.js';
+import { exceedsBurstCap, detectCycleAndBail, stopForSpentBudget } from './cycleDetection.js';
 import { checkToolBudget, recordToolUse } from './toolBudget.js';
 import type { LoopState } from './state.js';
 import type { SideCarConfig } from '../../config/settings.js';
@@ -1050,67 +1050,86 @@ describe('#222: one nudge before stopping a read-only loop that has made no edit
 
 // #268: a model refused for an exhausted budget usually calls the tool again,
 // varying its arguments or interleaving other calls, so no other pass sees it.
-describe('#268: a turn of calls a spent budget will refuse counts as a cycle', () => {
+// #510: the tool is withdrawn from the catalog at its 3rd refusal, and the
+// stop comes only if the model calls it again anyway. It is enforced apart
+// from detectCycleAndBail, so turning cycle detection off leaves it on.
+describe('#268/#510: a turn of calls a spent, withdrawn budget will refuse ends the run', () => {
   const runCommand = (i: number) => [makeToolUse('run_command', { command: `pytest -k case${i}` })];
   const spent = (overrides: Partial<LoopState> = {}) => {
     const state = stubLoopState(overrides);
     for (let i = 0; i < 15; i++) recordToolUse(state, 'run_command');
     return state;
   };
-  /** One loop turn: cycle detection first, then dispatch's budget refusal. */
+  /** One loop turn: the budget stop first, then dispatch's budget refusal. */
   const turn = (state: LoopState, cb: ReturnType<typeof stubCallbacks>, tus: ToolUseContentBlock[]) => {
-    const bail = detectCycleAndBail(tus, state, cb);
+    const bail = stopForSpentBudget(tus, state, cb);
     if (!bail && !state.pendingCycleNudge) for (const tu of tus) checkToolBudget(state, tu.name);
     return bail;
   };
 
-  it('lets 3 refusals through, nudges on the 4th call before any edit, and stops on the 5th', () => {
+  it('withdraws the tool at the 3rd refusal, lets one more call through, nudges before any edit, then stops', () => {
     const state = spent({ fileMutations: 0 });
     const cb = stubCallbacks();
-    for (let i = 0; i < 3; i++) expect(turn(state, cb, runCommand(i))).toBe(false);
+    for (let i = 0; i < 4; i++) expect(turn(state, cb, runCommand(i))).toBe(false);
+    expect(state.withdrawnTools?.has('run_command')).toBe(true);
     expect(state.pendingCycleNudge).toBeUndefined();
-    expect(turn(state, cb, runCommand(3))).toBe(false);
-    expect(state.pendingCycleNudge).toContain('run_command has no budget left this session');
+    expect(turn(state, cb, runCommand(4))).toBe(false);
+    expect(state.pendingCycleNudge).toContain('has been removed from your tool list');
     expect(state.pendingCycleNudge).toContain('give your final answer from what you have gathered');
     expect(cb.texts.join('')).not.toContain('Agent stopped');
     // The loop injects and clears the nudge and drops the turn; the model calls again.
     state.pendingCycleNudge = undefined;
-    expect(turn(state, cb, runCommand(4))).toBe(true);
+    expect(turn(state, cb, runCommand(5))).toBe(true);
     expect(cb.texts.join('')).toContain(
-      'Agent stopped: run_command is out of budget and was called again after 3 refusals',
+      'Agent stopped: run_command is out of budget and was called again after 4 refusals',
     );
   });
 
   it('stops without a nudge once the run has made an edit', () => {
     const state = spent({ fileMutations: 1 });
     const cb = stubCallbacks();
-    for (let i = 0; i < 3; i++) turn(state, cb, runCommand(i));
-    expect(turn(state, cb, runCommand(3))).toBe(true);
+    for (let i = 0; i < 4; i++) expect(turn(state, cb, runCommand(i))).toBe(false);
+    expect(turn(state, cb, runCommand(4))).toBe(true);
     expect(state.pendingCycleNudge).toBeUndefined();
+  });
+
+  it('does not stop on refusals of a tool that has not been withdrawn', () => {
+    // Refusal counts at the stop threshold, but the tool is still offered: no stop.
+    const state = spent({ fileMutations: 1, toolBudgetRefusals: new Map([['run_command', 9]]) });
+    const cb = stubCallbacks();
+    expect(stopForSpentBudget(runCommand(0), state, cb)).toBe(false);
+  });
+
+  it('is not part of detectCycleAndBail, so turning cycle detection off does not turn it off', () => {
+    const state = spent({ fileMutations: 1 });
+    const cb = stubCallbacks();
+    for (let i = 0; i < 4; i++) turn(state, cb, runCommand(i));
+    expect(detectCycleAndBail(runCommand(4), state, stubCallbacks())).toBe(false);
+    expect(stopForSpentBudget(runCommand(4), state, cb)).toBe(true);
   });
 
   it('counts refusals across interleaved turns: other calls do not reset it', () => {
     const state = spent({ fileMutations: 1 });
     const cb = stubCallbacks();
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       turn(state, cb, runCommand(i));
       expect(turn(state, cb, [makeToolUse('read_file', { path: `f${i}.py` })])).toBe(false);
     }
-    expect(turn(state, cb, runCommand(3))).toBe(true);
+    expect(turn(state, cb, runCommand(4))).toBe(true);
   });
 
   it('leaves a turn alone when one of its calls can still run', () => {
     const state = spent({ fileMutations: 1 });
     const cb = stubCallbacks();
-    for (let i = 0; i < 3; i++) turn(state, cb, runCommand(i));
-    const mixed = [...runCommand(3), makeToolUse('read_file', { path: 'src/a.py' })];
+    for (let i = 0; i < 4; i++) turn(state, cb, runCommand(i));
+    const mixed = [...runCommand(4), makeToolUse('read_file', { path: 'src/a.py' })];
     expect(turn(state, cb, mixed)).toBe(false);
   });
 
   it('does not count a tool whose budget is not spent', () => {
     const state = stubLoopState({ fileMutations: 1 });
     const cb = stubCallbacks();
-    for (let i = 0; i < 6; i++) expect(turn(state, cb, runCommand(i))).toBe(false);
+    for (let i = 0; i < 8; i++) expect(turn(state, cb, runCommand(i))).toBe(false);
   });
 
   // #311: a shell search spends grep's budget, so with run_command spent it can
@@ -1118,7 +1137,7 @@ describe('#268: a turn of calls a spent budget will refuse counts as a cycle', (
   it("keys a shell search by grep's budget: run_command being spent does not make it a refused call", () => {
     const state = spent({ fileMutations: 1 });
     const cb = stubCallbacks();
-    for (let i = 0; i < 3; i++) turn(state, cb, runCommand(i));
+    for (let i = 0; i < 4; i++) turn(state, cb, runCommand(i));
     const search = [makeToolUse('run_command', { command: 'grep -rn "def refine" sympy/assumptions' })];
     expect(turn(state, cb, search)).toBe(false);
     expect(cb.texts.join('')).not.toContain('Agent stopped');

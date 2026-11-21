@@ -40,6 +40,34 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 8.0.0 — a spent tool is withdrawn, and budgets are enforced with cycle detection off (2026-11)
+
+MAJOR: budget enforcement changes what it does, and SWE runs, which switch
+cycle detection off, are now subject to it. Results with cycle detection off
+are not comparable with 7.0.x.
+
+- **What changed** (#510): when a tool has been refused 3 times because its
+  budget is spent, it is removed from the tool catalog for the rest of the run,
+  and the refusal that removes it says so. A text-form call to it is still
+  parsed, so it is refused and counted. The run stops when a turn calls only
+  refused tools and one of them is withdrawn and has been refused 4 times;
+  before any edit, the #222 nudge comes first. That stop
+  (`stopForSpentBudget`) no longer lives in `detectCycleAndBail`, so
+  `SIDECAR_DISABLE_CYCLE_DETECTION` does not turn it off. A shell search
+  refused under grep's budget withdraws `grep`, not `run_command`.
+- **Why:** with cycle detection off nothing enforced a spent budget.
+  In Lite-300 (seed 11) the old stop point was reached in 165 of
+  nemotron-3.5-lightning:30b's 290 scored runs, and 98 of those went on
+  calling spent tools until the 150-iteration cap; 56 runs for qwen3.5:9b
+  (9 to the cap) and 85 for bonsai-2:4b (15). Stopping there would
+  have cut off 50 nemotron and 35 qwen3.5:9b runs that went on to apply an
+  edit, 5 of which resolved for each, so the tool is withdrawn rather than
+  the run stopped.
+- **Eval impact:** expected on nemotron-3.5-lightning:30b, qwen3.5:9b and
+  bonsai-2:4b (fewer runs to the iteration cap, shorter runs); about nothing on gemma4:31b,
+  qwen3.8:27b and qwen3-coder:30b, which reach the old stop point in 0–4 runs.
+  Product runs (cycle detection on) stop one refused call later than before.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

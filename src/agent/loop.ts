@@ -24,7 +24,7 @@ import { streamOneTurn, resolveTurnContent } from './loop/streamTurn.js';
 import { isDegenerateText } from './loop/textParsing.js';
 import { MAX_PLAN_STEPS, isPlanOnlyTurn } from './plans/externalPlan.js';
 import { applyAgentLoopRouting, applyArchitectEditorSplit } from './loop/routing.js';
-import { exceedsBurstCap, detectCycleAndBail } from './loop/cycleDetection.js';
+import { exceedsBurstCap, detectCycleAndBail, stopForSpentBudget } from './loop/cycleDetection.js';
 import { maybeInjectSyntaxGate } from './loop/completionGates/syntaxGate.js';
 import {
   excludeBlockedCircularRewrites,
@@ -943,7 +943,8 @@ export async function runAgentLoop(
       // Diagnostic escape hatch (SIDECAR_DISABLE_CYCLE_DETECTION): for
       // cataloging runs we want to observe the model's RAW behavior — the full
       // thrash trajectory — instead of bailing early. The max-iteration cap
-      // still bounds the run, so this never loops forever.
+      // still bounds the run, so this never loops forever, and budget
+      // enforcement (stopForSpentBudget, below) stays on (#510).
       const cycleDetectionOff = process.env.SIDECAR_DISABLE_CYCLE_DETECTION === 'true';
       if (!cycleDetectionOff && exceedsBurstCap(pendingToolUses, state, callbacks)) {
         state.termination = 'stuck';
@@ -961,11 +962,18 @@ export async function runAgentLoop(
       // and the block + escalation reach the model instead of the run dying with
       // zero feedback. Bounded per file.
       const deferForBlockedWrite = shouldDeferBailForBlockedWrite(pendingToolUses, state, callbacks);
+      // Budget enforcement runs with cycle detection on or off (#510): a spent
+      // budget is a hard limit, not a cycle heuristic, and nothing in a turn of
+      // refused calls runs. It may ask for the #222 nudge instead, and then the
+      // cycle passes are skipped this turn: the nudge replaces the turn.
+      const budgetStop = stopForSpentBudget(pendingToolUses, state, callbacks);
       if (
-        !cycleDetectionOff &&
-        !deferForBlockedWrite &&
-        forCycleDetection.length > 0 &&
-        detectCycleAndBail(forCycleDetection, state, callbacks)
+        budgetStop ||
+        (!cycleDetectionOff &&
+          !state.pendingCycleNudge &&
+          !deferForBlockedWrite &&
+          forCycleDetection.length > 0 &&
+          detectCycleAndBail(forCycleDetection, state, callbacks))
       ) {
         // Last-chance syntax rescue before the bail is final. A stuck loop with
         // a broken EDITED file on disk (e.g. a shell `sed` or a write the

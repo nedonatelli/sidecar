@@ -107,7 +107,8 @@ export type AgentDecision =
        * Haiku SWE canary it fired in 40/50 runs, unnoticed since v0.57.
        */
       kind: 'tool_budget';
-      action: 'refused';
+      /** 'withdrawn': the tool was taken out of the catalog for the rest of the run (#510). */
+      action: 'refused' | 'withdrawn';
       tool: string;
       count: number;
       budget: number;
