@@ -243,6 +243,13 @@ export interface AgentCallbacks {
       verificationGates?: number;
       /** The part from loop controls that run in every configuration. */
       loopControls?: number;
+      /**
+       * Why the loop stopped (#475). Unset when it stopped on an error it
+       * caught, such as a failing policy hook. A sub-agent's caller reads it:
+       * the loop returns normally from a timeout or the iteration cap too, so
+       * returning is not finishing.
+       */
+      termination?: import('./loop/state.js').LoopState['termination'];
     },
   ) => void;
   /** Fired when update_plan changed the externalized plan (S1) — checkpointing hook. */
