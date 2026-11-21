@@ -40,6 +40,27 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.33 — Ollama's XML tool-call errors and prose tool names are re-asked (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.26, noting the patch.
+
+- **What changed** (#501): the turn re-ask after Ollama rejects a tool call
+  (`MAX_TOOL_CALL_PARSE_RETRIES`, 2) now also matches the XML tool-call
+  parser's errors: `XML syntax error on line N: …` and `expected element type
+<function> but have <parameter>`. Their nudge says to close each
+  `<parameter>` before its `<function>` and to finish the call, without the
+  JSON escaping advice. `tool '…' not found` is matched up to its last
+  `' not found`, so a "name" that is prose (an apostrophe, over 100
+  characters) is re-asked too; it is quoted cut to 80 characters, and the
+  nudge says text went where the tool name belongs. The HTTP 500 form in
+  `ollamaBackend.ts` accepts the same names.
+- **Eval impact:** Lite-300, seed 11: 7 runs ended on XML parse errors
+  (qwen3-coder 3, nemotron-3.5-lightning 4; 3 with no patch) and 3
+  ministral-3 runs on a prose tool name. Each now gets up to two re-asks.
+- **Measured:** not canaried: about 1 run in 125 fires it, too few for a
+  canary to see. Covered by unit tests on the literal messages.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

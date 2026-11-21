@@ -116,8 +116,29 @@ const MAX_TOOL_CALL_PARSE_RETRIES = 2;
 export function toolCallParseErrorDetail(err: unknown): string | null {
   if (!(err instanceof Error) || err.name === 'AbortError') return null;
   if (!/^Ollama (?:error|request failed)\b/.test(err.message)) return null;
-  const m = /error parsing tool call[^\n]*|invalid character [^\n]*|unexpected end of JSON input/i.exec(err.message);
+  const m =
+    /error parsing tool call[^\n]*|invalid character [^\n]*|unexpected end of JSON input|XML syntax error[^\n]*|expected element type <[^>\n]+> but have <[^>\n]+>/i.exec(
+      err.message,
+    );
   return m ? m[0].slice(0, 300) : null;
+}
+
+/**
+ * True when a parse detail came from Ollama's XML tool-call parser, the format
+ * qwen3-coder's and nemotron-3.5-lightning's templates use
+ * (`<function=…><parameter=…>…</parameter></function>`). Those messages ended
+ * 7 Lite-300 runs before #501, because only the JSON forms were re-asked.
+ */
+export function isXmlToolCallParseError(detail: string): boolean {
+  return /XML syntax error|expected element type </i.test(detail);
+}
+
+/** The longest tool name a message quotes back; prose in the name slot is cut here. */
+const MAX_QUOTED_TOOL_NAME = 80;
+
+/** `name`, cut to MAX_QUOTED_TOOL_NAME characters with an ellipsis. */
+export function quotedToolName(name: string): string {
+  return name.length > MAX_QUOTED_TOOL_NAME ? `${name.slice(0, MAX_QUOTED_TOOL_NAME)}…` : name;
 }
 
 /**
@@ -126,28 +147,42 @@ export function toolCallParseErrorDetail(err: unknown): string | null {
  * parser) and ends the stream with "tool 'web_search' not found"; that ended 3
  * of 50 ministral-3 SWE runs (#486). The HTTP 500 form is handled in
  * ollamaBackend.ts before streaming starts.
+ *
+ * The "name" can be prose the model wrote where the name goes, apostrophes and
+ * all ("tool 'Let's look at the template files…[TOOL_CALLS]read_file' not
+ * found", #501), so this matches up to the LAST `' not found`, at any length.
+ * Callers quote it through `quotedToolName`.
  */
 export function unofferedToolName(err: unknown): string | null {
   if (!(err instanceof Error) || err.name === 'AbortError') return null;
   if (!/^Ollama (?:error|request failed)\b/.test(err.message)) return null;
-  const m = /tool '([^']{1,100})' not found/.exec(err.message);
-  return m ? m[1] : null;
+  const m = /tool '([\s\S]+)' not found/.exec(err.message);
+  return m && m[1].trim() ? m[1] : null;
 }
 
 /** Tell the model its last tool call was not run, and why, before re-asking. */
 function pushToolCallParseNudge(state: NudgeTarget, detail: string): void {
-  const text =
-    `[Tool call not parsed] Your last tool call could not be parsed as JSON (${detail}), so it was NOT run. ` +
-    'Send it again with valid JSON arguments. Inside a JSON string a backslash must be written as \\\\; the only ' +
-    'valid escapes are \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t and \\uXXXX.';
+  const text = isXmlToolCallParseError(detail)
+    ? `[Tool call not parsed] Your last tool call could not be parsed (${detail}), so it was NOT run. ` +
+      'Send it again as one complete call: close each <parameter> before you close its <function>, and do not ' +
+      'stop partway through the call.'
+    : `[Tool call not parsed] Your last tool call could not be parsed as JSON (${detail}), so it was NOT run. ` +
+      'Send it again with valid JSON arguments. Inside a JSON string a backslash must be written as \\\\; the only ' +
+      'valid escapes are \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t and \\uXXXX.';
   if (appendToLastUserMessage(state, text)) recordNudge(state, 'tool-call-parse', text);
   else injectNudge(state, 'tool-call-parse', [{ type: 'text' as const, text }]);
 }
 
 function pushUnofferedToolNudge(state: NudgeTarget, toolName: string): void {
-  const text =
-    `[Tool not available] Your last response called \`${toolName}\`, which is not one of the tools offered in ` +
-    'this session, so nothing was run. Use only the tools you were given.';
+  const quoted = quotedToolName(toolName);
+  // A real tool name has no spaces; prose in the name slot means the model
+  // started explaining inside the call. Saying "not offered" would send it
+  // looking for a tool that never existed.
+  const text = /\s/.test(toolName.trim())
+    ? `[Tool call not parsed] Your last response put text where a tool name belongs (\`${quoted}\`), so ` +
+      'nothing was run. Write any explanation as ordinary text, outside the call, and give the tool by its exact name.'
+    : `[Tool not available] Your last response called \`${quoted}\`, which is not one of the tools offered in ` +
+      'this session, so nothing was run. Use only the tools you were given.';
   if (appendToLastUserMessage(state, text)) recordNudge(state, 'tool-not-offered', text);
   else injectNudge(state, 'tool-not-offered', [{ type: 'text' as const, text }]);
 }
@@ -688,10 +723,10 @@ export async function runAgentLoop(
               state.totalChars = charsBeforeTurn;
               if (unoffered) {
                 state.logger?.warn(
-                  `Backend rejected a call to the unoffered tool '${unoffered}' — re-asking ${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}`,
+                  `Backend rejected a call to the unoffered tool '${quotedToolName(unoffered)}' — re-asking ${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}`,
                 );
                 callbacks.onText(
-                  `\n\n⚠️ The model called '${unoffered}', which this session does not offer — asking it to use ` +
+                  `\n\n⚠️ The model called '${quotedToolName(unoffered)}', which this session does not offer — asking it to use ` +
                     `another tool (${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}); any partial response above is discarded...\n`,
                 );
                 pushUnofferedToolNudge(state, unoffered);

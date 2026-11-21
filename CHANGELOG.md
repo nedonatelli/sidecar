@@ -14,6 +14,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A malformed XML tool call no longer ends the run**
+  ([#501](https://github.com/nedonatelli/sidecar/issues/501)). Models whose Ollama template writes
+  tool calls as XML (qwen3-coder, nemotron) failed with messages like `XML syntax error … unexpected
+  EOF`, which weren't retried. They're re-asked now, with advice for XML calls. A call whose tool
+  name is a sentence the model wrote, apostrophes included, is re-asked too.
+
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
   absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an
