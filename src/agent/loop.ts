@@ -1205,6 +1205,14 @@ export async function runAgentLoop(
       if (err instanceof Error) {
         (err as Error & { partialMessages?: ChatMessage[] }).partialMessages = [...state.messages];
       }
+      // Record why the run ended, so finalize's failure bucket says so instead
+      // of falling through to bad-reasoning (#271): a 502 is not the model's
+      // reasoning. A reason set before the throw (an abort) is kept.
+      if (state.termination === undefined) {
+        const aborted = err instanceof Error && err.name === 'AbortError';
+        state.termination = aborted ? 'aborted' : 'error';
+        if (!aborted) state.terminationError = err instanceof Error ? err.message : String(err);
+      }
       // Fire onDone/flush before propagating — without this, the UI
       // spinner stays active forever when the loop throws.
       finalize(state, callbacks);

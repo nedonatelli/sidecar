@@ -14,6 +14,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A server error no longer counts against the model**
+  ([#271](https://github.com/nedonatelli/sidecar/issues/271)). A run that ended on a backend or
+  connection error, such as an HTTP 502, was recorded as the model's reasoning failure, and those
+  runs counted toward giving the model more scaffolding. They're recorded as `infra` now and left
+  out of that decision. A run that ended because the backend couldn't parse the model's tool call
+  is recorded as a malformed call instead.
+
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
   absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an
