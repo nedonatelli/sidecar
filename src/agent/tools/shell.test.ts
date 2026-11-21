@@ -57,7 +57,9 @@ import {
   detectLanguageMismatchedLint,
   detectMaskedVerification,
   missingChecker,
+  missingCdHint,
   notRunError,
+  runCommandDef,
 } from './shell.js';
 import { workspace } from 'vscode';
 
@@ -537,6 +539,43 @@ describe('shell tool runtime resolution', () => {
       const result = await runCommand({ command_id: 'bg-1' }, ctx);
       expect(result).toContain('Background command finished');
     });
+  });
+});
+
+describe('a failed cd says where the shell starts (#503)', () => {
+  function sessionReturning(stdout: string, exitCode: number) {
+    const s = new ShellSessionStub();
+    s.execute = vi.fn(async (_cmd: string, _opts?: unknown) => ({ stdout, exitCode, timedOut: false }));
+    return s;
+  }
+
+  it('appends the hint to a failed cd into a guessed absolute path, verbatim from a Lite-300 run', async () => {
+    const s = sessionReturning('/usr/bin/bash: line 2: cd: /home/user/astropy: No such file or directory\n', 1);
+    const out = await runCommand(
+      { command: 'cd /home/user/astropy && python -c "from astropy.io.ascii import RST"' },
+      makeContext(s),
+    );
+    expect(out).toContain('cd: /home/user/astropy: No such file or directory\n(exit code: 1)');
+    expect(out).toContain('`cd /home/user/astropy` failed: that directory does not exist');
+    expect(out).toContain('The shell starts in the workspace root');
+  });
+
+  it('names the path when bash quotes no line number', () => {
+    expect(missingCdHint('bash: cd: src/missing: No such file or directory')).toContain('`cd src/missing` failed');
+  });
+
+  it('adds nothing to other failures, or to a successful command that prints the phrase', async () => {
+    expect(missingCdHint('1 failed, 3 passed')).toBe('');
+    expect(missingCdHint('cat: foo.txt: No such file or directory')).toBe('');
+    const failing = sessionReturning('1 failed, 3 passed', 1);
+    expect(await runCommand({ command: 'pytest' }, makeContext(failing))).toBe('1 failed, 3 passed\n(exit code: 1)');
+    // Exit 0: the cd failure was not what decided the result (e.g. `cd x; true`).
+    const ok = sessionReturning('bash: cd: x: No such file or directory\ndone', 0);
+    expect(await runCommand({ command: 'cd x; echo done' }, makeContext(ok))).not.toContain('failed: that directory');
+  });
+
+  it('tells the model where the shell starts in the run_command description', () => {
+    expect(runCommandDef.description).toContain('The shell starts in the workspace root');
   });
 });
 

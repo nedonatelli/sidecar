@@ -284,7 +284,25 @@ async function executeShell(
   }
   if (NOT_RUN_EXIT_CODES.has(result.exitCode)) throw notRunError(result.stdout, result.exitCode);
   const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
-  return result.stdout.trim() + status || '(no output)';
+  const cdHint = result.exitCode !== 0 ? missingCdHint(result.stdout) : '';
+  return (result.stdout.trim() + status || '(no output)') + cdHint;
+}
+
+/**
+ * Appended when a command failed because a `cd` named a directory that does not
+ * exist (#503). Models guess an absolute repository path (`cd /home/user/django
+ * && …`), the command never runs, and bash's message doesn't say where the
+ * shell is, so they guess again: nemotron-3.5-lightning did this in 259 of 300
+ * Lite-300 runs, qwen3-coder in 153. Empty when no `cd` failed.
+ */
+export function missingCdHint(output: string): string {
+  const m = output.match(/(?:^|\n)[^\n]*?\bcd: ([^\n]+?): No such file or directory/);
+  if (!m) return '';
+  return (
+    `\n\n\`cd ${m[1]}\` failed: that directory does not exist, so nothing chained after it with \`&&\` ran, ` +
+    'and the shell stayed where it was. The shell starts in the workspace root: give paths relative to it ' +
+    '(for example `cd tests`), or leave the `cd` out.'
+  );
 }
 
 /**
@@ -320,6 +338,7 @@ export const runCommandDef: ToolDefinition = {
   nondeterministicOutput: true,
   description:
     'Execute a shell command in a persistent shell session. Environment variables and working directory changes persist between calls (aliases and shell functions deliberately do not). ' +
+    'The shell starts in the workspace root: give paths relative to it, not a guessed absolute path. ' +
     'Examples: "npm test", "git status", "python main.py". ' +
     'For long-running processes, set background=true to get a command ID, then call again with just command_id to check output. ' +
     'The command and command_id parameters are mutually exclusive — provide one or the other, not both.',
