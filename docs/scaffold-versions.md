@@ -40,6 +40,24 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.36 — a sub-agent that did not finish is a failure (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with the 7.0.x before it, noting the patch.
+
+- **What changed** (#475): `spawn_agent` and `delegate_task` used to report
+  success whenever their sub-run's loop returned without throwing. The loop
+  also returns normally after a model request times out, at the iteration
+  cap (at most 15 for a sub-agent), after a stuck-loop stop, and after it
+  catches a policy-hook error. The loop now puts its termination on
+  `onOutcome`'s meta, and both tools return an error result for anything
+  but a natural finish. The result gives the reason and whatever the sub-run
+  produced, so the parent's tool budget, agent memory and tool-chain records
+  no longer log a success.
+- **Eval impact:** none expected on SWE: in Lite-300, `spawn_agent` was
+  called once and `delegate_task` never. Agent-eval cases that use either
+  tool can now see an error result where they saw success.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
