@@ -333,7 +333,9 @@ export async function streamOneTurn(
           logApiCall(
             {
               runId: state.runId,
-              model: state.config.model,
+              // The model the request went to (#497): a router, a model pin or
+              // the editor split can move the client off config.model.
+              model: client.getModel(),
               inputTokens: event.usage.inputTokens,
               outputTokens: event.usage.outputTokens,
               stopReason,
