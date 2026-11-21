@@ -14,6 +14,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A tool whose budget is spent is removed from the agent's tool list**
+  ([#510](https://github.com/nedonatelli/sidecar/issues/510)). After a third refused call, the tool
+  is withdrawn for the rest of the session and the refusal says so. Calling it again ends the
+  run. This stop used to live in cycle detection, so runs with cycle detection off (SWE-bench) kept
+  calling a spent tool until the 150-iteration cap.
+
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
   absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an

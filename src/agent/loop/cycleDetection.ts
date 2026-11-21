@@ -2,7 +2,13 @@ import { createHash } from 'node:crypto';
 import type { ToolUseContentBlock } from '../../ollama/types.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { LoopState, NormalizedEntry } from './state.js';
-import { budgetKey, isToolBudgetSpent, toolBudgetRefusals } from './toolBudget.js';
+import {
+  budgetKey,
+  isToolBudgetSpent,
+  isToolWithdrawn,
+  REFUSALS_BEFORE_WITHDRAW,
+  toolBudgetRefusals,
+} from './toolBudget.js';
 import { fileToolName } from '../tools/toolOutcome.js';
 
 // ---------------------------------------------------------------------------
@@ -142,12 +148,13 @@ const MIN_IDENTICAL_MUTATION_CALLS = 4;
 
 /**
  * Budget refusals of one tool before a turn made only of calls that will be
- * refused counts as a cycle (#268): the first refusal and two escalated ones
- * (toolBudget.ts), so the call that would be the 4th refusal is caught, the
- * same 4 as MIN_IDENTICAL_CONSECUTIVE. Arguments don't matter: a refused call
- * never runs, and its answer is the same whatever it asked for.
+ * refused ends the run (#268, #510). The tool is withdrawn from the catalog at
+ * REFUSALS_BEFORE_WITHDRAW (toolBudget.ts), and the refusal that withdraws it
+ * says so; this allows one more call after that, whose refusal says it again,
+ * and stops the one after. Arguments don't matter: a refused call never runs,
+ * and its answer is the same whatever it asked for.
  */
-const REFUSALS_BEFORE_CYCLE = 3;
+const REFUSALS_BEFORE_STOP = REFUSALS_BEFORE_WITHDRAW + 1;
 
 /** Lookback window for a ring buffer checked against `threshold` repeats.
  *  Always at least `threshold + REPEAT_WINDOW_MARGIN` so raising the
@@ -238,28 +245,6 @@ export function detectCycleAndBail(
     if (state.recentMutationCalls.length > mutationWindow) {
       state.recentMutationCalls.shift();
     }
-  }
-
-  // --- Refused-repeat pass (#268) ---
-  // 78% of archived SWE runs that hit a tool budget called the refused tool
-  // again, about 5 refusals each, and the other passes seldom saw it: the
-  // repeats vary their arguments or are interleaved, and the threshold for
-  // varying ones is 10. A turn whose every call goes to a spent budget changes
-  // nothing, so it is counted here. It is read-only in effect (nothing runs),
-  // so before any edit it gets the #222 nudge, and the stop follows.
-  const refused = refusedRepeat(pendingToolUses, state);
-  if (refused) {
-    const { tool, refusals } = refused;
-    const nudge =
-      `${tool} has no budget left this session. You have called it again after ${refusals} refusals, and ` +
-      `this call did not run either; every further ${tool} call will be refused the same way. Use a different ` +
-      `tool for what you still need, or stop calling tools and give your final answer from what you have gathered.`;
-    if (nudgeInsteadOfStop(state, `${tool} (out of budget)`, true, `budget:${tool}`, nudge)) return false;
-    state.logger?.warn(`Agent loop refused-call repeat detected (${tool} called again after ${refusals} refusals)`);
-    callbacks.onText(
-      `\n\n⚠️ Agent stopped: ${tool} is out of budget and was called again after ${refusals} refusals.\n`,
-    );
-    return true;
   }
 
   // --- Identical-mutation resubmission pass (consecutive or not) ---
@@ -707,10 +692,48 @@ function normalizeEntry(pendingToolUses: ToolUseContentBlock[]): NormalizedEntry
 }
 
 /**
+ * Budget enforcement (#268, #510): end the run when a turn calls nothing but
+ * tools whose budget is spent, and one of them has been withdrawn from the
+ * catalog and refused REFUSALS_BEFORE_STOP times. Returns `true` when the loop
+ * should terminate, like detectCycleAndBail, and before any edit it asks for
+ * the #222 nudge instead (once per run).
+ *
+ * This is not a cycle heuristic, so it is not part of detectCycleAndBail and
+ * SIDECAR_DISABLE_CYCLE_DETECTION does not turn it off. It used to be, and
+ * with cycle detection off nothing enforced a spent budget: a model that
+ * ignored the refusals called the tool until the iteration cap (#510).
+ *
+ * Why a turn of refused calls is counted at all (#268): 78% of archived SWE
+ * runs that hit a tool budget called the refused tool again, about 5 refusals
+ * each, and the cycle passes seldom saw it, because the repeats vary their
+ * arguments or are interleaved. A turn whose every call goes to a spent budget
+ * changes nothing. It is read-only in effect, so before any edit it gets the
+ * #222 nudge, and the stop follows.
+ */
+export function stopForSpentBudget(
+  pendingToolUses: ToolUseContentBlock[],
+  state: LoopState,
+  callbacks: AgentCallbacks,
+): boolean {
+  const refused = refusedRepeat(pendingToolUses, state);
+  if (!refused) return false;
+  const { tool, refusals } = refused;
+  const nudge =
+    `${tool} has no budget left this session and has been removed from your tool list. You have called it ` +
+    `again after ${refusals} refusals, and this call did not run either; every further ${tool} call will be ` +
+    `refused the same way. Use a different tool for what you still need, or stop calling tools and give your ` +
+    `final answer from what you have gathered.`;
+  if (nudgeInsteadOfStop(state, `${tool} (out of budget)`, true, `budget:${tool}`, nudge)) return false;
+  state.logger?.warn(`Agent loop refused-call repeat detected (${tool} called again after ${refusals} refusals)`);
+  callbacks.onText(`\n\n⚠️ Agent stopped: ${tool} is out of budget and was called again after ${refusals} refusals.\n`);
+  return true;
+}
+
+/**
  * The tool a turn keeps calling past its budget (#268), when every call in the
- * turn will be refused and one of those tools already has REFUSALS_BEFORE_CYCLE
- * refusals. A turn with any call that can still run is left to the other
- * passes: it may be making progress alongside the wasted call.
+ * turn will be refused and one of those tools is withdrawn (#510) and already
+ * has REFUSALS_BEFORE_STOP refusals. A turn with any call that can still run
+ * is left alone: it may be making progress alongside the wasted call.
  */
 function refusedRepeat(
   pendingToolUses: ToolUseContentBlock[],
@@ -722,7 +745,9 @@ function refusedRepeat(
   let worst: { tool: string; refusals: number } | null = null;
   for (const tu of pendingToolUses) {
     const refusals = toolBudgetRefusals(state, key(tu));
-    if (refusals >= REFUSALS_BEFORE_CYCLE && (!worst || refusals > worst.refusals)) worst = { tool: key(tu), refusals };
+    if (refusals >= REFUSALS_BEFORE_STOP && isToolWithdrawn(state, key(tu)) && (!worst || refusals > worst.refusals)) {
+      worst = { tool: key(tu), refusals };
+    }
   }
   return worst;
 }

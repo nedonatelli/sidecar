@@ -103,6 +103,24 @@ export function isToolBudgetSpent(state: LoopState, toolName: string): boolean {
   return count >= budget || (state.failedEditCalls ?? 0) >= budget * FAILED_EDIT_FACTOR;
 }
 
+/**
+ * Budget refusals of one tool before it is taken out of the catalog (#510):
+ * the first refusal and two escalated ones. From then on the model is not
+ * offered the tool, so it can't keep calling it, and the run goes on with the
+ * tools it has left. Before this, the only answer to a model that ignored the
+ * refusals was cycle detection's stop (#268), and with cycle detection off
+ * nothing answered it: in Lite-300, 98 of the 165 nemotron-3.5-lightning:30b
+ * runs that reached the old stop point went on calling spent tools until the
+ * 150-iteration cap. Stopping instead would have cut off 50 runs that went on
+ * to apply an edit, 5 of which resolved.
+ */
+export const REFUSALS_BEFORE_WITHDRAW = 3;
+
+/** True when `toolName` has been taken out of the catalog for its budget (#510). */
+export function isToolWithdrawn(state: LoopState, toolName: string): boolean {
+  return state.withdrawnTools?.has(toolName) === true;
+}
+
 /** How many times `toolName` has been refused for its budget this run. */
 export function toolBudgetRefusals(state: LoopState, toolName: string): number {
   return state.toolBudgetRefusals?.get(toolName) ?? 0;
@@ -137,7 +155,10 @@ export function checkToolBudget(state: LoopState, toolName: string, opts: ToolBu
   refusals.set(toolName, nth);
 
   const facts = toolName === 'edit_file' ? refuseEdit(state, nth) : refuseTool(state, toolName, nth);
-  if (nth > 1) return `${facts} ${repeatRefusal(state, toolName, nth, opts)}`;
+  if (nth > 1) {
+    const repeat = `${facts} ${repeatRefusal(state, toolName, nth, opts)}`;
+    return withdraw(state, toolName, nth) ? `${repeat} ${withdrawnNote(toolName)}` : repeat;
+  }
   if (toolName === 'edit_file') {
     const next = opts.canAskUser
       ? `If you need more edits, explain why to the user via ask_user.`
@@ -150,6 +171,37 @@ export function checkToolBudget(state: LoopState, toolName: string, opts: ToolBu
     : `No more calls to this tool will run in this session, and no one is available to raise the limit. ` +
       `Work with what you have already gathered, or use a different tool.`;
   return `${facts} ${next}`;
+}
+
+/**
+ * Take `toolName` out of the catalog once it has been refused
+ * REFUSALS_BEFORE_WITHDRAW times (#510). True on the refusal that withdraws it.
+ * A shell search is refused under grep's budget (budgetKey), so it withdraws
+ * grep, never run_command, whose own budget may still have calls left.
+ */
+function withdraw(state: LoopState, toolName: string, nth: number): boolean {
+  if (nth < REFUSALS_BEFORE_WITHDRAW || isToolWithdrawn(state, toolName)) return false;
+  (state.withdrawnTools ??= new Set<string>()).add(toolName);
+  recordDecision(
+    state.logger,
+    {
+      kind: 'tool_budget',
+      action: 'withdrawn',
+      tool: toolName,
+      count: state.toolCallCounts.get(toolName) ?? 0,
+      budget: toolBudgetFor(state, toolName),
+    },
+    `Tool budget withdrew ${toolName} from the catalog after ${nth} refusals`,
+    'warn',
+  );
+  return true;
+}
+
+function withdrawnNote(toolName: string): string {
+  return (
+    `${toolName} has now been removed from your tool list for the rest of this session. ` +
+    `Calling it again will not run it, and repeated calls will end the session.`
+  );
 }
 
 /** Record a refusal of `toolName` and say why it was refused. */

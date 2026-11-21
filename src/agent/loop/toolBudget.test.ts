@@ -9,6 +9,8 @@ import {
   toolBudgetRefusals,
   isShellSearch,
   budgetKey,
+  isToolWithdrawn,
+  REFUSALS_BEFORE_WITHDRAW,
 } from './toolBudget.js';
 import { resolveScaffoldingProfile } from '../scaffoldingProfile.js';
 import type { LoopState } from './state.js';
@@ -478,5 +480,54 @@ describe('a shell search spends the search budget (#311)', () => {
     expect(budgetKey('run_command', {})).toBe('run_command');
     expect(budgetKey('grep', { command: 'pytest' })).toBe('grep');
     expect(budgetKey('read_file', { path: 'a.py' })).toBe('read_file');
+  });
+});
+
+// #510: with cycle detection off nothing answered a model that ignored the
+// refusals, and nemotron-3.5-lightning:30b called spent tools until the
+// iteration cap. The tool is now taken out of the catalog at its 3rd refusal.
+describe('a tool refused 3 times is withdrawn from the catalog (#510)', () => {
+  const spentRunCommand = () => {
+    const decisions: AgentDecision[] = [];
+    const state = {
+      ...makeState(),
+      logger: { logDecision: (d: AgentDecision) => decisions.push(d) } as unknown as LoopState['logger'],
+    } as LoopState;
+    spend(state, 'run_command', 15);
+    return { state, decisions };
+  };
+
+  it('withdraws on the 3rd refusal, says so in that refusal only, and records it once', () => {
+    const { state, decisions } = spentRunCommand();
+    expect(REFUSALS_BEFORE_WITHDRAW).toBe(3);
+    const messages = [1, 2, 3, 4].map(() => checkToolBudget(state, 'run_command')!);
+    expect(messages[0]).not.toContain('removed from your tool list');
+    expect(messages[1]).not.toContain('removed from your tool list');
+    expect(isToolWithdrawn(state, 'run_command')).toBe(true);
+    expect(messages[2]).toContain('run_command has now been removed from your tool list for the rest of this session');
+    expect(messages[2]).toContain('repeated calls will end the session');
+    expect(messages[3]).toContain('This is refusal 4 of run_command');
+    expect(messages[3]).not.toContain('has now been removed');
+    const withdrawn = decisions.filter((d) => d.kind === 'tool_budget' && d.action === 'withdrawn');
+    expect(withdrawn).toEqual([
+      { kind: 'tool_budget', action: 'withdrawn', tool: 'run_command', count: 15, budget: 15 },
+    ]);
+    expect(decisions.filter((d) => d.kind === 'tool_budget' && d.action === 'refused')).toHaveLength(4);
+  });
+
+  it('withdraws nothing while the budget has calls left', () => {
+    const state = makeState() as LoopState;
+    spend(state, 'run_command', 14);
+    for (let i = 0; i < 5; i++) expect(checkToolBudget(state, 'run_command')).toBeNull();
+    expect(isToolWithdrawn(state, 'run_command')).toBe(false);
+  });
+
+  it('a refused shell search withdraws grep, whose budget it spends, not run_command', () => {
+    const state = makeState() as LoopState;
+    spend(state, 'grep', 15);
+    const key = budgetKey('run_command', { command: 'grep -rn "def refine" sympy' });
+    for (let i = 0; i < 3; i++) checkToolBudget(state, key);
+    expect(isToolWithdrawn(state, 'grep')).toBe(true);
+    expect(isToolWithdrawn(state, 'run_command')).toBe(false);
   });
 });
