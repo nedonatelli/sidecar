@@ -45,6 +45,7 @@ import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVers
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { classifyFailure } from '../../bench/swe/failureClassification.js';
 import { startSuspendWatch, suspendReason } from '../../bench/swe/hostSuspend.js';
+import { hideHistoryPastBase } from '../../bench/swe/hideFutureHistory.js';
 import { captureDiff, snapshotShellWorkspace } from '../../bench/swe/captureDiff.js';
 import type { DroppedPath, ShellChangeDrift, ShellChangeSnapshot } from '../../bench/swe/captureDiff.js';
 import { wholeSuiteGuard } from '../../bench/swe/wholeSuiteGuard.js';
@@ -332,6 +333,9 @@ function prepareRepo(task: SweTask): string {
   const head = git(['rev-parse', 'HEAD'], dir).trim();
   if (head !== task.base_commit)
     throw new Error(`checkout mismatch for ${task.instance_id}: ${head} != ${task.base_commit}`);
+  // The clone still holds every later upstream commit, the fix included: no
+  // ref, reflog entry or state file may lead the agent to one (#507).
+  hideHistoryPastBase(dir, task.base_commit);
   // Before the agent's clock starts: otherwise its first grep can hit the 15 s
   // tool timeout on a freshly written tree, at random per arm. See warmTree.ts.
   const warm = warmWorkingTree(dir);
