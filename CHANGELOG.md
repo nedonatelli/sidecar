@@ -14,6 +14,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **File paths with other arguments written into them are recovered, and long paths are accepted**
+  ([#509](https://github.com/nedonatelli/sidecar/issues/509)). A model sometimes wrote a call's
+  other arguments into its path (``x.py`,start_line:5``); the call was refused for the backtick.
+  The path is now cut at the closing quote and the trailing `start_line`/`end_line` are moved into
+  their own parameters. Relative paths up to 240 characters are accepted; the old 80-character cap
+  refused real test fixtures.
+
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
   absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an

@@ -40,6 +40,24 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.35 — a path carrying its line range or a closing quote is repaired; path cap 80 → 240 (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.26, noting the patch.
+
+- **What changed** (#509): `repairPathArgument` joins the deterministic input
+  repairs in `executor/paramRemap.ts`. A `path` is cut at a closing quote mark
+  (backtick, straight or curly quote, guillemet). Trailing `start_line` /
+  `end_line` assignments move into those parameters when the tool declares
+  them; any other trailing text leaves the call for the validator to refuse.
+  `validateFilePath`'s length cap goes from 80 to 240 characters
+  (`MAX_FILE_PATH_CHARS`); the 60-char segment rule is unchanged.
+- **Eval impact:** gemma4:31b, Lite-300 seed 11 (first 137 runs): 25 calls were
+  refused as "invalid characters in file path", all in the repaired shapes.
+  A 103-char Sphinx test-fixture path was refused 13 times across five models.
+- **Measured:** not canaried. Both changes turn a refused call into the call
+  the model meant.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
