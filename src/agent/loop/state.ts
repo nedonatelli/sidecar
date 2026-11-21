@@ -122,7 +122,11 @@ export interface LoopState {
   //   out-of-resources — token budget or request timeout
   //   max-iterations   — the iteration cap was reached
   //   stuck            — burst cap / repeated-action cycle bail
-  termination?: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck';
+  //   error            — the loop threw (a backend error, mostly); the
+  //                      message is in `terminationError` (#271)
+  termination?: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck' | 'error';
+  /** The thrown error's message when `termination` is 'error'. finalize.ts buckets on it. */
+  terminationError?: string;
   unrepairedMalformedCalls: number;
   /** Turns whose text was discarded as degenerate (token salad). Bounded retry: 1 retry, then bail. */
   degenerateTurns: number;
