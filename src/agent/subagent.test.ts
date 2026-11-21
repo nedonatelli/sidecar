@@ -211,6 +211,7 @@ describe('spawnSubAgent: a sub-agent that did not finish is a failure (#475)', (
     ['out-of-resources', 'ran out of time or budget'],
     ['stuck', 'repeating the same actions'],
     ['aborted', 'stopped before it finished'],
+    ['error', 'stopped on an error'],
     [undefined, 'an error it caught'],
   ])('fails when the loop ended %s', async (termination, phrase) => {
     vi.mocked(runAgentLoop).mockImplementationOnce(endingWith(termination));

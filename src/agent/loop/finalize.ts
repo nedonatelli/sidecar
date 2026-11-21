@@ -107,6 +107,7 @@ export function buildRunFailureSignals(state: LoopState): RunFailureSignals {
     toolErrors,
     gateExhausted,
     loopStopped: state.termination === 'stuck',
+    runError: state.termination === 'error' ? (state.terminationError ?? '') : undefined,
   };
 }
 

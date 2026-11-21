@@ -58,6 +58,28 @@ re-defaulted. Comparable with the 7.0.x before it, noting the patch.
   called once and `delegate_task` never. Agent-eval cases that use either
   tool can now see an error result where they saw success.
 
+### 7.0.34 — runs that end on an error get their own failure bucket (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted, and nothing a run does changes. Comparable with 7.0.26, noting
+the patch; `terminationBucket` values differ for runs that ended on an error.
+
+- **What changed** (#271): when the loop throws, it records
+  `termination: 'error'` and the message (an abort stays `aborted`). The
+  failure taxonomy buckets on the message: a tool call the backend could not
+  parse, or a tool it was not offered, is `malformed-call`; Ollama's "token
+  repeat limit reached" is `loop-stopped`; anything else (an HTTP 502, vLLM's
+  "EngineCore encountered an issue", a dropped connection) is the new
+  `infra` bucket. These used to fall through to `bad-reasoning`.
+  `summarizeModelPerformance` skips `infra` runs, as it skips aborted ones,
+  so a server outage no longer counts toward demoting a model.
+- **Eval impact:** nemotron3-super's 50-task canary (scaffold 7.0.24): 69 of
+  100 runs were `bad-reasoning` that are `infra` now (66 HTTP 502s, 3
+  EngineCore errors). Lite-300 runs that ended on an Ollama error move to
+  `malformed-call` (XML parse errors) or `loop-stopped` (repeat limit).
+- **Measured:** nothing to canary: classification only. Unit tests map every
+  `termination` value to a bucket.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

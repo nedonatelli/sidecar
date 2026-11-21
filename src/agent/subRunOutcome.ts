@@ -51,6 +51,8 @@ export function describeUnfinished(termination: LoopState['termination'], maxIte
       return 'it was stopped for repeating the same actions';
     case 'aborted':
       return 'it was stopped before it finished';
+    case 'error':
+      return 'it stopped on an error (from the model server, for example)';
     case undefined:
       return 'it was stopped by an error it caught (a failing policy hook, for example)';
   }

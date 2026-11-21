@@ -86,6 +86,11 @@
  *   with the reason and the partial output. PATCH: no mechanism added or
  *   removed. SWE runs called spawn_agent once in Lite-300 and delegate_task
  *   never, so SWE results are unaffected.
+ * - **7.0.34** (2026-11) — a run that ends on a thrown error gets
+ *   `termination: 'error'` and the message; its failure bucket is `infra`
+ *   (new), or `malformed-call` / `loop-stopped` when the backend refused the
+ *   model's own output (#271). Infra runs are not evidence for tier learning.
+ *   PATCH: no in-run behavior changes; classification and modelPerformance do.
  * - **7.0.26** (2026-11) — a missed `edit_file` search that the run's own
  *   earlier edit replaced says so and shows what that edit wrote
  *   (`LoopState.appliedEdits`, cleared by `write_file`). PATCH. e4b SWE canary
