@@ -38,6 +38,7 @@ export function stubLoopState(overrides: Partial<LoopState> = {}): LoopState {
     recentMutationCalls: [],
     emptyTurnReprompts: 0,
     truncatedTurnContinues: 0,
+    thinkingOnlyReprompts: 0,
     autoFixRetriesByFile: new Map(),
     fullRewriteCountByFile: new Map(),
     isolateNudgesByFile: new Map(),

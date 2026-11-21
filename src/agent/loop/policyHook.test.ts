@@ -48,6 +48,7 @@ function makeState(logger?: AgentLogger): LoopState {
     recentMutationCalls: [],
     emptyTurnReprompts: 0,
     truncatedTurnContinues: 0,
+    thinkingOnlyReprompts: 0,
     recentWriteTargets: [],
     autoFixRetriesByFile: new Map(),
     fullRewriteCountByFile: new Map(),
