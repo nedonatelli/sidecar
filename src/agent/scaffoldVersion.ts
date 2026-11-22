@@ -80,6 +80,35 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.41** (2026-11) — Ollama's mid-stream "tool 'x' not found" re-asks
+ *   with a `tool-not-offered` nudge instead of ending the run (shares the
+ *   parse-retry limit). PATCH. ministral-3 seed 11: not-found deaths 4->1.
+ * - **7.0.40** (2026-11) — the SWE harness's wrappers resolve tools only from
+ *   the run's catalog (`offeredToolFinder`); hidden `run_tests` / `git_commit`
+ *   stay hidden. PATCH, harness-only. Bundle canary: e4b resolve 13% both arms.
+ * - **7.0.39** (2026-11) — identical tool calls in one response run once
+ *   (`executeToolUses`, fence writes exempt). PATCH. Did not fire in the
+ *   v0.137 bundle canary; e4b resolve 13% in both arms (150 pairs, 3/3).
+ * - **7.0.38** (2026-11) — a `path` carrying the line range or a closing
+ *   quote (`x.py\`,start_line:5`) is repaired before validation, and the
+ *   path-length cap goes 80 → 240 (#509). PATCH: one more deterministic
+ *   input repair. gemma4:31b Lite-300: 25 refused calls in 137 runs; 13
+ *   refusals of a real 103-char Sphinx path across five models. Not canaried.
+ * - **7.0.37** (2026-11) — `pattern` is read as `query` for tools that take a
+ *   `query` and declare no `pattern` (git_search_history; #504). PATCH: one
+ *   entry in the existing param-synonym table. qwen3-coder Lite-300: 8 of 17
+ *   git_search_history calls sent `pattern`, all bounced. Not canaried.
+ * - **7.0.36** (2026-11) — `spawn_agent` and `delegate_task` fail when their
+ *   sub-run did not finish (#475): the loop's termination, now on `onOutcome`'s
+ *   meta, decides, and anything but a natural finish returns an error result
+ *   with the reason and the partial output. PATCH: no mechanism added or
+ *   removed. SWE runs called spawn_agent once in Lite-300 and delegate_task
+ *   never, so SWE results are unaffected.
+ * - **7.0.34** (2026-11) — a run that ends on a thrown error gets
+ *   `termination: 'error'` and the message; its failure bucket is `infra`
+ *   (new), or `malformed-call` / `loop-stopped` when the backend refused the
+ *   model's own output (#271). Infra runs are not evidence for tier learning.
+ *   PATCH: no in-run behavior changes; classification and modelPerformance do.
  * - **7.0.26** (2026-11) — a missed `edit_file` search that the run's own
  *   earlier edit replaced says so and shows what that edit wrote
  *   (`LoopState.appliedEdits`, cleared by `write_file`). PATCH. e4b SWE canary
@@ -495,7 +524,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.26';
+export const SCAFFOLD_VERSION = '7.0.41';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

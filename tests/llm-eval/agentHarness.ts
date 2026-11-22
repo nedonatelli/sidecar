@@ -518,6 +518,15 @@ export interface EffectiveSurface {
   seed: number | null;
   temperature: number;
   numCtx: number | null;
+  /**
+   * The model, endpoint and backend the run's client was built with (#497).
+   * The header's configOverrides used to be the only place a trajectory named
+   * a model, and it held getConfig()'s defaults: every Lite-300 trajectory
+   * claimed gemma4:e4b on :11434, whatever had run.
+   */
+  model: string;
+  baseUrl: string;
+  provider: string;
 }
 
 function dumpTrajectory(

@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { remapParamSynonyms, coerceParamTypes, stripEchoedCarriageReturns } from './paramRemap.js';
+import { remapParamSynonyms, coerceParamTypes, stripEchoedCarriageReturns, repairPathArgument } from './paramRemap.js';
 import { shellTools } from '../tools/shell.js';
 import { gitTools } from '../tools/git.js';
 import { databaseTools } from '../tools/database.js';
 import { fsTools } from '../tools/fs.js';
+import { gitSearchHistoryDef } from '../tools/git.js';
+import { grepDef } from '../tools/search.js';
+import { validateToolInput } from './inputValidator.js';
 import type { ToolDefinition } from '../../ollama/types.js';
 
 type ToolInputSchema = ToolDefinition['input_schema'];
@@ -121,6 +124,7 @@ describe('remapParamSynonyms', () => {
       ['replacement', 'replace'],
       ['q', 'query'],
       ['search_query', 'query'],
+      ['pattern', 'query'],
       ['regex', 'pattern'],
       ['glob', 'pattern'],
       ['q', 'question'],
@@ -135,6 +139,35 @@ describe('remapParamSynonyms', () => {
       expect(out.input, `${syn} → ${canonical}`).toEqual({ [canonical]: 'VALUE' });
       expect(out.notes, `${syn} → ${canonical} note`).toHaveLength(1);
     }
+  });
+
+  describe("git_search_history: 'pattern' for 'query' (#504)", () => {
+    const schema: ToolInputSchema = gitSearchHistoryDef.input_schema;
+
+    it('reads {pattern} as {query} against the real schema, and says so', () => {
+      const out = remapParamSynonyms({ pattern: 'models.E028' }, schema);
+      expect(out.input).toEqual({ query: 'models.E028' });
+      expect(out.notes).toEqual([
+        "parameter 'pattern' is not valid for this tool — interpreted as 'query'; use 'query' next time",
+      ]);
+      expect(validateToolInput(out.input, schema)).toBeNull();
+    });
+
+    it('keeps query when both are sent', () => {
+      const out = remapParamSynonyms({ query: 'kept', pattern: 'ignored' }, schema);
+      expect(out.input).toEqual({ query: 'kept', pattern: 'ignored' });
+      expect(out.notes).toEqual([]);
+    });
+
+    it("leaves grep's own 'pattern' alone", () => {
+      const out = remapParamSynonyms({ pattern: 'foo' }, grepDef.input_schema);
+      expect(out.input).toEqual({ pattern: 'foo' });
+      expect(out.notes).toEqual([]);
+    });
+
+    it('does not add pattern to the schema the model is shown', () => {
+      expect(Object.keys(schema.properties)).not.toContain('pattern');
+    });
   });
 
   it('the disclosure note names both the wrong and the canonical key', () => {
@@ -339,6 +372,82 @@ describe('stripEchoedCarriageReturns', () => {
   it('keeps <0x0D> that is not at a line end, and leaves other params alone', () => {
     const input = { path: 'a<0x0D>', search: 'the byte <0x0D> is CR', replace: 'x' };
     const r = stripEchoedCarriageReturns(input);
+    expect(r.input).toBe(input);
+    expect(r.notes).toEqual([]);
+  });
+});
+
+// #509: gemma4:31b wrote its other arguments into `path`. Every input below is
+// a recorded Lite-300 call, checked against the REAL read_file / write_file schemas.
+describe('repairPathArgument: arguments written into path (#509)', () => {
+  const schemaOf = (name: string): ToolInputSchema => {
+    const t = fsTools.find((x) => x.definition.name === name);
+    if (!t) throw new Error(`no tool ${name}`);
+    return t.definition.input_schema;
+  };
+  const READ = schemaOf('read_file');
+  const WRITE = schemaOf('write_file');
+
+  it.each([
+    ['django/forms/widgets.py`,start_line:793', 'django/forms/widgets.py', { start_line: 793 }],
+    [
+      'tests/migrations/test_commands.py`,start_line:607,end_line:620',
+      'tests/migrations/test_commands.py',
+      { start_line: 607, end_line: 620 },
+    ],
+    [
+      'django/contrib/admin/checks.py`,end_line:930,start_line:850',
+      'django/contrib/admin/checks.py',
+      { start_line: 850, end_line: 930 },
+    ],
+    [
+      'django/core/serializers/__init__.py`, start_line=159, end_line=200',
+      'django/core/serializers/__init__.py',
+      { start_line: 159, end_line: 200 },
+    ],
+    ['src/_pytest/python_api.py», start_line:543', 'src/_pytest/python_api.py', { start_line: 543 }],
+  ])('read_file %j → path %j plus the line range', (raw, path, lines) => {
+    const r = repairPathArgument({ path: raw }, READ);
+    expect(r.input).toEqual({ path, ...lines });
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toContain('their own parameters');
+  });
+
+  it('strips a trailing backtick from a write_file path and keeps the content', () => {
+    const r = repairPathArgument({ path: 'reproduce_issue.py`', content: 'print(1)\n' }, WRITE);
+    expect(r.input).toEqual({ path: 'reproduce_issue.py', content: 'print(1)\n' });
+    expect(r.notes[0]).toContain('quote mark');
+  });
+
+  it('strips a path wrapped in backticks', () => {
+    expect(repairPathArgument({ path: '`src/app.py`' }, READ).input).toEqual({ path: 'src/app.py' });
+  });
+
+  it('keeps a line parameter the call already set', () => {
+    const r = repairPathArgument({ path: 'a.py`,start_line:5,end_line:9', start_line: 1 }, READ);
+    expect(r.input).toEqual({ path: 'a.py', start_line: 1, end_line: 9 });
+  });
+
+  it('leaves a range for a tool that declares no line parameters, so the validator refuses it', () => {
+    const input = { path: 'a.py`,start_line:5', content: 'x' };
+    const r = repairPathArgument(input, WRITE);
+    expect(r.input).toBe(input);
+    expect(r.notes).toEqual([]);
+  });
+
+  it.each(['a.py`,mode:compact', 'a.py` then read the rest', "docs/it's.md", 'a.py`,start_line:five'])(
+    'leaves %j unchanged: the trailing text is not only line arguments',
+    (raw) => {
+      const input = { path: raw };
+      const r = repairPathArgument(input, READ);
+      expect(r.input).toBe(input);
+      expect(r.notes).toEqual([]);
+    },
+  );
+
+  it('does nothing to a clean path', () => {
+    const input = { path: 'src/app.py', start_line: 3 };
+    const r = repairPathArgument(input, READ);
     expect(r.input).toBe(input);
     expect(r.notes).toEqual([]);
   });

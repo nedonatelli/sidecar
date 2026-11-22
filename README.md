@@ -17,7 +17,7 @@
 3. Click the SideCar icon in the activity bar (or `Cmd+Shift+I` / `Ctrl+Shift+I`)
 4. Start chatting. SideCar starts Ollama if it isn't running, and offers **Install Model** if the selected model is missing.
 
-`gemma4:e4b` (9.6 GB, about 10 GB of VRAM) is the most-tested local model. On smaller GPUs, try `ministral-3:latest` (6 GB) or `granite4.1:3b` (2 GB).
+`gemma4:e4b` (9.6 GB, about 10 GB of VRAM) is the most-tested local model. For real repository work at a similar size, `qwen3.5:9b` (6.6 GB) resolved 2.3× as many SWE-bench Lite tasks (see [Tested models](#tested-models)). On smaller GPUs, try `ministral-3:latest` (6 GB) or `granite4.1:3b` (2 GB).
 
 ### Other providers
 
@@ -67,6 +67,33 @@ The trade-off: SideCar is VS Code-only, while Cline and Kilo Code cover more edi
 SideCar carries a lot of machinery meant to make weaker local models usable: gates, reprompt budgets, tool-call repair. Specific repairs are proven to matter (the text-call parsing above, for example). That the stack as a whole makes a local model better at real tasks is **not** established, and this README doesn't claim it. Mechanisms that measure net-negative are removed. The main gates can be switched off (`sidecar.completionGate.enabled`, `sidecar.syntaxGate.enabled`, `sidecar.redCheckGate.enabled`).
 
 ## Tested models
+
+### On real repository bugs: SWE-bench Lite
+
+Each model ran all 300 tasks of SWE-bench Lite once, in November 2026. Each task is a real GitHub issue from one of 12 Python projects. A task is resolved when the model's patch makes the official SWE-bench harness's tests pass. Settings: SideCar's default scaffolding, up to 150 agent turns per task, Ollama on one RTX 5090. 290 tasks can be scored for every model; in the other 10, the reference fix itself fails or the task environment is broken.
+
+| Model                      | Download | Resolved (of 290) | Median time per task |
+| -------------------------- | -------- | ----------------- | -------------------- |
+| **gemma4:31b**             | 20.4 GB  | **147 (50.7%)**   | 6.2 min              |
+| **qwen3.8:27b**            | 17.7 GB  | **137 (47.2%)**   | 2.9 min              |
+| qwen3-coder:30b            | 18.6 GB  | 97 (33.4%)        | 2.0 min              |
+| nemotron-3.5-lightning:30b | 25.4 GB  | 97 (33.4%)        | 3.5 min              |
+| **qwen3.5:9b**             | 6.6 GB   | **96 (33.1%)**    | 3.8 min              |
+| gemma4:26b-a4b             | 18.7 GB  | 92 (31.7%)        | 3.1 min              |
+| ministral-3:latest         | 6.0 GB   | 54 (18.6%)        | 1.7 min              |
+| nemotron-3.5-bolt:e4b      | 7.9 GB   | 46 (15.9%)        | 1.7 min              |
+| gemma4:e4b (default)       | 9.6 GB   | 41 (14.1%)        | 1.5 min              |
+| bonsai-2:4b                | 1.6 GB   | 25 (8.6%)         | 4.0 min              |
+
+What this supports:
+
+- **With the memory for a ~20 GB model:** `gemma4:31b` resolves the most. `qwen3.8:27b` is close behind at under half the time per task. It submits no patch on a quarter of tasks, but 63% of the patches it does submit resolve.
+- **On a smaller GPU:** `qwen3.5:9b` resolves 2.3× as many tasks as the default `gemma4:e4b` with a smaller download, and ties the 30b models in the middle of the table.
+- **The middle four are a tie.** Each model ran once, so a gap of a point or two is not a ranking.
+
+This is not a leaderboard submission. Full results: [Model Eval Results](docs/model-eval-results.md#swe-bench-lite-2026-11).
+
+### Agent smoke suite
 
 Each model below runs SideCar's agent smoke suite (read, edit, write, run, plan and error-recovery tasks) with zero infrastructure errors: no crashes, dropped tool calls or retry loops. How well each completes the tasks varies, and the notes reflect both.
 

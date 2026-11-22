@@ -9,6 +9,7 @@ import {
   getRoot,
   getRootUri,
   validateFilePath,
+  MAX_FILE_PATH_CHARS,
   isSensitiveFile,
   isProtectedWritePath,
   shellQuote,
@@ -93,9 +94,17 @@ describe('validateFilePath', () => {
     expect(validateFilePath('src/`evil`.ts')).toContain('invalid characters');
   });
 
-  it('rejects path longer than 80 chars', () => {
-    const long = 'a'.repeat(81);
-    expect(validateFilePath(long)).toContain('too long');
+  it('rejects a path longer than MAX_FILE_PATH_CHARS even when every segment is short', () => {
+    const long = Array.from({ length: Math.ceil((MAX_FILE_PATH_CHARS + 1) / 10) }, () => 'abcdefghi').join('/');
+    expect(long.length).toBeGreaterThan(MAX_FILE_PATH_CHARS);
+    expect(validateFilePath(long)).toContain('file path too long');
+  });
+
+  it('accepts a real 103-char repository path (#509: the old 80-char cap refused it)', () => {
+    const sphinxFixture =
+      'tests/roots/test-ext-autosummary-imported_members/autosummary_dummy_package/autosummary_dummy_module.py';
+    expect(sphinxFixture.length).toBe(103);
+    expect(validateFilePath(sphinxFixture)).toBeNull();
   });
 
   it('rejects path segment longer than 60 chars', () => {

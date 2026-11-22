@@ -32,6 +32,8 @@
 //     (success) — correct for the taxonomy, since a user pressing Stop is not the
 //     model's fault, but poison as a learning signal: it would score every
 //     cancelled run as proof of competence.
+//   • INFRA runs are excluded: a run that ended on a backend or transport
+//     error (a 502, an engine crash) says nothing about the model (#271).
 //   • NON-AGENTIC runs are excluded. Answering "what does this file do?" with no
 //     tool call is a fine run that says nothing about whether the model can edit
 //     code.
@@ -113,6 +115,7 @@ export function summarizeModelPerformance(runs: readonly AgentRunMetrics[], mode
   const relevant = runs
     .filter((r) => r.model === model)
     .filter((r) => !r.aborted) // a user pressing Stop is not a verdict on the model
+    .filter((r) => r.failureBucket !== 'infra') // nor is a server outage (#271)
     .filter((r) => r.toolCalls.length > 0) // a chat answer proves nothing about agentic skill
     .slice(-RECENCY_WINDOW);
 

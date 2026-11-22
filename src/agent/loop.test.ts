@@ -648,6 +648,41 @@ describe('runAgentLoop', () => {
     vi.restoreAllMocks();
   });
 
+  // #271: a run that ends on a backend error is `infra`, and one that ends on
+  // a tool call the backend could not parse is `malformed-call` -- neither is
+  // the `bad-reasoning` they used to fall through to.
+  it.each([
+    ['OpenAI API request failed: 502 ', 'infra'],
+    ['openai: EngineCore encountered an issue. See stack trace (above) for the root cause.', 'infra'],
+    ["Ollama error: invalid character '(' in string escape code", 'malformed-call'],
+  ])('reports the run that ended on "%s" as %s, and still rethrows', async (message, bucket) => {
+    async function* fails(): AsyncGenerator<StreamEvent> {
+      throw new Error(message);
+    }
+    const outcomes: unknown[] = [];
+    const cb = { ...makeCallbacks(), onOutcome: (b: unknown) => outcomes.push(b) };
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const err = await runAgentLoop(
+      makeMockClient(fails),
+      [{ role: 'user', content: 'hi' }],
+      cb,
+      new AbortController().signal,
+    )
+      .then(() => null)
+      .catch((e: Error) => e);
+
+    expect(err?.message).toBe(message);
+    expect(outcomes).toEqual([bucket]);
+    vi.restoreAllMocks();
+  });
+
   // #108: the backoff before a retry ignored Stop.
   it.each(['at once', 'during'] as const)('ends promptly when stopped %s the retry backoff', async (mode) => {
     let calls = 0;
