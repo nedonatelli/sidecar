@@ -83,6 +83,20 @@ describe('runSyntaxGate', () => {
     expect(runCmd).toHaveBeenCalledTimes(2);
   });
 
+  // #473: the caller used to mark every edited file clean after a pass with no
+  // failures, including files no check had looked at.
+  it('reports which files a check actually parsed clean', async () => {
+    const runCmd = vi.fn(async (cmd: string) => {
+      if (cmd.includes('gone.py')) return { exitCode: 127, output: 'python3: command not found' };
+      if (cmd.includes('slow.py')) return { exitCode: -1, output: '', timedOut: true };
+      if (cmd.includes('broken.py')) return { exitCode: 1, output: 'SyntaxError: invalid syntax' };
+      return { exitCode: 0, output: '' };
+    });
+    const parsed = new Set<string>();
+    await runSyntaxGate(['ok.py', 'gone.py', 'slow.py', 'broken.py', 'notes.md'], runCmd, undefined, parsed);
+    expect([...parsed]).toEqual(['ok.py']);
+  });
+
   it('does not report a failure when the checker is unavailable', async () => {
     const runCmd = vi.fn(async () => ({ exitCode: 127, output: 'python3: command not found' }));
     expect(await runSyntaxGate(['x.py'], runCmd)).toEqual([]);

@@ -4,6 +4,7 @@ import type { ToolUseContentBlock, ToolResultContentBlock } from '../ollama/type
 import { recordDecision, type DecisionSink } from './decisions.js';
 import { normalizePath, SOURCE_FILE_RE, TEST_FILE_RE, TEST_RUNNER_RE } from './completionGate/pathUtil.js';
 import { isFailingCheckOutput } from './loop/actionReprompt.js';
+import { checkDidNotRun, collectionErrorLine, isMissingTestPath } from './completionGate/checkRan.js';
 import { changedFiles, fileToolName, type ToolOutcome } from './tools/toolOutcome.js';
 import { resolveTestTarget } from './tools/testRunnerDetect.js';
 
@@ -91,6 +92,21 @@ export interface GateState {
    * with test stubs.
    */
   checkerUnavailable?: boolean;
+  /**
+   * True once run_tests found no test runner (#473). It waives the test demands
+   * the way a test run used to, since there is nothing to run, but it is not a
+   * test run: it doesn't count as verification for the keep-best ratchet.
+   * Never cleared. Optional for back-compat with test stubs.
+   */
+  noTestRunner?: boolean;
+  /**
+   * The error from the most recent test run that crashed while collecting the
+   * tests and ran none (#471), for the gate's note. Such a run gives no test
+   * credit and doesn't arm the red-check gate: the cause is the environment,
+   * and the model's code change can't fix it. Cleared by a test run that ran.
+   * Optional for back-compat with test stubs.
+   */
+  testCollectionError?: string;
   /** How many times the gate has injected a reminder this turn. Capped to prevent loops. */
   gateInjections: number;
   /** True once the no-read-on-file-request reprompt has fired (fires at most once). */
@@ -481,8 +497,12 @@ export function recordToolCall(
 
   // Dedicated test tool.
   if (tu.name === 'run_tests') {
+    // No runner, a collection crash, a timeout: no test ran, so no credit and
+    // no red-check (#471, #473).
+    if (noteTestDidNotRun(state, resultText)) return;
     const outcome = classifyTestResult(resultText);
     state.testsRanSinceLastEdit = true;
+    state.testCollectionError = undefined;
     if (outcome === 'fail') state.failedCheckOutput = failingSnippet(resultText);
     else if (outcome === 'pass') state.failedCheckOutput = undefined;
     const passed = outcome === 'pass';
@@ -573,7 +593,12 @@ export function recordToolCall(
       // A checker that ran is one that neither errored at the tool layer nor
       // failed to launch. Silent success (tsc prints nothing) still counts —
       // requiring positive output would be the opposite mistake.
-      if (checkerFailedToRun(resultText)) {
+      // Started in the background, refused, redirected or killed: it didn't
+      // check anything, and says nothing about whether the checker exists (#473).
+      const didNotRun = checkDidNotRun(resultText);
+      if (didNotRun && didNotRun !== 'collection-error' && didNotRun !== 'no-runner') {
+        // no credit
+      } else if (checkerFailedToRun(resultText)) {
         state.checkerUnavailable = true;
       } else {
         state.lintObserved = true;
@@ -598,6 +623,7 @@ export function recordToolCall(
     // with that reproduction still red, 79% on the same failure they
     // started with.
     const testMatch = cmd.match(TEST_RUNNER_RE);
+    const testDidNotRun = testMatch ? checkDidNotRun(resultText) : null;
     // Record the verdict for EVERY shell command, recognized or not. That
     // second case is the valuable one: it is how a drift between the product's
     // predicate and an analysis script's copy becomes visible instead of
@@ -609,12 +635,19 @@ export function recordToolCall(
         command: rawCmd.slice(0, 300),
         recognized: testMatch !== null,
         runner: testMatch?.[1],
+        ...(testDidNotRun ? { didNotRun: testDidNotRun } : {}),
       },
-      `Shell command ${testMatch ? `recognized as a test run (${testMatch[1]})` : 'not recognized as verification'}: ${rawCmd.slice(0, 120)}`,
+      `Shell command ${testMatch ? `recognized as a test run (${testMatch[1]})` : 'not recognized as verification'}` +
+        `${testDidNotRun ? `, but no test ran (${testDidNotRun})` : ''}: ${rawCmd.slice(0, 120)}`,
     );
-    if (testMatch) {
+    if (testMatch && testDidNotRun) {
+      // A background start, a refusal, a timeout or a collection crash: no
+      // test ran, so no credit and no red-check (#471, #473).
+      noteTestDidNotRun(state, resultText);
+    } else if (testMatch) {
       const outcome = classifyTestResult(resultText);
       state.testsRanSinceLastEdit = true;
+      state.testCollectionError = undefined;
       const passed = outcome === 'pass';
       // Red-check arming from a run_command test run is EXPERIMENTAL
       // (`sidecar.redCheckGate.pythonRunners`). run_tests has always armed it;
@@ -653,15 +686,15 @@ export function recordToolCall(
       // less than a suite), but its exit status arms and clears the red-check
       // flag: a script that fails with a traceback or a non-zero exit is a
       // failing verification, and a model that finishes on it is finishing
-      // red. A hung command proves nothing either way.
-      if (state.pythonRedCheck && !/⚠️ Command timed out/.test(resultText)) {
+      // red. A hung, backgrounded or refused command proves nothing either way.
+      if (state.pythonRedCheck && !checkDidNotRun(resultText)) {
         if (isFailingCheckOutput(resultText)) state.failedCheckOutput = failingSnippet(resultText);
         else if (!/\(exit code: /.test(resultText)) state.failedCheckOutput = undefined;
       }
     }
 
     // `npm test` / `yarn test` / `pnpm test` — whole-suite invocation.
-    if (/\b(npm|yarn|pnpm|bun)\s+(run\s+)?test\b/.test(cmd)) {
+    if (/\b(npm|yarn|pnpm|bun)\s+(run\s+)?test\b/.test(cmd) && !noteTestDidNotRun(state, resultText)) {
       state.projectTestsRan = true;
       state.testsRanSinceLastEdit = true;
       state.projectTestsPassed = classifyTestResult(resultText) === 'pass'; // latest run decides
@@ -699,6 +732,18 @@ export function withoutPackageInstalls(command: string): string {
     .join('; ');
 }
 
+/**
+ * For a test command: when its result shows no test ran (#471, #473), record
+ * what the gate needs to know and return true. The caller then gives it no
+ * test credit and leaves the red-check flag alone.
+ */
+function noteTestDidNotRun(state: GateState, resultText: string): boolean {
+  const why = checkDidNotRun(resultText);
+  if (why === 'no-runner') state.noTestRunner = true;
+  else if (why === 'collection-error') state.testCollectionError = collectionErrorLine(resultText);
+  return why !== null;
+}
+
 /** Bounded excerpt of a failing check's output for the red-check reprompt —
  * enough to name the failure, small enough not to dominate the context. */
 function failingSnippet(text: string): string {
@@ -719,6 +764,8 @@ export interface GateFinding {
   testNotUpdated?: string;
   /** A Python source edit with no test run after it, in a repo that has tests. */
   needsTestRun?: boolean;
+  /** On a test demand: the last test run crashed collecting the tests, with this error (#471). */
+  testCollectionError?: string;
 }
 
 /**
@@ -857,10 +904,13 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
     // writing the test file itself and then being told to run it, which is
     // how fix-simple-bug ended up installing vitest.
     const canRunColocated = !JS_TS_FILE_RE.test(file) || (jsRunner ??= await hasJsTestRunner());
-    if (!isTestFile && !state.projectTestsRan && canRunColocated) {
+    // A collection crash is named on the test demands, so the model reads it
+    // as the environment's problem rather than one to fix in code (#471).
+    const collection = state.testCollectionError ? { testCollectionError: state.testCollectionError } : {};
+    if (!isTestFile && !state.projectTestsRan && !state.noTestRunner && canRunColocated) {
       const testFile = await findColocatedTest(file);
       if (testFile && !state.testsRunForFiles.has(testFile)) {
-        findings.push({ file, missingTest: testFile });
+        findings.push({ file, missingTest: testFile, ...collection });
       }
       // If tests ran (the model verified existing behaviour) but the test
       // file itself was not edited, new functionality may lack coverage.
@@ -876,9 +926,9 @@ export async function checkCompletionGate(state: GateState): Promise<GateFinding
     // on "ever ran". Only when the repo visibly has tests to run. Scoped to
     // .py because that is where the measured regression is; the TS/JS path
     // has the colocated-test demand.
-    if (!isTestFile && file.endsWith('.py') && !state.testsRanSinceLastEdit) {
+    if (!isTestFile && file.endsWith('.py') && !state.testsRanSinceLastEdit && !state.noTestRunner) {
       testDir ??= await hasTestDirectory();
-      if (testDir) findings.push({ file, needsTestRun: true });
+      if (testDir) findings.push({ file, needsTestRun: true, ...collection });
     }
 
     // A file the syntax gate has just parsed cleanly has had the static check
@@ -938,6 +988,25 @@ export function buildGateInjection(findings: GateFinding[], attempt: number, max
     lines.push(
       'Run the tests for the module you changed with run_command and the project test runner ' +
         '(the test label for that module, not a file path), then report the actual output.',
+    );
+    lines.push('');
+  }
+
+  const collectionError = findings.find((f) => f.testCollectionError)?.testCollectionError;
+  if (collectionError && isMissingTestPath(collectionError)) {
+    lines.push(
+      'Your last test run ran no tests: the runner could not find the test target you gave it:\n' +
+        `  ${collectionError}\n` +
+        'Find the test file or label that exists for the module you changed, and run that.',
+    );
+    lines.push('');
+  } else if (collectionError) {
+    lines.push(
+      'Your last test run ran no tests: the runner failed while loading them, with:\n' +
+        `  ${collectionError}\n` +
+        'That comes from the environment (a missing module or a broken install), not from your change, so do not ' +
+        'edit code to fix it. Run tests that can load, or, if none can, finish and say the tests could not run ' +
+        'here, quoting that error.',
     );
     lines.push('');
   }

@@ -121,6 +121,8 @@ export type AgentDecision =
       recognized: boolean;
       runner?: string;
       exitCode?: number;
+      /** Recognized, but its result shows no test ran, so it got no credit (#471, #473). */
+      didNotRun?: import('./completionGate/checkRan.js').CheckDidNotRun;
     }
   | {
       /**

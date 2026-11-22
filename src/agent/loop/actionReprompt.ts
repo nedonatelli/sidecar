@@ -3,6 +3,7 @@ import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { hasEditShapedCodeBlock } from './unappliedEdit.js';
 import { changedFiles, type ToolOutcome } from '../tools/toolOutcome.js';
+import { checkDidNotRun } from '../completionGate/checkRan.js';
 
 // ---------------------------------------------------------------------------
 // Action-request reprompt — onEmptyResponse policy.
@@ -342,7 +343,9 @@ export function verifiedMutationSinceUserMessage(
       if (VERIFY_RESULT_RE.test(r.content)) {
         // A failing check newer than the mutation blocks the escape outright.
         if (r.is_error || FAILING_CHECK_RE.test(r.content)) return false;
-        sawCleanVerify = true;
+        // A check that never ran (timed out, backgrounded, refused) is not a
+        // clean verify: `(exit code: -1)` isn't a failure to the regex (#473).
+        if (!checkDidNotRun(r.content)) sawCleanVerify = true;
       }
       // Walking newest-first: the mutation must have a clean verify NEWER than
       // it (already seen) for the work to count as verified-done.

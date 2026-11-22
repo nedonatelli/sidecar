@@ -72,12 +72,13 @@ export async function maybeInjectSyntaxGate(
     // Resolve to absolute paths so the check is cwd-independent.
     const toCheck = editedList.map((f) => (root && !path.isAbsolute(f) ? path.join(root, f) : f));
     logger?.info(`Syntax gate: checking ${toCheck.length} file(s) — ${toCheck.join(', ')}`);
+    const parsed = new Set<string>();
     const failures = await runSyntaxGate(
       toCheck,
       async (cmd) => {
         const r = await runVerificationCommand(cmd, 15_000, signal);
         if (r.timedOut) logger?.warn(`Syntax gate: parse-check timed out (15s) — ${cmd}`);
-        return { exitCode: r.exitCode, output: r.output };
+        return { exitCode: r.exitCode, output: r.output, timedOut: r.timedOut };
       },
       // Reader for the in-process (tree-sitter) parse check — no shell.
       async (file) => {
@@ -89,6 +90,7 @@ export async function maybeInjectSyntaxGate(
           return null;
         }
       },
+      parsed,
     );
     if (failures.length > 0) {
       gateState.syntaxGateInjections = (gateState.syntaxGateInjections ?? 0) + 1;
@@ -113,8 +115,10 @@ export async function maybeInjectSyntaxGate(
     // Record the clean pass under the base gate's own keys (editedFiles
     // entries, not the root-joined paths handed to the checker): for Python
     // this is the static check the base gate accepts in place of a linter.
-    // The recorder clears it on the next edit.
-    gateState.syntaxCleanFiles = new Set(editedList);
+    // The recorder clears it on the next edit. Only the files a check actually
+    // parsed: one it skipped (no grammar, no interpreter, a timeout) was never
+    // checked, and used to be marked clean with the rest (#473).
+    gateState.syntaxCleanFiles = new Set(editedList.filter((_, i) => parsed.has(toCheck[i])));
     return 'clean';
   } catch (err) {
     // The gate is best-effort: a shell/runtime hiccup must not block the loop.
