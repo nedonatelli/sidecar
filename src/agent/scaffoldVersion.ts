@@ -80,6 +80,9 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.40** (2026-11) — the SWE harness's wrappers resolve tools only from
+ *   the run's catalog (`offeredToolFinder`); hidden `run_tests` / `git_commit`
+ *   stay hidden. PATCH, harness-only. Bundle canary: e4b resolve 13% both arms.
  * - **7.0.39** (2026-11) — identical tool calls in one response run once
  *   (`executeToolUses`, fence writes exempt). PATCH. Did not fire in the
  *   v0.137 bundle canary; e4b resolve 13% in both arms (150 pairs, 3/3).
@@ -518,7 +521,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.39';
+export const SCAFFOLD_VERSION = '7.0.40';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

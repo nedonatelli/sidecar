@@ -45,3 +45,18 @@ export const SWE_EXCLUDED_TOOLS: ReadonlyMap<string, string> = new Map([
 export function sweToolCatalog(defs: ToolDefinition[]): ToolDefinition[] {
   return defs.filter((t) => !SWE_EXCLUDED_TOOLS.has(t.name));
 }
+
+/**
+ * `find`, limited to the tools in `catalog`. The harness wrappers build their
+ * extraTools through this: the loop's catalog gate lets any extraTool run, so a
+ * wrapper that looked a removed tool up in the full registry put it back. The
+ * #481 canary ran 70 run_tests calls (system Python, whole suite) and 4
+ * git_commit calls that way (#484).
+ */
+export function offeredToolFinder<T>(
+  catalog: readonly ToolDefinition[],
+  find: (name: string) => T | undefined,
+): (name: string) => T | undefined {
+  const offered = new Set(catalog.map((t) => t.name));
+  return (name) => (offered.has(name) ? find(name) : undefined);
+}

@@ -40,6 +40,15 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.40 — the SWE harness offers only its catalog (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.39, noting the patch.
+
+- **What changed** (#484): the SWE harness's stable-output and shell-guard wrappers resolve tools only from the run's catalog (`offeredToolFinder`), so `run_tests` and `git_commit` are no longer callable when the catalog removes them. Harness-only; the product is unchanged.
+- **Eval impact:** e4b called `run_tests` 70 times in 37 of 300 runs of the #481 canary and ran 4 commits. In the bundle canary #491 already stopped the calls, so this block caught none.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
 ### 7.0.39 — identical tool calls in one response run once (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
