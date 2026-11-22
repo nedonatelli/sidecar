@@ -112,6 +112,7 @@ describe('streamOneTurn usage anchoring (#420)', () => {
   it('counts Anthropic cache tokens in the prompt size compression anchors on', async () => {
     const client: any = {
       getSystemPrompt: () => '',
+      getModel: () => 'claude-sonnet-4-5',
       async *streamChat() {
         yield { type: 'text', text: 'ok' };
         yield {
