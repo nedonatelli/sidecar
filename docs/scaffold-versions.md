@@ -40,6 +40,15 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.41 — a call to a tool the session does not offer is re-asked (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.40, noting the patch.
+
+- **What changed** (#486): when Ollama ends a stream with "tool 'x' not found", the loop adds a `tool-not-offered` nudge and retries instead of ending the run. It shares the tool-call parse-retry limit.
+- **Eval impact:** ministral-3 runs that call a hidden tool. In the v0.137 release comparison, 16 of 300 runs ended this way. Bundle canary seed 11: 4 -> 1, and the remaining one is a sentence in the tool-name field, which this does not match.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
 ### 7.0.40 — the SWE harness offers only its catalog (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

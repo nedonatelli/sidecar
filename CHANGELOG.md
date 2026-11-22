@@ -14,6 +14,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A call to a tool the session doesn't offer no longer ends the run**
+  ([#486](https://github.com/nedonatelli/sidecar/issues/486)). When Ollama ended a stream with
+  "tool 'x' not found", the run stopped. The agent now tells the model the tool isn't available
+  and asks again, within the same retry limit as a tool call it couldn't parse.
 - **A tool call repeated in one response runs once**
   ([#487](https://github.com/nedonatelli/sidecar/issues/487)). When a model's response repeats a
   tool call byte for byte (same tool, same arguments), the call runs once and each repeat gets a
