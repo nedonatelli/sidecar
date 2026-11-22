@@ -14,6 +14,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Scratch cleanup moves a helper script that only another scratch script uses**
+  ([#511](https://github.com/nedonatelli/sidecar/issues/511)). Cleanup keeps a scratch file that
+  something in the change refers to. That used to include other scratch files being moved in the
+  same pass, so `repro.py` was moved and the `repro_settings.py` it imported stayed in the
+  workspace. Only references from files that stay count now.
 - **A malformed XML tool call no longer ends the run**
   ([#501](https://github.com/nedonatelli/sidecar/issues/501)). Models whose Ollama template writes
   tool calls as XML (qwen3-coder, nemotron) failed with messages like `XML syntax error … unexpected

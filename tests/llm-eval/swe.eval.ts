@@ -784,6 +784,10 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       // and the agent looped until cycle detection bailed. cwdOverride pins
       // every fs tool to the cloned repo (the Shadow Workspace mechanism).
       cwdOverride: dir,
+      // The only abort here is the per-task timer, so a timed-out run still gets
+      // its scratch files moved before the diff is taken (#511). Cleanup is
+      // itself off when the arm turns scratchCleanupEnabled off.
+      scratchCleanupOnAbort: true,
       // File references come from the issue, not the harness instructions
       // around it: the no-read gate named the test-scoping example and the
       // code-as-text reprompt targeted it (#391).

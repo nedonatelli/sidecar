@@ -29,8 +29,9 @@ import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 //   it". A file the user or a background agent created during the run is not
 //   named by any of this run's calls, so it stays.
 //
-// A created file is scratch when its name marks it AND nothing else in the
-// change refers to it AND the user's message doesn't name it:
+// A created file is scratch when its name marks it AND nothing that stays in
+// the change refers to it (another scratch file being moved doesn't count,
+// #511) AND the user's message doesn't name it:
 // - only script extensions;
 // - `repro`, `reproduce`, `scratch`, `test_(repro|issue|fix|bug)` followed by
 //   `[_.-]` or the extension, anywhere;
@@ -136,7 +137,8 @@ export function selectScratchFiles(
   rootFiles: readonly string[] = [],
 ): string[] {
   const rootHas = new Set(rootFiles.filter((b) => SCRIPT_EXT.test(b)).map(rootPrefix));
-  const out: string[] = [];
+  // The candidates that pass the name rules, with the pattern that finds a reference to each.
+  const toMove = new Map<string, RegExp>();
   for (const rel of created) {
     if (!isScratchCandidate(rel)) continue;
     const base = rel.slice(rel.lastIndexOf('/') + 1);
@@ -144,17 +146,27 @@ export function selectScratchFiles(
     const stem = base.replace(/\.[^.]+$/, '');
     // A root-only prefix the project already uses at its root (`test_app.py` next to `app.py`).
     if (!rel.includes('/') && !SCRATCH_ANYWHERE.test(stem) && rootHas.has(rootPrefix(base))) continue;
-    const ref = new RegExp(`(^|[^\\w])${escapeRe(stem)}([^\\w]|$)`);
-    let referenced = false;
-    for (const [other, text] of contents) {
-      if (other !== rel && ref.test(text)) {
-        referenced = true;
-        break;
+    toMove.set(rel, new RegExp(`(^|[^\\w])${escapeRe(stem)}([^\\w]|$)`));
+  }
+  // A reference keeps a candidate only when it comes from a file that stays
+  // (#511): `repro.py` importing `repro_settings.py` used to keep the helper
+  // while `repro.py` itself was moved. Dropping one candidate can make it keep
+  // others, so repeat until nothing changes. A file that stays includes a
+  // candidate kept by the rules above, and every file the run edited.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [rel, ref] of toMove) {
+      for (const [other, text] of contents) {
+        if (other !== rel && !toMove.has(other) && ref.test(text)) {
+          toMove.delete(rel);
+          changed = true;
+          break;
+        }
       }
     }
-    if (!referenced) out.push(rel);
   }
-  return out;
+  return created.filter((rel) => toMove.has(rel));
 }
 
 /** Where a moved file goes. */
