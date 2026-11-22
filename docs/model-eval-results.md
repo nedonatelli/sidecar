@@ -18,6 +18,37 @@ The suite has two layers:
 
 Cases are scored deterministically (string matching, regex, trajectory inspection — no LLM-as-judge). A case passes only when every expectation holds. Some expectations use `softExpect` (reported but not counted toward pass/fail) for answer-quality checks where the core behavioral signal is in the trajectory.
 
+## SWE-bench Lite (2026-11)
+
+The agent suite above uses small synthetic tasks. SWE-bench Lite measures real work: 300 GitHub issues from 12 Python projects (django, sympy, matplotlib, scikit-learn, pytest, sphinx and others). The agent gets the issue text and the repository at the commit before the fix. It must produce a patch, and a task counts as resolved only when the official SWE-bench harness's tests pass in Docker.
+
+**Setup.** Each model ran once on all 300 tasks (seed 11). Settings: SideCar's default scaffolding with cycle detection off, up to 150 agent turns per task, a 40-minute wall-clock limit, and Ollama on one RTX 5090 (32 GB). Bundles were f40406dd, or 9b3be807 for `nemotron-3.5-lightning:30b`, both scaffold 7.0.x. The agent is not shown the tests that grade it, and the `web_search` and `run_tests` tools are removed.
+
+**Scored tasks.** 290 tasks are scored for every model. The other 10 are excluded for all of them: 5 where the reference fix itself fails the harness, 3 Flask tasks whose environment cannot import, and 2 that pass before any fix.
+
+| Model                        | Download | Resolved (of 290) | No patch | Resolved / patches submitted | Leaked runs | Leaked counted as failures | Median time per task |
+| ---------------------------- | -------- | ----------------- | -------- | ---------------------------- | ----------- | -------------------------- | -------------------- |
+| `gemma4:31b`                 | 20.4 GB  | **147 (50.7%)**   | 7        | 52%                          | 0           | 50.7%                      | 6.2 min              |
+| `qwen3.8:27b`                | 17.7 GB  | **137 (47.2%)**   | 71       | 63%                          | 6           | 45.2%                      | 2.9 min              |
+| `qwen3-coder:30b`            | 18.6 GB  | 97 (33.4%)        | 18       | 36%                          | 4           | 32.4%                      | 2.0 min              |
+| `nemotron-3.5-lightning:30b` | 25.4 GB  | 97 (33.4%)        | 16       | 35%                          | 6           | 32.4%                      | 3.5 min              |
+| `qwen3.5:9b`                 | 6.6 GB   | 96 (33.1%)        | 30       | 37%                          | 1           | 32.8%                      | 3.8 min              |
+| `gemma4:26b-a4b`             | 18.7 GB  | 92 (31.7%)        | 35       | 36%                          | 0           | 31.7%                      | 3.1 min              |
+| `ministral-3:latest`         | 6.0 GB   | 54 (18.6%)        | 14       | 20%                          | 0           | 18.6%                      | 1.7 min              |
+| `nemotron-3.5-bolt:e4b`      | 7.9 GB   | 46 (15.9%)        | 36       | 18%                          | 0           | 15.9%                      | 1.7 min              |
+| `gemma4:e4b` (default)       | 9.6 GB   | 41 (14.1%)        | 22       | 15%                          | 0           | 14.1%                      | 1.5 min              |
+| `bonsai-2:4b`                | 1.6 GB   | 25 (8.6%)         | 133      | 16%                          | 0           | 8.6%                       | 4.0 min              |
+
+**Reading it.**
+
+- **One run per model.** The four models between 31.7% and 33.4% are a tie; don't rank within that group.
+- **No patch vs. wrong patch.** `qwen3.8:27b` and `bonsai-2:4b` end many tasks without a patch. Most of qwen3.8's no-patch runs that were examined end on turns that think and never act ([#506](https://github.com/nedonatelli/sidecar/issues/506)). When qwen3.8 does submit a patch, it is right more often than any other model's.
+- **Times include running tests** and depend on the GPU. Some models ran two tasks at a time on two Ollama servers and others one at a time, so compare times loosely.
+
+**The leak.** The harness reset a full clone of the upstream repository to the task's base commit. That left later commits reachable through `git log --all`, tags and remote branches. In 17 runs a git command printed the reference fix's added lines before the agent wrote them; one of those (qwen3-coder on pytest-7490) is a false positive. Counting all 17 as failures changes no ranking. The harness fix, which hides every ref past the base commit, is tracked in [#507](https://github.com/nedonatelli/sidecar/issues/507).
+
+**Not a leaderboard run.** A ranked submission would also need a Linux environment, no network for the agent, and one frozen release. That run is planned separately.
+
 ## Current local baselines (2026-08-05/06)
 
 Recorded on the repaired harness (v0.122.3 extension, scaffold 4.0.0, thinking on,

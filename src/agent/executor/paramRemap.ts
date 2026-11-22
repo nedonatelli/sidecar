@@ -27,7 +27,11 @@ const SYNONYMS: Record<string, readonly string[]> = {
   // those emit them against edit_file's search/replace.
   search: ['old_string', 'old_text', 'find'],
   replace: ['new_string', 'new_text', 'replacement'],
-  query: ['q', 'search_query'],
+  // `pattern` is what grep and search_files call their search text, and models
+  // carry it over: qwen3-coder sent git_search_history({pattern}) on 8 of its
+  // 17 calls in Lite-300, every one bounced (#504). The declared-key guard
+  // below keeps a tool that has its own `pattern` from ever losing it.
+  query: ['q', 'search_query', 'pattern'],
   pattern: ['regex', 'glob'],
   // ask_user: llama3.2 emits {'q': ...}; the executor's question fallback
   // then silently substitutes a generic prompt and the model loops re-asking.
