@@ -13,6 +13,8 @@ import {
   gitBranch,
   gitStash,
   gitSearchHistory,
+  describeSearchFailure,
+  GIT_SEARCH_TIMEOUT_MS,
 } from './git.js';
 import { AuditBuffer, __setDefaultAuditBufferForTests } from '../audit/auditBuffer.js';
 import { GitCLI } from '../../github/git.js';
@@ -708,12 +710,73 @@ describe('gitSearchHistory', () => {
     expect(argsArray).not.toContain('-9999');
   });
 
-  it('absorbs execFile failure via .catch and returns no commits', async () => {
-    // Both searches use .catch(() => '') so an error produces empty output
-    mockExecFileReject(new Error('not a git repo'));
+  it('THROWS when every search failed: nothing was searched, so it is not "no commits"', async () => {
+    mockExecFileReject(Object.assign(new Error('Command failed'), { stderr: 'fatal: not a git repository\n' }));
 
-    const result = await gitSearchHistory({ query: 'test', search_type: 'message' });
+    await expect(gitSearchHistory({ query: 'test', search_type: 'message' })).rejects.toThrow(
+      /Commit-message search failed: fatal: not a git repository/,
+    );
+  });
+
+  // A `log --all -S` on a blobless clone held a SWE run for 43 minutes,
+  // downloading Django's history blob by blob, past the per-task abort.
+  it('bounds each git call: timeout, the run abort signal, no lazy fetch', async () => {
+    mockExecFileResolve('');
+    mockExecFileResolve('');
+    const ac = new AbortController();
+
+    await gitSearchHistory({ query: 'x' }, { signal: ac.signal });
+
+    for (const call of vi.mocked(execFile).mock.calls) {
+      const opts = call[2] as { timeout?: number; signal?: AbortSignal; env?: NodeJS.ProcessEnv };
+      expect(opts.timeout).toBe(GIT_SEARCH_TIMEOUT_MS);
+      expect(opts.signal).toBe(ac.signal);
+      expect(opts.env?.GIT_NO_LAZY_FETCH).toBe('1');
+    }
+  });
+
+  it('keeps message matches and says content search is unavailable on a partial clone', async () => {
+    mockExecFileResolve('abc1234567|2024-01-15|Alice|Fixed #30 -- GROUP BY subquery');
+    mockExecFileReject(
+      Object.assign(new Error('Command failed'), {
+        code: 128,
+        stderr:
+          'warning: lazy fetching disabled; some objects may not be available\n' +
+          'fatal: could not fetch 3186ca6e from promisor remote\n',
+      }),
+    );
+
+    const result = await gitSearchHistory({ query: 'GROUP BY subquery' });
+    expect(result).toContain('[matched via: message]');
+    expect(result).toMatch(/Content search \(pickaxe\) is unavailable: this repository is a partial clone/);
+    expect(result).toContain('Use grep');
+  });
+
+  it('says a timed-out content search did not finish, instead of "No commits found" alone', async () => {
+    mockExecFileResolve('');
+    mockExecFileReject(Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }));
+
+    const result = await gitSearchHistory({ query: 'models.E028' });
     expect(result).toContain('No commits found');
+    expect(result).toContain(`did not finish within ${GIT_SEARCH_TIMEOUT_MS / 1000}s`);
+  });
+
+  it('rethrows when the run was aborted rather than reporting a result', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    mockExecFileReject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+
+    await expect(gitSearchHistory({ query: 'x', search_type: 'content' }, { signal: ac.signal })).rejects.toThrow(
+      /aborted/,
+    );
+  });
+});
+
+describe('describeSearchFailure', () => {
+  it('falls back to the error message when git wrote no stderr', () => {
+    expect(describeSearchFailure('content', new Error('spawn git ENOENT'))).toBe(
+      'Content search (pickaxe) failed: spawn git ENOENT',
+    );
   });
 });
 

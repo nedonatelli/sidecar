@@ -788,6 +788,29 @@ describe('OllamaBackend', () => {
       expect((events[0] as { type: 'text'; text: string }).text).toContain('not available');
     });
 
+    // #501: prose in the name slot carries apostrophes and runs long.
+    it('handles a tool-not-found 500 whose name is prose with an apostrophe, quoting it cut short', async () => {
+      const prose =
+        "Let's look at the template files to understand how the `app_list` context is used:[TOOL_CALLS]read_file";
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: new Headers(),
+        text: async () => JSON.stringify({ error: `tool '${prose}' not found` }),
+      });
+
+      const events: StreamEvent[] = [];
+      for await (const event of backend.streamChat('test', '', [{ role: 'user', content: 'hi' }])) {
+        events.push(event);
+      }
+
+      expect(events).toHaveLength(1);
+      const text = (events[0] as { type: 'text'; text: string }).text;
+      expect(text).toContain(`'${prose.slice(0, 80)}…'`);
+      expect(text).toContain('not available');
+    });
+
     it('converts tool_result messages to role:tool', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
