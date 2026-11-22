@@ -14,6 +14,10 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **`git_search_history` accepts `pattern` for its search text**
+  ([#504](https://github.com/nedonatelli/sidecar/issues/504)). Models used to `grep` and
+  `search_files` send `pattern`; the call used to fail with "missing required parameter 'query'".
+  It's now read as `query`, and the result says to use `query` next time.
 - **A sub-agent or delegated worker that didn't finish no longer reports success**
   ([#475](https://github.com/nedonatelli/sidecar/issues/475)). When a `spawn_agent` sub-agent or a
   `delegate_task` worker hit its iteration cap, timed out, was stopped for repeating itself or

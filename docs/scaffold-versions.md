@@ -40,6 +40,22 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.37 — `git_search_history` reads `pattern` as `query` (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.36, noting the patch.
+
+- **What changed** (#504): `pattern` joins the parameter-synonym table as a
+  name for `query`. It applies only to a tool that declares `query` and not
+  `pattern`, and only when `query` is missing, so `grep` and `search_files`
+  keep their own `pattern`. The schema the model sees is unchanged; the result
+  carries the usual "interpreted as 'query'" note.
+- **Eval impact:** qwen3-coder:30b, Lite-300 seed 11: 8 of its 17
+  `git_search_history` calls sent `pattern`, and all 8 failed schema
+  validation. No other Lite-300 model called `git_search_history`.
+- **Measured:** not canaried. It fires about once per 40 qwen3-coder runs,
+  and the change only turns a bounced call into the call the model meant.
+
 ### 7.0.36 — a sub-agent that did not finish is a failure (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
