@@ -80,6 +80,10 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.42** (2026-11) — the system prompt names only the tools the session
+ *   offers (`offersTool`; SWE passes its exclusion list). PATCH. Bundle canary:
+ *   e4b `run_tests` calls 31->0; red-check gate 29 firings->0 (it arms only on
+ *   `run_tests`); resolve 13% in both arms.
  * - **7.0.41** (2026-11) — Ollama's mid-stream "tool 'x' not found" re-asks
  *   with a `tool-not-offered` nudge instead of ending the run (shares the
  *   parse-retry limit). PATCH. ministral-3 seed 11: not-found deaths 4->1.
@@ -524,7 +528,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.41';
+export const SCAFFOLD_VERSION = '7.0.42';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

@@ -40,6 +40,15 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.42 — the system prompt names only offered tools (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.41, noting the patch.
+
+- **What changed** (#485): `buildBaseSystemPrompt` takes `offersTool`. Mentions of a tool the session does not offer are dropped or reworded: without `run_tests`, the prompt says to run the project's tests with `run_command`. The SWE harness passes its exclusion list. With no predicate the prompt is byte-identical, so product sessions are unchanged.
+- **Eval impact:** every SWE run, since the prompt changes. In the bundle canary, e4b `run_tests` calls fell 31 -> 0 and runs calling a hidden tool 18 -> 0. Because the red-check gate is armed only by `run_tests` results, it no longer fires on test runs here (main: 15 runs, 29 firings; bundle: 0), and finished-red rose 28% -> 37% (p = 0.038), since the analyzer counts only `run_command` test runs. Finished-red is not comparable with earlier canaries.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
 ### 7.0.41 — a call to a tool the session does not offer is re-asked (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

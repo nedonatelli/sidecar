@@ -14,6 +14,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The system prompt mentions only tools the session offers**
+  ([#485](https://github.com/nedonatelli/sidecar/issues/485)). A session that hides a tool, such
+  as `run_tests`, no longer gets a prompt telling the model to call it; it's told to run the
+  project's tests with `run_command` instead. Sessions that offer every tool get the same prompt as
+  before.
 - **A call to a tool the session doesn't offer no longer ends the run**
   ([#486](https://github.com/nedonatelli/sidecar/issues/486)). When Ollama ended a stream with
   "tool 'x' not found", the run stopped. The agent now tells the model the tool isn't available
