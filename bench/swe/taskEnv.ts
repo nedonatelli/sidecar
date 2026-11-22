@@ -141,7 +141,32 @@ export function envConstraints(repo: string, spec: EnvSpec): string[] {
  * Bump when the build recipe changes in a way cached venvs must pick up. The
  * marker records it with the spec, and a mismatch rebuilds the venv.
  */
-const ENV_RECIPE_VERSION = 2;
+const ENV_RECIPE_VERSION = 3;
+
+/**
+ * Where seeded venvs (#512) live under the cache. Not `venvs`: bundles from
+ * before #512 share the cache directory and keep using pip-less venvs there.
+ * Giving a venv pip in place would change what an old bundle's agent can do,
+ * and its runs would then depend on which bundle had built the venv first.
+ */
+const VENV_DIR = 'venvs-pip';
+
+/**
+ * The installed distributions of a venv, one `name==version` per line, sorted,
+ * without editable installs. An editable install of the task repo is
+ * re-ensured on every task and its version can follow the checkout
+ * (setuptools_scm), so it is left out; everything else should not change
+ * between tasks unless the agent installed something.
+ */
+export function normalizedFreeze(freeze: string): string {
+  return freeze
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#') && !l.startsWith('-e ') && !/ @ file:/i.test(l))
+    .map((l) => l.toLowerCase())
+    .sort()
+    .join('\n');
+}
 
 export function envRecipeHash(repo: string, spec: EnvSpec): string {
   const recipe = JSON.stringify({
@@ -258,8 +283,12 @@ export function setupTaskEnv(
   const key = `${repo.replace(/[/\\]/g, '_')}@${version}`;
   // Absolute — the venv python is passed to `uv pip install --python` with
   // cwd=repoDir, so a relative path would resolve against the repo and fail.
-  const venvDir = path.resolve(cacheBase, 'venvs', key);
+  const venvDir = path.resolve(cacheBase, VENV_DIR, key);
   const marker = path.join(venvDir, '.sidecar-ready');
+  // What the venv held when the harness finished setting it up for the last
+  // task (#512). With pip in the venv the agent can install into it, and the
+  // venv is reused by the next task of this repo/version.
+  const baselineFile = path.join(venvDir, '.sidecar-freeze.txt');
   const recipe = envRecipeHash(repo, spec);
   // Windows venvs put the interpreter in Scripts\python.exe, not bin/python.
   // Hardcoding the POSIX layout made `uv pip install --python .../bin/python`
@@ -276,12 +305,21 @@ export function setupTaskEnv(
     // path.delimiter, not ':' — PATH is ';'-separated on Windows, so a POSIX
     // join silently produced one unusable entry instead of two.
     PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    // #512: the venv has its own pip now, so `pip` and `python -m pip` install
+    // into it. Any other pip (one later on PATH, or a bare interpreter's) is
+    // made to refuse rather than write into the host Python, where agents'
+    // `pip install -e .` used to land: four task clones ended up as editable
+    // installs in the bench host's system site-packages.
+    PIP_REQUIRE_VIRTUALENV: 'true',
   };
 
   const build = (): void => {
     fs.mkdirSync(path.dirname(venvDir), { recursive: true });
     fs.rmSync(venvDir, { recursive: true, force: true });
-    execFileSync(uv, ['venv', '--python', pythonForUv(spec.python), venvDir], { stdio: 'pipe' });
+    // --seed puts pip (and, before Python 3.12, setuptools and wheel) in the
+    // venv (#512). uv's own venvs have no pip, so an agent's `pip install` fell
+    // through PATH to the host's pip and `python -m pip` failed outright.
+    execFileSync(uv, ['venv', '--seed', '--python', pythonForUv(spec.python), venvDir], { stdio: 'pipe' });
     // Extra pip packages the spec pins (best-effort; a failing optional dep
     // shouldn't sink the whole env — the gold-patch gate catches a broken one).
     const pips = asList(spec.pip_packages);
@@ -305,8 +343,27 @@ export function setupTaskEnv(
     }
   };
 
+  const freeze = (): string =>
+    normalizedFreeze(execFileSync(uv, ['pip', 'freeze', '--python', pythonBin], { stdio: 'pipe' }).toString());
+  // A venv whose installed set moved since the harness last set it up was
+  // changed by an agent (#512), and is rebuilt rather than handed to the next
+  // task with the last one's installs in it.
+  const changedSinceSetup = (): boolean => {
+    let baseline: string;
+    try {
+      baseline = fs.readFileSync(baselineFile, 'utf-8');
+    } catch {
+      return true;
+    }
+    try {
+      return freeze() !== baseline;
+    } catch {
+      return true;
+    }
+  };
+
   let fresh = false;
-  if (!markerCurrent() || !venvLooksIntact(venvDir, pythonBin)) {
+  if (!markerCurrent() || !venvLooksIntact(venvDir, pythonBin) || changedSinceSetup()) {
     build();
     fresh = true;
   }
@@ -362,6 +419,7 @@ export function setupTaskEnv(
   }
 
   ensurePython3Alias(binDir);
+  fs.writeFileSync(baselineFile, freeze());
 
   return { venvDir, pythonBin, env, testCmd: spec.test_cmd };
 }
