@@ -118,14 +118,61 @@ describe('selectScratchFiles (#387)', () => {
     expect(selectScratchFiles(created, contents, 'fix f')).toEqual(['reproduce_issue.py']);
   });
 
-  it('keeps a scratch-named file another file in the change imports', () => {
-    const created = ['pkg/fixtures/repro_issue.py', 'test_repro_autodoc.py'];
+  it('keeps a scratch-named file a file that stays imports', () => {
+    const created = ['pkg/fixtures/repro_issue.py', 'tests/test_ext_autodoc.py'];
     const contents = new Map([
       ['pkg/fixtures/repro_issue.py', 'class A: ...\n'],
-      ['test_repro_autodoc.py', "actual = do_autodoc(app, 'class', 'fixtures.repro_issue.A')\n"],
+      ['tests/test_ext_autodoc.py', "actual = do_autodoc(app, 'class', 'fixtures.repro_issue.A')\n"],
     ]);
-    // The fixture is referenced, so it stays; the test that refers to it is scratch-named and unreferenced.
-    expect(selectScratchFiles(created, contents, '')).toEqual(['test_repro_autodoc.py']);
+    // The test is under a test directory, so it stays, and so does the fixture it uses.
+    expect(selectScratchFiles(created, contents, '')).toEqual([]);
+  });
+
+  // #511: a reference from a file that is itself moved used to keep the file it named.
+  it('moves a helper that only a moved scratch file imports', () => {
+    const created = ['repro.py', 'repro_settings.py'];
+    const contents = new Map([
+      ['repro.py', 'import repro_settings\nfrom pkg import f\nprint(f())\n'],
+      ['repro_settings.py', 'DEBUG = True\n'],
+    ]);
+    expect(selectScratchFiles(created, contents, '')).toEqual(['repro.py', 'repro_settings.py']);
+  });
+
+  it('moves a chain of scratch files that refer to each other (django-16910)', () => {
+    const created = ['repro.py', 'repro_models.py', 'repro_test.py'];
+    const contents = new Map([
+      ['repro_test.py', 'from repro_models import Main\n'],
+      ['repro_models.py', 'import repro\nclass Main: ...\n'],
+      ['repro.py', 'import django\n'],
+      ['django/db/models/query.py', 'def only(self, *fields): ...\n'],
+    ]);
+    expect(selectScratchFiles(created, contents, '')).toEqual(['repro.py', 'repro_models.py', 'repro_test.py']);
+  });
+
+  it('moves scratch files that refer to each other in a cycle', () => {
+    const contents = new Map([
+      ['repro_a.py', 'import repro_b\n'],
+      ['repro_b.py', 'import repro_a\n'],
+    ]);
+    expect(selectScratchFiles(['repro_a.py', 'repro_b.py'], contents, '')).toEqual(['repro_a.py', 'repro_b.py']);
+  });
+
+  it('keeps what a candidate kept for another reason refers to, and what source refers to', () => {
+    // The user named repro.py, so it stays, and its helper stays with it.
+    const named = new Map([
+      ['repro.py', 'import repro_helpers\n'],
+      ['repro_helpers.py', 'X = 1\n'],
+    ]);
+    expect(selectScratchFiles(['repro.py', 'repro_helpers.py'], named, 'run repro.py')).toEqual([]);
+    // An edited source file imports the script: it stays, and a scratch file that only it names is moved.
+    const fromSource = new Map([
+      ['pkg/mod.py', 'from scratch_util import helper\n'],
+      ['scratch_util.py', 'def helper(): ...\n'],
+      ['reproduce_issue.py', 'import scratch_util\n'],
+    ]);
+    expect(selectScratchFiles(['reproduce_issue.py', 'scratch_util.py'], fromSource, '')).toEqual([
+      'reproduce_issue.py',
+    ]);
   });
 
   it('does not count a longer name containing the stem as a reference', () => {

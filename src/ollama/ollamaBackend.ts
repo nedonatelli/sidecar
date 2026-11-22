@@ -618,9 +618,12 @@ export class OllamaBackend implements ApiBackend {
       // tools are sent. Yield a synthetic warning instead of crashing the loop
       // so the model can see the error and recover without the loop throwing.
       if (response.status === 500) {
-        const toolNotFoundMatch = errorText.match(/"tool '([^']+)' not found"/);
+        // Inside the JSON error body: the name may hold an apostrophe or run
+        // long when the model wrote prose in the name slot (#501).
+        const toolNotFoundMatch = errorText.match(/"tool '((?:[^"\\]|\\.)+)' not found"/);
         if (toolNotFoundMatch) {
-          const toolName = toolNotFoundMatch[1];
+          const raw = toolNotFoundMatch[1];
+          const toolName = raw.length > 80 ? `${raw.slice(0, 80)}…` : raw;
           yield {
             type: 'text',
             text: `\n\n⚠️ Tool '${toolName}' is not available in the current mode. Do not call it — use a different approach.`,

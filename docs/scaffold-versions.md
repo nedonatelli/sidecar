@@ -40,6 +40,211 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.46 — the completion gate gives no credit for checks that never ran (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.45, noting the patch.
+
+- **What changed** (#471, #473): one predicate, `checkDidNotRun`, decides
+  whether a test or lint call actually ran, for `run_tests`, every
+  `run_command` branch and the action reprompt's clean-verify check. A
+  background start, a refused command, a timeout, a redirected ESLint call,
+  "no test runner" and a pytest collection crash no longer earn credit. A
+  collection crash keeps the test demand and the gate's note names the
+  error as environmental; "no test runner" waives the test demands without
+  counting as verification for the ratchet. The syntax gate marks clean only
+  the files a check parsed. `verification_run` decisions gain `didNotRun`.
+- **Eval impact:** in the recorded Lite-300 seed-11 runs the gate's input
+  changes in e4b 33, nemotron-3.5-bolt 32, ministral 6 and qwen3-coder 1
+  runs. Expect more `needsTestRun` findings and more runs ending
+  `incomplete` after the gate retries run out, mostly on tasks whose
+  environment cannot collect tests.
+- **Measured:** targeted SWE canary on those tasks, 2 seeds × 2 models
+  (130 runs per arm, main b202d52f vs b064bb0b). Resolve 27 = 27 with the
+  same tasks in every pair; 127/130 final patches identical; `needsTestRun`
+  findings 3→24, gate firings 6→29 (4→12 runs), ratchet reverts 1 = 1,
+  `incomplete` 1→11, tool calls +3%.
+
+### 7.0.45 — a scratch file only other scratch files refer to is moved; SWE timeouts get cleanup (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.44, noting the patch.
+
+- **What changed** (#511): `selectScratchFiles` counts a reference only
+  from a file that stays. The set to move is a fixpoint: start with every
+  candidate that passes the name rules, drop any that a file outside the set
+  refers to, repeat. `repro.py` importing `repro_settings.py` used to keep
+  the helper while `repro.py` was moved. A candidate kept for another reason
+  (the user named it, or its root prefix is the project's own) and every
+  edited file still count. Separately, a new loop option
+  `scratchCleanupOnAbort` runs cleanup on an aborted run, on both ways an
+  abort ends the loop; the SWE harness sets it, since its only abort is the
+  per-task timer. A user's Stop still skips cleanup.
+- **Eval impact:** patches only, and few: the fixpoint would have fired in
+  8 of about 2,090 Lite-300 runs (11 files, 8 of them gemma4:26b). The
+  harness change reaches every `harness-timeout` run with scratch files:
+  gemma4:31b had 7, carrying 24 leaked files. SWE-bench does not run root
+  scripts, so resolve rates should not move.
+- **Measured:** not canaried (too few firings). Unit tests: the helper
+  import, the three-file django-16910 chain, a cycle, and the abort paths.
+
+### 7.0.44 — Ollama's XML tool-call errors and prose tool names are re-asked (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.43, noting the patch.
+
+- **What changed** (#501): the turn re-ask after Ollama rejects a tool call
+  (`MAX_TOOL_CALL_PARSE_RETRIES`, 2) now also matches the XML tool-call
+  parser's errors: `XML syntax error on line N: …` and `expected element type
+<function> but have <parameter>`. Their nudge says to close each
+  `<parameter>` before its `<function>` and to finish the call, without the
+  JSON escaping advice. `tool '…' not found` is matched up to its last
+  `' not found`, so a "name" that is prose (an apostrophe, over 100
+  characters) is re-asked too; it is quoted cut to 80 characters, and the
+  nudge says text went where the tool name belongs. The HTTP 500 form in
+  `ollamaBackend.ts` accepts the same names.
+- **Eval impact:** Lite-300, seed 11: 7 runs ended on XML parse errors
+  (qwen3-coder 3, nemotron-3.5-lightning 4; 3 with no patch) and 3
+  ministral-3 runs on a prose tool name. Each now gets up to two re-asks.
+- **Measured:** not canaried: about 1 run in 125 fires it, too few for a
+  canary to see. Covered by unit tests on the literal messages.
+
+### 7.0.43 — git history search is bounded and says why it found nothing (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.42, noting the patch.
+
+Lite-300 rows from bundle `f40406dd` record 7.0.27. That bundle carried
+this change on top of #488-#491 (7.0.39-7.0.42 here) before any of them
+merged; each was renumbered when it reached main.
+
+- **What changed:** each `git log` that `git_search_history` runs has a 45 s
+  timeout, takes the run's abort signal, and runs with `GIT_NO_LAZY_FETCH=1`.
+  On a partial clone (the SWE harness clones with `--filter=blob:none`) the
+  content search (`-S`) now fails at once and the reply says it is
+  unavailable and to use grep, instead of downloading every historical blob.
+  A timed-out or failed search is named in a note under the results; when
+  every search failed, the tool returns an error rather than "No commits
+  found".
+- **Eval impact:** only runs that call `git_search_history`. In the run
+  index, no model other than qwen3-coder:30b has called it (0 calls in about
+  16,000 SWE runs). qwen3-coder called it in its first Lite-300 tasks at
+  7.0.26: three content searches on Django ran 11 to 43 minutes each, one
+  past the per-task timeout, and that cell was stopped.
+- **Measured:** not canaried (the trigger is absent from other models'
+  runs). A real-git test on a blobless clone shows the old code fetching the
+  history blobs and the new code fetching none.
+
+### 7.0.42 — the system prompt names only offered tools (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.41, noting the patch.
+
+- **What changed** (#485): `buildBaseSystemPrompt` takes `offersTool`. Mentions of a tool the session does not offer are dropped or reworded: without `run_tests`, the prompt says to run the project's tests with `run_command`. The SWE harness passes its exclusion list. With no predicate the prompt is byte-identical, so product sessions are unchanged.
+- **Eval impact:** every SWE run, since the prompt changes. In the bundle canary, e4b `run_tests` calls fell 31 -> 0 and runs calling a hidden tool 18 -> 0. Because the red-check gate is armed only by `run_tests` results, it no longer fires on test runs here (main: 15 runs, 29 firings; bundle: 0), and finished-red rose 28% -> 37% (p = 0.038), since the analyzer counts only `run_command` test runs. Finished-red is not comparable with earlier canaries.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.41 — a call to a tool the session does not offer is re-asked (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.40, noting the patch.
+
+- **What changed** (#486): when Ollama ends a stream with "tool 'x' not found", the loop adds a `tool-not-offered` nudge and retries instead of ending the run. It shares the tool-call parse-retry limit.
+- **Eval impact:** ministral-3 runs that call a hidden tool. In the v0.137 release comparison, 16 of 300 runs ended this way. Bundle canary seed 11: 4 -> 1, and the remaining one is a sentence in the tool-name field, which this does not match.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.40 — the SWE harness offers only its catalog (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.39, noting the patch.
+
+- **What changed** (#484): the SWE harness's stable-output and shell-guard wrappers resolve tools only from the run's catalog (`offeredToolFinder`), so `run_tests` and `git_commit` are no longer callable when the catalog removes them. Harness-only; the product is unchanged.
+- **Eval impact:** e4b called `run_tests` 70 times in 37 of 300 runs of the #481 canary and ran 4 commits. In the bundle canary #491 already stopped the calls, so this block caught none.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.39 — identical tool calls in one response run once (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.38, noting the patch.
+
+- **What changed** (#487): when one response repeats a tool call byte for byte (same name, same JSON arguments), the call runs once and each repeat gets a non-error result naming the call it duplicates. Fence-synthesized writes are exempt.
+- **Eval impact:** responses that repeat a call. Recorded: e4b 3 turns in 300 runs; ministral-3 sent one `runtests.py` call 596 times in a turn of django-13158, and pytest-7490 hit 663 refusals in both arms of the release comparison. Did not fire in the canary.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.38 — a path carrying its line range or a closing quote is repaired; path cap 80 → 240 (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.37, noting the patch.
+
+- **What changed** (#509): `repairPathArgument` joins the deterministic input
+  repairs in `executor/paramRemap.ts`. A `path` is cut at a closing quote mark
+  (backtick, straight or curly quote, guillemet). Trailing `start_line` /
+  `end_line` assignments move into those parameters when the tool declares
+  them; any other trailing text leaves the call for the validator to refuse.
+  `validateFilePath`'s length cap goes from 80 to 240 characters
+  (`MAX_FILE_PATH_CHARS`); the 60-char segment rule is unchanged.
+- **Eval impact:** gemma4:31b, Lite-300 seed 11 (first 137 runs): 25 calls were
+  refused as "invalid characters in file path", all in the repaired shapes.
+  A 103-char Sphinx test-fixture path was refused 13 times across five models.
+- **Measured:** not canaried. Both changes turn a refused call into the call
+  the model meant.
+
+### 7.0.37 — `git_search_history` reads `pattern` as `query` (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.36, noting the patch.
+
+- **What changed** (#504): `pattern` joins the parameter-synonym table as a
+  name for `query`. It applies only to a tool that declares `query` and not
+  `pattern`, and only when `query` is missing, so `grep` and `search_files`
+  keep their own `pattern`. The schema the model sees is unchanged; the result
+  carries the usual "interpreted as 'query'" note.
+- **Eval impact:** qwen3-coder:30b, Lite-300 seed 11: 8 of its 17
+  `git_search_history` calls sent `pattern`, and all 8 failed schema
+  validation. No other Lite-300 model called `git_search_history`.
+- **Measured:** not canaried. It fires about once per 40 qwen3-coder runs,
+  and the change only turns a bounced call into the call the model meant.
+
+### 7.0.36 — a sub-agent that did not finish is a failure (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with the 7.0.x before it, noting the patch.
+
+- **What changed** (#475): `spawn_agent` and `delegate_task` used to report
+  success whenever their sub-run's loop returned without throwing. The loop
+  also returns normally after a model request times out, at the iteration
+  cap (at most 15 for a sub-agent), after a stuck-loop stop, and after it
+  catches a policy-hook error. The loop now puts its termination on
+  `onOutcome`'s meta, and both tools return an error result for anything
+  but a natural finish. The result gives the reason and whatever the sub-run
+  produced, so the parent's tool budget, agent memory and tool-chain records
+  no longer log a success.
+- **Eval impact:** none expected on SWE: in Lite-300, `spawn_agent` was
+  called once and `delegate_task` never. Agent-eval cases that use either
+  tool can now see an error result where they saw success.
+
+### 7.0.34 — runs that end on an error get their own failure bucket (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted, and nothing a run does changes. Comparable with 7.0.26, noting
+the patch; `terminationBucket` values differ for runs that ended on an error.
+
+- **What changed** (#271): when the loop throws, it records
+  `termination: 'error'` and the message (an abort stays `aborted`). The
+  failure taxonomy buckets on the message: a tool call the backend could not
+  parse, or a tool it was not offered, is `malformed-call`; Ollama's "token
+  repeat limit reached" is `loop-stopped`; anything else (an HTTP 502, vLLM's
+  "EngineCore encountered an issue", a dropped connection) is the new
+  `infra` bucket. These used to fall through to `bad-reasoning`.
+  `summarizeModelPerformance` skips `infra` runs, as it skips aborted ones,
+  so a server outage no longer counts toward demoting a model.
+- **Eval impact:** nemotron3-super's 50-task canary (scaffold 7.0.24): 69 of
+  100 runs were `bad-reasoning` that are `infra` now (66 HTTP 502s, 3
+  EngineCore errors). Lite-300 runs that ended on an Ollama error move to
+  `malformed-call` (XML parse errors) or `loop-stopped` (repeat limit).
+- **Measured:** nothing to canary: classification only. Unit tests map every
+  `termination` value to a bucket.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
