@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.46** (2026-11) — the completion gate gives no credit for a test
+ *   or lint call that never ran (collection crash, background, refused,
+ *   timed out, redirected, no runner); one predicate, `checkDidNotRun`
+ *   (#471, #473). PATCH. Canary 130 runs/arm: resolve 27 = 27, 127/130
+ *   patches identical, `incomplete` 1→11.
  * - **7.0.45** (2026-11) — scratch cleanup counts a reference only from a
  *   file that stays (a fixpoint), so a helper only another scratch file
  *   imports is moved too; `scratchCleanupOnAbort` (set by the SWE harness)
@@ -546,7 +551,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.45';
+export const SCAFFOLD_VERSION = '7.0.46';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

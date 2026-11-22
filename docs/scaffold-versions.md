@@ -40,6 +40,31 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.46 — the completion gate gives no credit for checks that never ran (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.45, noting the patch.
+
+- **What changed** (#471, #473): one predicate, `checkDidNotRun`, decides
+  whether a test or lint call actually ran, for `run_tests`, every
+  `run_command` branch and the action reprompt's clean-verify check. A
+  background start, a refused command, a timeout, a redirected ESLint call,
+  "no test runner" and a pytest collection crash no longer earn credit. A
+  collection crash keeps the test demand and the gate's note names the
+  error as environmental; "no test runner" waives the test demands without
+  counting as verification for the ratchet. The syntax gate marks clean only
+  the files a check parsed. `verification_run` decisions gain `didNotRun`.
+- **Eval impact:** in the recorded Lite-300 seed-11 runs the gate's input
+  changes in e4b 33, nemotron-3.5-bolt 32, ministral 6 and qwen3-coder 1
+  runs. Expect more `needsTestRun` findings and more runs ending
+  `incomplete` after the gate retries run out, mostly on tasks whose
+  environment cannot collect tests.
+- **Measured:** targeted SWE canary on those tasks, 2 seeds × 2 models
+  (130 runs per arm, main b202d52f vs b064bb0b). Resolve 27 = 27 with the
+  same tasks in every pair; 127/130 final patches identical; `needsTestRun`
+  findings 3→24, gate firings 6→29 (4→12 runs), ratchet reverts 1 = 1,
+  `incomplete` 1→11, tool calls +3%.
+
 ### 7.0.45 — a scratch file only other scratch files refer to is moved; SWE timeouts get cleanup (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

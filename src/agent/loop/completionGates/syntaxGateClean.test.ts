@@ -5,8 +5,12 @@ import { stubLoopState } from '../testHelpers.js';
 // RECORDED so the base gate can accept it as the static check for Python
 // (see GateState.syntaxCleanFiles). Without the record, a .py edit in an
 // environment with no linter could never satisfy the lint requirement.
+// The default parses every file it is given clean.
 vi.mock('../syntaxGate.js', () => ({
-  runSyntaxGate: vi.fn(async () => []),
+  runSyntaxGate: vi.fn(async (files: readonly string[], _run: unknown, _read: unknown, parsed?: Set<string>) => {
+    for (const f of files) parsed?.add(f);
+    return [];
+  }),
   buildSyntaxReprompt: vi.fn(() => ''),
   hasCheckableFiles: vi.fn(() => true),
 }));
@@ -16,12 +20,34 @@ vi.mock('../../tools/shell.js', () => ({
 }));
 
 import { maybeInjectSyntaxGate } from './syntaxGate.js';
+import { runSyntaxGate } from '../syntaxGate.js';
 import { createGateState } from '../../completionGate.js';
 
 describe('syntax gate — clean pass is recorded for the base gate', () => {
   it('stores the edited files under the base gate keys when every file parses', async () => {
     const gateState = createGateState();
     gateState.editedFiles.add('django/utils/http.py');
+    const state = stubLoopState({ gateState });
+    const outcome = await maybeInjectSyntaxGate(
+      state,
+      { completionGateEnabled: true, syntaxGateEnabled: true } as never,
+      new AbortController().signal,
+      { onText: vi.fn() } as never,
+    );
+    expect(outcome).toBe('clean');
+    expect([...(gateState.syntaxCleanFiles ?? [])]).toEqual(['django/utils/http.py']);
+  });
+
+  // #473: a file no check could parse (no grammar, no interpreter, a timeout)
+  // used to be recorded clean with the rest, which dropped its lint demand.
+  it('records only the files a check actually parsed', async () => {
+    vi.mocked(runSyntaxGate).mockImplementationOnce(async (files, _run, _read, parsed) => {
+      parsed?.add(files.find((f) => f.endsWith('http.py'))!);
+      return [];
+    });
+    const gateState = createGateState();
+    gateState.editedFiles.add('django/utils/http.py');
+    gateState.editedFiles.add('django/utils/timeout.py');
     const state = stubLoopState({ gateState });
     const outcome = await maybeInjectSyntaxGate(
       state,
