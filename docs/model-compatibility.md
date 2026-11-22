@@ -11,7 +11,28 @@ SideCar works with any model your backend can serve, but agentic coding is deman
 
 Ratings come from SideCar's own evaluation suite — an agent-loop smoke suite (read / edit / write / run / plan / error-recovery tasks) plus long-horizon multi-step tasks — re-run against local models as SideCar evolves. Every model in the first table runs the smoke suite with zero infrastructure errors (no crashes, dropped tool calls, or retry thrash); task-completion capability varies. _Last verified: v0.130 (tested-model list matches the README); star ratings and agent-baseline percentages date from the 2026-08 baselines, and `—` marks a model added since without a star rating._
 
+## On real repository bugs (SWE-bench Lite, 2026-11)
+
+The smoke suite says whether a model can drive SideCar at all. SWE-bench Lite says how often it fixes a real bug: 300 GitHub issues from 12 Python projects, each scored by the official harness's tests. Every model below ran all 300 once; 290 tasks are scored for every model. Full table and method: [Model Eval Results](model-eval-results.md#swe-bench-lite-2026-11).
+
+| Model                        | Download | Resolved | Pick it when                                                                                                                                                       |
+| ---------------------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gemma4:31b`                 | 20.4 GB  | 50.7%    | You have a 32 GB GPU and want the most fixes. The slowest per task (6.2 min median).                                                                               |
+| `qwen3.8:27b`                | 17.7 GB  | 47.2%    | You want nearly 31b's results at under half its time per task. Ends a quarter of tasks with no patch at all.                                                       |
+| `qwen3.5:9b`                 | 6.6 GB   | 33.1%    | You want the most fixes from a model under 10 GB: 2.3× the default's, and level with the 30b models below.                                                         |
+| `qwen3-coder:30b`            | 18.6 GB  | 33.4%    | Speed matters most at this level: the fastest model in the 33% group (2.0 min median).                                                                             |
+| `nemotron-3.5-lightning:30b` | 25.4 GB  | 33.4%    | Same result as qwen3-coder at a larger download; often keeps calling a tool after its budget is spent ([#510](https://github.com/nedonatelli/sidecar/issues/510)). |
+| `gemma4:26b-a4b`             | 18.7 GB  | 31.7%    | —                                                                                                                                                                  |
+| `ministral-3`                | 6.0 GB   | 18.6%    | You need a small, quick model; it fixes fewer real bugs.                                                                                                           |
+| `nemotron-3.5-bolt:e4b`      | 7.9 GB   | 15.9%    | —                                                                                                                                                                  |
+| `gemma4:e4b` (default)       | 9.6 GB   | 14.1%    | You want the most-tested prompt-following; on real bugs it trails `qwen3.5:9b`.                                                                                    |
+| `bonsai-2:4b`                | 1.6 GB   | 8.6%     | Only when nothing larger fits: it submits no patch on nearly half the tasks.                                                                                       |
+
+One run per model: the four between 31.7% and 33.4% are a tie.
+
 ## Recommended local models (Ollama)
+
+These ratings come from the agent smoke suite and the 2026-08 agent baselines, not from SWE-bench.
 
 | Model                 | Size   | Agent rating | Notes                                                                                                                       |
 | --------------------- | ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------- |
