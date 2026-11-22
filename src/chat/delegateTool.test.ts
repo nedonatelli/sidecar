@@ -122,6 +122,7 @@ describe('sidecar_delegate answer modes', () => {
 describe('sidecar_delegate attachments', () => {
   it('stay inside the workspace', () => {
     expect(resolveAttachment(ROOT, 'src/a.ts')).toBe(path.join(ROOT, 'src', 'a.ts'));
+    expect(resolveAttachment(ROOT, path.join(ROOT, 'src', 'a.ts'))).toBe(path.join(ROOT, 'src', 'a.ts'));
     expect(resolveAttachment(ROOT, '../secrets.env')).toBeUndefined();
     expect(resolveAttachment(ROOT, path.resolve(ROOT, '..', 'other', 'b.ts'))).toBeUndefined();
     expect(resolveAttachment(ROOT, '.')).toBeUndefined();

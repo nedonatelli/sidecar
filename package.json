@@ -2646,6 +2646,10 @@
         "toolReferenceName": "sidecar_delegate",
         "canBeReferencedInPrompt": true,
         "icon": "$(robot)",
+        "tags": [
+          "sidecar",
+          "delegate"
+        ],
         "userDescription": "Hand a task to SideCar, which runs it on your configured model (Ollama, Anthropic, ...) under your SideCar agent mode.",
         "modelDescription": "Hand a coding task to SideCar, a separate agent that runs on the user's own configured model. Use when the user asks for SideCar, or to have SideCar do a task with its own tools. mode 'agent' (default) lets SideCar read files, edit and run commands in the workspace under the user's approval settings; 'review', 'fix', 'explain' and 'commit-message' give one answer without changing files. Returns SideCar's final answer and the files it changed.",
         "inputSchema": {
@@ -2671,7 +2675,7 @@
               "items": {
                 "type": "string"
               },
-              "description": "Workspace-relative files to attach to the task."
+              "description": "Files to attach to the task: absolute paths, or paths relative to the workspace root. Files outside the workspace are skipped."
             }
           },
           "required": [

@@ -37,7 +37,7 @@ export type DelegateMode = 'agent' | 'review' | 'fix' | 'explain' | 'commit-mess
 export interface DelegateInput {
   task: string;
   mode?: DelegateMode;
-  /** Workspace files to attach, relative to the workspace root. */
+  /** Workspace files to attach: absolute, or relative to the workspace root. */
   files?: string[];
 }
 
