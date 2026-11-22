@@ -40,6 +40,15 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.39 — identical tool calls in one response run once (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.38, noting the patch.
+
+- **What changed** (#487): when one response repeats a tool call byte for byte (same name, same JSON arguments), the call runs once and each repeat gets a non-error result naming the call it duplicates. Fence-synthesized writes are exempt.
+- **Eval impact:** responses that repeat a call. Recorded: e4b 3 turns in 300 runs; ministral-3 sent one `runtests.py` call 596 times in a turn of django-13158, and pytest-7490 hit 663 refusals in both arms of the release comparison. Did not fire in the canary.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
 ### 7.0.38 — a path carrying its line range or a closing quote is repaired; path cap 80 → 240 (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

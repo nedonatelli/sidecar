@@ -80,6 +80,9 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.39** (2026-11) — identical tool calls in one response run once
+ *   (`executeToolUses`, fence writes exempt). PATCH. Did not fire in the
+ *   v0.137 bundle canary; e4b resolve 13% in both arms (150 pairs, 3/3).
  * - **7.0.38** (2026-11) — a `path` carrying the line range or a closing
  *   quote (`x.py\`,start_line:5`) is repaired before validation, and the
  *   path-length cap goes 80 → 240 (#509). PATCH: one more deterministic
@@ -515,7 +518,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.38';
+export const SCAFFOLD_VERSION = '7.0.39';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

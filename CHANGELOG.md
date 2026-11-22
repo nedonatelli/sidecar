@@ -14,6 +14,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A tool call repeated in one response runs once**
+  ([#487](https://github.com/nedonatelli/sidecar/issues/487)). When a model's response repeats a
+  tool call byte for byte (same tool, same arguments), the call runs once and each repeat gets a
+  result naming the call it duplicates. One recorded run had sent the same test command 596 times
+  in a single turn.
 - **File paths with other arguments written into them are recovered, and long paths are accepted**
   ([#509](https://github.com/nedonatelli/sidecar/issues/509)). A model sometimes wrote a call's
   other arguments into its path (``x.py`,start_line:5``); the call was refused for the backtick.
