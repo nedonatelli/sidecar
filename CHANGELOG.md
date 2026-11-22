@@ -14,6 +14,11 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **A malformed XML tool call no longer ends the run**
+  ([#501](https://github.com/nedonatelli/sidecar/issues/501)). Models whose Ollama template writes
+  tool calls as XML (qwen3-coder, nemotron) failed with messages like `XML syntax error … unexpected
+  EOF`, which weren't retried. They're re-asked now, with advice for XML calls. A call whose tool
+  name is a sentence the model wrote, apostrophes included, is re-asked too.
 - **Searching git history can no longer hang a run.** `git_search_history` used to run
   `git log -S` with no time limit, and it ignored the stop button. On a partial clone (one made
   with `--filter=blob:none`), that search downloads the file contents of the repository's whole

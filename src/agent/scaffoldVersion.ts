@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.44** (2026-11) — the tool-call re-ask covers Ollama's XML parser
+ *   errors (`XML syntax error…`, `expected element type <function> but have
+ *   <parameter>`) with an XML-specific nudge, and a rejected tool "name" that
+ *   is prose (apostrophes, any length) is recognized and quoted cut to 80
+ *   characters (#501). PATCH: widens two matchers of the existing re-ask.
+ *   Lite-300: 10 runs ended on these messages. Not canaried.
  * - **7.0.43** (2026-11) — `git_search_history` is bounded: each `git log`
  *   has a 45 s timeout, takes the run's abort signal and runs with
  *   GIT_NO_LAZY_FETCH, so a partial clone reports content search unavailable
@@ -535,7 +541,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.43';
+export const SCAFFOLD_VERSION = '7.0.44';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
