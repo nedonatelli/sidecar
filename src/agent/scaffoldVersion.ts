@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.38** (2026-11) — a `path` carrying the line range or a closing
+ *   quote (`x.py\`,start_line:5`) is repaired before validation, and the
+ *   path-length cap goes 80 → 240 (#509). PATCH: one more deterministic
+ *   input repair. gemma4:31b Lite-300: 25 refused calls in 137 runs; 13
+ *   refusals of a real 103-char Sphinx path across five models. Not canaried.
  * - **7.0.37** (2026-11) — `pattern` is read as `query` for tools that take a
  *   `query` and declare no `pattern` (git_search_history; #504). PATCH: one
  *   entry in the existing param-synonym table. qwen3-coder Lite-300: 8 of 17
@@ -510,7 +515,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.37';
+export const SCAFFOLD_VERSION = '7.0.38';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

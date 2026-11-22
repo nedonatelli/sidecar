@@ -218,3 +218,64 @@ export function remapParamSynonyms(input: unknown, schema: ToolInputSchema | und
 
   return { input: out ?? obj, notes };
 }
+
+/** Quote marks models leave around or after a path: backtick, straight and curly quotes, guillemets. */
+const PATH_QUOTES = '`\'"«»“”‘’';
+/**
+ * A path, a run of quote marks, then whatever followed the closing quote.
+ * The path itself holds no quote, whitespace or comma, so prose never matches.
+ */
+const QUOTED_PATH = new RegExp(String.raw`^[${PATH_QUOTES}]*([^${PATH_QUOTES}\s,]+)[${PATH_QUOTES}]+\s*(.*)$`, 's');
+const LINE_ARG = /^\s*(start_line|end_line)\s*[:=]\s*(\d+)\s*$/;
+
+/**
+ * Recover the call a model meant when it wrote its other arguments into
+ * `path` (#509). gemma4:31b, Lite-300: 25 calls in four shapes, all refused as
+ * "invalid characters in file path":
+ *
+ *   reproduce_issue.py`                                  (write_file, 9)
+ *   django/forms/widgets.py`,start_line:793
+ *   tests/migrations/test_commands.py`,start_line:607,end_line:620
+ *   django/core/serializers/__init__.py`, start_line=159, end_line=200
+ *
+ * The path is cut at its closing quote. Anything after it must be ONLY
+ * `start_line` / `end_line` assignments to parameters the tool declares; any
+ * other trailing text leaves the input untouched for the validator to refuse,
+ * so a guess is never made. A line parameter the call already set is kept.
+ */
+export function repairPathArgument(input: unknown, schema: ToolInputSchema | undefined): ParamRemapOutcome {
+  const obj = input as Record<string, unknown>;
+  if (!schema || schema.type !== 'object' || !obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    return { input: obj, notes: [] };
+  }
+  const declared = schema.properties ?? {};
+  const raw = obj.path;
+  if (!('path' in declared) || typeof raw !== 'string') return { input: obj, notes: [] };
+  const m = QUOTED_PATH.exec(raw.trim());
+  if (!m) return { input: obj, notes: [] };
+  const [, clean, rest] = m;
+
+  const lines: Record<string, number> = {};
+  const tail = rest.replace(/^,/, '').trim();
+  if (tail) {
+    for (const part of tail.split(',')) {
+      const arg = LINE_ARG.exec(part);
+      if (!arg || !(arg[1] in declared)) return { input: obj, notes: [] };
+      lines[arg[1]] = Number(arg[2]);
+    }
+  }
+
+  const out: Record<string, unknown> = { ...obj, path: clean };
+  const moved: string[] = [];
+  for (const [key, value] of Object.entries(lines)) {
+    if (out[key] !== undefined && out[key] !== null) continue;
+    out[key] = value;
+    moved.push(`${key}=${value}`);
+  }
+  const notes = [
+    moved.length
+      ? `'path' also carried ${moved.join(', ')} — read as path "${clean}" with ${moved.join(', ')}; pass line numbers as their own parameters, not inside 'path'`
+      : `'path' ended in a quote mark — read as "${clean}"; send the bare path`,
+  ];
+  return { input: out, notes };
+}
