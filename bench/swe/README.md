@@ -100,6 +100,16 @@ tool calls is infra by the zero-tool-calls rule, since the model never answered.
 Read timeout-heavy results with the per-arm timeout count beside them, and size
 `SIDECAR_SWE_TASK_TIMEOUT` before comparing models of different speeds.
 
+**Resume a stopped run task by task.** `SIDECAR_SWE_RESUME=1` reruns into the same
+`SIDECAR_SWE_OUT` and keeps every row already in its `predictions.meta.jsonl`, so a crash
+or a machine restart costs only the task in flight. A row is rerun instead of kept when
+`isInfraFailure` would leave it out of the denominator, or it ran across a host suspend;
+those rows move to `predictions.meta.superseded.jsonl`. A per-task timeout is kept. The
+earlier `run.manifest.json` is renamed `run.manifest.<ms>.json`, and the new one records
+`resumedRows`. Without the flag a run starts over and truncates the file, as before. Keep
+the same data, `SIDECAR_SWE_N`, repos and bundle commit when resuming: rows outside the new
+slice are ignored, and kept rows came from the earlier code.
+
 **3. Score each arm with the official harness** (Docker; on a Docker-capable
 machine):
 
