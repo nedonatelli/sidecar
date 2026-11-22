@@ -546,6 +546,30 @@ export const gitSearchHistoryDef: ToolDefinition = {
   nondeterministicOutput: true,
 };
 
+/** Upper bound for one `git log` search; pickaxe over a large history can run for minutes. */
+export const GIT_SEARCH_TIMEOUT_MS = 45_000;
+
+/** One sentence saying why a search produced nothing, and what to use instead. */
+export function describeSearchFailure(kind: 'message' | 'content', err: unknown): string {
+  const e = err as { killed?: boolean; signal?: string | null; code?: number | string; stderr?: string };
+  const stderr = typeof e?.stderr === 'string' ? e.stderr : '';
+  const label = kind === 'content' ? 'Content search (pickaxe)' : 'Commit-message search';
+  if (/promisor remote|lazy fetching disabled/i.test(stderr)) {
+    return (
+      `${label} is unavailable: this repository is a partial clone whose history has no file contents, ` +
+      'so searching it would download them from the remote. Use grep to find the code as it is now.'
+    );
+  }
+  if (e?.killed || e?.signal === 'SIGTERM' || e?.code === 'ETIMEDOUT') {
+    return (
+      `${label} did not finish within ${GIT_SEARCH_TIMEOUT_MS / 1000}s. ` +
+      'Narrow it with `path`, or use grep to find the code as it is now.'
+    );
+  }
+  const detail = (stderr.trim().split('\n').pop() || formatToolError(err)).trim();
+  return `${label} failed: ${detail}`;
+}
+
 export async function gitSearchHistory(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   try {
     const query = (input.query as string | undefined)?.trim();
@@ -561,9 +585,35 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
     // Use execFile (not execAsync) so all arguments are passed as separate
     // array elements — never shell-interpolated. This prevents command
     // injection via LLM-controlled `query` or `path` values.
+    //
+    // Bounded three ways, because an unbounded `log -S` once held a run for
+    // 43 minutes: a timeout, the run's abort signal, and GIT_NO_LAZY_FETCH so a
+    // partial clone fails at once instead of downloading the repository's
+    // history one missing blob at a time.
     const runGit = async (args: string[]): Promise<string> => {
-      const { stdout } = await execFileAsync('git', ['-C', root, ...args], { maxBuffer: 2 * 1024 * 1024 });
+      const { stdout } = await execFileAsync('git', ['-C', root, ...args], {
+        maxBuffer: 2 * 1024 * 1024,
+        timeout: GIT_SEARCH_TIMEOUT_MS,
+        signal: context?.signal,
+        windowsHide: true,
+        env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
+      });
       return stdout.trim();
+    };
+
+    // A failed search is not a proven absence: say why it produced nothing.
+    const notes: string[] = [];
+    let searchesOk = 0;
+    const attempt = async (kind: 'message' | 'content', args: string[]): Promise<string> => {
+      try {
+        const out = await runGit(args);
+        searchesOk++;
+        return out;
+      } catch (err) {
+        if (context?.signal?.aborted) throw err;
+        notes.push(describeSearchFailure(kind, err));
+        return '';
+      }
     };
 
     const parseCommits = (raw: string): Array<{ hash: string; date: string; author: string; subject: string }> => {
@@ -583,7 +633,7 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
     const results: Array<{ hash: string; date: string; author: string; subject: string; via: string }> = [];
 
     if (searchType === 'message' || searchType === 'both') {
-      const raw = await runGit([
+      const raw = await attempt('message', [
         'log',
         '--all',
         `-${maxResults}`,
@@ -591,7 +641,7 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
         `--grep=${query}`,
         '--regexp-ignore-case',
         ...pathArgs,
-      ]).catch(() => '');
+      ]);
       for (const c of parseCommits(raw)) {
         if (!seen.has(c.hash)) {
           seen.add(c.hash);
@@ -601,7 +651,7 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
     }
 
     if (searchType === 'content' || searchType === 'both') {
-      const raw = await runGit(['log', '--all', `-${maxResults}`, logFormat, '-S', query, ...pathArgs]).catch(() => '');
+      const raw = await attempt('content', ['log', '--all', `-${maxResults}`, logFormat, '-S', query, ...pathArgs]);
       for (const c of parseCommits(raw)) {
         if (!seen.has(c.hash)) {
           seen.add(c.hash);
@@ -610,14 +660,18 @@ export async function gitSearchHistory(input: Record<string, unknown>, context?:
       }
     }
 
+    // Every search failed: nothing was searched, so this is an error, not "no commits".
+    if (searchesOk === 0) throw new Error(notes.join(' '));
+
+    const noteText = notes.length ? `\n\nNote: ${notes.join(' ')}` : '';
     if (results.length === 0) {
-      return `No commits found matching "${query}"${pathArg ? ` in ${pathArg}` : ''}.`;
+      return `No commits found matching "${query}"${pathArg ? ` in ${pathArg}` : ''}.${noteText}`;
     }
 
     const lines = results.map(
       (c) => `${c.hash.slice(0, 9)}  ${c.date}  ${c.author}\n  ${c.subject}\n  [matched via: ${c.via}]`,
     );
-    return `Found ${results.length} commit${results.length === 1 ? '' : 's'} matching "${query}":\n\n${lines.join('\n\n')}`;
+    return `Found ${results.length} commit${results.length === 1 ? '' : 's'} matching "${query}":\n\n${lines.join('\n\n')}${noteText}`;
   } catch (err) {
     throw new Error(`git_search_history failed: ${formatToolError(err)}`);
   }

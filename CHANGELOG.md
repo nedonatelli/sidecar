@@ -14,6 +14,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Searching git history can no longer hang a run.** `git_search_history` used to run
+  `git log -S` with no time limit, and it ignored the stop button. On a partial clone (one made
+  with `--filter=blob:none`), that search downloads the file contents of the repository's whole
+  history from the remote, one batch at a time; on Django it ran for 43 minutes. Each search now
+  stops after 45 seconds or when the run is stopped, and never downloads anything. On a partial
+  clone the reply says content search is unavailable and suggests grep. A search that failed or
+  timed out says so instead of reporting "No commits found".
 - **The system prompt mentions only tools the session offers**
   ([#485](https://github.com/nedonatelli/sidecar/issues/485)). A session that hides a tool, such
   as `run_tests`, no longer gets a prompt telling the model to call it; it's told to run the
