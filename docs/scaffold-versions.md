@@ -40,6 +40,29 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.45 — a scratch file only other scratch files refer to is moved; SWE timeouts get cleanup (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.44, noting the patch.
+
+- **What changed** (#511): `selectScratchFiles` counts a reference only
+  from a file that stays. The set to move is a fixpoint: start with every
+  candidate that passes the name rules, drop any that a file outside the set
+  refers to, repeat. `repro.py` importing `repro_settings.py` used to keep
+  the helper while `repro.py` was moved. A candidate kept for another reason
+  (the user named it, or its root prefix is the project's own) and every
+  edited file still count. Separately, a new loop option
+  `scratchCleanupOnAbort` runs cleanup on an aborted run, on both ways an
+  abort ends the loop; the SWE harness sets it, since its only abort is the
+  per-task timer. A user's Stop still skips cleanup.
+- **Eval impact:** patches only, and few: the fixpoint would have fired in
+  8 of about 2,090 Lite-300 runs (11 files, 8 of them gemma4:26b). The
+  harness change reaches every `harness-timeout` run with scratch files:
+  gemma4:31b had 7, carrying 24 leaked files. SWE-bench does not run root
+  scripts, so resolve rates should not move.
+- **Measured:** not canaried (too few firings). Unit tests: the helper
+  import, the three-file django-16910 chain, a cycle, and the abort paths.
+
 ### 7.0.44 — Ollama's XML tool-call errors and prose tool names are re-asked (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

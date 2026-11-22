@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.45** (2026-11) — scratch cleanup counts a reference only from a
+ *   file that stays (a fixpoint), so a helper only another scratch file
+ *   imports is moved too; `scratchCleanupOnAbort` (set by the SWE harness)
+ *   cleans a timed-out run (#511). PATCH. Lite-300: 8 runs for the fixpoint,
+ *   7 gemma4:31b timeouts with 24 leaked files. Not canaried.
  * - **7.0.44** (2026-11) — the tool-call re-ask covers Ollama's XML parser
  *   errors (`XML syntax error…`, `expected element type <function> but have
  *   <parameter>`) with an XML-specific nudge, and a rejected tool "name" that
@@ -541,7 +546,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.44';
+export const SCAFFOLD_VERSION = '7.0.45';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

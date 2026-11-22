@@ -446,6 +446,13 @@ export interface AgentOptions {
    */
   cwdOverride?: string;
   /**
+   * Run scratch cleanup even when the run is aborted (#511). A user's Stop
+   * skips it, so their files stay as they were. A harness whose only abort is
+   * its own per-task timer sets this, so a timed-out run's diff doesn't carry
+   * every reproduction script it wrote.
+   */
+  scratchCleanupOnAbort?: boolean;
+  /**
    * The text the loop reads the user's file references from: the files the
    * no-read and no-file-write gates expect touched, and the write target the
    * code-as-text reprompt names. Defaults to the user's request. A harness whose
@@ -1294,6 +1301,11 @@ export async function runAgentLoop(
         state.termination = aborted ? 'aborted' : 'error';
         if (!aborted) state.terminationError = err instanceof Error ? err.message : String(err);
       }
+      // A harness timer that fires mid-request ends the run here, not at the
+      // cleanup below, so its scratch files would ship in the diff (#511).
+      if (state.termination === 'aborted' && options.scratchCleanupOnAbort) {
+        await cleanupScratchAtTermination(state, options.cwdOverride, callbacks);
+      }
       // Fire onDone/flush before propagating — without this, the UI
       // spinner stays active forever when the loop throws.
       finalize(state, callbacks);
@@ -1337,8 +1349,9 @@ export async function runAgentLoop(
 
   // Scratch cleanup (#387): move the reproduction and check scripts the run
   // left behind out of the workspace. After the ratchet, which may already have
-  // removed files the scaffold tail created. Skipped on user-abort, like the ratchet.
-  if (state.termination !== 'aborted') {
+  // removed files the scaffold tail created. Skipped on user-abort, like the
+  // ratchet, unless the caller's aborts are its own timer (#511).
+  if (state.termination !== 'aborted' || options.scratchCleanupOnAbort) {
     await cleanupScratchAtTermination(state, options.cwdOverride, callbacks);
   }
 
