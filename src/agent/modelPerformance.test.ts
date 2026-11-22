@@ -49,6 +49,15 @@ describe('summarizeModelPerformance — what counts as evidence', () => {
     expect(obs?.runs).toBe(1);
   });
 
+  it('discards INFRA runs: a server outage is no verdict on the model (#271)', () => {
+    const obs = summarizeModelPerformance(
+      [run('m'), run('m', { failureBucket: 'infra' }), run('m', { failureBucket: 'infra' })],
+      'm',
+    );
+    expect(obs?.runs).toBe(1);
+    expect(obs?.successRate).toBe(1);
+  });
+
   it('discards NON-AGENTIC runs — answering a question proves nothing about editing code', () => {
     const obs = summarizeModelPerformance([run('m'), run('m', { toolCalls: [] })], 'm');
     expect(obs?.runs).toBe(1);

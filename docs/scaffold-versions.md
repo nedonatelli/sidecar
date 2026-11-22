@@ -40,6 +40,89 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.39 — identical tool calls in one response run once (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.38, noting the patch.
+
+- **What changed** (#487): when one response repeats a tool call byte for byte (same name, same JSON arguments), the call runs once and each repeat gets a non-error result naming the call it duplicates. Fence-synthesized writes are exempt.
+- **Eval impact:** responses that repeat a call. Recorded: e4b 3 turns in 300 runs; ministral-3 sent one `runtests.py` call 596 times in a turn of django-13158, and pytest-7490 hit 663 refusals in both arms of the release comparison. Did not fire in the canary.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.38 — a path carrying its line range or a closing quote is repaired; path cap 80 → 240 (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.37, noting the patch.
+
+- **What changed** (#509): `repairPathArgument` joins the deterministic input
+  repairs in `executor/paramRemap.ts`. A `path` is cut at a closing quote mark
+  (backtick, straight or curly quote, guillemet). Trailing `start_line` /
+  `end_line` assignments move into those parameters when the tool declares
+  them; any other trailing text leaves the call for the validator to refuse.
+  `validateFilePath`'s length cap goes from 80 to 240 characters
+  (`MAX_FILE_PATH_CHARS`); the 60-char segment rule is unchanged.
+- **Eval impact:** gemma4:31b, Lite-300 seed 11 (first 137 runs): 25 calls were
+  refused as "invalid characters in file path", all in the repaired shapes.
+  A 103-char Sphinx test-fixture path was refused 13 times across five models.
+- **Measured:** not canaried. Both changes turn a refused call into the call
+  the model meant.
+
+### 7.0.37 — `git_search_history` reads `pattern` as `query` (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.36, noting the patch.
+
+- **What changed** (#504): `pattern` joins the parameter-synonym table as a
+  name for `query`. It applies only to a tool that declares `query` and not
+  `pattern`, and only when `query` is missing, so `grep` and `search_files`
+  keep their own `pattern`. The schema the model sees is unchanged; the result
+  carries the usual "interpreted as 'query'" note.
+- **Eval impact:** qwen3-coder:30b, Lite-300 seed 11: 8 of its 17
+  `git_search_history` calls sent `pattern`, and all 8 failed schema
+  validation. No other Lite-300 model called `git_search_history`.
+- **Measured:** not canaried. It fires about once per 40 qwen3-coder runs,
+  and the change only turns a bounced call into the call the model meant.
+
+### 7.0.36 — a sub-agent that did not finish is a failure (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with the 7.0.x before it, noting the patch.
+
+- **What changed** (#475): `spawn_agent` and `delegate_task` used to report
+  success whenever their sub-run's loop returned without throwing. The loop
+  also returns normally after a model request times out, at the iteration
+  cap (at most 15 for a sub-agent), after a stuck-loop stop, and after it
+  catches a policy-hook error. The loop now puts its termination on
+  `onOutcome`'s meta, and both tools return an error result for anything
+  but a natural finish. The result gives the reason and whatever the sub-run
+  produced, so the parent's tool budget, agent memory and tool-chain records
+  no longer log a success.
+- **Eval impact:** none expected on SWE: in Lite-300, `spawn_agent` was
+  called once and `delegate_task` never. Agent-eval cases that use either
+  tool can now see an error result where they saw success.
+
+### 7.0.34 — runs that end on an error get their own failure bucket (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted, and nothing a run does changes. Comparable with 7.0.26, noting
+the patch; `terminationBucket` values differ for runs that ended on an error.
+
+- **What changed** (#271): when the loop throws, it records
+  `termination: 'error'` and the message (an abort stays `aborted`). The
+  failure taxonomy buckets on the message: a tool call the backend could not
+  parse, or a tool it was not offered, is `malformed-call`; Ollama's "token
+  repeat limit reached" is `loop-stopped`; anything else (an HTTP 502, vLLM's
+  "EngineCore encountered an issue", a dropped connection) is the new
+  `infra` bucket. These used to fall through to `bad-reasoning`.
+  `summarizeModelPerformance` skips `infra` runs, as it skips aborted ones,
+  so a server outage no longer counts toward demoting a model.
+- **Eval impact:** nemotron3-super's 50-task canary (scaffold 7.0.24): 69 of
+  100 runs were `bad-reasoning` that are `infra` now (66 HTTP 502s, 3
+  EngineCore errors). Lite-300 runs that ended on an Ollama error move to
+  `malformed-call` (XML parse errors) or `loop-stopped` (repeat limit).
+- **Measured:** nothing to canary: classification only. Unit tests map every
+  `termination` value to a bucket.
+
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
