@@ -3,6 +3,7 @@ import { SideCarClient } from '../ollama/client.js';
 import { getConfig } from '../config/settings.js';
 import { runAgentLoop, type AgentCallbacks, type AgentOptions } from './loop.js';
 import { getToolDefinitions } from './tools.js';
+import { watchSubRun, unfinishedOutput } from './subRunOutcome.js';
 
 /**
  * Tools the local worker is allowed to call. Read-only by design:
@@ -110,7 +111,10 @@ export async function runLocalWorker(
 
   let output = '';
   let charsConsumed = 0;
+  // Returning from the loop is not finishing (#475): read how it stopped.
+  const run = watchSubRun();
   const workerCallbacks: AgentCallbacks = {
+    onOutcome: run.onOutcome,
     onText: (text) => {
       output += text;
     },
@@ -153,6 +157,17 @@ export async function runLocalWorker(
       // No modeToolPermissions: the user's own deny and ask rules apply to
       // the worker's calls as to any other.
     });
+    const unfinished = run.unfinishedReason(workerMaxIterations);
+    if (unfinished) {
+      options.logger?.warn(`Local worker did not finish: ${unfinished}`);
+      parentCallbacks.onText(`\n[delegate_task did not finish: ${unfinished}]\n`);
+      return {
+        output: unfinishedOutput('The delegated worker', unfinished, output),
+        success: false,
+        charsConsumed,
+        model: workerModel,
+      };
+    }
     parentCallbacks.onText(`\n[delegate_task completed]\n`);
     return { output: output.trim() || '(worker produced no output)', success: true, charsConsumed, model: workerModel };
   } catch (err) {

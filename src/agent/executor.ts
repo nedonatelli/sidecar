@@ -27,7 +27,12 @@ import { commitCallOf, reviewCommit, commitReviewQuestion, commitReviewRefusal }
 import { WRITE_TOOLS, NATIVE_MODAL_APPROVAL_TOOLS, resolveApprovalNeeded } from './executor/permissionsGate.js';
 import { runHook } from './executor/hookRunner.js';
 import { validateToolInput } from './executor/inputValidator.js';
-import { remapParamSynonyms, coerceParamTypes, stripEchoedCarriageReturns } from './executor/paramRemap.js';
+import {
+  remapParamSynonyms,
+  coerceParamTypes,
+  stripEchoedCarriageReturns,
+  repairPathArgument,
+} from './executor/paramRemap.js';
 import { resolveToolNameAlias } from './executor/toolNameAlias.js';
 import { isExampleReplay, buildExampleReplayError } from './executor/exampleReplayGuard.js';
 import { recordBounce, recordToolError, clearBounces, escalationSuffix } from './executor/bounceEscalation.js';
@@ -254,6 +259,14 @@ async function runTool(toolUse: ToolUseContentBlock, opts: ExecuteToolOptions): 
     logger?.info(`Tool ${toolUse.name}: ${[...typeCoercion.notes, ...logOnly].join('; ')}`);
     toolUse.input = typeCoercion.input;
     remap.notes.push(...typeCoercion.notes);
+  }
+  // A path with its other arguments written into it (`x.py\`,start_line:5`)
+  // would be refused for the backtick; recover the call it meant (#509).
+  const pathRepair = repairPathArgument(toolUse.input, tool.definition.input_schema);
+  if (pathRepair.notes.length > 0) {
+    logger?.info(`Tool ${toolUse.name}: ${pathRepair.notes.join('; ')}`);
+    toolUse.input = pathRepair.input;
+    remap.notes.push(...pathRepair.notes);
   }
   if (toolUse.name === 'edit_file' || toolUse.name === 'write_file') {
     const cr = stripEchoedCarriageReturns(toolUse.input);

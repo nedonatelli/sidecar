@@ -122,6 +122,20 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
   const client = new SideCarClient(input.model, input.baseUrl, input.apiKey, input.provider);
   client.updateSystemPrompt(input.systemPrompt);
 
+  // The config the loop sees names the client's model, endpoint and provider
+  // (#497). Callers build it from getConfig(), whose defaults (gemma4:e4b on
+  // :11434) were recorded as every run's model and read by the loop's own
+  // config.model sites: delegate_task's worker model, the editor split.
+  const config = input.options.config
+    ? {
+        ...input.options.config,
+        model: client.getModel(),
+        baseUrl: input.baseUrl,
+        ...(input.provider !== undefined ? { provider: input.provider } : {}),
+      }
+    : undefined;
+  const options: AgentOptions = config ? { ...input.options, config } : input.options;
+
   const abort = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -132,15 +146,14 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
   // Computed from the values actually used, never from the ones intended. An arm
   // was once described as "no RAG" while project_knowledge_search sat in its
   // catalog the whole time, because nothing recorded the catalog.
-  const cfg = input.options.config as { agentTemperature?: number } | undefined;
+  const cfg = options.config as { agentTemperature?: number } | undefined;
   // Resolving the catalog reads config the caller may not have populated (custom
   // tools, MCP). Surface capture is telemetry: it records what it can and never
   // takes down the run it is describing.
   let effectiveTools: { name: string }[] = [];
   try {
     effectiveTools =
-      input.options.toolOverride ??
-      getToolDefinitionsForTier(input.options.toolTier ?? 'full', input.options.mcpManager, input.options.config);
+      options.toolOverride ?? getToolDefinitionsForTier(options.toolTier ?? 'full', options.mcpManager, options.config);
   } catch {
     effectiveTools = [];
   }
@@ -154,6 +167,9 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
     seed: seedEnv ? Number(seedEnv) : null,
     temperature: cfg?.agentTemperature ?? NaN,
     numCtx: process.env.SIDECAR_OLLAMA_NUM_CTX ? Number(process.env.SIDECAR_OLLAMA_NUM_CTX) : null,
+    model: client.getModel(),
+    baseUrl: input.baseUrl,
+    provider: client.getProviderType(),
   };
 
   const logger =
@@ -169,7 +185,7 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
           seed: surface.seed,
           trial: input.trial,
           surface,
-          configOverrides: (input.options.config ?? {}) as Record<string, unknown>,
+          configOverrides: (options.config ?? {}) as Record<string, unknown>,
         });
 
   const callbacks = logger ? logger.wrap(input.callbacks) : input.callbacks;
@@ -186,7 +202,7 @@ export function createTurnLoopSession(input: TurnLoopInput): TurnLoopSession {
     loopDecisions: loopLog.decisions,
     async run(messages: ChatMessage[]) {
       // Give the loop somewhere to report its own scaffolding decisions.
-      await loop(client, messages, callbacks, abort.signal, { ...input.options, logger: loopLog.logger });
+      await loop(client, messages, callbacks, abort.signal, { ...options, logger: loopLog.logger });
     },
     close(termination: string) {
       if (!closed) {

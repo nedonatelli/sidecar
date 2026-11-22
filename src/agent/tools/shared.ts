@@ -296,6 +296,9 @@ export function resolveRootUri(context?: ToolExecutorContext): Uri {
   return getRootUri();
 }
 
+/** Longest relative path `validateFilePath` accepts. */
+export const MAX_FILE_PATH_CHARS = 240;
+
 /** Reject obviously invalid file paths that indicate the model hallucinated. */
 export function validateFilePath(filePath: string): string | null {
   if (!filePath || filePath.trim().length === 0) {
@@ -306,8 +309,12 @@ export function validateFilePath(filePath: string): string | null {
     return `invalid characters in file path: ${filePath.slice(0, 80)}`;
   }
   // Reject paths containing spaces that are clearly not file names
-  // (e.g., "... ```) that contain diagram content")
-  if (filePath.length > 80) {
+  // (e.g., "... ```) that contain diagram content"). Prose is caught by the
+  // 60-char segment rule below; this cap only stops runaway strings. It was
+  // 80, which refused real files (#509): a Sphinx test fixture under
+  // tests/roots/test-ext-autosummary-imported_members/ is 103 chars, and five
+  // Lite-300 models were refused reading it.
+  if (filePath.length > MAX_FILE_PATH_CHARS) {
     return `file path too long (${filePath.length} chars): ${filePath.slice(0, 80)}...`;
   }
   // Reject paths that don't have at least one valid-looking segment

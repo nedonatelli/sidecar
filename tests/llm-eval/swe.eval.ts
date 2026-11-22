@@ -45,6 +45,7 @@ import { SCAFFOLD_VERSION, describeScaffold } from '../../src/agent/scaffoldVers
 import { toPredictionsJsonl } from '../../bench/swe/predictions.js';
 import { classifyFailure } from '../../bench/swe/failureClassification.js';
 import { startSuspendWatch, suspendReason } from '../../bench/swe/hostSuspend.js';
+import { hideHistoryPastBase } from '../../bench/swe/hideFutureHistory.js';
 import { captureDiff, snapshotShellWorkspace } from '../../bench/swe/captureDiff.js';
 import type { DroppedPath, ShellChangeDrift, ShellChangeSnapshot } from '../../bench/swe/captureDiff.js';
 import { wholeSuiteGuard } from '../../bench/swe/wholeSuiteGuard.js';
@@ -56,7 +57,7 @@ import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type Task
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree, warmLogLine } from '../../bench/swe/warmTree.js';
 import { removeCleanFailures } from '../../bench/swe/cleanFailures.js';
-import { sweToolCatalog } from '../../bench/swe/toolCatalog.js';
+import { offeredToolFinder, sweToolCatalog, SWE_EXCLUDED_TOOLS } from '../../bench/swe/toolCatalog.js';
 import { unloadModelRequest, coldStartPerTask } from '../../bench/swe/modelCache.js';
 import { fetchRuntimeProvenance, formatRuntimeProvenance } from '../../bench/swe/runtimeProvenance.js';
 import { summarizeDecisions } from '../../src/agent/decisions.js';
@@ -332,6 +333,9 @@ function prepareRepo(task: SweTask): string {
   const head = git(['rev-parse', 'HEAD'], dir).trim();
   if (head !== task.base_commit)
     throw new Error(`checkout mismatch for ${task.instance_id}: ${head} != ${task.base_commit}`);
+  // The clone still holds every later upstream commit, the fix included: no
+  // ref, reflog entry or state file may lead the agent to one (#507).
+  hideHistoryPastBase(dir, task.base_commit);
   // Before the agent's clock starts: otherwise its first grep can hit the 15 s
   // tool timeout on a freshly written tree, at random per arm. See warmTree.ts.
   const warm = warmWorkingTree(dir);
@@ -639,6 +643,8 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       docsUrl: '',
       root: dir,
       approvalMode: 'autonomous',
+      // The prompt names only tools the catalog below offers (#485).
+      offersTool: (name) => !SWE_EXCLUDED_TOOLS.has(name),
     });
     const systemPrompt = HARNESS_OVERRIDES ? applyToSystemPrompt(basePrompt, HARNESS_OVERRIDES.overrides) : basePrompt;
     // Trajectory: append every event to disk LIVE (not buffered-then-dumped), so
@@ -757,7 +763,15 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
         ? { scaffoldingOverrides: withToolBudgets(getConfig().scaffoldingOverrides, TOOL_BUDGETS)! }
         : {}),
     };
-    const findArmTool = (name: string) => findTool(name, undefined, armConfig);
+    // The product's catalog minus the tools the benchmark must not offer --
+    // run_tests (wrong runner, false "ok") and web_search (the fix for a
+    // public upstream bug can be searched for). Reasons: bench/swe/toolCatalog.ts.
+    const toolCatalog = (() => {
+      const catalog = sweToolCatalog(getToolDefinitionsForTier('full', undefined, armConfig));
+      return HARNESS_OVERRIDES ? applyToToolDefinitions(catalog, HARNESS_OVERRIDES.overrides) : catalog;
+    })();
+    // Wrappers wrap only offered tools: an extraTool bypasses the catalog gate (#484).
+    const findArmTool = offeredToolFinder(toolCatalog, (name) => findTool(name, undefined, armConfig));
     const stableTools = STABLE_OUTPUT ? stableOutputTools(findArmTool) : [];
     const extraTools = SHELL_GUARD ? shellGuardTools(stableTools, findArmTool, new ShellRootGuard(dir)) : stableTools;
     const options: AgentOptions = {
@@ -776,13 +790,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
       fileReferenceText: task.problem_statement,
       confirmFn: async () => 'Allow',
       config: armConfig,
-      // The product's catalog minus the tools the benchmark must not offer --
-      // run_tests (wrong runner, false "ok") and web_search (the fix for a
-      // public upstream bug can be searched for). Reasons: bench/swe/toolCatalog.ts.
-      toolOverride: (() => {
-        const catalog = sweToolCatalog(getToolDefinitionsForTier('full', undefined, armConfig));
-        return HARNESS_OVERRIDES ? applyToToolDefinitions(catalog, HARNESS_OVERRIDES.overrides) : catalog;
-      })(),
+      toolOverride: toolCatalog,
       // Runs in BOTH arms: this is a zero-token deterministic control, like cycle
       // detection and the thrash defenses, not part of the verification
       // scaffolding under test. A whole-suite invocation is a harness-cost bug
