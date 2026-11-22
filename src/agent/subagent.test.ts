@@ -178,3 +178,57 @@ describe('spawnSubAgent', () => {
     ).resolves.toBeDefined();
   });
 });
+
+// #475: the loop returns normally from a timeout, the iteration cap, a stuck
+// stop and a caught policy error, and every normal return was reported as
+// success. The loop's reported termination now decides.
+describe('spawnSubAgent: a sub-agent that did not finish is a failure (#475)', () => {
+  const endingWith = (termination: string | undefined, text = 'partial notes') =>
+    withSubCallbacks((cbs) => {
+      cbs.onText(text);
+      cbs.onOutcome?.(null, { aborted: false, scaffoldInterventions: 0, termination: termination as never });
+      cbs.onDone();
+    });
+  const spawn = (opts = {}) =>
+    spawnSubAgent(makeClient(), 'find the bug', undefined, makeCallbacks(), new AbortController().signal, opts);
+
+  it('succeeds on a natural finish', async () => {
+    vi.mocked(runAgentLoop).mockImplementationOnce(endingWith('natural', 'found it'));
+    const r = await spawn();
+    expect(r.success).toBe(true);
+    expect(r.output).toBe('found it');
+  });
+
+  it('fails at the iteration cap, naming the cap and keeping what it produced', async () => {
+    vi.mocked(runAgentLoop).mockImplementationOnce(endingWith('max-iterations'));
+    const r = await spawn({ maxIterations: 40 });
+    expect(r.success).toBe(false);
+    expect(r.output).toContain('did not finish: it used all 15 of its iterations without finishing');
+    expect(r.output).toContain('What it produced before stopping:\npartial notes');
+  });
+
+  it.each([
+    ['out-of-resources', 'ran out of time or budget'],
+    ['stuck', 'repeating the same actions'],
+    ['aborted', 'stopped before it finished'],
+    ['error', 'stopped on an error'],
+    [undefined, 'an error it caught'],
+  ])('fails when the loop ended %s', async (termination, phrase) => {
+    vi.mocked(runAgentLoop).mockImplementationOnce(endingWith(termination));
+    const r = await spawn();
+    expect(r.success).toBe(false);
+    expect(r.output).toContain(phrase);
+  });
+
+  it('tells the parent in the transcript too', async () => {
+    const callbacks = makeCallbacks();
+    vi.mocked(runAgentLoop).mockImplementationOnce(endingWith('out-of-resources'));
+    await spawnSubAgent(makeClient(), 't', undefined, callbacks, new AbortController().signal);
+    const said = vi
+      .mocked(callbacks.onText)
+      .mock.calls.map((c) => c[0])
+      .join('');
+    expect(said).toContain('did not finish');
+    expect(said).not.toContain('completed]');
+  });
+});

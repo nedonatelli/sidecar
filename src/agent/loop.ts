@@ -305,6 +305,13 @@ export interface AgentCallbacks {
       verificationGates?: number;
       /** The part from loop controls that run in every configuration. */
       loopControls?: number;
+      /**
+       * Why the loop stopped (#475). Unset when it stopped on an error it
+       * caught, such as a failing policy hook. A sub-agent's caller reads it:
+       * the loop returns normally from a timeout or the iteration cap too, so
+       * returning is not finishing.
+       */
+      termination?: import('./loop/state.js').LoopState['termination'];
     },
   ) => void;
   /** Fired when update_plan changed the externalized plan (S1) — checkpointing hook. */
@@ -1278,6 +1285,14 @@ export async function runAgentLoop(
       // persist whatever the agent produced before the error hit.
       if (err instanceof Error) {
         (err as Error & { partialMessages?: ChatMessage[] }).partialMessages = [...state.messages];
+      }
+      // Record why the run ended, so finalize's failure bucket says so instead
+      // of falling through to bad-reasoning (#271): a 502 is not the model's
+      // reasoning. A reason set before the throw (an abort) is kept.
+      if (state.termination === undefined) {
+        const aborted = err instanceof Error && err.name === 'AbortError';
+        state.termination = aborted ? 'aborted' : 'error';
+        if (!aborted) state.terminationError = err instanceof Error ? err.message : String(err);
       }
       // Fire onDone/flush before propagating — without this, the UI
       // spinner stays active forever when the loop throws.
