@@ -40,10 +40,10 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
-### 7.0.32 — `git_search_history` reads `pattern` as `query` (2026-11)
+### 7.0.37 — `git_search_history` reads `pattern` as `query` (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or
-re-defaulted. Comparable with 7.0.26, noting the patch.
+re-defaulted. Comparable with 7.0.36, noting the patch.
 
 - **What changed** (#504): `pattern` joins the parameter-synonym table as a
   name for `query`. It applies only to a tool that declares `query` and not
@@ -55,6 +55,46 @@ re-defaulted. Comparable with 7.0.26, noting the patch.
   validation. No other Lite-300 model called `git_search_history`.
 - **Measured:** not canaried. It fires about once per 40 qwen3-coder runs,
   and the change only turns a bounced call into the call the model meant.
+
+### 7.0.36 — a sub-agent that did not finish is a failure (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with the 7.0.x before it, noting the patch.
+
+- **What changed** (#475): `spawn_agent` and `delegate_task` used to report
+  success whenever their sub-run's loop returned without throwing. The loop
+  also returns normally after a model request times out, at the iteration
+  cap (at most 15 for a sub-agent), after a stuck-loop stop, and after it
+  catches a policy-hook error. The loop now puts its termination on
+  `onOutcome`'s meta, and both tools return an error result for anything
+  but a natural finish. The result gives the reason and whatever the sub-run
+  produced, so the parent's tool budget, agent memory and tool-chain records
+  no longer log a success.
+- **Eval impact:** none expected on SWE: in Lite-300, `spawn_agent` was
+  called once and `delegate_task` never. Agent-eval cases that use either
+  tool can now see an error result where they saw success.
+
+### 7.0.34 — runs that end on an error get their own failure bucket (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted, and nothing a run does changes. Comparable with 7.0.26, noting
+the patch; `terminationBucket` values differ for runs that ended on an error.
+
+- **What changed** (#271): when the loop throws, it records
+  `termination: 'error'` and the message (an abort stays `aborted`). The
+  failure taxonomy buckets on the message: a tool call the backend could not
+  parse, or a tool it was not offered, is `malformed-call`; Ollama's "token
+  repeat limit reached" is `loop-stopped`; anything else (an HTTP 502, vLLM's
+  "EngineCore encountered an issue", a dropped connection) is the new
+  `infra` bucket. These used to fall through to `bad-reasoning`.
+  `summarizeModelPerformance` skips `infra` runs, as it skips aborted ones,
+  so a server outage no longer counts toward demoting a model.
+- **Eval impact:** nemotron3-super's 50-task canary (scaffold 7.0.24): 69 of
+  100 runs were `bad-reasoning` that are `infra` now (66 HTTP 502s, 3
+  EngineCore errors). Lite-300 runs that ended on an Ollama error move to
+  `malformed-call` (XML parse errors) or `loop-stopped` (repeat limit).
+- **Measured:** nothing to canary: classification only. Unit tests map every
+  `termination` value to a bucket.
 
 ### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
 

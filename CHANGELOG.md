@@ -18,6 +18,17 @@ All notable changes to the SideCar extension will be documented in this file.
   ([#504](https://github.com/nedonatelli/sidecar/issues/504)). Models used to `grep` and
   `search_files` send `pattern`; the call used to fail with "missing required parameter 'query'".
   It's now read as `query`, and the result says to use `query` next time.
+- **A sub-agent or delegated worker that didn't finish no longer reports success**
+  ([#475](https://github.com/nedonatelli/sidecar/issues/475)). When a `spawn_agent` sub-agent or a
+  `delegate_task` worker hit its iteration cap, timed out, was stopped for repeating itself or
+  caught an error, the parent got a successful tool result. It now gets an error that says why the
+  sub-run stopped, followed by whatever it produced before stopping.
+- **A server error no longer counts against the model**
+  ([#271](https://github.com/nedonatelli/sidecar/issues/271)). A run that ended on a backend or
+  connection error, such as an HTTP 502, was recorded as the model's reasoning failure, and those
+  runs counted toward giving the model more scaffolding. They're recorded as `infra` now and left
+  out of that decision. A run that ended because the backend couldn't parse the model's tool call
+  is recorded as a malformed call instead.
 
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as

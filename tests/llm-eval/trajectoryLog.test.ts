@@ -21,6 +21,9 @@ const surface: EffectiveSurface = {
   seed: 1000,
   temperature: 0,
   numCtx: 32768,
+  model: 'qwen3.8:27b',
+  baseUrl: 'http://127.0.0.1:11435',
+  provider: 'ollama',
 };
 
 let dir: string;

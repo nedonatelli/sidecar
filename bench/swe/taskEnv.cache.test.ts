@@ -9,10 +9,13 @@ import * as path from 'node:path';
 // directory on disk, so the integrity check and the rebuild path run for real.
 const uvCalls: string[][] = [];
 let failEditableInstalls = 0;
+/** What the fake `uv pip freeze` prints (#512). */
+let freezeOutput = '';
 
 vi.mock('node:child_process', () => ({
   execFileSync: (_cmd: string, args: string[]) => {
     uvCalls.push(args);
+    if (args[0] === 'pip' && args[1] === 'freeze') return Buffer.from(freezeOutput);
     if (args[0] === 'venv') {
       const venvDir = args[args.length - 1];
       const win = process.platform === 'win32';
@@ -42,7 +45,14 @@ vi.mock('node:child_process', () => ({
   },
 }));
 
-import { setupTaskEnv, venvLooksIntact, venvHasPytest, defaultSweCacheDir, type SpecMap } from './taskEnv.js';
+import {
+  setupTaskEnv,
+  venvLooksIntact,
+  venvHasPytest,
+  defaultSweCacheDir,
+  normalizedFreeze,
+  type SpecMap,
+} from './taskEnv.js';
 import { classifyFailure } from './failureClassification.js';
 
 const SPECS: SpecMap = { 'django/django': { '3.0': { python: '3.9' } } };
@@ -57,6 +67,7 @@ const metadata = (venvDir: string) =>
 beforeEach(() => {
   uvCalls.length = 0;
   failEditableInstalls = 0;
+  freezeOutput = '';
   cache = fs.mkdtempSync(path.join(os.tmpdir(), 'venv-cache-'));
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'venv-repo-'));
 });
@@ -218,5 +229,54 @@ describe('test dependencies in the venv (#216)', () => {
       'django/django': { '3.0': { python: '3.9', pip_packages: ['sqlparse'] } },
     });
     expect(venvBuilds()).toBe(3);
+  });
+});
+
+// #512: uv venvs have no pip, so an agent's `pip install -e .` fell through
+// PATH to the host's pip and landed in the system Python (four task clones
+// ended up as editable installs there), and `python -m pip` failed outright.
+describe('task venvs have their own pip (#512)', () => {
+  const SEED_SPECS: SpecMap = { 'django/django': { '3.0': { python: '3.9' } } };
+
+  it('builds the venv with pip seeded, in a directory pre-#512 bundles do not use', () => {
+    const env = setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS)!;
+    const venvCall = uvCalls.find((a) => a[0] === 'venv')!;
+    expect(venvCall).toContain('--seed');
+    expect(path.basename(path.dirname(env.venvDir))).toBe('venvs-pip');
+  });
+
+  it('makes any pip outside the venv refuse to install', () => {
+    const env = setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS)!;
+    expect(env.env.PIP_REQUIRE_VIRTUALENV).toBe('true');
+  });
+
+  it('reuses a venv the last task left as the harness set it up', () => {
+    freezeOutput = 'Django==3.0\nsqlparse==0.5.5\n';
+    setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS);
+    setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS);
+    expect(venvBuilds()).toBe(1);
+  });
+
+  it('rebuilds a venv the agent installed into, so the next task does not inherit it', () => {
+    freezeOutput = 'sqlparse==0.5.5\n';
+    setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS);
+    // During the task the agent ran `pip install numpy`.
+    freezeOutput = 'numpy==1.26.4\nsqlparse==0.5.5\n';
+    setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS);
+    expect(venvBuilds()).toBe(2);
+  });
+
+  it('ignores the editable install of the task repo, whose version follows the checkout', () => {
+    freezeOutput = '-e file:///tmp/swe-repo-pytest\nsqlparse==0.5.5\n';
+    setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS);
+    freezeOutput = 'pytest @ file:///tmp/swe-repo-pytest\nsqlparse==0.5.5\n';
+    setupTaskEnv('django/django', '3.0', repo, cache, SEED_SPECS);
+    expect(venvBuilds()).toBe(1);
+  });
+
+  it('normalizedFreeze drops editables and comments, and ignores order, case and line endings', () => {
+    expect(normalizedFreeze('# note\r\nSqlparse==0.5.5\r\n-e .\r\nDjango==3.0\r\nx @ file:///r\r\n')).toBe(
+      'django==3.0\nsqlparse==0.5.5',
+    );
   });
 });

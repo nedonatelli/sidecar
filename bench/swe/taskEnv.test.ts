@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import {
   editableTarget,
   ensurePython3Alias,
+  isMissingBuildEditable,
   pythonForUv,
   setupPyPins,
   setupTaskEnv,
@@ -78,6 +79,27 @@ describe('editableTarget (#216)', () => {
     expect(editableTarget('python -m pip install -e .')).toBe('.');
     expect(editableTarget('python -m pip install .')).toBe('.');
     expect(editableTarget(undefined)).toBe('.');
+  });
+});
+
+describe('isMissingBuildEditable', () => {
+  // uv's message for pylint-7114 (pyproject.toml pins setuptools~=62.6).
+  const uvMessage =
+    'Command failed: uv pip install --python python.exe -e .\n' +
+    '  ╰─▶ Call to `setuptools.build_meta.build_editable` failed (exit code: 1)\n' +
+    "      AttributeError: module 'setuptools.build_meta' has no attribute\n      'build_editable'\n";
+
+  it('matches the old-setuptools failure in the message or in stderr', () => {
+    expect(isMissingBuildEditable(new Error(uvMessage))).toBe(true);
+    expect(isMissingBuildEditable(Object.assign(new Error('Command failed'), { stderr: Buffer.from(uvMessage) }))).toBe(
+      true,
+    );
+  });
+
+  it('leaves other install failures alone', () => {
+    expect(isMissingBuildEditable(new Error('No solution found when resolving dependencies'))).toBe(false);
+    expect(isMissingBuildEditable(new Error('Call to `setuptools.build_meta.build_editable` failed'))).toBe(false);
+    expect(isMissingBuildEditable('has no attribute build_editable')).toBe(false);
   });
 });
 

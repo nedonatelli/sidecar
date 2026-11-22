@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { stubLoopState, stubCallbacks } from './testHelpers.js';
 import { finalize, buildRunFailureSignals } from './finalize.js';
+import { classifyFailureBucket } from '../failureTaxonomy.js';
 import { createGateState } from '../completionGate.js';
 import type { LoopState } from './state.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
@@ -314,5 +315,45 @@ describe('buildRunFailureSignals', () => {
     gateState.gateInjections = 2;
     const state = stubLoopState({ termination: 'natural', gateState });
     expect(buildRunFailureSignals(state).gateExhausted).toBe(false);
+  });
+});
+
+// #271: every termination value maps to a bucket on purpose, and one added
+// later without a mapping fails here instead of falling through silently.
+describe('buildRunFailureSignals — every termination value has a bucket', () => {
+  type Termination = NonNullable<LoopState['termination']>;
+  const expected: Record<Termination | 'unset', ReturnType<typeof classifyFailureBucket>> = {
+    natural: null,
+    aborted: null,
+    'out-of-resources': 'timeout',
+    'max-iterations': 'timeout',
+    stuck: 'loop-stopped',
+    error: 'infra',
+    unset: 'bad-reasoning',
+  };
+
+  it.each(Object.entries(expected))('%s -> %s', (termination, bucket) => {
+    const state = stubLoopState({
+      termination: termination === 'unset' ? undefined : (termination as Termination),
+      terminationError: termination === 'error' ? 'OpenAI API request failed: 502 ' : undefined,
+      gateState: createGateState(),
+    });
+    expect(classifyFailureBucket(buildRunFailureSignals(state))).toBe(bucket);
+  });
+
+  it('passes the error message through, so model-side errors keep their bucket', () => {
+    const state = stubLoopState({
+      termination: 'error',
+      terminationError: 'Ollama error: XML syntax error on line 11: unexpected EOF',
+      gateState: createGateState(),
+    });
+    expect(buildRunFailureSignals(state).runError).toBe('Ollama error: XML syntax error on line 11: unexpected EOF');
+    expect(classifyFailureBucket(buildRunFailureSignals(state))).toBe('malformed-call');
+  });
+
+  it('a run that did not end on an error carries no runError', () => {
+    expect(
+      buildRunFailureSignals(stubLoopState({ termination: 'stuck', gateState: createGateState() })).runError,
+    ).toBeUndefined();
   });
 });
