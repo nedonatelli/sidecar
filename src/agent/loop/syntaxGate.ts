@@ -98,8 +98,15 @@ export interface SyntaxFailure {
  */
 export async function runSyntaxGate(
   editedFiles: readonly string[],
-  runCmd: (cmd: string) => Promise<{ exitCode: number; output: string }>,
+  runCmd: (cmd: string) => Promise<{ exitCode: number; output: string; timedOut?: boolean }>,
   readFile?: (file: string) => Promise<string | null>,
+  /**
+   * Filled with the files a check actually parsed and found clean (#473): the
+   * in-process parser checked it, or a shell checker ran to the end. A file
+   * that was skipped (no grammar, unreadable, no interpreter, timed out) is not
+   * in it, so it can't stand in for a lint run.
+   */
+  parsedClean?: Set<string>,
 ): Promise<SyntaxFailure[]> {
   const failures: SyntaxFailure[] = [];
 
@@ -115,6 +122,7 @@ export async function runSyntaxGate(
       const content = await readFile(file).catch(() => null);
       if (content === null) continue;
       const result = await checkSyntax(file, content);
+      if (result.checked && !result.broken) parsedClean?.add(file);
       if (!result.checked || !result.broken) continue;
       const where = result.firstErrorLine ? ` at line ${result.firstErrorLine}` : '';
       failures.push({
@@ -131,7 +139,7 @@ export async function runSyntaxGate(
     if (failures.some((f) => f.file === file)) continue; // already reported in-process
     const cmd = parseCheckCommand(file);
     if (!cmd) continue;
-    const { exitCode, output } = await runCmd(cmd);
+    const { exitCode, output, timedOut } = await runCmd(cmd);
     // The fire decision rests SOLELY on positive syntax-error evidence in the
     // output — never on the exit code. The shell session's exit code is
     // unreliable in both directions: it has reported nonzero on a command that
@@ -141,7 +149,10 @@ export async function runSyntaxGate(
     // SyntaxError/IndentationError/TabError marker is present iff the code
     // truly fails to parse, so evidence alone is both necessary and sufficient.
     if (isCheckerUnavailable(exitCode, output)) continue;
-    if (!hasSyntaxErrorEvidence(output)) continue;
+    if (!hasSyntaxErrorEvidence(output)) {
+      if (!timedOut) parsedClean?.add(file);
+      continue;
+    }
     failures.push({ file, output: output.trim().slice(0, 800) });
   }
   return failures;

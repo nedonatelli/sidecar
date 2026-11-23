@@ -30,6 +30,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The completion gate no longer credits a test or lint run that never ran**
+  ([#471](https://github.com/nedonatelli/sidecar/issues/471),
+  [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test
+  command started in the background, refused or timed out, ESLint redirected for Python files, and
+  `run_tests` finding no runner all used to count as a test run. Now they don't: the gate still
+  asks for a test run and names a collection error as an environment problem rather than one to
+  fix in code. When no test runner exists, the test demand is dropped.
 - **Scratch cleanup moves a helper script that only another scratch script uses**
   ([#511](https://github.com/nedonatelli/sidecar/issues/511)). Cleanup keeps a scratch file that
   something in the change refers to. That used to include other scratch files being moved in the
