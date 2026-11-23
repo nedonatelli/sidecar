@@ -61,6 +61,12 @@ All notable changes to the SideCar extension will be documented in this file.
   `get_diagnostics` in a Shadow Workspace or fork run now says it cannot see that run's files. It
   used to return the main workspace's diagnostics, which the completion gate counted as a lint
   run.
+- **The Bedrock region picker says when the workspace's setting overrides your choice**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The picker writes the region, FIPS
+  setting and endpoint URL to your user settings. A workspace that sets them, once you have allowed
+  it, kept winning, so a new pick changed nothing. The picker now says so and offers to remove the
+  workspace's values. It still never writes these settings into the workspace, because they decide
+  which host receives your AWS credentials.
 - **The completion gate no longer credits a test or lint run that never ran**
   ([#471](https://github.com/nedonatelli/sidecar/issues/471),
   [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test

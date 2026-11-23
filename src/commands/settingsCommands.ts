@@ -1,4 +1,4 @@
-import { window, commands, workspace, env, Uri, ExtensionContext, ProgressLocation } from 'vscode';
+import { window, commands, workspace, env, Uri, ExtensionContext, ProgressLocation, ConfigurationTarget } from 'vscode';
 import {
   getConfig,
   isLocalOllama,
@@ -22,6 +22,7 @@ import {
   removeDuckDbEngine,
 } from '../db/duckdbEngine.js';
 import { bedrockRuntimeOrigin } from '../ollama/bedrockBackend.js';
+import { trustedWorkspaceOverrides } from '../config/workspaceTrust.js';
 import type { ChatViewProvider } from '../webview/chatView.js';
 import type { SkillLoader } from '../agent/skillLoader.js';
 
@@ -96,9 +97,37 @@ export async function promptBedrockRegion(): Promise<string | undefined> {
   // Keep the displayed/used base URL in sync with the chosen region + FIPS, so
   // switching away from us-east-1 (or into GovCloud) updates it correctly.
   await cfg.update('baseUrl', baseUrl, true);
+
+  // These keys decide which host gets the AWS credentials, so they are never
+  // written into workspace settings. A workspace value the user allowed still
+  // wins over the global one, though: say so, and offer to remove it (#419).
+  const overridden = trustedWorkspaceOverrides(BEDROCK_ENDPOINT_KEYS);
+  if (overridden.length > 0) {
+    const names = overridden.map((k) => `sidecar.${k}`).join(', ');
+    const REMOVE = 'Remove workspace values';
+    const choice = await window.showWarningMessage(
+      `SideCar: this workspace sets ${names}, which override${overridden.length === 1 ? 's' : ''} your choice. ` +
+        `Bedrock keeps using the workspace's value${overridden.length === 1 ? '' : 's'} until ` +
+        `${overridden.length === 1 ? 'it is' : 'they are'} removed.`,
+      REMOVE,
+    );
+    if (choice === REMOVE) {
+      for (const key of overridden) {
+        const i = cfg.inspect(key);
+        if (i?.workspaceFolderValue !== undefined)
+          await cfg.update(key, undefined, ConfigurationTarget.WorkspaceFolder);
+        if (i?.workspaceValue !== undefined) await cfg.update(key, undefined, ConfigurationTarget.Workspace);
+      }
+      window.showInformationMessage(`SideCar: Bedrock set to ${region}${fips ? ' (FIPS)' : ''} — ${baseUrl}`);
+    }
+    return region;
+  }
   window.showInformationMessage(`SideCar: Bedrock set to ${region}${fips ? ' (FIPS)' : ''} — ${baseUrl}`);
   return region;
 }
+
+/** The settings promptBedrockRegion writes: together they make the Bedrock endpoint. */
+const BEDROCK_ENDPOINT_KEYS = ['bedrock.region', 'bedrock.fips', 'baseUrl'] as const;
 
 /** Returns an error message for an unusable endpoint URL, or undefined when it is fine. */
 export function validateEndpointUrl(value: string): string | undefined {
