@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { languages, Uri } from 'vscode';
+import * as nodePath from 'path';
 import { getDiagnostics } from './diagnostics.js';
+import { getRoot } from './shared.js';
 
 vi.mock('../securityScanner.js', () => ({
   scanFile: vi.fn().mockResolvedValue([]),
@@ -72,5 +74,25 @@ describe('getDiagnostics', () => {
 describe('get_diagnostics follows the read rules', () => {
   it.each(['../outside/creds.ts', '.env', 'certs/server.pem'])('refuses %s', async (path) => {
     await expect(getDiagnostics({ path })).rejects.toThrow(/traversal|credential|outside the workspace/);
+  });
+});
+
+// #476: a shadow or fork run read the main workspace's diagnostics for its own
+// files, and the completion gate credited that as a lint run.
+describe('get_diagnostics in a run with its own working tree', () => {
+  it('refuses when the run works outside the workspace root', async () => {
+    const getDiags = vi.spyOn(languages, 'getDiagnostics').mockReturnValue([]);
+    getDiags.mockClear();
+    const elsewhere = nodePath.resolve(getRoot(), '..', 'shadow-worktree');
+    await expect(getDiagnostics({ path: 'src/app.ts' }, { cwd: elsewhere } as never)).rejects.toThrow(
+      /not this run's working tree/,
+    );
+    expect(getDiags).not.toHaveBeenCalled();
+  });
+
+  it('reads them when the run works at the workspace root, as a SWE run does', async () => {
+    vi.spyOn(languages, 'getDiagnostics').mockReturnValue([]);
+    const result = await getDiagnostics({ path: 'src/app.ts' }, { cwd: getRoot() } as never);
+    expect(result).toContain('No diagnostics reported');
   });
 });

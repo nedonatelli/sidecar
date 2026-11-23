@@ -61,28 +61,25 @@ const RETURNED_FAILED_TO = /return\s*\(?\s*[`'"]Failed to\b/;
  * (the loop believes work happened / tests ran), and least harmful on read-only
  * query tools, where the model simply sees the message and retries.
  *
- * Cleared so far: fs.ts, git.ts, shell.ts, shared.ts (path validation).
- * Next by risk: database.ts (db_execute / db_migrate_up mutate), docTests.ts and
- * mutationTest.ts / propertyTest.ts (verification evidence), latex.ts, plan.ts.
+ * Cleared so far: fs.ts, git.ts, shell.ts, shared.ts (path validation), database.ts,
+ * mutationTest.ts and research.ts (#476).
+ * Next by risk: docTests.ts and propertyTest.ts (verification evidence), latex.ts, plan.ts.
  */
 const KNOWN_DEBT = new Set([
   'citation.ts',
   'codeGraphQuery.ts',
-  'database.ts',
   'docTests.ts',
   'history.ts',
   'impact.ts',
   'kickstand.ts',
   'knowledge.ts',
   'latex.ts',
-  'mutationTest.ts',
   'notebook.ts',
   'pdf.ts',
   'plan.ts',
   'profiling.ts',
   'projectKnowledge.ts',
   'propertyTest.ts',
-  'research.ts',
   'search.ts',
   'settings.ts',
   'vision.ts',

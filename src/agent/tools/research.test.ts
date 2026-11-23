@@ -71,11 +71,11 @@ describe('researchTools', () => {
       expect(result).toContain('research_add_hypothesis');
     });
 
-    it('returns error message on store failure', async () => {
+    it('throws on store failure', async () => {
       vi.mocked(store.createProject).mockRejectedValueOnce(new Error('disk full'));
-      const result = await findTool('research_create_project').executor({ title: 'T', question: 'Q?' });
-      expect(result).toContain('Error creating project');
-      expect(result).toContain('disk full');
+      await expect(findTool('research_create_project').executor({ title: 'T', question: 'Q?' })).rejects.toThrow(
+        /Could not create project: disk full/,
+      );
     });
   });
 
@@ -250,11 +250,11 @@ describe('researchTools', () => {
       expect(result).toContain('not found');
     });
 
-    it('returns error message on store failure', async () => {
+    it('throws on store failure', async () => {
       vi.mocked(store.generateReport).mockRejectedValueOnce(new Error('disk full'));
-      const result = await findTool('research_export_report').executor({ project: 'proj' });
-      expect(result).toContain('Error generating report');
-      expect(result).toContain('disk full');
+      await expect(findTool('research_export_report').executor({ project: 'proj' })).rejects.toThrow(
+        /Could not generate report: disk full/,
+      );
     });
   });
 
@@ -292,6 +292,29 @@ describe('researchTools', () => {
       });
       expect(result).toContain('missing');
       expect(result).toContain('not found');
+    });
+  });
+
+  describe('research_log_experiment (#476)', () => {
+    let store: ReturnType<typeof makeStore>;
+
+    beforeEach(() => {
+      store = makeStore();
+      setResearchStore(store);
+    });
+
+    it('throws, with the output, when the finished experiment cannot be saved', async () => {
+      vi.mocked(store.loadProject).mockResolvedValueOnce({ slug: 'proj' } as never);
+      vi.mocked(store.logExperiment)
+        .mockResolvedValueOnce(undefined as never)
+        .mockRejectedValueOnce(new Error('disk full'));
+      const execute = vi.fn(async () => ({ exitCode: 0, stdout: 'acc=0.91\n' }));
+      const context = { toolRuntime: { getShellSession: () => ({ execute }) } } as never;
+
+      await expect(
+        findTool('research_log_experiment').executor({ project: 'proj', id: 'e1', command: 'python run.py' }, context),
+      ).rejects.toThrow(/e1.*ran \(exit code 0\) but its result was not saved.*disk full[\s\S]*acc=0\.91/);
+      expect(execute).toHaveBeenCalledOnce();
     });
   });
 

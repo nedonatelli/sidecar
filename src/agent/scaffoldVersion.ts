@@ -85,6 +85,11 @@
  *   shell or background command exited, so a reused group id no longer gets
  *   an unrelated group killed (#422). PATCH. No recorded run shows a reuse.
  *   Not canaried.
+ * - **7.0.47** (2026-11) — tool failures that returned as ordinary results
+ *   throw (database, mutation_test, research_*, git_commit with nothing
+ *   staged, git_stash), and get_diagnostics refuses in a shadow or fork run
+ *   whose cwd is not the workspace root (#476). PATCH. None of these tools is
+ *   in the SWE catalog; SWE cwd is the root. Not canaried.
  * - **7.0.46** (2026-11) — the completion gate gives no credit for a test
  *   or lint call that never ran (collection crash, background, refused,
  *   timed out, redirected, no runner); one predicate, `checkDidNotRun`
