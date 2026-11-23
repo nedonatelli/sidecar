@@ -28,18 +28,21 @@ export interface DecisionFile {
 export type AgentDecision =
   | {
       kind: 'completion_gate';
-      /** 'fired' = injected a reprompt; 'exhausted' = budget spent, termination allowed. */
-      action: 'fired' | 'exhausted';
+      /** 'fired' = injected a reprompt; 'exhausted' = budget spent, termination allowed;
+       *  'waived' = findings dropped as unmeetable or not worth meeting (#505). */
+      action: 'fired' | 'exhausted' | 'waived';
       attempt?: number;
       max?: number;
       /**
        * Finding kinds that triggered this firing (e.g. 'needsTestRun',
        * 'needsLint', 'noRead'). THE POINT OF THIS MODULE: without these an
        * experiment on a new finding cannot tell "my trigger never fired" from
-       * "my trigger fired and did not help".
+       * "my trigger fired and did not help". On 'waived', the kinds dropped.
        */
       findings?: string[];
       files?: string[];
+      /** On 'waived': whether run_command or run_tests could still run. */
+      commandsCanRun?: boolean;
     }
   | {
       kind: 'red_check_gate';
@@ -197,7 +200,11 @@ export function summarizeDecisions(decisions: readonly AgentDecision[]): Record<
       continue;
     }
     bump(`${d.kind}.${d.action}`);
-    if (d.kind === 'completion_gate') for (const f of d.findings ?? []) bump(`completion_gate.finding.${f}`);
+    if (d.kind === 'completion_gate') {
+      // Waived kinds are counted apart, so finding.* still counts what fired.
+      const bucket = d.action === 'waived' ? 'waived' : 'finding';
+      for (const f of d.findings ?? []) bump(`completion_gate.${bucket}.${f}`);
+    }
     if (d.kind === 'tool_budget') bump(`tool_budget.tool.${d.tool}`);
     if (d.kind === 'reprompt') bump(`reprompt.source.${d.source}`);
     if (d.kind === 'keep_best_ratchet' && d.action === 'reverted' && d.reason) {
