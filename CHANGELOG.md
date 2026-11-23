@@ -14,6 +14,24 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Stopping a Git Bash shell on Windows can no longer kill an unrelated program's processes**
+  ([#422](https://github.com/nedonatelli/sidecar/issues/422)). SideCar remembers the MSYS process
+  group each Git Bash shell and background command leads, and kills that group when the session
+  ends, so a script's leftovers don't keep running. Once a shell had exited, its group id could be
+  handed to another program before the cleanup ran. The cleanup now kills only processes that
+  started before the shell exited.
+- **More tools report a failure as an error instead of an ordinary result**
+  ([#476](https://github.com/nedonatelli/sidecar/issues/476)). A model reading these results took
+  the failed operation as done:
+  - the database tools: failed connections, queries and migrations, and missing arguments;
+  - `mutation_test` failing to run;
+  - `git_commit` with nothing staged, and `git_stash` with an unknown action;
+  - `research_log_experiment` when the finished experiment could not be saved (the error includes
+    the run's output).
+
+  `get_diagnostics` in a Shadow Workspace or fork run now says it cannot see that run's files. It
+  used to return the main workspace's diagnostics, which the completion gate counted as a lint
+  run.
 - **The completion gate no longer credits a test or lint run that never ran**
   ([#471](https://github.com/nedonatelli/sidecar/issues/471),
   [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test

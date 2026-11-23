@@ -40,6 +40,42 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.48 — MSYS group cleanup leaves a reused group id alone (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.46 and 7.0.47, noting the patch.
+
+- **What changed** (#422): on Windows with Git Bash, `ShellSession` notes
+  when a tracked shell or background command exits and passes that time to
+  `killMsysProcessGroup` as `leaderExitedAt`. Members that started more than
+  a second after it, or whose start time `ps -l` can't give, are skipped: the
+  group id was reused by another program after the exit. A group led by a
+  live shell is killed as before.
+- **Eval impact:** none expected. It changes only which processes are killed
+  after a group id is reused, which no recorded run shows.
+- **Measured:** not canaried. Unit tests cover a reused id, a live leader, an
+  unreadable start time and the `STIME` parsing.
+
+### 7.0.47 — tool failures come back as errors; get_diagnostics refuses outside the workspace root (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.46, noting the patch.
+
+- **What changed** (#476): failures that came back as ordinary results
+  (`is_error` false) now throw, so the model sees an error. That covers every
+  failure path of the database tools, `mutation_test`, the `research_*`
+  store, `git_commit` with nothing staged and `git_stash` with an unknown
+  action. `research_log_experiment` no longer reports an experiment as logged
+  when its final save failed. `get_diagnostics` refuses when the run's `cwd`
+  is not the workspace root (a shadow or fork run): it used to read the main
+  workspace's cached diagnostics, and the completion gate credited that as a
+  lint run.
+- **Eval impact:** none expected on SWE-bench. None of these tools is in the
+  SWE catalog, and a SWE run's `cwd` is the workspace root, so
+  `get_diagnostics` behaves as before.
+- **Measured:** not canaried. Unit tests cover each error path, the failed
+  final save, and `get_diagnostics` in and out of the root.
+
 ### 7.0.46 — the completion gate gives no credit for checks that never ran (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

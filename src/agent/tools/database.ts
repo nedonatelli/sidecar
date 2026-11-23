@@ -109,23 +109,23 @@ function defaultPort(dialect: string): number {
 async function dbListTables(input: Record<string, unknown>): Promise<string> {
   const connectionId = input.connection_id as string | undefined;
   const schema = input.schema as string | undefined;
-  if (!connectionId) return 'Error: connection_id is required';
+  if (!connectionId) throw new Error('connection_id is required');
 
   const profile = findProfile(connectionId);
-  if (!profile) return `Error: no database profile found with id "${connectionId}"`;
+  if (!profile) throw new Error(`no database profile found with id "${connectionId}"`);
 
   let provider;
   try {
     provider = await connectProfile(profile);
   } catch (err) {
-    return `Error connecting to "${profile.name}": ${String(err)}`;
+    throw new Error(`Could not connect to "${profile.name}": ${errText(err)}`);
   }
 
   let tables;
   try {
     tables = await provider.listTables(schema);
   } catch (err) {
-    return `Error listing tables: ${String(err)}`;
+    throw new Error(`Could not list tables: ${errText(err)}`);
   }
 
   if (tables.length === 0) return `No tables found in ${profile.name}${schema ? ` (schema: ${schema})` : ''}`;
@@ -147,24 +147,24 @@ async function dbDescribeTable(input: Record<string, unknown>): Promise<string> 
   const connectionId = input.connection_id as string | undefined;
   const table = input.table as string | undefined;
   const schema = input.schema as string | undefined;
-  if (!connectionId) return 'Error: connection_id is required';
-  if (!table) return 'Error: table is required';
+  if (!connectionId) throw new Error('connection_id is required');
+  if (!table) throw new Error('table is required');
 
   const profile = findProfile(connectionId);
-  if (!profile) return `Error: no database profile found with id "${connectionId}"`;
+  if (!profile) throw new Error(`no database profile found with id "${connectionId}"`);
 
   let provider;
   try {
     provider = await connectProfile(profile);
   } catch (err) {
-    return `Error connecting to "${profile.name}": ${String(err)}`;
+    throw new Error(`Could not connect to "${profile.name}": ${errText(err)}`);
   }
 
   let desc;
   try {
     desc = await provider.describeTable(table, schema);
   } catch (err) {
-    return `Error describing table: ${String(err)}`;
+    throw new Error(`Could not describe table: ${errText(err)}`);
   }
 
   const colLines = desc.columns.map((c) => {
@@ -210,8 +210,8 @@ async function dbQuery(
       ? Math.min(input.timeout_ms, config.databaseQueryTimeoutMs)
       : config.databaseQueryTimeoutMs;
 
-  if (!connectionId) return 'Error: connection_id is required';
-  if (!sql) return 'Error: sql is required';
+  if (!connectionId) throw new Error('connection_id is required');
+  if (!sql) throw new Error('sql is required');
 
   // db_query is always read-only regardless of connection profile — enforce
   // this at the tool tier so read-write connections can't be used as a
@@ -219,24 +219,24 @@ async function dbQuery(
   try {
     assertReadOnly(sql);
   } catch (err) {
-    return `Error: ${err instanceof Error ? err.message : String(err)}`;
+    throw new Error(errText(err));
   }
 
   const profile = findProfile(connectionId, config);
-  if (!profile) return `Error: no database profile found with id "${connectionId}"`;
+  if (!profile) throw new Error(`no database profile found with id "${connectionId}"`);
 
   let provider;
   try {
     provider = await connectProfile(profile);
   } catch (err) {
-    return `Error connecting to "${profile.name}": ${String(err)}`;
+    throw new Error(`Could not connect to "${profile.name}": ${errText(err)}`);
   }
 
   let result: QueryResult;
   try {
     result = await provider.query(sql, params, { limit, timeoutMs, readOnly: true });
   } catch (err) {
-    return `Error: ${String(err)}`;
+    throw new Error(errText(err));
   }
 
   if (result.columns.length === 0 || result.rows.length === 0) {
@@ -258,15 +258,15 @@ async function dbExecute(
   const sql = input.sql as string | undefined;
   const params = Array.isArray(input.params) ? (input.params as unknown[]) : [];
 
-  if (!connectionId) return 'Error: connection_id is required';
-  if (!sql) return 'Error: sql is required';
+  if (!connectionId) throw new Error('connection_id is required');
+  if (!sql) throw new Error('sql is required');
 
   const cfg = context?.config ?? getConfig();
   const profile = findProfile(connectionId, cfg);
-  if (!profile) return `Error: no database profile found with id "${connectionId}"`;
+  if (!profile) throw new Error(`no database profile found with id "${connectionId}"`);
 
   if (profile.readOnly !== false) {
-    return `Error: connection "${profile.name}" is read-only. Set "readOnly: false" in the profile to allow writes.`;
+    throw new Error(`connection "${profile.name}" is read-only. Set "readOnly: false" in the profile to allow writes.`);
   }
 
   // Audit Mode: the statement is NOT run. It is buffered as a .sql file so it
@@ -294,7 +294,7 @@ async function dbExecute(
   try {
     provider = await connectProfile(profile);
   } catch (err) {
-    return `Error connecting to "${profile.name}": ${String(err)}`;
+    throw new Error(`Could not connect to "${profile.name}": ${errText(err)}`);
   }
 
   let result: QueryResult;
@@ -303,7 +303,7 @@ async function dbExecute(
     // comes back separately in rowsAffected.
     result = await provider.query(sql, params, { limit: cfg.databaseQueryRowLimit });
   } catch (err) {
-    return `Error: ${String(err)}`;
+    throw new Error(errText(err));
   }
 
   // A RETURNING clause's rows: one per changed row.
@@ -324,7 +324,7 @@ interface MigrationConfig {
   args: string[];
 }
 
-function buildMigrationConfig(tool: MigrationTool, migrationDir: string, customCmd?: string): MigrationConfig | string {
+function buildMigrationConfig(tool: MigrationTool, migrationDir: string, customCmd?: string): MigrationConfig {
   switch (tool) {
     case 'prisma':
       return {
@@ -338,11 +338,11 @@ function buildMigrationConfig(tool: MigrationTool, migrationDir: string, customC
     case 'drizzle':
       return { bin: 'npx', args: ['drizzle-kit', 'migrate'] };
     case 'custom':
-      if (!customCmd) return 'Error: custom_command is required when tool is "custom"';
+      if (!customCmd) throw new Error('custom_command is required when tool is "custom"');
       // Split safely — no shell invocation
       return { bin: customCmd.split(' ')[0] ?? '', args: customCmd.split(' ').slice(1) };
     default:
-      return `Error: unsupported migration tool "${tool}"`;
+      throw new Error(`unsupported migration tool "${tool}"`);
   }
 }
 
@@ -353,16 +353,15 @@ async function dbMigrateUp(input: Record<string, unknown>): Promise<string> {
   const customCmd = input.custom_command as string | undefined;
   const dryRun = input.dry_run === true;
 
-  if (!connectionId) return 'Error: connection_id is required';
+  if (!connectionId) throw new Error('connection_id is required');
 
   const profile = findProfile(connectionId);
-  if (!profile) return `Error: no database profile found with id "${connectionId}"`;
+  if (!profile) throw new Error(`no database profile found with id "${connectionId}"`);
 
   const cwd = getRoot();
   const resolvedDir = path.isAbsolute(migrationDir) ? migrationDir : path.join(cwd, migrationDir);
 
   const cfg = buildMigrationConfig(toolRaw as MigrationTool, resolvedDir, customCmd);
-  if (typeof cfg === 'string') return cfg;
 
   const { bin, args } = cfg;
   const displayCmd = [bin, ...args].join(' ');
@@ -382,13 +381,18 @@ async function dbMigrateUp(input: Record<string, unknown>): Promise<string> {
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; message?: string };
     const output = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n').trim();
-    return `Migration failed: ${output}`;
+    throw new Error(`Migration failed: ${output}`);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** An error's own message, without the `Error: ` that String(err) adds; the executor adds its own. */
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 /**
  * Connect with the profile's stored password (#364). A network database that

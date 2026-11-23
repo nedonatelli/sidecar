@@ -168,10 +168,9 @@ describe('GitCLI', () => {
     expect(firstCall).toContain('-A');
   });
 
-  it('commit returns nothing-to-commit when no staged changes', async () => {
+  it('commit throws nothing-to-commit when no staged changes (#476)', async () => {
     mockGitOutput('');
-    const result = await git.commit('test commit');
-    expect(result).toContain('Nothing to commit');
+    await expect(git.commit('test commit')).rejects.toThrow(/Nothing to commit/);
   });
 
   it('commit succeeds with staged changes', async () => {
@@ -359,9 +358,8 @@ describe('GitCLI', () => {
     expect(result).toBe('Stash dropped.');
   });
 
-  it('stash unknown action', async () => {
-    const result = await git.stash('invalid');
-    expect(result).toContain('Unknown stash action');
+  it('stash unknown action throws (#476)', async () => {
+    await expect(git.stash('invalid')).rejects.toThrow(/Unknown stash action/);
   });
 
   it('throws descriptive error when git not found', async () => {
