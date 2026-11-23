@@ -14,6 +14,13 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **SideCar's tools in Copilot Chat declare their arguments and can be picked with `#`**
+  ([#495](https://github.com/nedonatelli/sidecar/issues/495)). The 11 tools SideCar offers through
+  VS Code's language model tool API had no input schema, so a calling model had to guess argument
+  names. Each now declares the schema SideCar's own agent uses, generated from the same definitions
+  and checked by a test. Each also has a `#` reference name, so it shows in the tool picker. A path
+  argument can be absolute as long as it is inside the workspace; it is converted to the relative
+  path SideCar's file tools expect.
 - **The completion gate no longer credits a test or lint run that never ran**
   ([#471](https://github.com/nedonatelli/sidecar/issues/471),
   [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test
