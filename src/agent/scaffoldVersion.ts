@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.48** (2026-11) — on Windows/Git Bash the MSYS process-group
+ *   cleanup skips members that started more than a second after a tracked
+ *   shell or background command exited, so a reused group id no longer gets
+ *   an unrelated group killed (#422). PATCH. No recorded run shows a reuse.
+ *   Not canaried.
  * - **7.0.47** (2026-11) — tool failures that returned as ordinary results
  *   throw (database, mutation_test, research_*, git_commit with nothing
  *   staged, git_stash), and get_diagnostics refuses in a shadow or fork run
@@ -556,7 +561,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.47';
+export const SCAFFOLD_VERSION = '7.0.48';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */
