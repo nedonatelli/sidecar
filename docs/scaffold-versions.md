@@ -40,6 +40,22 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.48 — MSYS group cleanup leaves a reused group id alone (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.46 and 7.0.47, noting the patch.
+
+- **What changed** (#422): on Windows with Git Bash, `ShellSession` notes
+  when a tracked shell or background command exits and passes that time to
+  `killMsysProcessGroup` as `leaderExitedAt`. Members that started more than
+  a second after it, or whose start time `ps -l` can't give, are skipped: the
+  group id was reused by another program after the exit. A group led by a
+  live shell is killed as before.
+- **Eval impact:** none expected. It changes only which processes are killed
+  after a group id is reused, which no recorded run shows.
+- **Measured:** not canaried. Unit tests cover a reused id, a live leader, an
+  unreadable start time and the `STIME` parsing.
+
 ### 7.0.46 — the completion gate gives no credit for checks that never ran (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

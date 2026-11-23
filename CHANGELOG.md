@@ -14,6 +14,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **Stopping a Git Bash shell on Windows can no longer kill an unrelated program's processes**
+  ([#422](https://github.com/nedonatelli/sidecar/issues/422)). SideCar remembers the MSYS process
+  group each Git Bash shell and background command leads, and kills that group when the session
+  ends, so a script's leftovers don't keep running. Once a shell had exited, its group id could be
+  handed to another program before the cleanup ran. The cleanup now kills only processes that
+  started before the shell exited.
 - **The completion gate no longer credits a test or lint run that never ran**
   ([#471](https://github.com/nedonatelli/sidecar/issues/471),
   [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test

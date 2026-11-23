@@ -80,6 +80,11 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.48** (2026-11) — on Windows/Git Bash the MSYS process-group
+ *   cleanup skips members that started more than a second after a tracked
+ *   shell or background command exited, so a reused group id no longer gets
+ *   an unrelated group killed (#422). PATCH. No recorded run shows a reuse.
+ *   Not canaried.
  * - **7.0.46** (2026-11) — the completion gate gives no credit for a test
  *   or lint call that never ran (collection crash, background, refused,
  *   timed out, redirected, no runner); one predicate, `checkDidNotRun`
@@ -551,7 +556,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.46';
+export const SCAFFOLD_VERSION = '7.0.48';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

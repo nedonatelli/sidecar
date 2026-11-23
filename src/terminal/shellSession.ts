@@ -219,6 +219,8 @@ export class ShellSession {
    *  session spawned writes its MSYS PID to. See killMsysGroup. */
   private msysPs: string | undefined;
   private msysPidFiles = new Map<ChildProcess, string>();
+  /** When a process in msysPidFiles exited on its own: its group id may be reused after that (#422). */
+  private msysExitedAt = new Map<ChildProcess, number>();
 
   /**
    * @param sandboxEnabled  When true and on macOS, wraps shell spawns in
@@ -324,6 +326,7 @@ export class ShellSession {
     });
 
     proc.on('exit', () => {
+      if (this.msysPidFiles.has(proc)) this.msysExitedAt.set(proc, Date.now());
       if (this.proc !== proc) return;
       this.proc = null;
       this.ready = null;
@@ -779,6 +782,7 @@ export class ShellSession {
     underlying.stderr?.on('data', onData);
 
     underlying.on('exit', (code) => {
+      if (this.msysPidFiles.has(rawProc)) this.msysExitedAt.set(rawProc, Date.now());
       entry.done = true;
       entry.exitCode = code;
       underlying.stdout?.removeListener('data', onData);
@@ -879,9 +883,13 @@ export class ShellSession {
     const file = this.msysPidFiles.get(proc);
     if (!file || !this.msysPs) return;
     this.msysPidFiles.delete(proc);
+    // An exited leader's group id can be handed out again; then only members
+    // that started before it exited are ours (#422).
+    const leaderExitedAt = this.msysExitedAt.get(proc) ?? (proc.exitCode !== null ? Date.now() : undefined);
+    this.msysExitedAt.delete(proc);
     try {
       const pgid = parseInt(fs.readFileSync(file, 'utf8'), 10);
-      if (pgid > 0) killMsysProcessGroup(pgid, this.msysPs);
+      if (pgid > 0) killMsysProcessGroup(pgid, this.msysPs, undefined, undefined, { leaderExitedAt });
     } catch {
       // The shell never wrote it (killed at once); taskkill /T still runs.
     }
