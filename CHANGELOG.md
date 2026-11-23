@@ -21,6 +21,18 @@ All notable changes to the SideCar extension will be documented in this file.
   and checked by a test. Each also has a `#` reference name, so it shows in the tool picker. A path
   argument can be absolute as long as it is inside the workspace; it is converted to the relative
   path SideCar's file tools expect.
+- **More tools report a failure as an error instead of an ordinary result**
+  ([#476](https://github.com/nedonatelli/sidecar/issues/476)). A model reading these results took
+  the failed operation as done:
+  - the database tools: failed connections, queries and migrations, and missing arguments;
+  - `mutation_test` failing to run;
+  - `git_commit` with nothing staged, and `git_stash` with an unknown action;
+  - `research_log_experiment` when the finished experiment could not be saved (the error includes
+    the run's output).
+
+  `get_diagnostics` in a Shadow Workspace or fork run now says it cannot see that run's files. It
+  used to return the main workspace's diagnostics, which the completion gate counted as a lint
+  run.
 - **The completion gate no longer credits a test or lint run that never ran**
   ([#471](https://github.com/nedonatelli/sidecar/issues/471),
   [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test

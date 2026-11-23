@@ -59,7 +59,7 @@ export const researchTools: RegisteredTool[] = [
           `Use \`research_add_hypothesis(project: "${project.slug}", ...)\` to add hypotheses.`,
         ].join('\n');
       } catch (err) {
-        return `Error creating project: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not create project: ${err instanceof Error ? err.message : String(err)}`);
       }
     }) as ToolExecutor,
   },
@@ -99,7 +99,7 @@ export const researchTools: RegisteredTool[] = [
           `- **Status:** ${hypo.status}`,
         ].join('\n');
       } catch (err) {
-        return `Error adding hypothesis: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not add hypothesis: ${err instanceof Error ? err.message : String(err)}`);
       }
     }) as ToolExecutor,
   },
@@ -158,7 +158,7 @@ export const researchTools: RegisteredTool[] = [
       try {
         await getStore().logExperiment(project, manifest);
       } catch (err) {
-        return `Error initializing experiment: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not initialize experiment: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       let exitCode: number | undefined;
@@ -185,8 +185,14 @@ export const researchTools: RegisteredTool[] = [
 
       try {
         await getStore().logExperiment(project, manifest);
-      } catch {
-        // best-effort update — command already ran, return result regardless
+      } catch (err) {
+        // The command ran but the experiment was not logged (#476): an error,
+        // with what the run printed, so the model neither reruns it blindly nor
+        // takes it as recorded.
+        throw new Error(
+          `experiment \`${id}\` ran (exit code ${exitCode}) but its result was not saved to the research log: ` +
+            `${err instanceof Error ? err.message : String(err)}\n\nOutput (last 30 lines):\n${outputTail || '(no output)'}`,
+        );
       }
 
       return [
@@ -240,7 +246,7 @@ export const researchTools: RegisteredTool[] = [
           obs.note,
         ].join('\n');
       } catch (err) {
-        return `Error recording observation: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not record observation: ${err instanceof Error ? err.message : String(err)}`);
       }
     }) as ToolExecutor,
   },
@@ -289,7 +295,7 @@ export const researchTools: RegisteredTool[] = [
           `- **Status:** ${hypo.status}`,
         ].join('\n');
       } catch (err) {
-        return `Error updating hypothesis: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not update hypothesis: ${err instanceof Error ? err.message : String(err)}`);
       }
     }) as ToolExecutor,
   },
@@ -329,7 +335,7 @@ export const researchTools: RegisteredTool[] = [
 
         return [`**Research projects (${projects.length}):**`, '', ...lines].join('\n');
       } catch (err) {
-        return `Error listing projects: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not list projects: ${err instanceof Error ? err.message : String(err)}`);
       }
     }) as ToolExecutor,
   },
@@ -375,7 +381,7 @@ export const researchTools: RegisteredTool[] = [
           `- **Status:** ${updated.status}`,
         ].join('\n');
       } catch (err) {
-        return `Error updating project status: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not update project status: ${err instanceof Error ? err.message : String(err)}`);
       }
     }) as ToolExecutor,
   },
@@ -414,7 +420,7 @@ export const researchTools: RegisteredTool[] = [
           result.markdown,
         ].join('\n');
       } catch (err) {
-        return `Error generating report: ${err instanceof Error ? err.message : String(err)}`;
+        throw new Error(`Could not generate report: ${err instanceof Error ? err.message : String(err)}`);
       }
     }) as ToolExecutor,
   },
