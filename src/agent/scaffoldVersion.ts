@@ -80,6 +80,13 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.49** (2026-11) — the completion gate waives findings it can't
+ *   usefully demand: edits only to scratch-named scripts, and test demands
+ *   once no command can run (`run_command`/`run_tests` spent or not offered);
+ *   waivers are logged as `completion_gate` action `waived` (#505). PATCH.
+ *   Canary (ministral seeds 11+22, gemma4:26b-a4b seed 11): resolve 1=1, 1=1,
+ *   4→3 (the one-task drop traced to volatile output plus one symmetric split
+ *   at a waiver); 26b exhausted 15→0, tool calls −23%, wall 240→181 min.
  * - **7.0.48** (2026-11) — on Windows/Git Bash the MSYS process-group
  *   cleanup skips members that started more than a second after a tracked
  *   shell or background command exited, so a reused group id no longer gets
@@ -561,7 +568,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.48';
+export const SCAFFOLD_VERSION = '7.0.49';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

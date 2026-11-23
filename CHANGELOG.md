@@ -14,6 +14,12 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **The completion gate stops asking for things the agent can't usefully do**
+  ([#505](https://github.com/nedonatelli/sidecar/issues/505)). After edits only to scratch scripts
+  such as `repro.py`, it no longer asks for the project's tests. Once the agent can't run a
+  command, because `run_command` and `run_tests` are used up or not offered, it no longer asks for
+  a test run it can't make; lint checks still apply. Runs that used to loop on these demands until
+  the gate gave up now finish sooner.
 - **Stopping a Git Bash shell on Windows can no longer kill an unrelated program's processes**
   ([#422](https://github.com/nedonatelli/sidecar/issues/422)). SideCar remembers the MSYS process
   group each Git Bash shell and background command leads, and kills that group when the session
