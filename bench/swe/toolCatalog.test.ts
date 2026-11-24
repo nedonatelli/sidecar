@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { getToolDefinitionsForTier } from '../../src/agent/tools.js';
+import { findTool, getToolDefinitionsForTier } from '../../src/agent/tools.js';
 import { getConfig } from '../../src/config/settings.js';
-import { sweToolCatalog, SWE_EXCLUDED_TOOLS } from './toolCatalog.js';
+import { ShellRootGuard, shellGuardTools } from './shellGuard.js';
+import { stableOutputTools } from './stableToolOutput.js';
+import { offeredToolFinder, sweToolCatalog, SWE_EXCLUDED_TOOLS } from './toolCatalog.js';
 
 describe('sweToolCatalog', () => {
   const product = getToolDefinitionsForTier('full', undefined, getConfig());
@@ -51,5 +53,26 @@ describe('sweToolCatalog', () => {
       [...SWE_EXCLUDED_TOOLS.keys()].filter((n) => product.some((t) => t.name === n)).length,
     );
     for (const reason of SWE_EXCLUDED_TOOLS.values()) expect(reason.length).toBeGreaterThan(40);
+  });
+});
+
+// #484: the wrappers looked tools up in the full registry, and an extraTool
+// passes the loop's catalog gate, so removed tools ran anyway.
+describe('offeredToolFinder', () => {
+  const cfg = getConfig();
+  const swe = sweToolCatalog(getToolDefinitionsForTier('full', undefined, cfg));
+  const find = offeredToolFinder(swe, (name) => findTool(name, undefined, cfg));
+
+  it('finds offered tools and nothing the catalog removed', () => {
+    expect(find('run_command')).toBeDefined();
+    for (const name of SWE_EXCLUDED_TOOLS.keys()) expect(find(name), name).toBeUndefined();
+  });
+
+  it('keeps the harness wrappers from re-adding run_tests or git_commit as extraTools', () => {
+    const extra = shellGuardTools(stableOutputTools(find), find, new ShellRootGuard('/repo'));
+    const names = extra.map((t) => t.definition.name);
+    expect(names).toContain('run_command');
+    expect(names).not.toContain('run_tests');
+    expect(names).not.toContain('git_commit');
   });
 });

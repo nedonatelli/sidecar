@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { window, workspace, commands } from 'vscode';
+import { window, workspace, commands, ConfigurationTarget } from 'vscode';
 import * as settingsMod from '../config/settings.js';
+
+// #419: which sensitive keys this workspace overrides with an allowed value.
+const overrides = vi.hoisted(() => ({ keys: [] as string[] }));
+vi.mock('../config/workspaceTrust.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  trustedWorkspaceOverrides: (keys: readonly string[]) => keys.filter((k) => overrides.keys.includes(k)),
+}));
 import {
   promptBedrockRegion,
   promptCustomEndpoint,
@@ -118,6 +125,57 @@ describe('validateEndpointUrl', () => {
     expect(validateEndpointUrl('localhost:8000')).toBeDefined();
     expect(validateEndpointUrl('')).toBeDefined();
     expect(validateEndpointUrl('ftp://host')).toBeDefined();
+  });
+});
+
+describe('promptBedrockRegion with a workspace override (#419)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    overrides.keys = [];
+  });
+
+  function stubWorkspaceRegion() {
+    const update = vi.fn();
+    vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
+      get: (_key: string, def?: unknown) => def,
+      update,
+      has: () => false,
+      inspect: (key: string) => (key === 'bedrock.region' ? { workspaceValue: 'eu-west-1' } : undefined),
+    } as never);
+    vi.spyOn(window, 'showQuickPick')
+      .mockResolvedValueOnce({ label: 'us-west-2 — Oregon', region: 'us-west-2' } as never)
+      .mockResolvedValueOnce({ label: 'Standard endpoint', fips: false } as never);
+    return update;
+  }
+
+  it('still writes Global only, and warns that the workspace value wins', async () => {
+    overrides.keys = ['bedrock.region'];
+    const update = stubWorkspaceRegion();
+    const warn = vi.spyOn(window, 'showWarningMessage').mockResolvedValue(undefined as never);
+
+    expect(await promptBedrockRegion()).toBe('us-west-2');
+    expect(update).toHaveBeenCalledWith('bedrock.region', 'us-west-2', true);
+    for (const call of update.mock.calls) expect(call[2]).toBe(true);
+    expect(String(warn.mock.calls[0][0])).toContain('sidecar.bedrock.region');
+  });
+
+  it('removes the workspace value when asked', async () => {
+    overrides.keys = ['bedrock.region'];
+    const update = stubWorkspaceRegion();
+    vi.spyOn(window, 'showWarningMessage').mockResolvedValue('Remove workspace values' as never);
+
+    await promptBedrockRegion();
+    expect(update).toHaveBeenCalledWith('bedrock.region', undefined, ConfigurationTarget.Workspace);
+    expect(update).not.toHaveBeenCalledWith('bedrock.region', 'us-west-2', ConfigurationTarget.Workspace);
+  });
+
+  it('says nothing when no allowed workspace value overrides', async () => {
+    stubWorkspaceRegion();
+    // The vscode mock's showWarningMessage is a shared vi.fn, so clear earlier tests' calls.
+    const warn = vi.spyOn(window, 'showWarningMessage');
+    warn.mockClear();
+    await promptBedrockRegion();
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

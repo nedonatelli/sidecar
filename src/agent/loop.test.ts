@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, onTestFinished } from 'vitest';
-import { runAgentLoop, toolCallParseErrorDetail } from './loop.js';
+import {
+  runAgentLoop,
+  toolCallParseErrorDetail,
+  unofferedToolName,
+  isXmlToolCallParseError,
+  quotedToolName,
+} from './loop.js';
 import {
   parseTextToolCalls,
   parseTextToolCallsCleaned,
@@ -591,6 +597,98 @@ describe('runAgentLoop', () => {
     vi.restoreAllMocks();
   });
 
+  // #486: ministral-3 called web_search, which the SWE catalog removes, and
+  // Ollama ended the stream with "tool 'web_search' not found" -- 3 of 50 runs.
+  it('re-asks the model when the backend rejects a call to a tool that was not offered', async () => {
+    let calls = 0;
+    const seen: string[] = [];
+    async function* unofferedOnce(...args: unknown[]): AsyncGenerator<StreamEvent> {
+      calls++;
+      seen.push(JSON.stringify(args[0]));
+      if (calls === 1) throw new Error("Ollama error: tool 'web_search' not found");
+      yield { type: 'text', text: 'Recovered!' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    const cb = makeCallbacks();
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    await runAgentLoop(
+      makeMockClient(unofferedOnce),
+      [{ role: 'user', content: 'fix the bug' }],
+      cb,
+      new AbortController().signal,
+    );
+
+    expect(calls).toBe(2);
+    expect(cb.texts.join('')).toContain('Recovered!');
+    expect(cb.texts.join('')).toContain("called 'web_search', which this session does not offer");
+    expect(seen[0]).not.toContain('Tool not available');
+    expect(seen[1]).toContain('[Tool not available]');
+    expect(seen[1]).toContain('`web_search`');
+    vi.restoreAllMocks();
+  });
+
+  // #501: Ollama's XML tool-call parser (qwen3-coder, nemotron-3.5-lightning)
+  // fails with its own messages; those ended 7 Lite-300 runs un-retried.
+  async function runWithFirstTurnError(message: string): Promise<{ calls: number; seen: string[]; text: string }> {
+    let calls = 0;
+    const seen: string[] = [];
+    async function* failsOnce(...args: unknown[]): AsyncGenerator<StreamEvent> {
+      calls++;
+      seen.push(JSON.stringify(args[0]));
+      if (calls === 1) throw new Error(message);
+      yield { type: 'text', text: 'Recovered!' };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    const cb = makeCallbacks();
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+    await runAgentLoop(
+      makeMockClient(failsOnce),
+      [{ role: 'user', content: 'fix the bug' }],
+      cb,
+      new AbortController().signal,
+    );
+    vi.restoreAllMocks();
+    return { calls, seen, text: cb.texts.join('') };
+  }
+
+  it('re-asks after an XML tool-call parse error, without JSON escaping advice', async () => {
+    const { calls, seen, text } = await runWithFirstTurnError(
+      'Ollama error: expected element type <function> but have <parameter>',
+    );
+    expect(calls).toBe(2);
+    expect(text).toContain('Recovered!');
+    expect(seen[1]).toContain('[Tool call not parsed]');
+    expect(seen[1]).toContain('expected element type <function> but have <parameter>');
+    expect(seen[1]).toContain('close each <parameter> before you close its <function>');
+    expect(seen[1]).not.toContain('valid JSON');
+    expect(seen[1]).not.toContain('valid escapes');
+  });
+
+  it('re-asks when the model wrote prose where the tool name goes, and says so', async () => {
+    const { calls, seen } = await runWithFirstTurnError(
+      "Ollama error: tool 'Let's look at the template files to understand how the `app_list` context is used:[TOOL_CALLS]read_file' not found",
+    );
+    expect(calls).toBe(2);
+    expect(seen[1]).toContain('put text where a tool name belongs');
+    expect(seen[1]).not.toContain('[Tool not available]');
+    // The quoted name is cut at 80 characters.
+    expect(seen[1]).toContain('…');
+    expect(seen[1]).not.toContain('[TOOL_CALLS]read_file');
+  });
+
   it('gives up after the parse retries are spent', async () => {
     let calls = 0;
     async function* alwaysBad(): AsyncGenerator<StreamEvent> {
@@ -611,6 +709,41 @@ describe('runAgentLoop', () => {
       .catch(() => undefined);
 
     expect(calls).toBe(3); // the first attempt and two re-asks
+    vi.restoreAllMocks();
+  });
+
+  // #271: a run that ends on a backend error is `infra`, and one that ends on
+  // a tool call the backend could not parse is `malformed-call` -- neither is
+  // the `bad-reasoning` they used to fall through to.
+  it.each([
+    ['OpenAI API request failed: 502 ', 'infra'],
+    ['openai: EngineCore encountered an issue. See stack trace (above) for the root cause.', 'infra'],
+    ["Ollama error: invalid character '(' in string escape code", 'malformed-call'],
+  ])('reports the run that ended on "%s" as %s, and still rethrows', async (message, bucket) => {
+    async function* fails(): AsyncGenerator<StreamEvent> {
+      throw new Error(message);
+    }
+    const outcomes: unknown[] = [];
+    const cb = { ...makeCallbacks(), onOutcome: (b: unknown) => outcomes.push(b) };
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const err = await runAgentLoop(
+      makeMockClient(fails),
+      [{ role: 'user', content: 'hi' }],
+      cb,
+      new AbortController().signal,
+    )
+      .then(() => null)
+      .catch((e: Error) => e);
+
+    expect(err?.message).toBe(message);
+    expect(outcomes).toEqual([bucket]);
     vi.restoreAllMocks();
   });
 
@@ -1335,8 +1468,29 @@ describe('toolCallParseErrorDetail', () => {
       'Ollama request failed: 500 Internal Server Error — {"error":"error parsing tool call: raw=\'{...}\', err=unexpected end of JSON input"}',
       "error parsing tool call: raw='{...}', err=unexpected end of JSON input\"}",
     ],
+    // #501: the XML tool-call parser's messages, verbatim from Lite-300 runs.
+    ['Ollama error: XML syntax error on line 11: unexpected EOF', 'XML syntax error on line 11: unexpected EOF'],
+    [
+      'Ollama error: expected element type <function> but have <parameter>',
+      'expected element type <function> but have <parameter>',
+    ],
+    [
+      'Ollama error: XML syntax error on line 8: element <function> closed by </parameter>',
+      'XML syntax error on line 8: element <function> closed by </parameter>',
+    ],
+    [
+      'Ollama error: XML syntax error on line 2: unexpected end element </function>',
+      'XML syntax error on line 2: unexpected end element </function>',
+    ],
   ])('recognizes %s', (message, detail) => {
     expect(toolCallParseErrorDetail(new Error(message))).toBe(detail);
+  });
+
+  it('tells the XML forms from the JSON ones', () => {
+    expect(isXmlToolCallParseError('XML syntax error on line 11: unexpected EOF')).toBe(true);
+    expect(isXmlToolCallParseError('expected element type <function> but have <parameter>')).toBe(true);
+    expect(isXmlToolCallParseError("invalid character '(' in string escape code")).toBe(false);
+    expect(isXmlToolCallParseError('unexpected end of JSON input')).toBe(false);
   });
 
   it.each([
@@ -1345,6 +1499,35 @@ describe('toolCallParseErrorDetail', () => {
     "Anthropic error: invalid character '(' in string escape code",
   ])('ignores %s', (message) => {
     expect(toolCallParseErrorDetail(new Error(message))).toBeNull();
+  });
+});
+
+describe('unofferedToolName', () => {
+  it.each([
+    ["Ollama error: tool 'web_search' not found", 'web_search'],
+    ['Ollama request failed: 500 Internal Server Error — {"error":"tool \'run_tests\' not found"}', 'run_tests'],
+    // #501: prose in the name slot, with an apostrophe and over 100 characters.
+    [
+      "Ollama error: tool 'Let's look at the template files to understand how the `app_list` context is used:[TOOL_CALLS]read_file' not found",
+      "Let's look at the template files to understand how the `app_list` context is used:[TOOL_CALLS]read_file",
+    ],
+    [`Ollama error: tool '${'x'.repeat(150)}' not found`, 'x'.repeat(150)],
+  ])('recognizes %s', (message, name) => {
+    expect(unofferedToolName(new Error(message))).toBe(name);
+  });
+
+  it('quotes a long name cut at 80 characters, and a short one whole', () => {
+    expect(quotedToolName('web_search')).toBe('web_search');
+    expect(quotedToolName('x'.repeat(80))).toBe('x'.repeat(80));
+    expect(quotedToolName('x'.repeat(81))).toBe(`${'x'.repeat(80)}…`);
+  });
+
+  it.each([
+    "Ollama error: invalid character '(' in string escape code",
+    "Ollama error: model 'gemma4:e4b' not found",
+    "Anthropic error: tool 'web_search' not found",
+  ])('ignores %s', (message) => {
+    expect(unofferedToolName(new Error(message))).toBeNull();
   });
 });
 

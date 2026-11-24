@@ -147,15 +147,19 @@ describe('sweepTaskSurvivors', () => {
         },
       }),
     );
-    expect(calls[0]).toMatch(/^powershell .*Win32_Process.*ConvertTo-Json/);
+    expect(calls[0]).toMatch(
+      /^powershell .*OutputEncoding = \[System\.Text\.Encoding\]::UTF8; .*Win32_Process.*ConvertTo-Json/,
+    );
   });
 });
 
 // The real thing: a process orphaned by its parent's exit, naming a task root,
-// is found and killed by the default (real) listing and kill.
+// is found and killed by the default (real) listing and kill. The root's name
+// has a "→" in it, so the sleeper's own command line does: in the console code
+// page that character is a control byte, and the listing used to fail to parse.
 describe('sweepTaskSurvivors on this machine', () => {
   it('kills an orphan whose parent already exited', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'survivor-sweep-test-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'survivor-sweep-→-test-'));
     const marker = path.join(root, 'sleeper.js');
     fs.writeFileSync(marker, 'setTimeout(() => {}, 120000);');
     // The parent starts the sleeper detached and exits at once, so the sleeper's

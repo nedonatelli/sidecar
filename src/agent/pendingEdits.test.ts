@@ -139,15 +139,22 @@ describe('PendingEditStore', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('updatedAt advances across successive updates to the same file', async () => {
-    store.record('/a.ts', 'x', 'v1', 'write_file');
-    const first = store.get('/a.ts')!.updatedAt;
-    // Advance the clock one millisecond before the second record so the
-    // updatedAt delta is observable even on fast machines.
-    await new Promise((r) => setTimeout(r, 2));
-    store.record('/a.ts', null, 'v2', 'edit_file');
-    const second = store.get('/a.ts')!.updatedAt;
-    expect(second).toBeGreaterThan(first);
+  it('updatedAt advances across successive updates to the same file', () => {
+    // Set the clock rather than wait on a timer: a 2 ms setTimeout can fire
+    // before Date.now() ticks, which failed a release build on Linux CI.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(1_000);
+      store.record('/a.ts', 'x', 'v1', 'write_file');
+      const first = store.get('/a.ts')!.updatedAt;
+      vi.setSystemTime(1_005);
+      store.record('/a.ts', null, 'v2', 'edit_file');
+      const second = store.get('/a.ts')!.updatedAt;
+      expect(first).toBe(1_000);
+      expect(second).toBe(1_005);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('dispose() clears entries and releases the emitter', () => {

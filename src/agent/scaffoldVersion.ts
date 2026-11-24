@@ -80,6 +80,79 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.49** (2026-11) — the completion gate waives findings it can't
+ *   usefully demand: edits only to scratch-named scripts, and test demands
+ *   once no command can run (`run_command`/`run_tests` spent or not offered);
+ *   waivers are logged as `completion_gate` action `waived` (#505). PATCH.
+ *   Canary (ministral seeds 11+22, gemma4:26b-a4b seed 11): resolve 1=1, 1=1,
+ *   4→3 (the one-task drop traced to volatile output plus one symmetric split
+ *   at a waiver); 26b exhausted 15→0, tool calls −23%, wall 240→181 min.
+ * - **7.0.48** (2026-11) — on Windows/Git Bash the MSYS process-group
+ *   cleanup skips members that started more than a second after a tracked
+ *   shell or background command exited, so a reused group id no longer gets
+ *   an unrelated group killed (#422). PATCH. No recorded run shows a reuse.
+ *   Not canaried.
+ * - **7.0.47** (2026-11) — tool failures that returned as ordinary results
+ *   throw (database, mutation_test, research_*, git_commit with nothing
+ *   staged, git_stash), and get_diagnostics refuses in a shadow or fork run
+ *   whose cwd is not the workspace root (#476). PATCH. None of these tools is
+ *   in the SWE catalog; SWE cwd is the root. Not canaried.
+ * - **7.0.46** (2026-11) — the completion gate gives no credit for a test
+ *   or lint call that never ran (collection crash, background, refused,
+ *   timed out, redirected, no runner); one predicate, `checkDidNotRun`
+ *   (#471, #473). PATCH. Canary 130 runs/arm: resolve 27 = 27, 127/130
+ *   patches identical, `incomplete` 1→11.
+ * - **7.0.45** (2026-11) — scratch cleanup counts a reference only from a
+ *   file that stays (a fixpoint), so a helper only another scratch file
+ *   imports is moved too; `scratchCleanupOnAbort` (set by the SWE harness)
+ *   cleans a timed-out run (#511). PATCH. Lite-300: 8 runs for the fixpoint,
+ *   7 gemma4:31b timeouts with 24 leaked files. Not canaried.
+ * - **7.0.44** (2026-11) — the tool-call re-ask covers Ollama's XML parser
+ *   errors (`XML syntax error…`, `expected element type <function> but have
+ *   <parameter>`) with an XML-specific nudge, and a rejected tool "name" that
+ *   is prose (apostrophes, any length) is recognized and quoted cut to 80
+ *   characters (#501). PATCH: widens two matchers of the existing re-ask.
+ *   Lite-300: 10 runs ended on these messages. Not canaried.
+ * - **7.0.43** (2026-11) — `git_search_history` is bounded: each `git log`
+ *   has a 45 s timeout, takes the run's abort signal and runs with
+ *   GIT_NO_LAZY_FETCH, so a partial clone reports content search unavailable
+ *   instead of downloading its history. A failed search says why; if every
+ *   search failed the tool errors instead of saying "No commits found".
+ *   PATCH. Not canaried: only qwen3-coder calls the tool (0 calls in ~16k
+ *   recorded runs of other models; 3 stalls in qwen's first 25 Lite tasks).
+ * - **7.0.42** (2026-11) — the system prompt names only the tools the session
+ *   offers (`offersTool`; SWE passes its exclusion list). PATCH. Bundle canary:
+ *   e4b `run_tests` calls 31->0; red-check gate 29 firings->0 (it arms only on
+ *   `run_tests`); resolve 13% in both arms.
+ * - **7.0.41** (2026-11) — Ollama's mid-stream "tool 'x' not found" re-asks
+ *   with a `tool-not-offered` nudge instead of ending the run (shares the
+ *   parse-retry limit). PATCH. ministral-3 seed 11: not-found deaths 4->1.
+ * - **7.0.40** (2026-11) — the SWE harness's wrappers resolve tools only from
+ *   the run's catalog (`offeredToolFinder`); hidden `run_tests` / `git_commit`
+ *   stay hidden. PATCH, harness-only. Bundle canary: e4b resolve 13% both arms.
+ * - **7.0.39** (2026-11) — identical tool calls in one response run once
+ *   (`executeToolUses`, fence writes exempt). PATCH. Did not fire in the
+ *   v0.137 bundle canary; e4b resolve 13% in both arms (150 pairs, 3/3).
+ * - **7.0.38** (2026-11) — a `path` carrying the line range or a closing
+ *   quote (`x.py\`,start_line:5`) is repaired before validation, and the
+ *   path-length cap goes 80 → 240 (#509). PATCH: one more deterministic
+ *   input repair. gemma4:31b Lite-300: 25 refused calls in 137 runs; 13
+ *   refusals of a real 103-char Sphinx path across five models. Not canaried.
+ * - **7.0.37** (2026-11) — `pattern` is read as `query` for tools that take a
+ *   `query` and declare no `pattern` (git_search_history; #504). PATCH: one
+ *   entry in the existing param-synonym table. qwen3-coder Lite-300: 8 of 17
+ *   git_search_history calls sent `pattern`, all bounced. Not canaried.
+ * - **7.0.36** (2026-11) — `spawn_agent` and `delegate_task` fail when their
+ *   sub-run did not finish (#475): the loop's termination, now on `onOutcome`'s
+ *   meta, decides, and anything but a natural finish returns an error result
+ *   with the reason and the partial output. PATCH: no mechanism added or
+ *   removed. SWE runs called spawn_agent once in Lite-300 and delegate_task
+ *   never, so SWE results are unaffected.
+ * - **7.0.34** (2026-11) — a run that ends on a thrown error gets
+ *   `termination: 'error'` and the message; its failure bucket is `infra`
+ *   (new), or `malformed-call` / `loop-stopped` when the backend refused the
+ *   model's own output (#271). Infra runs are not evidence for tier learning.
+ *   PATCH: no in-run behavior changes; classification and modelPerformance do.
  * - **7.0.26** (2026-11) — a missed `edit_file` search that the run's own
  *   earlier edit replaced says so and shows what that edit wrote
  *   (`LoopState.appliedEdits`, cleared by `write_file`). PATCH. e4b SWE canary
@@ -495,7 +568,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.26';
+export const SCAFFOLD_VERSION = '7.0.49';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

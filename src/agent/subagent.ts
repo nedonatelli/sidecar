@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../ollama/types.js';
 import { SideCarClient } from '../ollama/client.js';
 import { runAgentLoop, MAX_AGENT_DEPTH, type AgentCallbacks, type AgentOptions } from './loop.js';
+import { watchSubRun, unfinishedOutput } from './subRunOutcome.js';
 
 export interface SubAgentResult {
   id: string;
@@ -46,7 +47,10 @@ export async function spawnSubAgent(
 
   let output = '';
   let charsConsumed = 0;
+  // Returning from the loop is not finishing (#475): read how it stopped.
+  const run = watchSubRun();
   const subCallbacks: AgentCallbacks = {
+    onOutcome: run.onOutcome,
     onText: (text) => {
       output += text;
     },
@@ -79,14 +83,27 @@ export async function spawnSubAgent(
     `Use tools directly to accomplish the task. Be concise in your responses.\n\n` +
     client.getSystemPrompt();
 
+  const maxIterations = Math.min(options.maxIterations || 25, 15); // Sub-agents get fewer iterations
   try {
     await runAgentLoop(client, messages, subCallbacks, signal, {
       ...options,
-      maxIterations: Math.min(options.maxIterations || 25, 15), // Sub-agents get fewer iterations
+      maxIterations,
       depth: currentDepth + 1,
       systemPromptOverride: subAgentSystemPrompt,
     });
 
+    const unfinished = run.unfinishedReason(maxIterations);
+    if (unfinished) {
+      options.logger?.warn(`Sub-agent ${id} did not finish: ${unfinished}`);
+      parentCallbacks.onText(`\n[Sub-agent ${id} did not finish: ${unfinished}]\n`);
+      return {
+        id,
+        task,
+        output: unfinishedOutput(`Sub-agent ${id}`, unfinished, output),
+        success: false,
+        charsConsumed,
+      };
+    }
     parentCallbacks.onText(`\n[Sub-agent ${id} completed]\n`);
     return { id, task, output, success: true, charsConsumed };
   } catch (err) {

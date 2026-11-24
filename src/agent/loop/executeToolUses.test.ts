@@ -723,3 +723,59 @@ describe('executeToolUses — catalog gate', () => {
     expect(results[0].is_error).toBe(true);
   });
 });
+
+// #487: one ministral-3 response held 1,167 copies of the same read_file, and
+// another 596 copies of the same test command; every copy ran.
+describe('executeToolUses — identical calls in one response', () => {
+  it('runs a repeated call once and answers each repeat without running it', async () => {
+    vi.mocked(executeTool).mockImplementation(async (tu) => ({
+      type: 'tool_result',
+      tool_use_id: tu.id,
+      content: `read ${(tu.input as { path: string }).path}`,
+      is_error: false,
+    }));
+    const cb = stubCallbacks();
+    const uses = [
+      { ...use('read_file', { path: 'a.ts', start_line: 1 }), id: 'tu-1' },
+      { ...use('read_file', { path: 'a.ts', start_line: 1 }), id: 'tu-2' },
+      { ...use('read_file', { path: 'b.ts' }), id: 'tu-3' },
+      { ...use('read_file', { path: 'a.ts', start_line: 1 }), id: 'tu-4' },
+    ];
+    const results = await executeToolUses(
+      catalogState(),
+      uses,
+      {} as SideCarClient,
+      {} as AgentOptions,
+      cb,
+      new AbortController().signal,
+    );
+
+    expect(executeTool).toHaveBeenCalledTimes(2); // a.ts once, b.ts once
+    expect(results.map((r) => r.tool_use_id)).toEqual(['tu-1', 'tu-2', 'tu-3', 'tu-4']);
+    expect(results[0].content).toBe('read a.ts');
+    expect(results[2].content).toBe('read b.ts');
+    for (const r of [results[1], results[3]]) {
+      expect(r.content).toContain('identical to call 1 of this response');
+      expect(r.is_error).toBe(false);
+    }
+    // Every id is answered to observers too, so the transcript pairs up.
+    expect(cb.onToolResult.mock.calls.map((c) => c[3])).toEqual(expect.arrayContaining(['tu-2', 'tu-4']));
+  });
+
+  it('runs calls that differ in any argument', async () => {
+    vi.mocked(executeTool).mockResolvedValue({ type: 'tool_result', tool_use_id: 'x', content: 'ok', is_error: false });
+    await executeToolUses(
+      catalogState(),
+      [
+        { ...use('read_file', { path: 'a.ts', start_line: 1 }), id: 'tu-1' },
+        { ...use('read_file', { path: 'a.ts', start_line: 2 }), id: 'tu-2' },
+        { ...use('edit_file', { path: 'a.ts', start_line: 1 }), id: 'tu-3' },
+      ],
+      {} as SideCarClient,
+      {} as AgentOptions,
+      stubCallbacks(),
+      new AbortController().signal,
+    );
+    expect(executeTool).toHaveBeenCalledTimes(3);
+  });
+});

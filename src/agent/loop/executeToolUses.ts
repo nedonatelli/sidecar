@@ -104,12 +104,29 @@ export async function executeToolUses(
   // batch can fire the checkpointing hook exactly once, post-dispatch.
   const planBefore = state.planRef.plan;
 
-  const executionPromises = pendingToolUses.map((toolUse) =>
-    executeOne(ctx, toolUse).catch((err: unknown) => {
+  // A byte-identical call (same tool, same input) repeated within one response
+  // runs once; each repeat is answered without running. One ministral-3
+  // response held 1,167 copies of the same read_file and returned 1.06M chars
+  // of results, and cycle detection, which compares turns, cannot see it (#487).
+  // Only calls the model issued: a write synthesized from a code fence runs
+  // with its own flag even when the model also sent the same write.
+  const firstIndexByCall = new Map<string, number>();
+  const duplicateOf = pendingToolUses.map((toolUse, idx) => {
+    if (toolUse.id.startsWith(FENCE_WRITE_ID_PREFIX)) return undefined;
+    const key = `${toolUse.name}\u0000${JSON.stringify(toolUse.input)}`;
+    const first = firstIndexByCall.get(key);
+    if (first === undefined) firstIndexByCall.set(key, idx);
+    return first;
+  });
+
+  const executionPromises = pendingToolUses.map((toolUse, idx) => {
+    const first = duplicateOf[idx];
+    if (first !== undefined) return Promise.resolve(duplicateCallResult(ctx, toolUse, first));
+    return executeOne(ctx, toolUse).catch((err: unknown) => {
       batchAbort.abort();
       return Promise.reject(err);
-    }),
-  );
+    });
+  });
 
   const settled = await Promise.allSettled(executionPromises);
 
@@ -160,6 +177,20 @@ export async function executeToolUses(
     }
   }
   return toolResults;
+}
+
+/** The answer to a call that repeats an earlier call of the same response. */
+function duplicateCallResult(
+  ctx: ExecutionContext,
+  toolUse: ToolUseContentBlock,
+  firstIdx: number,
+): ToolResultContentBlock {
+  const content =
+    `Not run: this ${toolUse.name} call is identical to call ${firstIdx + 1} of this response ` +
+    '(same tool, same arguments), which ran once. Its result is the one to use.';
+  ctx.state.logger?.info(`Tool ${toolUse.name} duplicate of call ${firstIdx + 1} in the same response; not run`);
+  ctx.callbacks.onToolResult(toolUse.name, content, false, toolUse.id);
+  return { type: 'tool_result', tool_use_id: toolUse.id, content, is_error: false };
 }
 
 /**

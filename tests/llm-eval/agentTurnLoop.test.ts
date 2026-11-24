@@ -163,4 +163,55 @@ describe('createTurnLoopSession', () => {
       decision: { command: 'pytest -x', recognized: true },
     });
   });
+
+  // #497: harnesses build config from getConfig(), so the header named its
+  // defaults (gemma4:e4b on :11434) as every run's model, and the loop's own
+  // config.model sites read them too.
+  it("records and hands the loop the client's model, endpoint and provider, not the config defaults", async () => {
+    let seen: Record<string, unknown> | undefined;
+    const stale = { agentTemperature: 0.2, model: 'gemma4:e4b', baseUrl: 'http://localhost:11434', provider: 'auto' };
+    const s = createTurnLoopSession(
+      mk({
+        model: 'qwen3.8:27b',
+        baseUrl: 'http://127.0.0.1:11435',
+        provider: 'ollama',
+        options: { approvalMode: 'autonomous', config: stale } as unknown as AgentOptions,
+        loopFn: (async (_c: unknown, _m: unknown, _cb: unknown, _sig: unknown, opts: AgentOptions) => {
+          seen = opts.config as unknown as Record<string, unknown>;
+        }) as never,
+      }),
+    );
+    await s.run([]);
+    s.close('natural');
+    expect(s.surface).toMatchObject({ model: 'qwen3.8:27b', baseUrl: 'http://127.0.0.1:11435', provider: 'ollama' });
+    expect(seen).toMatchObject({ model: 'qwen3.8:27b', baseUrl: 'http://127.0.0.1:11435', provider: 'ollama' });
+    expect(seen?.agentTemperature).toBe(0.2);
+    const header = JSON.parse(
+      fs
+        .readFileSync(s.logger!.logPath.replace(/\.log$/, '.jsonl'), 'utf-8')
+        .trim()
+        .split('\n')[0],
+    );
+    expect(header.type).toBe('header');
+    expect(header.surface.model).toBe('qwen3.8:27b');
+    expect(header.configOverrides).toMatchObject({ model: 'qwen3.8:27b', baseUrl: 'http://127.0.0.1:11435' });
+    // The caller's object is not mutated.
+    expect(stale.model).toBe('gemma4:e4b');
+  });
+
+  it('leaves the provider setting alone when the caller did not pass one', async () => {
+    let seen: Record<string, unknown> | undefined;
+    const s = createTurnLoopSession(
+      mk({
+        options: { approvalMode: 'autonomous', config: { provider: 'auto' } } as unknown as AgentOptions,
+        loopFn: (async (_c: unknown, _m: unknown, _cb: unknown, _sig: unknown, opts: AgentOptions) => {
+          seen = opts.config as unknown as Record<string, unknown>;
+        }) as never,
+      }),
+    );
+    await s.run([]);
+    s.close('natural');
+    expect(seen?.provider).toBe('auto');
+    expect(seen?.model).toBe('gemma4:e4b');
+  });
 });

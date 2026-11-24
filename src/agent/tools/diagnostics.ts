@@ -157,6 +157,17 @@ export async function getDiagnostics(input: Record<string, unknown>, context?: T
   const filePath = input.path as string | undefined;
   const root = getRoot();
 
+  // A shadow or fork run edits its own worktree, but the editor's diagnostics
+  // are for the main workspace's files. Reading them reported the main tree's
+  // warnings for a file no analyzer had looked at, and the completion gate took
+  // that as a lint run (#476). A SWE run's cwd is the workspace root itself.
+  if (context?.cwd && root && path.relative(path.resolve(root), path.resolve(context.cwd)) !== '') {
+    throw new Error(
+      `get_diagnostics reads the editor's diagnostics for the main workspace, not this run's working tree ` +
+        `(${context.cwd}). Run the project's type-checker or linter with run_command instead.`,
+    );
+  }
+
   if (filePath) {
     // Approval-free, so the read rules apply: inside the workspace (by its
     // real path) and never a credential file.
