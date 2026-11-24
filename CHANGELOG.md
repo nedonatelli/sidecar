@@ -4,6 +4,18 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.137.0] - 2026-11-23
+
+Copilot Chat can hand a task to SideCar: the new `sidecar_delegate` tool runs SideCar's agent on
+your own model, and SideCar's other tools now declare their arguments, so Copilot's model can call
+them reliably. `@sidecar` is deprecated, because VS Code is phasing out chat participants. The
+completion gate no longer counts a test run that never ran, and it stops demanding runs the agent
+can't make. More tool failures come back as errors the model can see. A run now survives a
+malformed XML tool call, a call to a tool the session doesn't offer and a tool call repeated in
+one response, and searching git history can no longer hang it. On Windows, stopping a Git Bash
+shell no longer risks killing another program's processes. The Bedrock region picker says when a
+workspace setting overrides your choice.
+
 ### Added
 
 - **`sidecar_delegate`: hand a task to SideCar from Copilot Chat**
@@ -21,7 +33,6 @@ All notable changes to the SideCar extension will be documented in this file.
 - **`@sidecar`'s slash commands no longer change the system prompt of a SideCar panel run in
   progress.** They set their prompt on the client the panel shares, so a panel run's later turns
   picked it up; it is now passed per request.
-
 - **A failed edit says when the agent's own earlier edit replaced the text it searched for.**
   `edit_file` remembers the edits it applied to each file in a run. When a later search misses
   because it is text one of those edits replaced, the error says so and shows what that edit
@@ -126,7 +137,6 @@ All notable changes to the SideCar extension will be documented in this file.
   runs counted toward giving the model more scaffolding. They're recorded as `infra` now and left
   out of that decision. A run that ended because the backend couldn't parse the model's tool call
   is recorded as a malformed call instead.
-
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
   absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an
@@ -134,6 +144,10 @@ All notable changes to the SideCar extension will be documented in this file.
   unknown. These searches are no longer recorded as "already searched, found nothing", so a retry
   isn't told it found nothing before. Matches printed before grep failed are marked as partial
   results, as a timeout already was.
+
+### Stats
+- 11300 total tests (618 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.136.0] - 2026-11-08
 
