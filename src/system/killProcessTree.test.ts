@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
-import { killProcessTree, signalProcessGroup, msysPsPath, killMsysProcessGroup } from './killProcessTree.js';
+import {
+  killProcessTree,
+  signalProcessGroup,
+  msysPsPath,
+  killMsysProcessGroup,
+  msysStartBounds,
+} from './killProcessTree.js';
 
 // `ps -W -l` from Git for Windows, trimmed: a session bash (75006) leads group
 // 75006 with the sh it forked and the node that sh started; an unrelated shell
@@ -81,5 +87,61 @@ describe('killProcessTree', () => {
     expect(exec).toHaveBeenCalledWith('taskkill', ['/pid', '7', '/T', '/F']);
     expect(killProcessTree(7, false, exec)).toBe(false);
     expect(exec).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #422: a group whose leader exited can have its id handed out again. Only the
+// members that started while our leader was alive are ours.
+describe('killMsysProcessGroup after the leader exited (#422)', () => {
+  const at = (h: number, m: number, sec = 0) => new Date(2026, 10, 22, h, m, sec).getTime();
+  const now = at(10, 0);
+  const REUSED = [
+    PS_LISTING,
+    // A later program got group id 75006 after our bash exited at 08:45.
+    '    75006       1   75006      51000  ?         197609 09:15:00 /usr/bin/bash',
+    '    75102   75006   75006      51200  ?         197609 09:15:01 /usr/bin/ssh',
+  ].join('\n');
+
+  it('kills only members that started before the leader exited', () => {
+    const exec = vi.fn();
+    expect(killMsysProcessGroup(75006, 'ps.exe', () => REUSED, exec, { leaderExitedAt: at(8, 45), now })).toBe(3);
+    expect(exec.mock.calls.map((c) => c[1][1])).toEqual(['38864', '41564', '46164']);
+  });
+
+  it('kills every member while the leader is alive, as before', () => {
+    const exec = vi.fn();
+    expect(killMsysProcessGroup(75006, 'ps.exe', () => REUSED, exec, { now })).toBe(5);
+  });
+
+  it('leaves a member whose start time cannot be read', () => {
+    const exec = vi.fn();
+    const listing = '    75006       1   75006      38864  ?         197609 ?? /usr/bin/bash';
+    expect(killMsysProcessGroup(75006, 'ps.exe', () => listing, exec, { leaderExitedAt: at(8, 45), now })).toBe(0);
+  });
+});
+
+describe('msysStartBounds', () => {
+  const now = new Date(2026, 10, 22, 10, 0, 0).getTime();
+
+  it('reads a clock time as today, to the second', () => {
+    const [lo, hi] = msysStartBounds(['08:30:02'], now)!;
+    expect(new Date(lo)).toEqual(new Date(2026, 10, 22, 8, 30, 2));
+    expect(hi - lo).toBe(999);
+  });
+
+  it('reads a clock time later than now as yesterday', () => {
+    expect(new Date(msysStartBounds(['17:03:43'], now)![0])).toEqual(new Date(2026, 10, 21, 17, 3, 43));
+  });
+
+  it('reads `Mon DD` as that whole day, last year if it is in the future', () => {
+    const [lo, hi] = msysStartBounds(['Nov', '11'], now)!;
+    expect(new Date(lo)).toEqual(new Date(2026, 10, 11));
+    expect(hi - lo).toBe(24 * 3600_000 - 1);
+    expect(new Date(msysStartBounds(['Dec', '30'], now)![0])).toEqual(new Date(2025, 11, 30));
+  });
+
+  it('returns undefined for anything else', () => {
+    expect(msysStartBounds(['??'], now)).toBeUndefined();
+    expect(msysStartBounds([], now)).toBeUndefined();
   });
 });

@@ -195,7 +195,7 @@ export class GitCLI {
   async commit(message: string, extraTrailers?: string): Promise<string> {
     const staged = await this.exec(['diff', '--cached', '--stat']);
     if (!staged) {
-      return 'Nothing to commit — no staged changes. Use git_stage first.';
+      throw new Error('Nothing to commit: no staged changes. Use git_stage first.');
     }
 
     // Git trailers live at the tail of the commit message, separated from the
@@ -238,7 +238,7 @@ export class GitCLI {
         return (await this.exec(args)) || 'Stash dropped.';
       }
       default:
-        return `Unknown stash action: ${action}. Use push, pop, apply, list, or drop.`;
+        throw new Error(`Unknown stash action: ${action}. Use push, pop, apply, list, or drop.`);
     }
   }
 

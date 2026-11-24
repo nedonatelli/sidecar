@@ -163,24 +163,22 @@ describe('db_list_connections', () => {
 describe('db_list_tables', () => {
   const exec = getExecutor('db_list_tables');
 
-  it('returns error when connection_id is missing', async () => {
-    expect(await exec({})).toMatch(/connection_id is required/);
+  it('throws when connection_id is missing', async () => {
+    await expect(exec({})).rejects.toThrow(/connection_id is required/);
   });
 
-  it('returns error when no profile matches the connection_id', async () => {
+  it('throws when no profile matches the connection_id', async () => {
     vi.mocked(getConfig).mockReturnValue({ databaseProfiles: [] } as never);
-    expect(await exec({ connection_id: 'nonexistent' })).toMatch(/no database profile found/);
+    await expect(exec({ connection_id: 'nonexistent' })).rejects.toThrow(/no database profile found/);
   });
 
-  it('returns error message when getOrConnect throws', async () => {
+  it('throws when getOrConnect throws', async () => {
     vi.mocked(getConfig).mockReturnValue({
       databaseProfiles: [makeProfile()],
     } as never);
     (vi.mocked(connectionManager.getOrConnect) as AnyMock).mockRejectedValue(new Error('connection refused'));
 
-    const result = await exec({ connection_id: 'test-db' });
-    expect(result).toContain('Error connecting');
-    expect(result).toContain('connection refused');
+    await expect(exec({ connection_id: 'test-db' })).rejects.toThrow(/Could not connect.*connection refused/);
   });
 
   it('returns "No tables found" when provider returns empty list', async () => {
@@ -216,17 +214,17 @@ describe('db_list_tables', () => {
 describe('db_describe_table', () => {
   const exec = getExecutor('db_describe_table');
 
-  it('returns error when connection_id is missing', async () => {
-    expect(await exec({})).toMatch(/connection_id is required/);
+  it('throws when connection_id is missing', async () => {
+    await expect(exec({})).rejects.toThrow(/connection_id is required/);
   });
 
-  it('returns error when table is missing', async () => {
-    expect(await exec({ connection_id: 'test-db' })).toMatch(/table is required/);
+  it('throws when table is missing', async () => {
+    await expect(exec({ connection_id: 'test-db' })).rejects.toThrow(/table is required/);
   });
 
-  it('returns error when no profile matches', async () => {
+  it('throws when no profile matches', async () => {
     vi.mocked(getConfig).mockReturnValue({ databaseProfiles: [] } as never);
-    expect(await exec({ connection_id: 'x', table: 'users' })).toMatch(/no database profile found/);
+    await expect(exec({ connection_id: 'x', table: 'users' })).rejects.toThrow(/no database profile found/);
   });
 
   it('describes columns with PK, FK, nullable, and default info', async () => {
@@ -276,17 +274,18 @@ describe('db_query', () => {
     } as never);
   });
 
-  it('returns error when connection_id is missing', async () => {
-    expect(await exec({ sql: 'SELECT 1' })).toMatch(/connection_id is required/);
+  it('throws when connection_id is missing', async () => {
+    await expect(exec({ sql: 'SELECT 1' })).rejects.toThrow(/connection_id is required/);
   });
 
-  it('returns error when sql is missing', async () => {
-    expect(await exec({ connection_id: 'test-db' })).toMatch(/sql is required/);
+  it('throws when sql is missing', async () => {
+    await expect(exec({ connection_id: 'test-db' })).rejects.toThrow(/sql is required/);
   });
 
-  it('returns read-only violation error for write SQL', async () => {
-    const result = await exec({ connection_id: 'test-db', sql: 'INSERT INTO t VALUES (1)' });
-    expect(result).toMatch(/Read-only violation/);
+  it('throws for write SQL', async () => {
+    await expect(exec({ connection_id: 'test-db', sql: 'INSERT INTO t VALUES (1)' })).rejects.toThrow(
+      /Read-only violation/,
+    );
   });
 
   it('returns "no rows" message when query returns empty result', async () => {
@@ -354,17 +353,16 @@ describe('db_execute', () => {
     } as never);
   });
 
-  it('returns error when connection_id is missing', async () => {
-    expect(await exec({ sql: 'INSERT INTO t VALUES (1)' })).toMatch(/connection_id is required/);
+  it('throws when connection_id is missing', async () => {
+    await expect(exec({ sql: 'INSERT INTO t VALUES (1)' })).rejects.toThrow(/connection_id is required/);
   });
 
-  it('returns error when sql is missing', async () => {
-    expect(await exec({ connection_id: 'test-db' })).toMatch(/sql is required/);
+  it('throws when sql is missing', async () => {
+    await expect(exec({ connection_id: 'test-db' })).rejects.toThrow(/sql is required/);
   });
 
-  it('returns error for read-only connection profiles', async () => {
-    const result = await exec({ connection_id: 'test-db', sql: 'INSERT INTO t VALUES (1)' });
-    expect(result).toContain('read-only');
+  it('throws for read-only connection profiles', async () => {
+    await expect(exec({ connection_id: 'test-db', sql: 'INSERT INTO t VALUES (1)' })).rejects.toThrow(/read-only/);
   });
 
   it('buffers the SQL in audit mode instead of executing', async () => {
@@ -480,13 +478,13 @@ describe('db_migrate_up', () => {
     } as never);
   });
 
-  it('returns error when connection_id is missing', async () => {
-    expect(await exec({})).toMatch(/connection_id is required/);
+  it('throws when connection_id is missing', async () => {
+    await expect(exec({})).rejects.toThrow(/connection_id is required/);
   });
 
-  it('returns error when no profile matches', async () => {
+  it('throws when no profile matches', async () => {
     vi.mocked(getConfig).mockReturnValue({ databaseProfiles: [] } as never);
-    expect(await exec({ connection_id: 'x' })).toMatch(/no database profile found/);
+    await expect(exec({ connection_id: 'x' })).rejects.toThrow(/no database profile found/);
   });
 
   it('dry_run shows the command without executing', async () => {
@@ -529,14 +527,12 @@ describe('db_migrate_up', () => {
     expect(result).toContain('scripts/migrate.js');
   });
 
-  it('returns error when tool is "custom" and custom_command is missing', async () => {
-    const result = await exec({ connection_id: 'test-db', tool: 'custom' });
-    expect(result).toMatch(/custom_command is required/);
+  it('throws when tool is "custom" and custom_command is missing', async () => {
+    await expect(exec({ connection_id: 'test-db', tool: 'custom' })).rejects.toThrow(/custom_command is required/);
   });
 
-  it('returns error for an unsupported tool name', async () => {
-    const result = await exec({ connection_id: 'test-db', tool: 'liquibase' });
-    expect(result).toMatch(/unsupported migration tool/);
+  it('throws for an unsupported tool name', async () => {
+    await expect(exec({ connection_id: 'test-db', tool: 'liquibase' })).rejects.toThrow(/unsupported migration tool/);
   });
 });
 
@@ -578,9 +574,9 @@ describe('database passwords (#364)', () => {
       new Error('password authentication failed'),
     );
 
-    const result = await exec({ connection_id: 'pg' });
-    expect(result).toContain('password authentication failed');
-    expect(result).toContain('SideCar: Set Database Password');
+    await expect(exec({ connection_id: 'pg' })).rejects.toThrow(
+      /password authentication failed[\s\S]*SideCar: Set Database Password/,
+    );
   });
 
   it('a file database gets no password', async () => {

@@ -423,9 +423,9 @@ export function recordToolCall(
   // callServerTool, bypassing the mcp_* names tracked below, so a delegated
   // task that writes to an external system would be invisible to the verify
   // discipline. Delegated tasks are conservatively mutations (their whole
-  // point is to DO something). delegateToMcp reports every failure as plain
-  // content (never is_error), so success is detected by the <mcp_tool_output>
-  // boundary wrap — only a genuine server response carries it.
+  // point is to DO something). delegateToMcp throws on failure, so an error
+  // result returned above; the <mcp_tool_output> boundary wrap is kept as a
+  // second check that a genuine server response came back (#476).
   if (tu.name === 'delegate_to_mcp') {
     const server = typeof tu.input.server === 'string' ? tu.input.server.trim() : '';
     if (server && resultText.includes('<mcp_tool_output')) {
