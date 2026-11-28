@@ -94,6 +94,10 @@ export function isolatedHostEnv(cacheBase: string, key: string): Record<string, 
       ...(process.env as Record<string, string>),
       VIRTUAL_ENV: venvDir,
       PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      // As in the task venvs (#512): a pip other than the venv's refuses
+      // instead of installing into the host Python, which is what this venv
+      // exists to protect.
+      PIP_REQUIRE_VIRTUALENV: 'true',
     };
   } catch {
     return null;
