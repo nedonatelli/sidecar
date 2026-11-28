@@ -59,7 +59,12 @@ describe('a parallel batch spends the budget call by call (#425)', () => {
     s.toolCallCounts.set('edit_file', budget - 1);
     executorReports({ kind: 'mutated', paths: ['a.py'] });
 
-    const results = await run(s, [use('edit_file'), use('edit_file'), use('edit_file')]);
+    // Distinct inputs: byte-identical calls in one response run once and never reach the budget.
+    const results = await run(s, [
+      use('edit_file', { path: 'a.py' }),
+      use('edit_file', { path: 'b.py' }),
+      use('edit_file', { path: 'c.py' }),
+    ]);
 
     expect(executeTool).toHaveBeenCalledTimes(1);
     expect(results.map((r) => r.is_error === true)).toEqual([false, true, true]);
@@ -71,9 +76,14 @@ describe('a parallel batch spends the budget call by call (#425)', () => {
   it('a batch of refused calls counts as one refusal, so the refused-repeat stop still takes three turns', async () => {
     const s = state();
     s.toolCallCounts.set('read_file', toolBudgetFor(s, 'read_file'));
-    await run(s, [use('read_file'), use('read_file'), use('read_file')]);
+    const results = await run(s, [
+      use('read_file', { path: 'a.py' }),
+      use('read_file', { path: 'b.py' }),
+      use('read_file', { path: 'c.py' }),
+    ]);
+    expect(results.every((r) => r.is_error === true)).toBe(true);
     expect(s.toolBudgetRefusals?.get('read_file')).toBe(1);
-    await run(s, [use('read_file')]);
+    await run(s, [use('read_file', { path: 'd.py' })]);
     expect(s.toolBudgetRefusals?.get('read_file')).toBe(2);
   });
 });
