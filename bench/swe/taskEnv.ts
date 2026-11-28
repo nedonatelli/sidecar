@@ -9,7 +9,9 @@
 //
 // Pure-Python repos (django, sympy, sphinx, pytest, pylint, requests) install
 // cleanly and offline. Native-dep repos (numpy/scipy/matplotlib/scikit-learn/…)
-// return null here — they need the containerized fallback (Phase 2). See
+// return null here — they need the containerized fallback (Phase 2) — except
+// seaborn and xarray on Windows, which have wheels (#472); a task with no env
+// runs in isolatedHostEnv's throwaway venv. See
 // bench/swe/ENVIRONMENT-SCOPING.md.
 // ---------------------------------------------------------------------------
 import * as fs from 'fs';
@@ -48,6 +50,59 @@ const NATIVE_DEP_REPOS = new Set([
   'scipy/scipy',
   'pandas-dev/pandas',
 ]);
+
+// Of those, the repos that are pure Python themselves and whose pinned deps
+// ship win_amd64 wheels for the spec's Python (seaborn 0.12 on 3.9: numpy
+// 1.25.2, matplotlib 3.7.2; xarray 0.12 on 3.10: numpy 1.23.0, pandas 1.5.3,
+// scipy 1.11.1), so they get an ordinary venv on Windows (#472). The gold-patch
+// gate still checks each one.
+const VENV_ON_WIN32 = new Set(['mwaskom/seaborn', 'pydata/xarray']);
+
+/** Whether `setupTaskEnv` builds an environment for this repo on this platform. */
+export function hasLocalEnv(repo: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (!NATIVE_DEP_REPOS.has(repo)) return true;
+  return platform === 'win32' && VENV_ON_WIN32.has(repo);
+}
+
+/**
+ * A throwaway venv over the host Python for a task with no environment of its
+ * own (#472). It sees the host's packages, as before, but a `pip install` the
+ * model runs lands in the venv and is gone at the next task. Without it, one
+ * task's install changed the host Python for every later task and for the
+ * other arm: a seaborn task reinstalled matplotlib mid-run, and 13 of 16
+ * seaborn runs in the #529 canary imported the matplotlib task's clone.
+ * Null when it cannot be built: the task then runs on the host Python, as it
+ * always did.
+ */
+export function isolatedHostEnv(cacheBase: string, key: string): Record<string, string> | null {
+  try {
+    const uv = resolveUv();
+    const hostPython = execFileSync('python', ['-c', 'import sys; print(sys.executable)'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (!hostPython) return null;
+    const venvDir = path.resolve(cacheBase, 'isolated', key.replace(/[^A-Za-z0-9_.@-]/g, '_'));
+    fs.rmSync(venvDir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(venvDir), { recursive: true });
+    // --seed puts pip in the venv, so `pip install` resolves here, not to the host's.
+    execFileSync(uv, ['venv', '--seed', '--system-site-packages', '--python', hostPython, venvDir], { stdio: 'pipe' });
+    const isWindows = process.platform === 'win32';
+    const binDir = path.join(venvDir, isWindows ? 'Scripts' : 'bin');
+    ensurePython3Alias(binDir);
+    return {
+      ...(process.env as Record<string, string>),
+      VIRTUAL_ENV: venvDir,
+      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      // As in the task venvs (#512): a pip other than the venv's refuses
+      // instead of installing into the host Python, which is what this venv
+      // exists to protect.
+      PIP_REQUIRE_VIRTUALENV: 'true',
+    };
+  } catch {
+    return null;
+  }
+}
 
 function resolveUv(): string {
   const candidates = [
@@ -294,7 +349,7 @@ export function setupTaskEnv(
   cacheBase: string,
   specs: SpecMap,
 ): TaskEnv | null {
-  if (NATIVE_DEP_REPOS.has(repo)) return null;
+  if (!hasLocalEnv(repo)) return null;
   const spec = specs[repo]?.[version];
   if (!spec) return null;
 

@@ -71,6 +71,16 @@ numbers" discipline).
   scikit-learn, pandas, xarray. Old pins often have no arm64 wheels and won't
   compile against modern clang. → containerized `run_tests` (Modal), native-dep
   repos only.
+  - **Exception on Windows (#472):** seaborn and xarray are pure Python, and
+    their pins ship win_amd64 wheels, so they get an ordinary venv there
+    (`hasLocalEnv`). Checked Nov 2026: in all 9 Lite tasks, FAIL_TO_PASS fails
+    with the test patch and passes with the gold patch. Every PASS_TO_PASS test
+    passes except xarray tests that need optional packages (cftime, sparse,
+    bottleneck, numbagg), which skip.
+  - **Every task left without an environment** runs in a throwaway venv over
+    the host Python (`isolatedHostEnv`: `uv venv --seed
+--system-site-packages`, rebuilt per task and arm), so a model's
+    `pip install` can't change the host for later tasks.
 - **Sub-3.7 pins** (e.g. django 3.0's 3.6): substitute nearest available (3.8) and
   gate on the gold-patch check, or route to a container.
 

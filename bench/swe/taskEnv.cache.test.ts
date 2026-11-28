@@ -15,6 +15,8 @@ let freezeOutput = '';
 vi.mock('node:child_process', () => ({
   execFileSync: (_cmd: string, args: string[]) => {
     uvCalls.push(args);
+    // isolatedHostEnv asks the host python for sys.executable (#472).
+    if (args[0] === '-c') return '/host/python\n';
     if (args[0] === 'pip' && args[1] === 'freeze') return Buffer.from(freezeOutput);
     if (args[0] === 'venv') {
       const venvDir = args[args.length - 1];
@@ -49,6 +51,7 @@ import {
   setupTaskEnv,
   venvLooksIntact,
   venvHasPytest,
+  isolatedHostEnv,
   defaultSweCacheDir,
   normalizedFreeze,
   type SpecMap,
@@ -278,5 +281,30 @@ describe('task venvs have their own pip (#512)', () => {
     expect(normalizedFreeze('# note\r\nSqlparse==0.5.5\r\n-e .\r\nDjango==3.0\r\nx @ file:///r\r\n')).toBe(
       'django==3.0\nsqlparse==0.5.5',
     );
+  });
+});
+
+// #472: a task with no environment of its own runs in a throwaway venv over
+// the host Python, so a model's `pip install` cannot change the host for
+// later tasks or the other arm.
+describe('isolatedHostEnv (#472)', () => {
+  it('builds a fresh seeded venv over the host Python, one per key', () => {
+    const env = isolatedHostEnv(cache, 'mwaskom__seaborn-3010@treat')!;
+    const venvCall = uvCalls.find((a) => a[0] === 'venv')!;
+    expect(venvCall).toEqual(expect.arrayContaining(['--seed', '--system-site-packages', '/host/python']));
+    expect(env.VIRTUAL_ENV).toBe(path.resolve(cache, 'isolated', 'mwaskom__seaborn-3010@treat'));
+    const bin = path.join(env.VIRTUAL_ENV, process.platform === 'win32' ? 'Scripts' : 'bin');
+    expect(env.PATH.split(path.delimiter)[0]).toBe(bin);
+  });
+
+  it('makes any pip outside the venv refuse to install', () => {
+    expect(isolatedHostEnv(cache, 'k')!.PIP_REQUIRE_VIRTUALENV).toBe('true');
+  });
+
+  it('starts from an empty venv even when the last task with this key left one', () => {
+    const first = isolatedHostEnv(cache, 'k')!;
+    fs.writeFileSync(path.join(first.VIRTUAL_ENV, 'leftover'), '');
+    const second = isolatedHostEnv(cache, 'k')!;
+    expect(fs.existsSync(path.join(second.VIRTUAL_ENV, 'leftover'))).toBe(false);
   });
 });

@@ -53,7 +53,14 @@ import { renderTestModuleHint, renderPathRunnerInstructions, runnerFamily } from
 import { loadOrBuildRepoIndex, retrieveContext, goldFilesInTopK } from '../../bench/swe/rag.js';
 import type { SymbolEmbeddingIndex } from '../../src/config/symbolEmbeddingIndex.js';
 import type { SwePrediction, SweTask, ArmName } from '../../bench/swe/types.js';
-import { setupTaskEnv, loadEnvSpecs, defaultSweCacheDir, type SpecMap, type TaskEnv } from '../../bench/swe/taskEnv.js';
+import {
+  setupTaskEnv,
+  isolatedHostEnv,
+  loadEnvSpecs,
+  defaultSweCacheDir,
+  type SpecMap,
+  type TaskEnv,
+} from '../../bench/swe/taskEnv.js';
 import { stableCloneDir } from '../../bench/swe/clonePath.js';
 import { warmWorkingTree, warmLogLine } from '../../bench/swe/warmTree.js';
 import { removeCleanFailures } from '../../bench/swe/cleanFailures.js';
@@ -151,6 +158,10 @@ const SHELL_GUARD = process.env.SIDECAR_SWE_SHELL_GUARD !== '0';
 // packages. SIDECAR_SWE_ISOLATE_SHELL=0 restores the inherited environment
 // (cells run before 2026-10-29).
 const ISOLATE_SHELL = process.env.SIDECAR_SWE_ISOLATE_SHELL !== '0';
+// #472: a task with no environment of its own runs in a throwaway venv over the
+// host Python, so a model's pip install stays in that task. SIDECAR_SWE_ISOLATE_HOST=0
+// runs it on the host Python itself (cells before 2026-11-22).
+const ISOLATE_HOST = process.env.SIDECAR_SWE_ISOLATE_HOST !== '0';
 // #213: path-based runners (pytest, tox, sympy bin/test) were given Django's
 // dotted-label instructions, which select zero tests on them. Each runner now
 // gets its own: on the e4b canary A/B (2026-10-21) the agent's test commands
@@ -537,6 +548,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
   // Without a venv the task relies on the machine's Python; false means none
   // runs in the task shell, so every `python` fails with 127 (undefined: a venv).
   let envPython: boolean | undefined;
+  let taskEnvKind: 'venv' | 'isolated-host' | 'none' = 'none';
   let scratchDir: string | null = null;
   let workspaceSnapshot: ShellChangeSnapshot | null = null;
   let shellChanged: string[] = [];
@@ -604,10 +616,13 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     // the agent runs without one (blind) until the container fallback lands.
     const taskEnv = task.version ? setupTaskEnv(task.repo, task.version, dir, ENV_CACHE_BASE, ENV_SPECS) : null;
     venvDir = taskEnv?.venvDir ?? null;
+    const hostEnv = !taskEnv && ISOLATE_HOST ? isolatedHostEnv(ENV_CACHE_BASE, `${task.instance_id}@${arm}`) : null;
+    taskEnvKind = taskEnv ? 'venv' : hostEnv ? 'isolated-host' : 'none';
+    const baseEnv = taskEnv?.env ?? hostEnv ?? undefined;
     scratchDir = ISOLATE_SHELL ? prepareScratchDir(path.join(OUT, 'scratch'), task.instance_id, arm) : null;
     const shellEnv = scratchDir
-      ? isolateShellEnv(taskEnv?.env ?? (process.env as Record<string, string>), scratchDir)
-      : taskEnv?.env;
+      ? isolateShellEnv(baseEnv ?? (process.env as Record<string, string>), scratchDir)
+      : baseEnv;
     if (!taskEnv) {
       envPython = pythonRuns(shellEnv ?? (process.env as Record<string, string>));
       if (!envPython)
@@ -983,6 +998,7 @@ async function solve(task: SweTask, arm: ArmName): Promise<SwePrediction> {
     ...(shellChangeDrift ? { shellChangeDrift } : {}),
     retrievalRecall,
     ...(envPython !== undefined ? { envPython } : {}),
+    taskEnv: taskEnvKind,
     ratchetReverted,
     peakInputTokens,
     turns,

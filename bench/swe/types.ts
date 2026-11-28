@@ -161,6 +161,15 @@ export interface SwePrediction {
   /** The backend the client resolved to for this task -- recorded, never assumed. */
   provider?: string;
   /**
+   * The environment the model's commands ran in (#472). `venv`: the task's own
+   * environment, with its dependencies installed. `isolated-host`: no task
+   * environment; a throwaway venv over the host Python, so installs stay in
+   * this task. `none`: the host Python itself. Split results by it: a task
+   * without `venv` cannot reproduce or verify its fix. Undefined on meta files
+   * written before this field existed.
+   */
+  taskEnv?: 'venv' | 'isolated-host' | 'none';
+  /**
    * The run's token usage, summed over every model request (#261). Anthropic
    * reports the three input kinds separately: `input` is uncached input only.
    * Undefined on meta files written before this field existed.
