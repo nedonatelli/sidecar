@@ -40,6 +40,67 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.49 — the completion gate waives demands it can't usefully make (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.48, noting the patch.
+
+- **What changed** (#505): `actionableFindings` drops two kinds of finding
+  before the gate fires. Findings on scratch-script names (`repro.py`,
+  `reproduce_issue.py`, the names scratch cleanup moves out) are dropped, since
+  testing after a throwaway script verifies nothing. Findings that need a
+  command run (`needsTestRun`, `missingTest`) are dropped once no command can
+  run: `run_command` and `run_tests` are both spent or not offered, or the run
+  is in plan mode. Lint findings stay. Each drop is recorded as a
+  `completion_gate` decision with action `waived`, counted under
+  `completion_gate.waived.*`.
+- **Eval impact:** fewer gate firings on models that write scratch scripts or
+  spend their command budget. On Lite-300, 70 of 236 firings came after
+  `run_command` stopped accepting calls, and 26 of gemma4:26b-a4b's 128 named
+  only scratch files.
+- **Measured:** canary on ministral-3 (seeds 11, 22) and gemma4:26b-a4b (seed
+  11), off vs treat. Resolve 1 = 1, 1 = 1 and 4 → 3. Of the 26b changes, three
+  split on volatile tool output before any gate event and two split at a
+  scratch-only waiver, one each way: net zero from the change. On 26b, gate
+  exhaustions 15 → 0, incomplete runs 15 → 0, tool calls 1445 → 1114, wall
+  240 → 181 min. Results on #523.
+
+### 7.0.48 — MSYS group cleanup leaves a reused group id alone (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.46 and 7.0.47, noting the patch.
+
+- **What changed** (#422): on Windows with Git Bash, `ShellSession` notes
+  when a tracked shell or background command exits and passes that time to
+  `killMsysProcessGroup` as `leaderExitedAt`. Members that started more than
+  a second after it, or whose start time `ps -l` can't give, are skipped: the
+  group id was reused by another program after the exit. A group led by a
+  live shell is killed as before.
+- **Eval impact:** none expected. It changes only which processes are killed
+  after a group id is reused, which no recorded run shows.
+- **Measured:** not canaried. Unit tests cover a reused id, a live leader, an
+  unreadable start time and the `STIME` parsing.
+
+### 7.0.47 — tool failures come back as errors; get_diagnostics refuses outside the workspace root (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.46, noting the patch.
+
+- **What changed** (#476): failures that came back as ordinary results
+  (`is_error` false) now throw, so the model sees an error. That covers every
+  failure path of the database tools, `mutation_test`, the `research_*`
+  store, `git_commit` with nothing staged and `git_stash` with an unknown
+  action. `research_log_experiment` no longer reports an experiment as logged
+  when its final save failed. `get_diagnostics` refuses when the run's `cwd`
+  is not the workspace root (a shadow or fork run): it used to read the main
+  workspace's cached diagnostics, and the completion gate credited that as a
+  lint run.
+- **Eval impact:** none expected on SWE-bench. None of these tools is in the
+  SWE catalog, and a SWE run's `cwd` is the workspace root, so
+  `get_diagnostics` behaves as before.
+- **Measured:** not canaried. Unit tests cover each error path, the failed
+  final save, and `get_diagnostics` in and out of the root.
+
 ### 7.0.46 — the completion gate gives no credit for checks that never ran (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

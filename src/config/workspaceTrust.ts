@@ -157,6 +157,17 @@ function sensitiveValuesTrusted(): boolean {
   );
 }
 
+/**
+ * Of `keys`, the sensitive ones whose workspace value is in effect: set in the
+ * workspace (or folder) and allowed by the user. A global write to one of
+ * these changes nothing until the workspace value goes (#419).
+ */
+export function trustedWorkspaceOverrides(keys: readonly string[]): string[] {
+  if (!sensitiveValuesTrusted()) return [];
+  const values = sensitiveWorkspaceValues();
+  return keys.filter((k) => SENSITIVE.has(k) && values[k] !== undefined);
+}
+
 type Configuration = ReturnType<typeof workspace.getConfiguration>;
 
 /**

@@ -49,16 +49,16 @@ export function participantApprovalOptions(config: Pick<SideCarConfig, 'agentMod
 // Slash-command dispatch table
 // ---------------------------------------------------------------------------
 
-interface SlashCommandDef {
+export interface SlashCommandDef {
   readonly systemPrompt: string;
   readonly preamble: (prompt: string) => string;
 }
 
-const GENERIC_SYSTEM_PROMPT =
+export const GENERIC_SYSTEM_PROMPT =
   'You are SideCar, an expert AI coding assistant. ' +
   'Give concise, accurate answers. Format code in fenced code blocks with the language identifier.';
 
-const SLASH_COMMANDS: Record<string, SlashCommandDef> = {
+export const SLASH_COMMANDS: Record<string, SlashCommandDef> = {
   review: {
     systemPrompt:
       'You are SideCar, an expert code reviewer. ' +
@@ -99,7 +99,7 @@ const SLASH_COMMANDS: Record<string, SlashCommandDef> = {
 // ---------------------------------------------------------------------------
 
 /** Adapt a VS Code CancellationToken to an AbortSignal. */
-function tokenToSignal(token: vscode.CancellationToken): AbortSignal {
+export function tokenToSignal(token: vscode.CancellationToken): AbortSignal {
   const ac = new AbortController();
   if (token.isCancellationRequested) {
     ac.abort();
@@ -110,7 +110,7 @@ function tokenToSignal(token: vscode.CancellationToken): AbortSignal {
 }
 
 /** Read a VS Code Uri into text, capped at maxBytes. */
-async function readUri(uri: vscode.Uri, maxBytes = 512_000): Promise<string> {
+export async function readUri(uri: vscode.Uri, maxBytes = 512_000): Promise<string> {
   try {
     const doc = await vscode.workspace.openTextDocument(uri);
     const text = doc.getText();
@@ -209,12 +209,93 @@ export function buildHistoryFromChatContext(
 }
 
 // ---------------------------------------------------------------------------
+// Runs shared with the sidecar_delegate tool
+// ---------------------------------------------------------------------------
+
+/**
+ * A slash command: one plain completion under its own system prompt. The
+ * prompt is passed per call, not set on the client -- the client is the
+ * SideCar panel's, and setting it replaced the panel's prompt.
+ */
+export async function streamSlashCompletion(
+  client: SideCarClient,
+  messages: ChatMessage[],
+  systemPrompt: string,
+  signal: AbortSignal,
+  onText: (text: string) => void,
+): Promise<void> {
+  for await (const event of client.streamChat(messages, signal, undefined, systemPrompt)) {
+    if (signal.aborted) break;
+    if (event.type === 'text') {
+      onText(event.text);
+    } else if (event.type === 'stop') {
+      break;
+    }
+  }
+}
+
+/** Where an agent run reports what it is doing. */
+export interface AgentRunSink {
+  onText: (text: string) => void;
+  onProgress: (message: string) => void;
+  onToolError: () => void;
+  /** Streamed tool output; omitted, it is dropped. */
+  onToolOutput?: (chunk: string) => void;
+}
+
+/**
+ * A request through SideCar's own agent loop under the user's approval mode
+ * (`participantApprovalOptions`). Returns the absolute paths of the files the
+ * run wrote or edited.
+ */
+export async function runSidecarAgent(
+  client: SideCarClient,
+  messages: ChatMessage[],
+  systemPrompt: string,
+  signal: AbortSignal,
+  sink: AgentRunSink,
+  mcpManager?: MCPManager,
+): Promise<Set<string>> {
+  const editedFiles = new Set<string>();
+  const workspaceRoot = getWorkspaceRoot();
+
+  const callbacks: AgentCallbacks = {
+    onText: sink.onText,
+    onThinking: () => {}, // suppress raw thinking blocks in chat
+    // Capture file paths from write/edit tool calls.
+    onToolCall: (name, input) => {
+      if ((name === 'write_file' || name === 'edit_file' || name === 'create_file') && typeof input.path === 'string') {
+        editedFiles.add(path.isAbsolute(input.path) ? input.path : path.join(workspaceRoot, input.path));
+      }
+      sink.onProgress(`Running \`${name}\`…`);
+    },
+    onToolResult: (_name, _result, isError) => {
+      if (isError) sink.onToolError();
+    },
+    onToolOutput: (_name, chunk) => sink.onToolOutput?.(chunk),
+    onProgressSummary: sink.onProgress,
+    onDone: () => {},
+  };
+
+  await runAgentLoop(client, messages, callbacks, signal, {
+    ...participantApprovalOptions(getConfig()),
+    systemPromptOverride: systemPrompt,
+    mcpManager,
+  });
+  return editedFiles;
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
 /**
  * Register the `@sidecar` native VS Code chat participant.
  * Called from extension.ts after chatProvider is initialised.
+ *
+ * Deprecated (#493): VS Code's Copilot harness does not run chat
+ * participants, and the Local harness is removed in February 2027.
+ * `sidecar_delegate` (delegateTool.ts) replaces it; remove this before then.
  *
  * Slash commands (/review, /fix, /explain, /commit-message) run a plain
  * completion with a specialised system prompt — they're Q&A style, not
@@ -235,17 +316,9 @@ export function registerSidecarParticipant(
 
     // Slash commands use a focused system prompt + plain completion.
     if (request.command && SLASH_COMMANDS[request.command]) {
-      client.updateSystemPrompt(systemPrompt);
       response.progress('Thinking…');
       try {
-        for await (const event of client.streamChat(messages, signal)) {
-          if (token.isCancellationRequested) break;
-          if (event.type === 'text') {
-            response.markdown(event.text);
-          } else if (event.type === 'stop') {
-            break;
-          }
-        }
+        await streamSlashCompletion(client, messages, systemPrompt, signal, (text) => response.markdown(text));
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
         throw err;
@@ -256,43 +329,22 @@ export function registerSidecarParticipant(
     // All other requests: full agent loop with tool use.
     response.progress('Starting SideCar agent…');
 
-    const editedFiles = new Set<string>();
     const workspaceRoot = getWorkspaceRoot();
-
-    const callbacks: AgentCallbacks = {
-      onText: (text) => response.markdown(text),
-      onThinking: () => {}, // suppress raw thinking blocks in chat
-      onToolCall: (name) => response.progress(`Running \`${name}\`…`),
-      onToolResult: (name, _result, isError, _id) => {
-        if (isError) {
-          response.markdown('\n> ⚠️ Tool returned an error.\n');
-          return;
-        }
-        // Track files written or edited so we can surface them as anchors.
-        // Tool input isn't available here — we capture paths from onToolCall instead.
-        void name;
-      },
-      onToolOutput: (_name, chunk) => response.markdown(chunk),
-      onProgressSummary: (summary) => response.progress(summary),
-      onDone: () => {},
-    };
-
-    // Capture file paths from write/edit tool calls.
-    const originalOnToolCall = callbacks.onToolCall!;
-    callbacks.onToolCall = (name, input, id) => {
-      if ((name === 'write_file' || name === 'edit_file' || name === 'create_file') && typeof input.path === 'string') {
-        const filePath = path.isAbsolute(input.path) ? input.path : path.join(workspaceRoot, input.path);
-        editedFiles.add(filePath);
-      }
-      originalOnToolCall(name, input, id);
-    };
-
+    let editedFiles: Set<string>;
     try {
-      await runAgentLoop(client, messages, callbacks, signal, {
-        ...participantApprovalOptions(getConfig()),
-        systemPromptOverride: systemPrompt,
+      editedFiles = await runSidecarAgent(
+        client,
+        messages,
+        systemPrompt,
+        signal,
+        {
+          onText: (text) => response.markdown(text),
+          onProgress: (message) => response.progress(message),
+          onToolError: () => response.markdown('\n> ⚠️ Tool returned an error.\n'),
+          onToolOutput: (chunk) => response.markdown(chunk),
+        },
         mcpManager,
-      });
+      );
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       throw err;

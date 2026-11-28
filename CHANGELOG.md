@@ -4,8 +4,35 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+## [0.137.0] - 2026-11-23
+
+Copilot Chat can hand a task to SideCar: the new `sidecar_delegate` tool runs SideCar's agent on
+your own model, and SideCar's other tools now declare their arguments, so Copilot's model can call
+them reliably. `@sidecar` is deprecated, because VS Code is phasing out chat participants. The
+completion gate no longer counts a test run that never ran, and it stops demanding runs the agent
+can't make. More tool failures come back as errors the model can see. A run now survives a
+malformed XML tool call, a call to a tool the session doesn't offer and a tool call repeated in
+one response, and searching git history can no longer hang it. On Windows, stopping a Git Bash
+shell no longer risks killing another program's processes. The Bedrock region picker says when a
+workspace setting overrides your choice.
+
+### Added
+
+- **`sidecar_delegate`: hand a task to SideCar from Copilot Chat**
+  ([#493](https://github.com/nedonatelli/sidecar/issues/493)). A language model tool that runs SideCar's
+  own agent on your configured model and returns its answer and the files it changed. Its `review`,
+  `fix`, `explain` and `commit-message` modes give one answer without changing files. It follows your
+  `sidecar.agentMode`, as `@sidecar` does, and works in Copilot harness sessions, which do not run
+  chat participants.
+
 ### Changed
 
+- **`@sidecar` is deprecated.** VS Code no longer runs chat participants in the Copilot harness, and
+  removes the Local harness that still does in February 2027. Use `#sidecar_delegate` or the SideCar
+  panel. `@sidecar` keeps working until then.
+- **`@sidecar`'s slash commands no longer change the system prompt of a SideCar panel run in
+  progress.** They set their prompt on the client the panel shares, so a panel run's later turns
+  picked it up; it is now passed per request.
 - **A failed edit says when the agent's own earlier edit replaced the text it searched for.**
   `edit_file` remembers the edits it applied to each file in a run. When a later search misses
   because it is text one of those edits replaced, the error says so and shows what that edit
@@ -14,6 +41,43 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ### Fixed
 
+- **SideCar's tools in Copilot Chat declare their arguments and can be picked with `#`**
+  ([#495](https://github.com/nedonatelli/sidecar/issues/495)). The 11 tools SideCar offers through
+  VS Code's language model tool API had no input schema, so a calling model had to guess argument
+  names. Each now declares the schema SideCar's own agent uses, generated from the same definitions
+  and checked by a test. Each also has a `#` reference name, so it shows in the tool picker. A path
+  argument can be absolute as long as it is inside the workspace; it is converted to the relative
+  path SideCar's file tools expect.
+- **The completion gate stops asking for things the agent can't usefully do**
+  ([#505](https://github.com/nedonatelli/sidecar/issues/505)). After edits only to scratch scripts
+  such as `repro.py`, it no longer asks for the project's tests. Once the agent can't run a
+  command, because `run_command` and `run_tests` are used up or not offered, it no longer asks for
+  a test run it can't make; lint checks still apply. Runs that used to loop on these demands until
+  the gate gave up now finish sooner.
+- **Stopping a Git Bash shell on Windows can no longer kill an unrelated program's processes**
+  ([#422](https://github.com/nedonatelli/sidecar/issues/422)). SideCar remembers the MSYS process
+  group each Git Bash shell and background command leads, and kills that group when the session
+  ends, so a script's leftovers don't keep running. Once a shell had exited, its group id could be
+  handed to another program before the cleanup ran. The cleanup now kills only processes that
+  started before the shell exited.
+- **More tools report a failure as an error instead of an ordinary result**
+  ([#476](https://github.com/nedonatelli/sidecar/issues/476)). A model reading these results took
+  the failed operation as done:
+  - the database tools: failed connections, queries and migrations, and missing arguments;
+  - `mutation_test` failing to run;
+  - `git_commit` with nothing staged, and `git_stash` with an unknown action;
+  - `research_log_experiment` when the finished experiment could not be saved (the error includes
+    the run's output).
+
+  `get_diagnostics` in a Shadow Workspace or fork run now says it cannot see that run's files. It
+  used to return the main workspace's diagnostics, which the completion gate counted as a lint
+  run.
+- **The Bedrock region picker says when the workspace's setting overrides your choice**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The picker writes the region, FIPS
+  setting and endpoint URL to your user settings. A workspace that sets them, once you have allowed
+  it, kept winning, so a new pick changed nothing. The picker now says so and offers to remove the
+  workspace's values. It still never writes these settings into the workspace, because they decide
+  which host receives your AWS credentials.
 - **The completion gate no longer credits a test or lint run that never ran**
   ([#471](https://github.com/nedonatelli/sidecar/issues/471),
   [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test
@@ -73,7 +137,6 @@ All notable changes to the SideCar extension will be documented in this file.
   runs counted toward giving the model more scaffolding. They're recorded as `infra` now and left
   out of that decision. A run that ended because the backend couldn't parse the model's tool call
   is recorded as a malformed call instead.
-
 - **`grep` no longer says a pattern is absent when the search itself failed**
   ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
   absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an
@@ -81,6 +144,10 @@ All notable changes to the SideCar extension will be documented in this file.
   unknown. These searches are no longer recorded as "already searched, found nothing", so a retry
   isn't told it found nothing before. Matches printed before grep failed are marked as partial
   results, as a timeout already was.
+
+### Stats
+- 11300 total tests (618 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.136.0] - 2026-11-08
 

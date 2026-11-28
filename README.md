@@ -52,7 +52,7 @@ The highlights. Full list: [feature specs](https://nedonatelli.github.io/sidecar
 | **MCP (client + server)**                     | stdio / HTTP / SSE transports with lazy schema loading; expose SideCar's own agent loop as an MCP server                                                                                                                                                    |
 | **Skills & project instructions**             | Markdown skills (`allowed-tools`, `preferred-model`, `max-iterations`) and 40+ slash commands; path-scoped `SIDECAR.md`, falling back to `AGENTS.md` / `CLAUDE.md` / `.cursorrules`                                                                         |
 | **Cost controls**                             | Anthropic prompt caching, a pruner for oversized tool results, delegation to a local worker model, and daily/weekly spend caps                                                                                                                              |
-| **VS Code integration**                       | Security and diagnostic findings in the Problems panel, agent runs from Test Explorer, CodeLens actions, and `@sidecar` in Copilot Chat                                                                                                                     |
+| **VS Code integration**                       | Security and diagnostic findings in the Problems panel, agent runs from Test Explorer, CodeLens actions, and `#sidecar_delegate` in Copilot Chat                                                                                                            |
 
 ## Why SideCar
 
