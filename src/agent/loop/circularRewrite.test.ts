@@ -132,6 +132,44 @@ describe('resetVerifyCountersForVerifications', () => {
     const state = stubLoopState();
     expect(() => resetVerifyCountersForVerifications([tool('get_diagnostics', {})], state)).not.toThrow();
   });
+
+  // #425: the gate reads run_tests' target through its aliases (#386); so must this.
+  it('reads a run_tests target sent as `path`, and a run_command sent as `bash`', () => {
+    const state = stubLoopState();
+    state.writesSinceVerifyByFile.set('gui_calculator.py', 4);
+    state.writesSinceVerifyByFile.set('app.py', 4);
+    resetVerifyCountersForVerifications(
+      [tool('run_tests', { path: 'test_gui_calculator.py' }), tool('bash', { command: 'python3 app.py' })],
+      state,
+    );
+    expect(state.writesSinceVerifyByFile.get('gui_calculator.py')).toBe(0);
+    expect(state.writesSinceVerifyByFile.get('app.py')).toBe(0);
+  });
+});
+
+describe('the enforce-edit lock matches the same file, not a suffix (#425)', () => {
+  it('a lock on tests/conftest.py does not hold the root conftest.py', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('tests/conftest.py');
+    expect(shouldDeferBailForBlockedWrite([write('conftest.py', 'x')], state, stubCallbacks())).toBe(false);
+  });
+
+  it('a backslashed or ./ path names the locked file', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('src/a.py');
+    expect(shouldDeferBailForBlockedWrite([write('src\\a.py', 'x')], state, stubCallbacks())).toBe(true);
+    expect(shouldDeferBailForBlockedWrite([write('./src/a.py', 'y')], state, stubCallbacks())).toBe(true);
+  });
+
+  it('deleting the root conftest.py leaves the nested one locked', () => {
+    const state = stubLoopState();
+    state.filesEditedViaEditTool.add('tests/conftest.py');
+    state.filesEditedViaEditTool.add('conftest.py');
+    const del = tool('delete_file', { path: 'conftest.py' });
+    state.toolOutcomes.set(del.id, { kind: 'mutated', paths: ['conftest.py'] });
+    clearTrackingForDeletedFiles([del], state);
+    expect([...state.filesEditedViaEditTool]).toEqual(['tests/conftest.py']);
+  });
 });
 
 describe('shouldDeferBailForBlockedWrite', () => {
@@ -397,12 +435,12 @@ describe('maybeReleaseEnforceLock', () => {
     expect(state.enforceEditBlocksByFile.get('gui.py') ?? 0).toBe(0);
   });
 
-  it('matches the locked file by path suffix (relative vs absolute)', () => {
+  it('matches the locked file however the path is spelled (#425)', () => {
     const state = stubLoopState();
-    state.filesEditedViaEditTool.add('/abs/proj/gui.py');
+    state.filesEditedViaEditTool.add('src/gui.py');
     const cb = stubCallbacks();
-    for (let i = 0; i < 3; i++) maybeReleaseEnforceLock([write('gui.py', `v${i}`)], [blocked()], state, cb);
-    expect([...state.filesEditedViaEditTool]).not.toContain('/abs/proj/gui.py'); // released by suffix
+    for (let i = 0; i < 3; i++) maybeReleaseEnforceLock([write('src\\gui.py', `v${i}`)], [blocked()], state, cb);
+    expect([...state.filesEditedViaEditTool]).not.toContain('src/gui.py');
   });
 
   it('does NOT release a same-basename file in a different dir', () => {

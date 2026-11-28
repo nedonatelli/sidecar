@@ -5,6 +5,7 @@ import type { ChatMessage, ContentBlock } from '../../ollama/types.js';
 import { ConversationSummarizer } from '../conversationSummarizer.js';
 import { ToolResultCompressor } from '../toolResultCompressor.js';
 import type { LoopState } from './state.js';
+import { resolveToolNameAlias } from '../executor/toolNameAlias.js';
 
 // ---------------------------------------------------------------------------
 // Tool-result compression (the lower-level helper the loop-level
@@ -135,12 +136,15 @@ export function clearCompressionCache(): void {
   compressionCache.clear();
 }
 
-function isStateEstablishingResult(msg: ChatMessage, prevMsg: ChatMessage | undefined): boolean {
-  if (!prevMsg || msg.role !== 'user' || typeof msg.content === 'string') return false;
-  if (!Array.isArray(prevMsg.content)) return false;
-  // A user message's tool_results are state-establishing when the preceding
-  // assistant message's tool_use names are in STATE_ESTABLISHING_TOOLS.
-  return prevMsg.content.some((b) => b.type === 'tool_use' && STATE_ESTABLISHING_TOOLS.has(b.name));
+/**
+ * A tool_result from a state-establishing call. Judged per block (#425): it
+ * used to exempt the whole user message whenever the assistant turn before it
+ * called one of these tools, so every other result of that batch (a read_file,
+ * a grep) stayed uncompressed too. An alias (`bash`) counts as its tool.
+ */
+function isStateEstablishingResult(toolUseId: string, toolNameMap: Map<string, string>): boolean {
+  const name = toolNameMap.get(toolUseId) ?? '';
+  return STATE_ESTABLISHING_TOOLS.has(resolveToolNameAlias(name) ?? name);
 }
 
 export function compressMessages(messages: ChatMessage[]): number {
@@ -158,10 +162,6 @@ export function compressMessages(messages: ChatMessage[]): number {
     // nothing else. Only those get the exemption; image/tool_result blocks at
     // index 0 (test artifacts or unusual flows) remain compressible.
     if (i === 0 && msg.role === 'user' && msg.content.every((b) => b.type === 'text')) continue;
-
-    // Tool results from state-establishing commands (git_clone, npm install, etc.)
-    // are compression-immune: the agent needs them for the full session.
-    if (isStateEstablishingResult(msg, messages[i - 1])) continue;
 
     const distFromEnd = len - 1 - i;
     // The most aggressive tier (read) compresses from distFromEnd >= 1;
@@ -191,7 +191,12 @@ export function compressMessages(messages: ChatMessage[]): number {
         const tier = compressionTier(block.tool_use_id, !!block.is_error, toolNameMap);
         let maxLen: number;
 
-        if (tier === 'error') {
+        if (isStateEstablishingResult(block.tool_use_id, toolNameMap)) {
+          // Results of state-establishing commands (git_clone, npm install,
+          // etc.) are compression-immune: the agent needs them for the session.
+          newContent.push(block);
+          continue;
+        } else if (tier === 'error') {
           // Error results document what went wrong — preserve them at any age
           // so the agent retains full diagnostic context throughout the session.
           newContent.push(block);

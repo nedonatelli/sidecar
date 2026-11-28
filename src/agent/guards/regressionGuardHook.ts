@@ -126,6 +126,8 @@ export class RegressionGuardHook implements PolicyHook {
   readonly name: string;
   private readonly guard: RegressionGuardConfig;
   private attempts = 0;
+  /** The "exceeded N failed attempts" notice went out. A spent guard never runs again, so once is enough. */
+  private exhaustedNoticeSent = false;
 
   constructor(guard: RegressionGuardConfig) {
     this.guard = guard;
@@ -157,13 +159,12 @@ export class RegressionGuardHook implements PolicyHook {
     // Attempt budget.
     const maxAttempts = this.guard.maxAttempts ?? 5;
     if (this.attempts >= maxAttempts) {
-      const already = state.messages[state.messages.length - 1];
       // Only emit the escalation message once, not on every subsequent turn.
-      if (
-        !already || typeof already.content === 'string'
-          ? !(already?.content as string)?.includes(`${this.guard.name}\` exceeded`)
-          : false
-      ) {
+      // This used to look for it in the last message, through a ternary that
+      // parsed as `(!already || isString) ? … : false`: after a tool turn the
+      // last message is an array of tool results, so it never fired (#425).
+      if (!this.exhaustedNoticeSent) {
+        this.exhaustedNoticeSent = true;
         injectNudge(
           state,
           'regression-guard-exhausted',

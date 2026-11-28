@@ -479,4 +479,20 @@ describe('a shell search spends the search budget (#311)', () => {
     expect(budgetKey('grep', { command: 'pytest' })).toBe('grep');
     expect(budgetKey('read_file', { path: 'a.py' })).toBe('read_file');
   });
+
+  it('keys an aliased call by the tool it runs as (#425)', () => {
+    expect(budgetKey('bash', { command: 'pytest -rA t.py' })).toBe('run_command');
+    expect(budgetKey('shell', { command: 'grep -n x a.py' })).toBe('grep');
+    expect(budgetKey('str_replace', { path: 'a.py' })).toBe('edit_file');
+  });
+
+  it('splits only on separators outside quotes, and counts a stderr redirect to a file as a write (#425)', () => {
+    expect(isShellSearch('grep -E "foo|bar" src/a.py')).toBe(true);
+    expect(isShellSearch("grep -n 'a;b' src/a.py | head -5")).toBe(true);
+    expect(isShellSearch('grep -rn x src 2>errors.txt')).toBe(false);
+    expect(isShellSearch('grep -rn x src &>out.txt')).toBe(false);
+    expect(isShellSearch('grep -rn x src >> hits.txt')).toBe(false);
+    expect(isShellSearch('grep -rn x src 2>&1 | head')).toBe(true);
+    expect(isShellSearch('grep -rn x src 2>/dev/null')).toBe(true);
+  });
 });

@@ -74,6 +74,17 @@ describe('writeTargetsFromToolUses', () => {
     const uses = [toolUse('write_file', {}), toolUse('write_file', { path: 42 }), toolUse('write_file', { path: '' })];
     expect(writeTargetsFromToolUses(uses)).toEqual([]);
   });
+
+  // #425: read before the executor resolves the alias and remaps the key.
+  it('reads aliased write tools, and a path sent as file_path or file', () => {
+    const uses = [
+      toolUse('create_file', { path: 'a.ts', content: 'x' }),
+      toolUse('str_replace', { file_path: 'b.ts', old_string: 's', new_string: 'r' }),
+      toolUse('write_file', { file: 'c.ts', content: 'x' }),
+      toolUse('cat', { path: 'ignore.ts' }),
+    ];
+    expect(writeTargetsFromToolUses(uses)).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
 });
 
 describe('selectRevertContents', () => {

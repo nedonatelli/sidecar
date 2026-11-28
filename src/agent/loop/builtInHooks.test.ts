@@ -29,12 +29,16 @@ vi.mock('./gate.js', () => ({
   recordGateToolUses: vi.fn(),
   maybeInjectCompletionGate: vi.fn(async () => 'skip'),
 }));
+vi.mock('./actionReprompt.js', () => ({
+  maybeInjectActionReprompt: vi.fn(() => false),
+}));
 
 import { defaultPolicyHooks } from './builtInHooks.js';
 import { applyAutoFix } from './autoFix.js';
 import { applyStubCheck } from './stubCheck.js';
 import { recordGateToolUses, maybeInjectCompletionGate } from './gate.js';
-import type { HookContext } from './policyHook.js';
+import { maybeInjectActionReprompt } from './actionReprompt.js';
+import { HookBus, type HookContext } from './policyHook.js';
 import type { ToolUseContentBlock, ToolResultContentBlock } from '../../ollama/types.js';
 
 function stubContext(overrides: Partial<HookContext> = {}): HookContext {
@@ -166,6 +170,24 @@ describe('completionGate adapter', () => {
       vi.mocked(maybeInjectCompletionGate).mockResolvedValueOnce('skip');
       const result = await hook.onEmptyResponse!(stubLoopState(), stubContext());
       expect(result?.mutated).toBe(false);
+    });
+
+    // #425: the action reprompt and the gate could both inject on one empty
+    // response, handing the model two different next steps at once.
+    it('does not run the gate on an empty response the action reprompt already answered', async () => {
+      const bus = new HookBus();
+      bus.registerAll(defaultPolicyHooks());
+      vi.mocked(maybeInjectActionReprompt).mockReturnValueOnce(true);
+      vi.mocked(maybeInjectCompletionGate).mockResolvedValue('injected');
+      expect(await bus.runEmptyResponse(stubLoopState(), stubContext({ fullText: 'I will now run the tests.' }))).toBe(
+        true,
+      );
+      expect(maybeInjectCompletionGate).not.toHaveBeenCalled();
+
+      // The next empty response, with no action reprompt, reaches the gate.
+      expect(await bus.runEmptyResponse(stubLoopState(), stubContext({ fullText: 'Done.' }))).toBe(true);
+      expect(maybeInjectCompletionGate).toHaveBeenCalledOnce();
+      vi.mocked(maybeInjectCompletionGate).mockResolvedValue('skip');
     });
   });
 });

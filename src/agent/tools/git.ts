@@ -336,6 +336,11 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
   const push = () =>
     input.setUpstream ? git.pushWithUpstream(target.remote, target.branch) : git.push(target.remote, target.branch);
 
+  // The check only decides; the push runs once, below (#425). It used to run
+  // inside the check's try, so a failed push there was swallowed as a failed
+  // check and the push was tried a second time.
+  let protectionNote = '';
+  let blocked: string | null = null;
   if (config.branchProtectionEnabled) {
     try {
       const parsed = target.url ? GitHubAPI.parseRepo(target.url) : null;
@@ -346,17 +351,14 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
           const protection = await api.getBranchProtection(parsed.owner, parsed.repo, target.branch).catch(() => null);
           if (!canPushDirect(protection)) {
             const summary = formatProtectionMarkdown(summarizeProtection(protection));
-            return (
+            blocked =
               `Branch protection check: \`${target.branch}\` requires a pull request — direct push is blocked.\n\n` +
               summary +
-              `\n\nPush aborted. Create a PR from this branch instead of pushing directly.`
-            );
-          }
-          if (config.branchProtectionWarnEvenIfPassing && protection) {
+              `\n\nPush aborted. Create a PR from this branch instead of pushing directly.`;
+          } else if (config.branchProtectionWarnEvenIfPassing && protection) {
             const lines = summarizeProtection(protection);
             if (lines.length > 0) {
-              const pushResult = await push();
-              return `${pushResult}\n\nBranch protection on \`${target.branch}\`:\n${formatProtectionMarkdown(lines)}`;
+              protectionNote = `\n\nBranch protection on \`${target.branch}\`:\n${formatProtectionMarkdown(lines)}`;
             }
           }
         }
@@ -365,9 +367,11 @@ export async function gitPush(input: Record<string, unknown>, context?: ToolExec
       // Non-fatal — if the protection check fails for any reason, fall through to the push.
     }
   }
+  // Thrown, not returned (#425): nothing was pushed, and a returned string reads as is_error=false.
+  if (blocked) throw new Error(blocked);
 
   try {
-    return await push();
+    return (await push()) + protectionNote;
   } catch (err) {
     throw new Error(`git push failed: ${formatToolError(err)}`);
   }

@@ -118,6 +118,10 @@ const completionGateHook: PolicyHook = {
     return { mutated: false };
   },
   async onEmptyResponse(state: LoopState, ctx: HookContext): Promise<HookResult> {
+    // The action reprompt already answered this empty response (#425). Two
+    // nudges on one turn gave the model two different next steps; the gate
+    // gets its turn at the next empty response.
+    if (ctx.earlierHookMutated) return { mutated: false };
     const outcome = await maybeInjectCompletionGate(state, ctx.config, ctx.options, ctx.signal, ctx.callbacks);
     return { mutated: outcome === 'injected' };
   },

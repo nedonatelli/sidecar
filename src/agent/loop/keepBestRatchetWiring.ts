@@ -6,6 +6,8 @@ import type { AgentCallbacks } from '../loop.js';
 import type { LoopState } from './state.js';
 import { normalizePath } from '../completionGate/pathUtil.js';
 import { readTextFile, writeTextFile } from '../tools/textFileIo.js';
+import { fileToolName } from '../tools/toolOutcome.js';
+import { inputPath } from '../executor/paramRemap.js';
 import {
   decideRatchet,
   captureFileSnapshot,
@@ -48,9 +50,6 @@ import {
 // on disk, so the ratchet is disabled there (see runAgentLoop wiring).
 // ---------------------------------------------------------------------------
 
-/** Tools whose target file the ratchet must baseline before dispatch. */
-const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(['write_file', 'edit_file', 'delete_file']);
-
 /** Per-run ratchet state carried on LoopState. */
 export interface RatchetRunState {
   enabled: boolean;
@@ -76,13 +75,19 @@ export function initRatchetRunState(enabled: boolean, overEngineerBytes: number)
   };
 }
 
-/** Extract the file paths a batch of tool calls is about to write/edit/delete. */
+/**
+ * Extract the file paths a batch of tool calls is about to write/edit/delete.
+ * Read before dispatch, so as the executor will read them (#425): an alias
+ * (`create_file`, `str_replace`) is its file tool, and a path sent as
+ * `file_path` or `file` is the path. Missing either left that file out of the
+ * baseline, and a revert of it partial.
+ */
 export function writeTargetsFromToolUses(uses: readonly ToolUseContentBlock[]): string[] {
   const out: string[] = [];
   for (const u of uses) {
-    if (!WRITE_TOOL_NAMES.has(u.name)) continue;
-    const p = (u.input as { path?: unknown } | undefined)?.path;
-    if (typeof p === 'string' && p.length > 0) out.push(p);
+    if (!fileToolName(u.name)) continue;
+    const p = inputPath(u.input);
+    if (p) out.push(p);
   }
   return out;
 }
