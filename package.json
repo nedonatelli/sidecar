@@ -2,7 +2,7 @@
   "name": "sidecar-ai",
   "displayName": "SideCar",
   "description": "Autonomous AI agent for coding — run full agent loops with local Ollama, Anthropic Claude, or OpenAI models",
-  "version": "0.135.0",
+  "version": "0.137.0",
   "license": "MIT",
   "publisher": "nedonatelli",
   "author": {
@@ -393,7 +393,7 @@
               "sidecar",
               "backend"
             ],
-            "markdownDescription": "Disable the extended reasoning (`think`) phase for Ollama models that support it (e.g. Qwen3, DeepSeek-R1). When `true`, SideCar passes `think: false` with every request, skipping the internal chain-of-thought and reducing latency significantly at the cost of reasoning depth.\n\nLeave `false` (default) to keep thinking enabled — recommended for complex coding tasks. Enable when speed matters more than depth, or when running evals."
+            "markdownDescription": "Turn off the extended reasoning (`think`) phase for Ollama models that support it (e.g. Qwen3, DeepSeek-R1, Gemma 4). When `true`, SideCar sends `think: false` with every chat request, skipping the model's chain-of-thought and reducing latency significantly at the cost of reasoning depth.\n\nLeave `false` (default) to keep thinking on, for every model — recommended for complex coding tasks. Enable when speed matters more than depth.\n\nThe **Thinking** switch in the chat header (💭, shown on the Ollama backend) changes this setting; the change applies from the next request."
           },
           "sidecar.agentMaxIterations": {
             "type": "number",
@@ -522,7 +522,7 @@
           "sidecar.scaffolding.scratchCleanup": {
             "type": "boolean",
             "default": true,
-            "description": "At the end of a run, move scratch files the agent created and left behind (reproduce_issue.py, verify_fix.py, a script in the workspace root, ...) to .sidecar/scratchpad/<run id>/, which git ignores, and list them in the reply. Only files the run created are moved, and only when nothing else in the change refers to them; a new file in a test directory with an ordinary name is kept, and so is a file your message names. Skipped when you stop the run and in audit mode."
+            "description": "At the end of a run, move scratch scripts the agent created and left behind (reproduce_issue.py, repro.py, scratch.py, test_repro.py; verify_*, debug_*, check_*, compare_* and test_* scripts in the workspace root) to .sidecar/scratchpad/<run id>/, which git ignores, and list them in the reply. Only files this run wrote with a file tool or named in one of its commands are moved, and only when nothing else in the change refers to them. Files in a test directory are never moved, and neither are other scripts (config files, setup.py, a script you asked for) or a file your message names. Skipped when you stop the run and in audit mode."
           },
           "sidecar.scaffolding.keepBestOverEngineerBytes": {
             "type": "number",
@@ -2562,7 +2562,7 @@
       {
         "id": "sidecar.sidecar",
         "name": "sidecar",
-        "description": "Ask SideCar — your local or cloud AI coding assistant — directly in Copilot Chat",
+        "description": "Deprecated: use #sidecar_delegate or the SideCar panel. Ask SideCar — your local or cloud AI coding assistant — directly in Copilot Chat",
         "isSticky": true,
         "commands": [
           {
@@ -2588,57 +2588,328 @@
       {
         "name": "sidecar_read_file",
         "displayName": "Read File (SideCar)",
-        "modelDescription": "Read the full contents of a file. Returns the file text. Use when you need to inspect source code, config, or any workspace file."
+        "modelDescription": "Read the full contents of a file. Returns the file text. Use when you need to inspect source code, config, or any workspace file.",
+        "toolReferenceName": "sidecar_read_file",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Relative file path from the project root. An absolute path inside the workspace also works."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "full",
+                "compact",
+                "outline"
+              ],
+              "description": "Output mode. `full` (default) returns raw file contents. `compact` strips comments and blank-line runs. `outline` returns signatures only. Ignored when a line range is given."
+            },
+            "start_line": {
+              "type": "integer",
+              "description": "First line to return (1-based, inclusive). Omit to start at line 1. Use with end_line to read a range from a large file."
+            },
+            "end_line": {
+              "type": "integer",
+              "description": "Last line to return (1-based, inclusive). Omit to read to end of file."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
       },
       {
         "name": "sidecar_write_file",
         "displayName": "Write File (SideCar)",
-        "modelDescription": "Create or fully overwrite a file with provided content. Use for new files or complete rewrites; prefer sidecar_edit_file for targeted changes."
+        "modelDescription": "Create or fully overwrite a file with provided content. Use for new files or complete rewrites; prefer sidecar_edit_file for targeted changes.",
+        "toolReferenceName": "sidecar_write_file",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Relative file path from the project root. An absolute path inside the workspace also works."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full file content to write"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
       },
       {
         "name": "sidecar_edit_file",
         "displayName": "Edit File (SideCar)",
-        "modelDescription": "Apply a targeted search-and-replace edit to an existing file. Provide the exact text to find (search) and the replacement text."
+        "modelDescription": "Apply a targeted search-and-replace edit to an existing file. Provide the exact text to find (search) and the replacement text.",
+        "toolReferenceName": "sidecar_edit_file",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Relative file path from the project root. An absolute path inside the workspace also works."
+            },
+            "search": {
+              "type": "string",
+              "description": "Exact text to find — whitespace and indentation must match the file byte-for-byte. Keep it to the text you are CHANGING; disambiguate with `within`, not with extra lines, since anything extra here must be repeated in `replace` or it is deleted."
+            },
+            "replace": {
+              "type": "string",
+              "description": "New text to substitute for the search match. Must differ from search — identical fields are an error. If it is very short and appears verbatim inside search, the call warns; read_file to verify."
+            },
+            "within": {
+              "type": "string",
+              "description": "Optional locator: unique text just ABOVE the edit (enclosing `class`/`def`, a docstring, a comment) saying which occurrence you mean. `search` is matched only at or after it. Must appear exactly once. Never written to the file, never repeated in `replace`. Not usable with `replace_all`."
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace EVERY occurrence of `search` instead of requiring a unique match. Use when the same text repeats. Default false."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
       },
       {
         "name": "sidecar_list_directory",
         "displayName": "List Directory (SideCar)",
-        "modelDescription": "List files and directories at a given path. Returns names, types, and sizes. Use to explore workspace structure."
+        "modelDescription": "List files and directories at a given path. Returns names, types, and sizes. Use to explore workspace structure.",
+        "toolReferenceName": "sidecar_list_directory",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Relative directory path from the project root (empty or \".\" for project root). An absolute path inside the workspace also works."
+            }
+          },
+          "required": []
+        }
       },
       {
         "name": "sidecar_search_files",
         "displayName": "Search Files (SideCar)",
-        "modelDescription": "Search across workspace files using a regex pattern and optional glob filter. Returns matching file paths and line excerpts."
+        "modelDescription": "Search across workspace files using a regex pattern and optional glob filter. Returns matching file paths and line excerpts.",
+        "toolReferenceName": "sidecar_search_files",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern (e.g. \"**/*.ts\", \"src/**/*.test.js\")"
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
       },
       {
         "name": "sidecar_run_command",
         "displayName": "Run Command (SideCar)",
-        "modelDescription": "Execute a shell command in the workspace root and return its stdout/stderr. Use for build steps, formatting, or any shell operation."
+        "modelDescription": "Execute a shell command in the workspace root and return its stdout/stderr. Use for build steps, formatting, or any shell operation.",
+        "toolReferenceName": "sidecar_run_command",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Shell command to run. Mutually exclusive with command_id."
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Timeout in seconds (default: 120). Use higher values for builds/installs."
+            },
+            "background": {
+              "type": "boolean",
+              "description": "If true, run in background and return an ID to check later."
+            },
+            "command_id": {
+              "type": "string",
+              "description": "Check on a background command by its ID (returned from a previous background call). Mutually exclusive with command."
+            }
+          },
+          "required": []
+        }
       },
       {
         "name": "sidecar_run_tests",
         "displayName": "Run Tests (SideCar)",
-        "modelDescription": "Run the project's test suite (or a specific test file/pattern) and return the results. Prefer this over run_command for test execution."
+        "modelDescription": "Run the project's test suite (or a specific test file/pattern) and return the results. Prefer this over run_command for test execution.",
+        "toolReferenceName": "sidecar_run_tests",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Optional: explicit test command to run (e.g. \"npm test -- --coverage\", \"pytest -k myfunc\"). Omit to auto-detect from project config files."
+            },
+            "file": {
+              "type": "string",
+              "description": "Optional: relative path to a single test file to run (e.g. \"tests/auth.test.ts\"). Appended to the detected or provided command. An absolute path inside the workspace also works."
+            }
+          },
+          "required": []
+        }
       },
       {
         "name": "sidecar_git_diff",
         "displayName": "Git Diff (SideCar)",
-        "modelDescription": "Show unstaged changes, staged changes, or diff against a specific commit or branch. Use instead of running 'git diff' via shell."
+        "modelDescription": "Show unstaged changes, staged changes, or diff against a specific commit or branch. Use instead of running 'git diff' via shell.",
+        "toolReferenceName": "sidecar_git_diff",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ref1": {
+              "type": "string",
+              "description": "Optional: first ref (e.g. \"HEAD~3\", \"main\", a commit SHA)."
+            },
+            "ref2": {
+              "type": "string",
+              "description": "Optional: second ref to compare against ref1. If omitted with ref1 set, diffs ref1 against the working tree."
+            }
+          },
+          "required": []
+        }
       },
       {
         "name": "sidecar_git_status",
         "displayName": "Git Status (SideCar)",
-        "modelDescription": "Show the current git working tree status: staged, unstaged, and untracked files."
+        "modelDescription": "Show the current git working tree status: staged, unstaged, and untracked files.",
+        "toolReferenceName": "sidecar_git_status",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
       },
       {
         "name": "sidecar_git_log",
         "displayName": "Git Log (SideCar)",
-        "modelDescription": "Show recent git commit history with author, date, and message. Optionally filter by file path or limit the number of commits."
+        "modelDescription": "Show recent git commit history with author, date, and message. Optionally filter by file path or limit the number of commits.",
+        "toolReferenceName": "sidecar_git_log",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "number",
+              "description": "Number of commits to show. Default: 10."
+            }
+          },
+          "required": []
+        }
       },
       {
         "name": "sidecar_web_search",
         "displayName": "Web Search (SideCar)",
-        "modelDescription": "Search the web for up-to-date information. Returns ranked result snippets. Use for library docs, error messages, or anything not in the workspace."
+        "modelDescription": "Search the web for up-to-date information. Returns ranked result snippets. Use for library docs, error messages, or anything not in the workspace.",
+        "toolReferenceName": "sidecar_web_search",
+        "canBeReferencedInPrompt": true,
+        "tags": [
+          "sidecar"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query. Keep it specific — a few technical terms works better than a full sentence. Example: \"react useEffect cleanup function\", \"python asyncio timeout\"."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "sidecar_delegate",
+        "displayName": "Delegate to SideCar",
+        "toolReferenceName": "sidecar_delegate",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(robot)",
+        "tags": [
+          "sidecar",
+          "delegate"
+        ],
+        "userDescription": "Hand a task to SideCar, which runs it on your configured model (Ollama, Anthropic, ...) under your SideCar agent mode.",
+        "modelDescription": "Hand a coding task to SideCar, a separate agent that runs on the user's own configured model. Use when the user asks for SideCar, or to have SideCar do a task with its own tools. mode 'agent' (default) lets SideCar read files, edit and run commands in the workspace under the user's approval settings; 'review', 'fix', 'explain' and 'commit-message' give one answer without changing files. Returns SideCar's final answer and the files it changed.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "What SideCar should do, with enough detail to work without the conversation so far."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "review",
+                "fix",
+                "explain",
+                "commit-message"
+              ],
+              "description": "agent (default) runs SideCar's agent with tools; the others give one answer without changing files."
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Files to attach to the task: absolute paths, or paths relative to the workspace root. Files outside the workspace are skipped."
+            }
+          },
+          "required": [
+            "task"
+          ]
+        }
       }
     ],
     "commands": [

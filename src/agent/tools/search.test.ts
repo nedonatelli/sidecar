@@ -291,6 +291,80 @@ describe('grep', () => {
     });
   });
 
+  describe('a failed search is not a proven absence (#474)', () => {
+    // Only a clean exit 1 proves a pattern absent. Any other failure used to be
+    // reported as "not in the repository", and recorded in zeroHitPatterns, so a
+    // retry of the same search was told it had already found nothing.
+    const noMatch = () => Object.assign(new Error('no match'), { code: 1, stdout: '' });
+    const failed = (stderr: string, stdout = '') =>
+      Object.assign(new Error('Command failed'), { code: 2, stderr, stdout });
+    const timedOut = () => Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM', code: null });
+    const results = (...errs: Error[]) => {
+      for (const e of errs) {
+        mockExecFile.mockImplementationOnce((_c: unknown, _a: unknown, _o: unknown, cb: (err: Error) => void) => {
+          cb(e);
+        });
+      }
+    };
+    const SNIPPET = 'class ArticleForm(forms.ModelForm):';
+    const BAD_REGEX = 'def refine(';
+    const UNMATCHED = 'grep: Unmatched ( or \\(';
+
+    it('says the relaxed search FAILED, quoting grep, instead of calling the identifier absent', async () => {
+      results(noMatch(), failed('grep: ./vendor/blob.py: Permission denied'));
+      const result = await grep({ pattern: SNIPPET });
+      expect(result).toMatch(/"ArticleForm" FAILED \(grep: \.\/vendor\/blob\.py: Permission denied\)/);
+      expect(result).toMatch(/unknown/);
+      expect(result).not.toMatch(/not in the repository either/);
+    });
+
+    it('marks relaxed matches partial when grep failed after printing them', async () => {
+      results(noMatch(), failed('grep: ./vendor/blob.py: Permission denied', 'app/forms.py:3:class ArticleForm:\n'));
+      const result = await grep({ pattern: SNIPPET });
+      expect(result).toMatch(/DOES match/);
+      expect(result).toContain('app/forms.py');
+      expect(result).toMatch(/\[Partial results — grep exited with status 2 \(grep: \.\/vendor\/blob\.py/);
+    });
+
+    it('marks main-search matches partial, naming the status and the stderr line', async () => {
+      results(failed('grep: ./locked: Permission denied', 'src/foo.ts:10:const foo = 1;\n'));
+      const result = await grep({ pattern: 'foo' });
+      expect(result).toContain('src/foo.ts');
+      expect(result).toMatch(/\[Partial results — grep exited with status 2 \(grep: \.\/locked: Permission denied\)/);
+    });
+
+    it('does not record a pattern whose literal retry timed out, and does not deny the regex error', async () => {
+      const seen = new Map<string, number>();
+      results(failed(UNMATCHED), timedOut());
+      const result = await grep({ pattern: BAD_REGEX }, { zeroHitPatterns: seen } as never);
+      expect(result).toMatch(/searched as literal text/);
+      expect(result).toMatch(/timed out after 15s/);
+      expect(result).toMatch(/does not mean the pattern is absent/i);
+      expect(result).not.toMatch(/not a regex error|No matches found/);
+      expect(seen.size).toBe(0);
+    });
+
+    it('does not record a pattern whose literal retry failed, and says the search failed', async () => {
+      const seen = new Map<string, number>();
+      results(failed(UNMATCHED), failed('grep: ./locked: Permission denied'));
+      const result = await grep({ pattern: BAD_REGEX }, { zeroHitPatterns: seen } as never);
+      expect(result).toMatch(/literal search FAILED \(grep: \.\/locked: Permission denied\)/);
+      expect(result).toMatch(/unknown/);
+      expect(result).not.toMatch(/No matches found/);
+      expect(seen.size).toBe(0);
+    });
+
+    it('still records a clean literal zero-hit (exit 1) as absent', async () => {
+      const seen = new Map<string, number>();
+      // The third call is the zero-hit reply's own search for the identifier "refine".
+      results(failed(UNMATCHED), noMatch(), noMatch());
+      const result = await grep({ pattern: BAD_REGEX }, { zeroHitPatterns: seen } as never);
+      expect(result).toMatch(/searched as literal text/);
+      expect(result).toMatch(/No matches found/);
+      expect(seen.size).toBe(1);
+    });
+  });
+
   it('returns actionable hint when grep exits with regex error and no stdout/stderr', async () => {
     const err = Object.assign(new Error('grep crashed'), { code: 2 });
     mockExecFile.mockImplementationOnce((_cmd: unknown, _args: unknown, _opts: unknown, cb: (err: Error) => void) => {

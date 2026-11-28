@@ -26,6 +26,10 @@ import type {
 } from './types.js';
 
 const BASE_URL = 'https://api.github.com';
+/** Page size for the list endpoints read in full ({@link GitHubAPI.requestAllPages}). */
+const PAGE_SIZE = 100;
+/** Bound on pages read in full: 1000 items. */
+const MAX_PAGES = 10;
 
 export class GitHubAPI {
   private token: string;
@@ -74,6 +78,21 @@ export class GitHubAPI {
     }
 
     return response.json() as Promise<T>;
+  }
+
+  /**
+   * Read every page of a list endpoint whose query already carries
+   * `per_page=${PAGE_SIZE}`, stopping at the first short page. Reading only
+   * the first page missed a failing check run or review comment on page 2.
+   */
+  private async requestAllPages<R, T>(endpoint: string, items: (data: R) => T[]): Promise<T[]> {
+    const all: T[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const batch = items(await this.request<R>(`${endpoint}&page=${page}`));
+      all.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
+    }
+    return all;
   }
 
   private parsePR(pr: RawPR): GitHubPR {
@@ -396,8 +415,9 @@ export class GitHubAPI {
    * These are file-level diff comments, not issue-level PR comments.
    */
   async getPRReviewComments(owner: string, repo: string, prNumber: number): Promise<PrReviewComment[]> {
-    const data = await this.request<RawPrReviewComment[]>(
-      `/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=100`,
+    const data = await this.requestAllPages<RawPrReviewComment[], RawPrReviewComment>(
+      `/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=${PAGE_SIZE}`,
+      (page) => page,
     );
     return data.map((c) => this.parsePrReviewComment(c));
   }
@@ -581,10 +601,11 @@ export class GitHubAPI {
    * (CircleCI, Travis, etc.) that report via the Checks API.
    */
   async getPRCheckRuns(owner: string, repo: string, ref: string): Promise<CheckRun[]> {
-    const data = await this.request<{ check_runs: RawCheckRun[] }>(
-      `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/check-runs?per_page=100`,
+    const data = await this.requestAllPages<{ check_runs: RawCheckRun[] }, RawCheckRun>(
+      `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/check-runs?per_page=${PAGE_SIZE}`,
+      (page) => page.check_runs,
     );
-    return data.check_runs.map((r) => ({
+    return data.map((r) => ({
       id: r.id,
       name: r.name,
       status: r.status,

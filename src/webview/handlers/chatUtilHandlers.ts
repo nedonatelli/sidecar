@@ -1,5 +1,4 @@
 import { window, workspace, Uri } from 'vscode';
-import { recordUserAuthoredText } from '../../agent/conversationSummarizer.js';
 import type { ChatState } from '../chatState.js';
 import type { ContentBlock } from '../../ollama/types.js';
 import { getContentText } from '../../ollama/types.js';
@@ -65,17 +64,18 @@ export async function handleExportChat(state: ChatState): Promise<void> {
   window.showInformationMessage(`Chat exported to ${uri.fsPath.split('/').pop()}`);
 }
 
-export function handleUserMessageWithImages(
-  state: ChatState,
-  text: string,
-  images: { mediaType: string; data: string }[],
-): void {
+/** An image pasted or dropped into the chat input, as the webview sends it. */
+export interface PromptImage {
+  mediaType: string;
+  data: string;
+}
+
+/** A prompt's content with its images: the image blocks, then the text. */
+export function userContentWithImages(text: string, images: PromptImage[]): ContentBlock[] {
   const content: ContentBlock[] = images.map((img) => ({
     type: 'image' as const,
     source: { type: 'base64' as const, media_type: img.mediaType as 'image/png', data: img.data },
   }));
   content.push({ type: 'text', text: text || '' });
-  recordUserAuthoredText(text || '');
-  state.messages.push({ role: 'user', content });
-  state.saveHistory();
+  return content;
 }

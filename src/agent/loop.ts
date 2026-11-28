@@ -61,7 +61,7 @@ import {
   evaluateRatchetAtTermination,
   makeWorkspaceRatchetIo,
 } from './loop/keepBestRatchetWiring.js';
-import { captureScratchBaseline, cleanupScratchAtTermination } from './loop/scratchCleanup.js';
+import { captureScratchBaseline, cleanupScratchAtTermination, noteScratchToolCalls } from './loop/scratchCleanup.js';
 import { drainSteerQueueAtBoundary } from './loop/steerDrain.js';
 import type { SteerQueue } from './steerQueue.js';
 import type { PendingEditStore } from './pendingEdits.js';
@@ -99,9 +99,10 @@ function isTransientNetworkError(err: unknown): boolean {
   );
 }
 
-/** Max times a turn is re-asked after the backend could not parse a tool call
- *  the model wrote. Each retry tells the model what was wrong, so a model at
- *  temperature 0 does not just write the same call again. */
+/** Max times a turn is re-asked after the backend rejected a tool call the
+ *  model wrote (unparseable, or a tool the request did not offer). Each retry
+ *  tells the model what was wrong, so a model at temperature 0 does not just
+ *  write the same call again. */
 const MAX_TOOL_CALL_PARSE_RETRIES = 2;
 
 /**
@@ -115,26 +116,87 @@ const MAX_TOOL_CALL_PARSE_RETRIES = 2;
 export function toolCallParseErrorDetail(err: unknown): string | null {
   if (!(err instanceof Error) || err.name === 'AbortError') return null;
   if (!/^Ollama (?:error|request failed)\b/.test(err.message)) return null;
-  const m = /error parsing tool call[^\n]*|invalid character [^\n]*|unexpected end of JSON input/i.exec(err.message);
+  const m =
+    /error parsing tool call[^\n]*|invalid character [^\n]*|unexpected end of JSON input|XML syntax error[^\n]*|expected element type <[^>\n]+> but have <[^>\n]+>/i.exec(
+      err.message,
+    );
   return m ? m[0].slice(0, 300) : null;
+}
+
+/**
+ * True when a parse detail came from Ollama's XML tool-call parser, the format
+ * qwen3-coder's and nemotron-3.5-lightning's templates use
+ * (`<function=…><parameter=…>…</parameter></function>`). Those messages ended
+ * 7 Lite-300 runs before #501, because only the JSON forms were re-asked.
+ */
+export function isXmlToolCallParseError(detail: string): boolean {
+  return /XML syntax error|expected element type </i.test(detail);
+}
+
+/** The longest tool name a message quotes back; prose in the name slot is cut here. */
+const MAX_QUOTED_TOOL_NAME = 80;
+
+/** `name`, cut to MAX_QUOTED_TOOL_NAME characters with an ellipsis. */
+export function quotedToolName(name: string): string {
+  return name.length > MAX_QUOTED_TOOL_NAME ? `${name.slice(0, MAX_QUOTED_TOOL_NAME)}…` : name;
+}
+
+/**
+ * The tool name when the backend rejected a call to a tool the request did not
+ * offer, or null. Ollama checks tool names for some models (ministral-3's
+ * parser) and ends the stream with "tool 'web_search' not found"; that ended 3
+ * of 50 ministral-3 SWE runs (#486). The HTTP 500 form is handled in
+ * ollamaBackend.ts before streaming starts.
+ *
+ * The "name" can be prose the model wrote where the name goes, apostrophes and
+ * all ("tool 'Let's look at the template files…[TOOL_CALLS]read_file' not
+ * found", #501), so this matches up to the LAST `' not found`, at any length.
+ * Callers quote it through `quotedToolName`.
+ */
+export function unofferedToolName(err: unknown): string | null {
+  if (!(err instanceof Error) || err.name === 'AbortError') return null;
+  if (!/^Ollama (?:error|request failed)\b/.test(err.message)) return null;
+  const m = /tool '([\s\S]+)' not found/.exec(err.message);
+  return m && m[1].trim() ? m[1] : null;
 }
 
 /** Tell the model its last tool call was not run, and why, before re-asking. */
 function pushToolCallParseNudge(state: NudgeTarget, detail: string): void {
-  const text =
-    `[Tool call not parsed] Your last tool call could not be parsed as JSON (${detail}), so it was NOT run. ` +
-    'Send it again with valid JSON arguments. Inside a JSON string a backslash must be written as \\\\; the only ' +
-    'valid escapes are \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t and \\uXXXX.';
+  const text = isXmlToolCallParseError(detail)
+    ? `[Tool call not parsed] Your last tool call could not be parsed (${detail}), so it was NOT run. ` +
+      'Send it again as one complete call: close each <parameter> before you close its <function>, and do not ' +
+      'stop partway through the call.'
+    : `[Tool call not parsed] Your last tool call could not be parsed as JSON (${detail}), so it was NOT run. ` +
+      'Send it again with valid JSON arguments. Inside a JSON string a backslash must be written as \\\\; the only ' +
+      'valid escapes are \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t and \\uXXXX.';
+  if (appendToLastUserMessage(state, text)) recordNudge(state, 'tool-call-parse', text);
+  else injectNudge(state, 'tool-call-parse', [{ type: 'text' as const, text }]);
+}
+
+function pushUnofferedToolNudge(state: NudgeTarget, toolName: string): void {
+  const quoted = quotedToolName(toolName);
+  // A real tool name has no spaces; prose in the name slot means the model
+  // started explaining inside the call. Saying "not offered" would send it
+  // looking for a tool that never existed.
+  const text = /\s/.test(toolName.trim())
+    ? `[Tool call not parsed] Your last response put text where a tool name belongs (\`${quoted}\`), so ` +
+      'nothing was run. Write any explanation as ordinary text, outside the call, and give the tool by its exact name.'
+    : `[Tool not available] Your last response called \`${quoted}\`, which is not one of the tools offered in ` +
+      'this session, so nothing was run. Use only the tools you were given.';
+  if (appendToLastUserMessage(state, text)) recordNudge(state, 'tool-not-offered', text);
+  else injectNudge(state, 'tool-not-offered', [{ type: 'text' as const, text }]);
+}
+
+/**
+ * Two user messages in a row are rejected by some chat templates: append to
+ * the last message when it is the user's. False when there is none to extend.
+ */
+function appendToLastUserMessage(state: NudgeTarget, text: string): boolean {
   const last = state.messages[state.messages.length - 1];
-  // Two user messages in a row are rejected by some chat templates: append to
-  // the last user message instead of adding another.
-  if (last && last.role === 'user') {
-    const blocks = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
-    last.content = [...blocks, { type: 'text' as const, text }];
-    recordNudge(state, 'tool-call-parse', text);
-  } else {
-    injectNudge(state, 'tool-call-parse', [{ type: 'text' as const, text }]);
-  }
+  if (!last || last.role !== 'user') return false;
+  const blocks = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
+  last.content = [...blocks, { type: 'text' as const, text }];
+  return true;
 }
 
 export interface AgentCallbacks {
@@ -243,6 +305,13 @@ export interface AgentCallbacks {
       verificationGates?: number;
       /** The part from loop controls that run in every configuration. */
       loopControls?: number;
+      /**
+       * Why the loop stopped (#475). Unset when it stopped on an error it
+       * caught, such as a failing policy hook. A sub-agent's caller reads it:
+       * the loop returns normally from a timeout or the iteration cap too, so
+       * returning is not finishing.
+       */
+      termination?: import('./loop/state.js').LoopState['termination'];
     },
   ) => void;
   /** Fired when update_plan changed the externalized plan (S1) — checkpointing hook. */
@@ -376,6 +445,13 @@ export interface AgentOptions {
    * option set.
    */
   cwdOverride?: string;
+  /**
+   * Run scratch cleanup even when the run is aborted (#511). A user's Stop
+   * skips it, so their files stay as they were. A harness whose only abort is
+   * its own per-task timer sets this, so a timed-out run's diff doesn't carry
+   * every reproduction script it wrote.
+   */
+  scratchCleanupOnAbort?: boolean;
   /**
    * The text the loop reads the user's file references from: the files the
    * no-read and no-file-write gates expect touched, and the write target the
@@ -563,7 +639,7 @@ export async function runAgentLoop(
 
       // Pre-turn budget compression. Returns 'exhausted' when
       // compaction couldn't bring us below the hard ceiling.
-      const compressionOutcome = await applyBudgetCompression(client, state, callbacks);
+      const compressionOutcome = await applyBudgetCompression(client, state, callbacks, signal);
       if (signal.aborted) {
         state.termination = 'aborted';
         break;
@@ -650,22 +726,34 @@ export async function runAgentLoop(
             break;
           } catch (streamErr) {
             const parseDetail = toolCallParseErrorDetail(streamErr);
+            const unoffered = parseDetail ? null : unofferedToolName(streamErr);
             if (
-              parseDetail &&
+              (parseDetail || unoffered) &&
               parseRetries < MAX_TOOL_CALL_PARSE_RETRIES &&
               !signal.aborted &&
               !turnController.signal.aborted
             ) {
               parseRetries++;
               state.totalChars = charsBeforeTurn;
-              state.logger?.warn(
-                `Backend could not parse the model's tool call (${parseDetail}) — re-asking ${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}`,
-              );
-              callbacks.onText(
-                `\n\n⚠️ The model wrote a tool call that could not be parsed — asking it to send it again ` +
-                  `(${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}); any partial response above is discarded...\n`,
-              );
-              pushToolCallParseNudge(state, parseDetail);
+              if (unoffered) {
+                state.logger?.warn(
+                  `Backend rejected a call to the unoffered tool '${quotedToolName(unoffered)}' — re-asking ${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}`,
+                );
+                callbacks.onText(
+                  `\n\n⚠️ The model called '${quotedToolName(unoffered)}', which this session does not offer — asking it to use ` +
+                    `another tool (${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}); any partial response above is discarded...\n`,
+                );
+                pushUnofferedToolNudge(state, unoffered);
+              } else {
+                state.logger?.warn(
+                  `Backend could not parse the model's tool call (${parseDetail}) — re-asking ${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}`,
+                );
+                callbacks.onText(
+                  `\n\n⚠️ The model wrote a tool call that could not be parsed — asking it to send it again ` +
+                    `(${parseRetries}/${MAX_TOOL_CALL_PARSE_RETRIES}); any partial response above is discarded...\n`,
+                );
+                pushToolCallParseNudge(state, parseDetail!);
+              }
               continue;
             }
             if (
@@ -1062,6 +1150,8 @@ export async function runAgentLoop(
       // Record files successfully edited via edit_file so write_file blocks a
       // full rewrite that would clobber those targeted fixes.
       recordSuccessfulEdits(pendingToolUses, state);
+      // Scratch cleanup only considers files this run's own tools wrote or named (#418).
+      noteScratchToolCalls(state, pendingToolUses);
       // Any write that changed a file invalidates every cached shell result: a
       // command that was a no-op repeat a moment ago may now produce something
       // new. A no-op edit is not a change (#361).
@@ -1203,6 +1293,19 @@ export async function runAgentLoop(
       if (err instanceof Error) {
         (err as Error & { partialMessages?: ChatMessage[] }).partialMessages = [...state.messages];
       }
+      // Record why the run ended, so finalize's failure bucket says so instead
+      // of falling through to bad-reasoning (#271): a 502 is not the model's
+      // reasoning. A reason set before the throw (an abort) is kept.
+      if (state.termination === undefined) {
+        const aborted = err instanceof Error && err.name === 'AbortError';
+        state.termination = aborted ? 'aborted' : 'error';
+        if (!aborted) state.terminationError = err instanceof Error ? err.message : String(err);
+      }
+      // A harness timer that fires mid-request ends the run here, not at the
+      // cleanup below, so its scratch files would ship in the diff (#511).
+      if (state.termination === 'aborted' && options.scratchCleanupOnAbort) {
+        await cleanupScratchAtTermination(state, options.cwdOverride, callbacks);
+      }
       // Fire onDone/flush before propagating — without this, the UI
       // spinner stays active forever when the loop throws.
       finalize(state, callbacks);
@@ -1246,8 +1349,9 @@ export async function runAgentLoop(
 
   // Scratch cleanup (#387): move the reproduction and check scripts the run
   // left behind out of the workspace. After the ratchet, which may already have
-  // removed files the scaffold tail created. Skipped on user-abort, like the ratchet.
-  if (state.termination !== 'aborted') {
+  // removed files the scaffold tail created. Skipped on user-abort, like the
+  // ratchet, unless the caller's aborts are its own timer (#511).
+  if (state.termination !== 'aborted' || options.scratchCleanupOnAbort) {
     await cleanupScratchAtTermination(state, options.cwdOverride, callbacks);
   }
 

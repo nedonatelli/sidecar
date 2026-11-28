@@ -33,7 +33,9 @@ import {
   buildUiSettingsMessage,
   buildAgentModeMessage,
   buildActiveFileMessage,
+  buildThinkingStateMessage,
   UI_CONFIG_KEYS,
+  THINKING_CONFIG_KEYS,
 } from './chatViewLifecycle.js';
 import { handleUndoChanges, handleExportChat } from './handlers/chatHandlers.js';
 import { handleLoadSession, handleBranchSession } from './handlers/sessionHandlers.js';
@@ -161,6 +163,7 @@ export class ChatViewProvider implements WebviewViewProvider {
         if (e.affectsConfiguration('sidecar.baseUrl') || e.affectsConfiguration('sidecar.provider')) {
           this.pushActiveBackendProfile();
         }
+        if (THINKING_CONFIG_KEYS.some((k) => e.affectsConfiguration(k))) this.pushThinkingState();
         if (e.affectsConfiguration('sidecar.contextProviders')) {
           const cfg = getConfig();
           const root = workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
@@ -230,6 +233,12 @@ export class ChatViewProvider implements WebviewViewProvider {
       }),
     );
     this.pushUiSettings();
+    this.pushThinkingState();
+  }
+
+  /** The header's Thinking switch: shown for Ollama, set from `ollama.disableThinking`. */
+  private pushThinkingState(): void {
+    this.postMessage(buildThinkingStateMessage(getConfig()));
   }
 
   public clearChat(): void {
@@ -287,6 +296,7 @@ export class ChatViewProvider implements WebviewViewProvider {
     this.state.client.updateConnection(cfg.baseUrl, cfg.apiKey);
     void loadModels(this.state);
     this.pushActiveBackendProfile();
+    this.pushThinkingState();
     void refreshOpenRouterCostsIfActive(cfg.baseUrl, cfg.apiKey);
   }
 

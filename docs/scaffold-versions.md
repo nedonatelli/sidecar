@@ -40,6 +40,458 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.49 — the completion gate waives demands it can't usefully make (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.48, noting the patch.
+
+- **What changed** (#505): `actionableFindings` drops two kinds of finding
+  before the gate fires. Findings on scratch-script names (`repro.py`,
+  `reproduce_issue.py`, the names scratch cleanup moves out) are dropped, since
+  testing after a throwaway script verifies nothing. Findings that need a
+  command run (`needsTestRun`, `missingTest`) are dropped once no command can
+  run: `run_command` and `run_tests` are both spent or not offered, or the run
+  is in plan mode. Lint findings stay. Each drop is recorded as a
+  `completion_gate` decision with action `waived`, counted under
+  `completion_gate.waived.*`.
+- **Eval impact:** fewer gate firings on models that write scratch scripts or
+  spend their command budget. On Lite-300, 70 of 236 firings came after
+  `run_command` stopped accepting calls, and 26 of gemma4:26b-a4b's 128 named
+  only scratch files.
+- **Measured:** canary on ministral-3 (seeds 11, 22) and gemma4:26b-a4b (seed
+  11), off vs treat. Resolve 1 = 1, 1 = 1 and 4 → 3. Of the 26b changes, three
+  split on volatile tool output before any gate event and two split at a
+  scratch-only waiver, one each way: net zero from the change. On 26b, gate
+  exhaustions 15 → 0, incomplete runs 15 → 0, tool calls 1445 → 1114, wall
+  240 → 181 min. Results on #523.
+
+### 7.0.48 — MSYS group cleanup leaves a reused group id alone (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.46 and 7.0.47, noting the patch.
+
+- **What changed** (#422): on Windows with Git Bash, `ShellSession` notes
+  when a tracked shell or background command exits and passes that time to
+  `killMsysProcessGroup` as `leaderExitedAt`. Members that started more than
+  a second after it, or whose start time `ps -l` can't give, are skipped: the
+  group id was reused by another program after the exit. A group led by a
+  live shell is killed as before.
+- **Eval impact:** none expected. It changes only which processes are killed
+  after a group id is reused, which no recorded run shows.
+- **Measured:** not canaried. Unit tests cover a reused id, a live leader, an
+  unreadable start time and the `STIME` parsing.
+
+### 7.0.47 — tool failures come back as errors; get_diagnostics refuses outside the workspace root (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.46, noting the patch.
+
+- **What changed** (#476): failures that came back as ordinary results
+  (`is_error` false) now throw, so the model sees an error. That covers every
+  failure path of the database tools, `mutation_test`, the `research_*`
+  store, `git_commit` with nothing staged and `git_stash` with an unknown
+  action. `research_log_experiment` no longer reports an experiment as logged
+  when its final save failed. `get_diagnostics` refuses when the run's `cwd`
+  is not the workspace root (a shadow or fork run): it used to read the main
+  workspace's cached diagnostics, and the completion gate credited that as a
+  lint run.
+- **Eval impact:** none expected on SWE-bench. None of these tools is in the
+  SWE catalog, and a SWE run's `cwd` is the workspace root, so
+  `get_diagnostics` behaves as before.
+- **Measured:** not canaried. Unit tests cover each error path, the failed
+  final save, and `get_diagnostics` in and out of the root.
+
+### 7.0.46 — the completion gate gives no credit for checks that never ran (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.45, noting the patch.
+
+- **What changed** (#471, #473): one predicate, `checkDidNotRun`, decides
+  whether a test or lint call actually ran, for `run_tests`, every
+  `run_command` branch and the action reprompt's clean-verify check. A
+  background start, a refused command, a timeout, a redirected ESLint call,
+  "no test runner" and a pytest collection crash no longer earn credit. A
+  collection crash keeps the test demand and the gate's note names the
+  error as environmental; "no test runner" waives the test demands without
+  counting as verification for the ratchet. The syntax gate marks clean only
+  the files a check parsed. `verification_run` decisions gain `didNotRun`.
+- **Eval impact:** in the recorded Lite-300 seed-11 runs the gate's input
+  changes in e4b 33, nemotron-3.5-bolt 32, ministral 6 and qwen3-coder 1
+  runs. Expect more `needsTestRun` findings and more runs ending
+  `incomplete` after the gate retries run out, mostly on tasks whose
+  environment cannot collect tests.
+- **Measured:** targeted SWE canary on those tasks, 2 seeds × 2 models
+  (130 runs per arm, main b202d52f vs b064bb0b). Resolve 27 = 27 with the
+  same tasks in every pair; 127/130 final patches identical; `needsTestRun`
+  findings 3→24, gate firings 6→29 (4→12 runs), ratchet reverts 1 = 1,
+  `incomplete` 1→11, tool calls +3%.
+
+### 7.0.45 — a scratch file only other scratch files refer to is moved; SWE timeouts get cleanup (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.44, noting the patch.
+
+- **What changed** (#511): `selectScratchFiles` counts a reference only
+  from a file that stays. The set to move is a fixpoint: start with every
+  candidate that passes the name rules, drop any that a file outside the set
+  refers to, repeat. `repro.py` importing `repro_settings.py` used to keep
+  the helper while `repro.py` was moved. A candidate kept for another reason
+  (the user named it, or its root prefix is the project's own) and every
+  edited file still count. Separately, a new loop option
+  `scratchCleanupOnAbort` runs cleanup on an aborted run, on both ways an
+  abort ends the loop; the SWE harness sets it, since its only abort is the
+  per-task timer. A user's Stop still skips cleanup.
+- **Eval impact:** patches only, and few: the fixpoint would have fired in
+  8 of about 2,090 Lite-300 runs (11 files, 8 of them gemma4:26b). The
+  harness change reaches every `harness-timeout` run with scratch files:
+  gemma4:31b had 7, carrying 24 leaked files. SWE-bench does not run root
+  scripts, so resolve rates should not move.
+- **Measured:** not canaried (too few firings). Unit tests: the helper
+  import, the three-file django-16910 chain, a cycle, and the abort paths.
+
+### 7.0.44 — Ollama's XML tool-call errors and prose tool names are re-asked (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.43, noting the patch.
+
+- **What changed** (#501): the turn re-ask after Ollama rejects a tool call
+  (`MAX_TOOL_CALL_PARSE_RETRIES`, 2) now also matches the XML tool-call
+  parser's errors: `XML syntax error on line N: …` and `expected element type
+<function> but have <parameter>`. Their nudge says to close each
+  `<parameter>` before its `<function>` and to finish the call, without the
+  JSON escaping advice. `tool '…' not found` is matched up to its last
+  `' not found`, so a "name" that is prose (an apostrophe, over 100
+  characters) is re-asked too; it is quoted cut to 80 characters, and the
+  nudge says text went where the tool name belongs. The HTTP 500 form in
+  `ollamaBackend.ts` accepts the same names.
+- **Eval impact:** Lite-300, seed 11: 7 runs ended on XML parse errors
+  (qwen3-coder 3, nemotron-3.5-lightning 4; 3 with no patch) and 3
+  ministral-3 runs on a prose tool name. Each now gets up to two re-asks.
+- **Measured:** not canaried: about 1 run in 125 fires it, too few for a
+  canary to see. Covered by unit tests on the literal messages.
+
+### 7.0.43 — git history search is bounded and says why it found nothing (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.42, noting the patch.
+
+Lite-300 rows from bundle `f40406dd` record 7.0.27. That bundle carried
+this change on top of #488-#491 (7.0.39-7.0.42 here) before any of them
+merged; each was renumbered when it reached main.
+
+- **What changed:** each `git log` that `git_search_history` runs has a 45 s
+  timeout, takes the run's abort signal, and runs with `GIT_NO_LAZY_FETCH=1`.
+  On a partial clone (the SWE harness clones with `--filter=blob:none`) the
+  content search (`-S`) now fails at once and the reply says it is
+  unavailable and to use grep, instead of downloading every historical blob.
+  A timed-out or failed search is named in a note under the results; when
+  every search failed, the tool returns an error rather than "No commits
+  found".
+- **Eval impact:** only runs that call `git_search_history`. In the run
+  index, no model other than qwen3-coder:30b has called it (0 calls in about
+  16,000 SWE runs). qwen3-coder called it in its first Lite-300 tasks at
+  7.0.26: three content searches on Django ran 11 to 43 minutes each, one
+  past the per-task timeout, and that cell was stopped.
+- **Measured:** not canaried (the trigger is absent from other models'
+  runs). A real-git test on a blobless clone shows the old code fetching the
+  history blobs and the new code fetching none.
+
+### 7.0.42 — the system prompt names only offered tools (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.41, noting the patch.
+
+- **What changed** (#485): `buildBaseSystemPrompt` takes `offersTool`. Mentions of a tool the session does not offer are dropped or reworded: without `run_tests`, the prompt says to run the project's tests with `run_command`. The SWE harness passes its exclusion list. With no predicate the prompt is byte-identical, so product sessions are unchanged.
+- **Eval impact:** every SWE run, since the prompt changes. In the bundle canary, e4b `run_tests` calls fell 31 -> 0 and runs calling a hidden tool 18 -> 0. Because the red-check gate is armed only by `run_tests` results, it no longer fires on test runs here (main: 15 runs, 29 firings; bundle: 0), and finished-red rose 28% -> 37% (p = 0.038), since the analyzer counts only `run_command` test runs. Finished-red is not comparable with earlier canaries.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.41 — a call to a tool the session does not offer is re-asked (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.40, noting the patch.
+
+- **What changed** (#486): when Ollama ends a stream with "tool 'x' not found", the loop adds a `tool-not-offered` nudge and retries instead of ending the run. It shares the tool-call parse-retry limit.
+- **Eval impact:** ministral-3 runs that call a hidden tool. In the v0.137 release comparison, 16 of 300 runs ended this way. Bundle canary seed 11: 4 -> 1, and the remaining one is a sentence in the tool-name field, which this does not match.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.40 — the SWE harness offers only its catalog (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.39, noting the patch.
+
+- **What changed** (#484): the SWE harness's stable-output and shell-guard wrappers resolve tools only from the run's catalog (`offeredToolFinder`), so `run_tests` and `git_commit` are no longer callable when the catalog removes them. Harness-only; the product is unchanged.
+- **Eval impact:** e4b called `run_tests` 70 times in 37 of 300 runs of the #481 canary and ran 4 commits. In the bundle canary #491 already stopped the calls, so this block caught none.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.39 — identical tool calls in one response run once (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.38, noting the patch.
+
+- **What changed** (#487): when one response repeats a tool call byte for byte (same name, same JSON arguments), the call runs once and each repeat gets a non-error result naming the call it duplicates. Fence-synthesized writes are exempt.
+- **Eval impact:** responses that repeat a call. Recorded: e4b 3 turns in 300 runs; ministral-3 sent one `runtests.py` call 596 times in a turn of django-13158, and pytest-7490 hit 663 refusals in both arms of the release comparison. Did not fire in the canary.
+- **Measured:** v0.137 bundle canary (main d0604412 + #488-#492). e4b SWE canary, 50 tasks x seeds 11/22/33 vs main: F2P progress 18% -> 19% (8 fixed, 6 broken, p = 0.79), resolve 13% in both arms (3/3), P2P regress 17% in both (14/14). ministral-3 seed 11 vs the release-comparison main cell: resolve 8 -> 9 (2/1). The bundle's five changes are measured together.
+
+### 7.0.38 — a path carrying its line range or a closing quote is repaired; path cap 80 → 240 (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.37, noting the patch.
+
+- **What changed** (#509): `repairPathArgument` joins the deterministic input
+  repairs in `executor/paramRemap.ts`. A `path` is cut at a closing quote mark
+  (backtick, straight or curly quote, guillemet). Trailing `start_line` /
+  `end_line` assignments move into those parameters when the tool declares
+  them; any other trailing text leaves the call for the validator to refuse.
+  `validateFilePath`'s length cap goes from 80 to 240 characters
+  (`MAX_FILE_PATH_CHARS`); the 60-char segment rule is unchanged.
+- **Eval impact:** gemma4:31b, Lite-300 seed 11 (first 137 runs): 25 calls were
+  refused as "invalid characters in file path", all in the repaired shapes.
+  A 103-char Sphinx test-fixture path was refused 13 times across five models.
+- **Measured:** not canaried. Both changes turn a refused call into the call
+  the model meant.
+
+### 7.0.37 — `git_search_history` reads `pattern` as `query` (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.36, noting the patch.
+
+- **What changed** (#504): `pattern` joins the parameter-synonym table as a
+  name for `query`. It applies only to a tool that declares `query` and not
+  `pattern`, and only when `query` is missing, so `grep` and `search_files`
+  keep their own `pattern`. The schema the model sees is unchanged; the result
+  carries the usual "interpreted as 'query'" note.
+- **Eval impact:** qwen3-coder:30b, Lite-300 seed 11: 8 of its 17
+  `git_search_history` calls sent `pattern`, and all 8 failed schema
+  validation. No other Lite-300 model called `git_search_history`.
+- **Measured:** not canaried. It fires about once per 40 qwen3-coder runs,
+  and the change only turns a bounced call into the call the model meant.
+
+### 7.0.36 — a sub-agent that did not finish is a failure (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with the 7.0.x before it, noting the patch.
+
+- **What changed** (#475): `spawn_agent` and `delegate_task` used to report
+  success whenever their sub-run's loop returned without throwing. The loop
+  also returns normally after a model request times out, at the iteration
+  cap (at most 15 for a sub-agent), after a stuck-loop stop, and after it
+  catches a policy-hook error. The loop now puts its termination on
+  `onOutcome`'s meta, and both tools return an error result for anything
+  but a natural finish. The result gives the reason and whatever the sub-run
+  produced, so the parent's tool budget, agent memory and tool-chain records
+  no longer log a success.
+- **Eval impact:** none expected on SWE: in Lite-300, `spawn_agent` was
+  called once and `delegate_task` never. Agent-eval cases that use either
+  tool can now see an error result where they saw success.
+
+### 7.0.34 — runs that end on an error get their own failure bucket (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted, and nothing a run does changes. Comparable with 7.0.26, noting
+the patch; `terminationBucket` values differ for runs that ended on an error.
+
+- **What changed** (#271): when the loop throws, it records
+  `termination: 'error'` and the message (an abort stays `aborted`). The
+  failure taxonomy buckets on the message: a tool call the backend could not
+  parse, or a tool it was not offered, is `malformed-call`; Ollama's "token
+  repeat limit reached" is `loop-stopped`; anything else (an HTTP 502, vLLM's
+  "EngineCore encountered an issue", a dropped connection) is the new
+  `infra` bucket. These used to fall through to `bad-reasoning`.
+  `summarizeModelPerformance` skips `infra` runs, as it skips aborted ones,
+  so a server outage no longer counts toward demoting a model.
+- **Eval impact:** nemotron3-super's 50-task canary (scaffold 7.0.24): 69 of
+  100 runs were `bad-reasoning` that are `infra` now (66 HTTP 502s, 3
+  EngineCore errors). Lite-300 runs that ended on an Ollama error move to
+  `malformed-call` (XML parse errors) or `loop-stopped` (repeat limit).
+- **Measured:** nothing to canary: classification only. Unit tests map every
+  `termination` value to a bucket.
+
+### 7.0.26 — a failed edit names the agent's own edit that replaced its text (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.25, noting the patch.
+
+- **What changed** (#481): `edit_file` keeps, per file, the edits it applied
+  in the run; `write_file` clears that file's list. When a missed search,
+  normalized, is inside an earlier applied edit's search and not inside its
+  replace (at least 8 non-space characters), the error names that edit and
+  shows what it wrote, or says to re-read if the text has changed since. This
+  note takes precedence over "CHANGED since you last read it", and is also on
+  the third-failure loose-suggestion error.
+- **Eval impact:** runs where the model searches for text it already
+  replaced. Replayed over recorded e4b runs, that happens 150–183 times per
+  150 runs, in 19–23 runs; on 31b, 2 times in 24 runs.
+- **Measured:** e4b SWE canary, 50 tasks × seeds 11/22/33 vs the merge base
+  (v0.136.0 code). The note was shown 26 times in 15 runs. Stale-anchor
+  failures 173 → 40 (15 pairs lower, 5 higher, sign test p = 0.041); runs
+  with 10 or more of them 5 → 0. Failed `edit_file` calls 655 → 495, not
+  significant per pair (17 lower, 11 higher, p = 0.34). Resolve 13% in both
+  arms (1 fixed, 0 broken), every outcome null. 118 of the 135 pairs where
+  the note never fired have identical tool-call sequences.
+
+### 7.0.25 — a failed grep is not a proven absence (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.24, noting the patch.
+
+- **What changed** (#474): `grep` treats only exit 1, or an exit 0 that
+  printed nothing, as proof that a pattern is absent; only those are recorded
+  in `zeroHitPatterns`. When the follow-up search for a snippet's identifier,
+  or the literal retry of an invalid regex, fails or times out, the reply says
+  the answer is unknown and quotes the first line of grep's stderr, instead of
+  "not in the repository". Matches printed before grep failed carry a
+  "[Partial results — grep exited with status 2 (…)]" note.
+- **Eval impact:** only searches where grep itself fails. In the #461 and #464
+  e4b canaries (600 runs), the identifier search said "not in the repository
+  either" 39 times and the literal retry ran 49 times. The recordings don't
+  hold grep's exit code, so how many of those were failures can't be counted,
+  and no reply in them came from a failed search ("Grep error" and the
+  relaxed-search timeout: 0 each).
+- **Measured:** not canaried. Unit tests cover each path: the relaxed search
+  failing, with and without output; the literal retry timing out, failing,
+  and finding nothing cleanly; partial output on the main search.
+
+### 7.0.24 — a timed-out test run is an error, not a result (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.23, noting the patch.
+
+- **What changed:** a `run_tests` call that times out now returns an error
+  with its partial output: "The test run did not finish, so this output is
+  partial: it is neither a pass nor a fail." The completion gate no longer
+  counts it as a test run, and `exit code: -1` classifies as a fail. Shell
+  fixes in the same change (#422): commands in the VS Code terminal run one at
+  a time instead of interrupting each other; an unknown terminal exit code is
+  -1, not 0; the stdin guard applies to Git Bash on Windows, on one line; the
+  `2>nul` rewrite leaves heredoc bodies alone; the unittest fallback runs
+  `python3` when the probe found only that.
+- **Eval impact:** only runs where `run_tests` times out. In 20,477 recorded
+  SWE runs that happened 10 times, in 8 runs, all on one task. The terminal
+  changes don't reach the evals, which use the hidden shell.
+- **Measured:** e4b SWE canary, 50 tasks × seeds 11/22/33 vs the merge base:
+  resolve 13% in both arms with no discordant pairs, every metric null; no
+  `run_tests` call timed out, so the error path wasn't exercised. A replay from
+  a recorded timeout (one context × 10 seeds, 3 turns): the model stopped and
+  reported its fix in 8/10 runs with the old result and 10/10 with the error;
+  5/10 said it couldn't confirm the fix, against 0/10. The Git Bash path is
+  covered by an integration test in a real terminal.
+
+### 7.0.23 — a commit SideCar couldn't check is held for approval (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.22, noting the patch.
+
+- **What changed:** before a commit, SideCar runs git to see what the commit
+  would hold. When one of those git calls failed or timed out inside the
+  repository, the review returned no concerns and the commit went ahead
+  unchecked. It now holds the commit for approval, saying the check couldn't
+  run, and keeps any concern found before the failure. Outside a repository it
+  still returns nothing, leaving the commit to fail by itself.
+- **Eval impact:** none expected. SWE and agent-eval runs don't commit.
+- **Measured:** no eval. Unit test: a damaged index inside a repository now
+  holds the commit, and a force-add concern found before the failure is kept.
+
+### 7.0.22 — scratch cleanup moves only scratch this run made (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.21, noting the patch.
+
+- **What changed:** `scaffolding.scratchCleanup` moves a file only if it is
+  new on disk and this run made it: a `write_file` or `edit_file` outcome
+  names it, or one of the run's `run_command` commands contains its name. The
+  name rules are narrower: script extensions only; `repro`, `reproduce`,
+  `scratch` and `test_(repro|issue|fix|bug)` anywhere; `verify`, `debug`,
+  `check`, `compare` and `test` only in the workspace root, and only where the
+  root has no such file already; never under a test directory. The bare
+  root-script rule is gone (#418).
+- **Eval impact:** a scratch test file written under a test directory now
+  stays in the patch.
+- **Measured:** gemma4:31b SWE canary on the 24 #387 tasks, seed 11, vs main.
+  Cleanup fired in 15/24 runs on main and 13/24 here. Patches carrying
+  scratch 0/24 → 3/24, exactly the three test-directory files now kept
+  (pre-registered: up to 5/24). Resolve 10 vs 11, one discordant pair that
+  split at volatile tool output; 19/24 patches byte-identical.
+
+### 7.0.21 — a link whose target doesn't exist is judged by that target (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.20, noting the patch.
+
+- **What changed:** the check that keeps file tools inside the workspace
+  follows links to where they really lead. A link whose target doesn't exist
+  couldn't be followed, so it was judged as a new file at the link's own
+  path. It is now judged by the path it points to, and a chain of links that
+  never ends is refused.
+- **Eval impact:** none expected. SWE and agent-eval tasks contain no such
+  links.
+- **Measured:** no eval. Unit tests: a broken link out of the workspace is
+  refused, one pointing inside resolves to its target, and (where links can
+  be created) a write through a file link to a missing file outside is
+  refused.
+
+### 7.0.20 — Ollama's thinking switch reaches Ollama; the per-model list is removed (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.19, noting the patch.
+
+- **What changed:** Ollama chat requests put `think: false` inside `options`,
+  which Ollama doesn't read, so neither `sidecar.ollama.disableThinking` nor
+  the problematic-thinking model list (qwen3 8B/14B/32B, GLM-4.7-Flash,
+  Laguna XS.2) ever turned thinking off on the chat path (#469). `think` is now
+  a top-level field, sent only when the user turns thinking off, from the
+  setting or the new chat header switch. The list is removed: it had no
+  measurement behind it, and it never took effect.
+- **Eval impact:** the default eval models send the same requests. The eval
+  backend's one-shot `complete()`, used by the prompt eval and the retrieval
+  judge, always asked for thinking off the same broken way; it now gets it, so
+  those numbers can move for thinking models. Baseline provenance now records
+  thinking on for the formerly listed models.
+- **Measured:** no eval. Pre-registered live check: one request each way to a
+  formerly listed model, confirming Ollama returns `message.thinking` without
+  `think` and none with top-level `think: false`.
+
+### 7.0.19 — image prompts run with their text; autonomy answers only approvals (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.18,
+noting the patch.
+
+- **What changed:** A prompt with images ran with empty text, so retrieval,
+  skill matching and message framing saw nothing; it now runs with its text,
+  and keeps its images on regenerate and Reconnect (#419). Switching to
+  autonomous mode answers "Allow" only on cards that offer it. Clarifying
+  questions, checkpoints, diff previews and irrecoverable-operation reconfirms
+  stay pending, where before each got "Allow" as its answer.
+- **Measured:** no eval. The evals send no images and never switch modes during
+  a run.
+
+### 7.0.18 — graph-expanded retrieval hits use 1-based lines (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.17,
+noting the patch.
+
+- **What changed:** Graph-expanded caller and callee hits, in system-prompt
+  retrieval and `project_knowledge_search`, used the analyzers' 0-based rows as
+  1-based: each body started a line early and lost its last line, and a call on
+  a function's last line was never attributed (#426). The summarizer's timeout,
+  and Stop, now cancel its request. The fallback workspace context (used while
+  the index is not ready) is passed verbatim: a section filter that never
+  filtered, and joined the line before every `### ` heading, is removed.
+- **Measured:** no eval. Neither eval harness attaches a symbol graph to the
+  tool runtime or calls `injectSystemContext`, so no eval reaches this code.
+
+### 7.0.17 — integration tool results (2026-11)
+
+PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.16,
+noting the patch.
+
+- **What changed:** `mutation_test` in a shadow workspace or fork runs its tests
+  there; it ran them on the main tree, so every mutant survived. GitHub check
+  runs and PR review comments are read past the first page of 100. The
+  dependency check asks OSV about the version an npm lockfile installed, not
+  the floor of the range. Custom tools get the Windows system variables they
+  need to start (#427).
+- **Measured:** no eval. The SWE and agent evals use none of these tools.
+
 ### 7.0.16 — auto-fix reads which files a call changed (2026-11)
 
 PATCH: no mechanism is added, removed or re-defaulted. Comparable with 7.0.15,

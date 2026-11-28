@@ -82,6 +82,16 @@ describe('ChatState', () => {
     expect(state.pendingFacetReview).toBeNull();
   });
 
+  it("clearChat cancels the running run's callbacks, so its text and done stay out of the new chat (#419)", () => {
+    const state = createState();
+    state.abortController = new AbortController();
+    const cancel = vi.fn();
+    state.cancelCallbacks = cancel;
+    state.clearChat();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(state.cancelCallbacks).toBeNull();
+  });
+
   it('clearChat aborts running agent loop and bumps generation', () => {
     const state = createState();
     state.abortController = new AbortController();
@@ -588,6 +598,39 @@ describe('ChatState', () => {
         (c) => (c[0] as { command: string }).command === 'dismissConfirm',
       );
       expect(dismissCalls).toHaveLength(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // allowPendingApprovals — switching to autonomous mode (#419)
+  // -------------------------------------------------------------------------
+  describe('allowPendingApprovals()', () => {
+    it('allows the pending tool approvals and leaves questions and checkpoints to the user', async () => {
+      mockPostMessage.mockClear();
+      const state = createState();
+      const approval = state.requestConfirm('SideCar wants to use **grep**', ['Allow', 'Deny']);
+      // Resolving these with "Allow" sent "Allow" as the answer to the
+      // question and stopped the run at the checkpoint.
+      const question = state.requestClarification('Which file?', ['a.ts', 'b.ts']);
+      const checkpoint = state.requestConfirm('**Checkpoint:** halfway. Continue?', ['Continue', 'Stop here']);
+      let settled = 0;
+      void question.then(() => settled++);
+      void checkpoint.then(() => settled++);
+
+      state.allowPendingApprovals();
+
+      expect(await approval).toBe('Allow');
+      const dismissed = mockPostMessage.mock.calls
+        .map((c) => c[0] as { command: string; confirmId?: string })
+        .filter((m) => m.command === 'dismissConfirm');
+      expect(dismissed).toHaveLength(1);
+      await Promise.resolve();
+      expect(settled).toBe(0);
+      // The cards still work.
+      state.resolveClarification('clarify_2', 'b.ts');
+      state.resolveConfirm('confirm_3', 'Continue');
+      expect(await question).toBe('b.ts');
+      expect(await checkpoint).toBe('Continue');
     });
   });
 

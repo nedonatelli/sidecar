@@ -269,8 +269,10 @@ export interface SummarizeOptions {
    * round-trip. Default: 220 (enough to preserve a query and a short reply).
    */
   maxCharsPerTurn?: number;
-  /** Timeout for the summarization LLM call (ms). Default: 10000 */
+  /** Timeout for the summarization LLM call (ms); on expiry the request is aborted. Default: 10000 */
   summaryTimeoutMs?: number;
+  /** Cancels the summarization LLM call (e.g. the user's Stop); the deterministic summary is used instead. */
+  signal?: AbortSignal;
   /**
    * Durable-context package (`sidecar.compaction.durableInstructions`):
    * deterministically latch instruction-shaped user sentences into a leading
@@ -437,6 +439,7 @@ export class ConversationSummarizer {
         maxCharsPerTurn,
         summaryTimeoutMs,
         options.durableInstructions === true,
+        options.signal,
       );
 
       // Preserve the user's OWN messages verbatim, ABOVE the model summary.
@@ -568,6 +571,7 @@ export class ConversationSummarizer {
     maxCharsPerTurn: number,
     timeoutMs: number,
     durableInstructions = false,
+    signal?: AbortSignal,
   ): Promise<{ summary: string; standing: string[]; standingDirect: string[] }> {
     // Budget the user query and the assistant reply to roughly half the
     // per-turn cap each. The final trim after join ensures the assembled
@@ -674,11 +678,19 @@ ${standing.length > 0 ? 'Latched standing instructions (verbatim):\n' + standing
       modelBefore = this.client.getModel();
       this.client.routeForDispatch({ role: 'summarize' });
 
+      // The timeout must cancel the request, not just stop waiting for it (#426):
+      // an abandoned completion kept generating, and on a single-slot Ollama the
+      // agent's next turn queued behind it. The caller's signal (Stop) cancels it too.
+      const timeoutController = new AbortController();
+      const requestSignal = signal ? AbortSignal.any([signal, timeoutController.signal]) : timeoutController.signal;
       const summaryPromise = new Promise<string>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Summarization timeout')), timeoutMs);
+        const timer = setTimeout(() => {
+          timeoutController.abort();
+          reject(new Error('Summarization timeout'));
+        }, timeoutMs);
 
         this.client
-          .complete(summarizeMessages, maxLength)
+          .complete(summarizeMessages, maxLength, requestSignal)
           .then((result) => {
             clearTimeout(timer);
             const text =
@@ -706,7 +718,10 @@ ${standing.length > 0 ? 'Latched standing instructions (verbatim):\n' + standing
                 : assembleStructuredSummary(facts, codeChanges, errors, standing).slice(0, maxLength),
             );
           })
-          .catch(reject);
+          .catch((err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
       });
 
       return { summary: await summaryPromise, standing, standingDirect };

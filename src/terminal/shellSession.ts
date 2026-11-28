@@ -40,6 +40,11 @@ interface BackgroundCommand {
   proc: ManagedChildProcess;
 }
 
+/** What an aborted command returns; the same as executeInternal's abort path. */
+function abortedResult(): ShellResult {
+  return { stdout: '\n\n⚠️ Command aborted', exitCode: -1, timedOut: true };
+}
+
 // Generate a short alphanumeric sentinel (no special chars to worry about)
 function makeSentinel(): string {
   return 'SIDECAR' + randomBytes(8).toString('hex').toUpperCase();
@@ -201,7 +206,7 @@ export class ShellSession {
   private busy = false;
   /** Resolves once the shell's startup noise has been consumed. See flushStartupBanner. */
   private ready: Promise<void> | null = null;
-  private commandQueue: Array<() => void> = [];
+  private commandQueue: Array<(turn: 'run' | 'disposed') => void> = [];
   private backgroundCommands = new Map<string, BackgroundCommand>();
   private maxOutputSize: number;
   private isWindows: boolean;
@@ -214,6 +219,8 @@ export class ShellSession {
    *  session spawned writes its MSYS PID to. See killMsysGroup. */
   private msysPs: string | undefined;
   private msysPidFiles = new Map<ChildProcess, string>();
+  /** When a process in msysPidFiles exited on its own: its group id may be reused after that (#422). */
+  private msysExitedAt = new Map<ChildProcess, number>();
 
   /**
    * @param sandboxEnabled  When true and on macOS, wraps shell spawns in
@@ -319,6 +326,7 @@ export class ShellSession {
     });
 
     proc.on('exit', () => {
+      if (this.msysPidFiles.has(proc)) this.msysExitedAt.set(proc, Date.now());
       if (this.proc !== proc) return;
       this.proc = null;
       this.ready = null;
@@ -376,17 +384,41 @@ export class ShellSession {
     command = this.forShell(command);
     // Serialize commands — one at a time through the shell
     if (this.busy) {
-      await new Promise<void>((resolve) => this.commandQueue.push(resolve));
+      const turn = await this.waitForTurn(options.signal);
+      if (turn === 'aborted') return abortedResult();
+      if (turn === 'disposed') throw new Error('Shell session was disposed before the command ran');
     }
     this.busy = true;
 
     try {
+      // executeInternal's abort listener never fires for a signal that is already aborted.
+      if (options.signal?.aborted) return abortedResult();
       return await this.executeInternal(command, options);
     } finally {
       this.busy = false;
       const next = this.commandQueue.shift();
-      if (next) next();
+      if (next) next('run');
     }
+  }
+
+  /**
+   * Wait in the queue for the shell. Stop must reach a queued command too, and
+   * dispose() settles every waiter, so neither leaves a caller hanging.
+   */
+  private waitForTurn(signal?: AbortSignal): Promise<'run' | 'aborted' | 'disposed'> {
+    if (signal?.aborted) return Promise.resolve('aborted');
+    return new Promise((resolve) => {
+      const onAbort = () => {
+        this.commandQueue = this.commandQueue.filter((w) => w !== wake);
+        resolve('aborted');
+      };
+      const wake = (turn: 'run' | 'disposed') => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve(turn);
+      };
+      this.commandQueue.push(wake);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   /** A cmd-style `2>nul` in Git Bash creates an undeletable `nul` file (#395). */
@@ -750,6 +782,7 @@ export class ShellSession {
     underlying.stderr?.on('data', onData);
 
     underlying.on('exit', (code) => {
+      if (this.msysPidFiles.has(rawProc)) this.msysExitedAt.set(rawProc, Date.now());
       entry.done = true;
       entry.exitCode = code;
       underlying.stdout?.removeListener('data', onData);
@@ -850,9 +883,13 @@ export class ShellSession {
     const file = this.msysPidFiles.get(proc);
     if (!file || !this.msysPs) return;
     this.msysPidFiles.delete(proc);
+    // An exited leader's group id can be handed out again; then only members
+    // that started before it exited are ours (#422).
+    const leaderExitedAt = this.msysExitedAt.get(proc) ?? (proc.exitCode !== null ? Date.now() : undefined);
+    this.msysExitedAt.delete(proc);
     try {
       const pgid = parseInt(fs.readFileSync(file, 'utf8'), 10);
-      if (pgid > 0) killMsysProcessGroup(pgid, this.msysPs);
+      if (pgid > 0) killMsysProcessGroup(pgid, this.msysPs, undefined, undefined, { leaderExitedAt });
     } catch {
       // The shell never wrote it (killed at once); taskkill /T still runs.
     }
@@ -905,7 +942,9 @@ export class ShellSession {
     }
     this.killExitedShellGroups();
     this.backgroundCommands.clear();
+    const waiters = this.commandQueue;
     this.commandQueue = [];
+    for (const wake of waiters) wake('disposed');
     this.busy = false;
   }
 }

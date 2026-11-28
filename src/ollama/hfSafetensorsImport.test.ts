@@ -283,6 +283,40 @@ describe('importSafetensorsModel', () => {
     expect(fs.existsSync(path.join(opts.stagingDir, 'model.safetensors'))).toBe(false);
   });
 
+  // #112: the write stream had no 'error' listener until after end(), so a
+  // write error mid-download (ENOSPC) was unhandled and the 'drain' wait
+  // never resolved. A directory at the destination makes the open fail while
+  // a chunk larger than the stream's buffer is waiting on 'drain'.
+  it('rejects with the write error instead of hanging when the file cannot be written', async () => {
+    const big = 64 * 1024;
+    const opts = makeOpts({
+      repo: {
+        weightFiles: [{ filename: 'model.safetensors', size: big }],
+        metadataFiles: [],
+        totalBytes: big,
+        architecture: 'LlamaForCausalLM',
+        gated: false,
+        contextLength: null,
+      },
+    });
+    tempDirs.push(opts.stagingDir);
+    fs.mkdirSync(path.join(opts.stagingDir, 'model.safetensors'));
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ 'content-length': String(big) }),
+      body: fakeBody(new Uint8Array(big)),
+    });
+
+    const run = async () => {
+      for await (const _ of importSafetensorsModel(opts)) {
+        void _;
+      }
+    };
+    await expect(run()).rejects.toThrow(/EISDIR|EPERM|EACCES/);
+    expect(spawn).not.toHaveBeenCalled();
+  }, 5000);
+
   it('includes the Bearer token header when hfToken is set', async () => {
     const opts = makeOpts({ hfToken: 'hf_test_token' });
     tempDirs.push(opts.stagingDir);

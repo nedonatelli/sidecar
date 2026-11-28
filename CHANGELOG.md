@@ -4,24 +4,6 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-
-- **The backend menu no longer offers Kickstand**, which is not released. It is gone from the ☰
-  menu, the backend picker and `switch_backend`, and its four commands appear in the palette only
-  while `sidecar.provider` is `kickstand`. A setup that already uses it keeps working.
-- **The agent knows which edits changed a file**
-  ([#367](https://github.com/nedonatelli/sidecar/issues/367),
-  [ADR-008](docs/adr/008-structured-tool-outcomes.md)). `write_file`, `edit_file` and
-  `delete_file` now report what they did: changed a file, changed nothing, or failed. The checks
-  that decide whether to ask for verification, nudge the model or run a regression guard read that
-  report instead of matching the tool's message, and they now agree with each other:
-  - An inferred edit counts as a change everywhere.
-  - A failed or no-op edit no longer triggers a `post-write` regression guard.
-  - In review mode, a queued edit counts as a change everywhere.
-  - A call under another tool's name (`str_replace`, `create_file`) is treated as the tool it runs as.
-  - Auto-fix (`sidecar.autoFixOnFailure`) checks only the files an edit changed. A refused or no-op
-    edit no longer spends one of its retries, and an edit sent as `str_replace` is checked.
-
 ### Fixed
 
 - **Tool limits and checks count what actually happened**
@@ -54,7 +36,259 @@ All notable changes to the SideCar extension will be documented in this file.
   - A commit message that mentions `-a` or `git add` no longer makes a commit read as staging every
     file.
   - `git_push` reports a push blocked by branch protection as an error, and no longer retries a
-    failed push. `git_search_history` reports a git failure instead of "No commits found".
+    failed push.
+
+## [0.137.0] - 2026-11-23
+
+Copilot Chat can hand a task to SideCar: the new `sidecar_delegate` tool runs SideCar's agent on
+your own model, and SideCar's other tools now declare their arguments, so Copilot's model can call
+them reliably. `@sidecar` is deprecated, because VS Code is phasing out chat participants. The
+completion gate no longer counts a test run that never ran, and it stops demanding runs the agent
+can't make. More tool failures come back as errors the model can see. A run now survives a
+malformed XML tool call, a call to a tool the session doesn't offer and a tool call repeated in
+one response, and searching git history can no longer hang it. On Windows, stopping a Git Bash
+shell no longer risks killing another program's processes. The Bedrock region picker says when a
+workspace setting overrides your choice.
+
+### Added
+
+- **`sidecar_delegate`: hand a task to SideCar from Copilot Chat**
+  ([#493](https://github.com/nedonatelli/sidecar/issues/493)). A language model tool that runs SideCar's
+  own agent on your configured model and returns its answer and the files it changed. Its `review`,
+  `fix`, `explain` and `commit-message` modes give one answer without changing files. It follows your
+  `sidecar.agentMode`, as `@sidecar` does, and works in Copilot harness sessions, which do not run
+  chat participants.
+
+### Changed
+
+- **`@sidecar` is deprecated.** VS Code no longer runs chat participants in the Copilot harness, and
+  removes the Local harness that still does in February 2027. Use `#sidecar_delegate` or the SideCar
+  panel. `@sidecar` keeps working until then.
+- **`@sidecar`'s slash commands no longer change the system prompt of a SideCar panel run in
+  progress.** They set their prompt on the client the panel shares, so a panel run's later turns
+  picked it up; it is now passed per request.
+- **A failed edit says when the agent's own earlier edit replaced the text it searched for.**
+  `edit_file` remembers the edits it applied to each file in a run. When a later search misses
+  because it is text one of those edits replaced, the error says so and shows what that edit
+  wrote, so the agent can edit the new text or see the change is already made. It used to say only
+  that the file had changed since the last read, and said nothing once the agent had re-read it.
+
+### Fixed
+
+- **SideCar's tools in Copilot Chat declare their arguments and can be picked with `#`**
+  ([#495](https://github.com/nedonatelli/sidecar/issues/495)). The 11 tools SideCar offers through
+  VS Code's language model tool API had no input schema, so a calling model had to guess argument
+  names. Each now declares the schema SideCar's own agent uses, generated from the same definitions
+  and checked by a test. Each also has a `#` reference name, so it shows in the tool picker. A path
+  argument can be absolute as long as it is inside the workspace; it is converted to the relative
+  path SideCar's file tools expect.
+- **The completion gate stops asking for things the agent can't usefully do**
+  ([#505](https://github.com/nedonatelli/sidecar/issues/505)). After edits only to scratch scripts
+  such as `repro.py`, it no longer asks for the project's tests. Once the agent can't run a
+  command, because `run_command` and `run_tests` are used up or not offered, it no longer asks for
+  a test run it can't make; lint checks still apply. Runs that used to loop on these demands until
+  the gate gave up now finish sooner.
+- **Stopping a Git Bash shell on Windows can no longer kill an unrelated program's processes**
+  ([#422](https://github.com/nedonatelli/sidecar/issues/422)). SideCar remembers the MSYS process
+  group each Git Bash shell and background command leads, and kills that group when the session
+  ends, so a script's leftovers don't keep running. Once a shell had exited, its group id could be
+  handed to another program before the cleanup ran. The cleanup now kills only processes that
+  started before the shell exited.
+- **More tools report a failure as an error instead of an ordinary result**
+  ([#476](https://github.com/nedonatelli/sidecar/issues/476)). A model reading these results took
+  the failed operation as done:
+  - the database tools: failed connections, queries and migrations, and missing arguments;
+  - `mutation_test` failing to run;
+  - `git_commit` with nothing staged, and `git_stash` with an unknown action;
+  - `research_log_experiment` when the finished experiment could not be saved (the error includes
+    the run's output).
+
+  `get_diagnostics` in a Shadow Workspace or fork run now says it cannot see that run's files. It
+  used to return the main workspace's diagnostics, which the completion gate counted as a lint
+  run.
+- **The Bedrock region picker says when the workspace's setting overrides your choice**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The picker writes the region, FIPS
+  setting and endpoint URL to your user settings. A workspace that sets them, once you have allowed
+  it, kept winning, so a new pick changed nothing. The picker now says so and offers to remove the
+  workspace's values. It still never writes these settings into the workspace, because they decide
+  which host receives your AWS credentials.
+- **The completion gate no longer credits a test or lint run that never ran**
+  ([#471](https://github.com/nedonatelli/sidecar/issues/471),
+  [#473](https://github.com/nedonatelli/sidecar/issues/473)). A pytest collection crash, a test
+  command started in the background, refused or timed out, ESLint redirected for Python files, and
+  `run_tests` finding no runner all used to count as a test run. Now they don't: the gate still
+  asks for a test run and names a collection error as an environment problem rather than one to
+  fix in code. When no test runner exists, the test demand is dropped.
+- **Scratch cleanup moves a helper script that only another scratch script uses**
+  ([#511](https://github.com/nedonatelli/sidecar/issues/511)). Cleanup keeps a scratch file that
+  something in the change refers to. That used to include other scratch files being moved in the
+  same pass, so `repro.py` was moved and the `repro_settings.py` it imported stayed in the
+  workspace. Only references from files that stay count now.
+- **A malformed XML tool call no longer ends the run**
+  ([#501](https://github.com/nedonatelli/sidecar/issues/501)). Models whose Ollama template writes
+  tool calls as XML (qwen3-coder, nemotron) failed with messages like `XML syntax error … unexpected
+  EOF`, which weren't retried. They're re-asked now, with advice for XML calls. A call whose tool
+  name is a sentence the model wrote, apostrophes included, is re-asked too.
+- **Searching git history can no longer hang a run.** `git_search_history` used to run
+  `git log -S` with no time limit, and it ignored the stop button. On a partial clone (one made
+  with `--filter=blob:none`), that search downloads the file contents of the repository's whole
+  history from the remote, one batch at a time; on Django it ran for 43 minutes. Each search now
+  stops after 45 seconds or when the run is stopped, and never downloads anything. On a partial
+  clone the reply says content search is unavailable and suggests grep. A search that failed or
+  timed out says so instead of reporting "No commits found".
+- **The system prompt mentions only tools the session offers**
+  ([#485](https://github.com/nedonatelli/sidecar/issues/485)). A session that hides a tool, such
+  as `run_tests`, no longer gets a prompt telling the model to call it; it's told to run the
+  project's tests with `run_command` instead. Sessions that offer every tool get the same prompt as
+  before.
+- **A call to a tool the session doesn't offer no longer ends the run**
+  ([#486](https://github.com/nedonatelli/sidecar/issues/486)). When Ollama ended a stream with
+  "tool 'x' not found", the run stopped. The agent now tells the model the tool isn't available
+  and asks again, within the same retry limit as a tool call it couldn't parse.
+- **A tool call repeated in one response runs once**
+  ([#487](https://github.com/nedonatelli/sidecar/issues/487)). When a model's response repeats a
+  tool call byte for byte (same tool, same arguments), the call runs once and each repeat gets a
+  result naming the call it duplicates. One recorded run had sent the same test command 596 times
+  in a single turn.
+- **File paths with other arguments written into them are recovered, and long paths are accepted**
+  ([#509](https://github.com/nedonatelli/sidecar/issues/509)). A model sometimes wrote a call's
+  other arguments into its path (``x.py`,start_line:5``); the call was refused for the backtick.
+  The path is now cut at the closing quote and the trailing `start_line`/`end_line` are moved into
+  their own parameters. Relative paths up to 240 characters are accepted; the old 80-character cap
+  refused real test fixtures.
+- **`git_search_history` accepts `pattern` for its search text**
+  ([#504](https://github.com/nedonatelli/sidecar/issues/504)). Models used to `grep` and
+  `search_files` send `pattern`; the call used to fail with "missing required parameter 'query'".
+  It's now read as `query`, and the result says to use `query` next time.
+- **A sub-agent or delegated worker that didn't finish no longer reports success**
+  ([#475](https://github.com/nedonatelli/sidecar/issues/475)). When a `spawn_agent` sub-agent or a
+  `delegate_task` worker hit its iteration cap, timed out, was stopped for repeating itself or
+  caught an error, the parent got a successful tool result. It now gets an error that says why the
+  sub-run stopped, followed by whatever it produced before stopping.
+- **A server error no longer counts against the model**
+  ([#271](https://github.com/nedonatelli/sidecar/issues/271)). A run that ended on a backend or
+  connection error, such as an HTTP 502, was recorded as the model's reasoning failure, and those
+  runs counted toward giving the model more scaffolding. They're recorded as `infra` now and left
+  out of that decision. A run that ended because the backend couldn't parse the model's tool call
+  is recorded as a malformed call instead.
+- **`grep` no longer says a pattern is absent when the search itself failed**
+  ([#474](https://github.com/nedonatelli/sidecar/issues/474)). Only a clean "no match" counts as
+  absent now. When the follow-up search for a code snippet's identifier, or the literal retry of an
+  invalid regex, fails or times out, the reply says so, quotes grep's error and says the answer is
+  unknown. These searches are no longer recorded as "already searched, found nothing", so a retry
+  isn't told it found nothing before. Matches printed before grep failed are marked as partial
+  results, as a timeout already was.
+
+### Stats
+- 11300 total tests (618 test files)
+- 87 built-in tools, 11 skills
+
+## [0.136.0] - 2026-11-08
+
+`edit_file` refuses fewer edits that were fine, and a failed edit says more accurately what to
+fix. Inferred edits keep line endings and bracket balance, and no longer write a region they got
+wrong. The agent now knows which of its edits changed a file, so verification, nudges, regression
+guards and auto-fix all agree on it. Commits from the chat ask first and commit only the files
+they name, and a commit SideCar couldn't check waits for approval. Agent commands run reliably in
+a Git Bash terminal on Windows, one at a time. Review, Accept and shadow flows no longer lose or
+overwrite work, the fallback backend takes over when the primary is down, and the database tools
+report real results. Ollama gets a Thinking switch in the chat header.
+
+### Added
+
+- **A Thinking switch in the chat header** (💭), shown when the backend is Ollama. It turns
+  the model's reasoning before an answer on or off, and is the same value as
+  `sidecar.ollama.disableThinking`: it writes the setting in whichever scope already holds it,
+  follows changes made in the Settings UI or another window, and applies from the next request.
+
+### Changed
+
+- **Qwen3 8B/14B/32B, GLM-4.7-Flash and Laguna XS.2 now think unless you turn it off.** SideCar
+  kept a list of models to run with thinking off; nothing measured it, and it never took effect
+  ([#469](https://github.com/nedonatelli/sidecar/issues/469)). The list is gone: every Ollama model
+  thinks by default, and `sidecar.ollama.disableThinking` (or the new header switch) turns it off.
+- **The backend menu no longer offers an unreleased backend.** It is gone from the ☰ menu, the
+  backend picker and `switch_backend`, and its commands appear in the palette only while it is the
+  selected provider. A setup that already uses it keeps working.
+- **The agent no longer sets up a toolchain to check its work**
+  ([#279](https://github.com/nedonatelli/sidecar/issues/279)). When a checker such as `tsc`,
+  `eslint`, `jest` or `mypy` can't run because it isn't installed, `run_command` now says so and
+  tells the agent to rely on the editor's diagnostics and say the change is unverified, instead of
+  running `npm init` and installing packages. `run_tests` suggests `npx tsc --noEmit` only where
+  the workspace has TypeScript installed. It sets up a toolchain only when you ask for one.
+- **The agent knows which edits changed a file**
+  ([#367](https://github.com/nedonatelli/sidecar/issues/367),
+  [ADR-008](docs/adr/008-structured-tool-outcomes.md)). `write_file`, `edit_file` and
+  `delete_file` now report what they did: changed a file, changed nothing, or failed. The checks
+  that decide whether to ask for verification, nudge the model or run a regression guard read that
+  report instead of matching the tool's message, and they now agree with each other:
+  - An inferred edit counts as a change everywhere.
+  - A failed or no-op edit no longer triggers a `post-write` regression guard.
+  - In review mode, a queued edit counts as a change everywhere.
+  - A call under another tool's name (`str_replace`, `create_file`) is treated as the tool it runs as.
+  - Auto-fix (`sidecar.autoFixOnFailure`) checks only the files an edit changed. A refused or no-op
+    edit no longer spends one of its retries, and an edit sent as `str_replace` is checked.
+
+### Fixed
+
+- **A commit SideCar couldn't check is held for approval.** Before a commit, SideCar looks at
+  what it would contain. If a git call failed or timed out during that look, the commit went
+  ahead unchecked; it now waits for approval and says the check couldn't run.
+- **Scratch cleanup no longer moves files you wanted**
+  ([#418](https://github.com/nedonatelli/sidecar/issues/418)). At the end of a run,
+  `sidecar.scaffolding.scratchCleanup` used to move any new script in the workspace root, so
+  `jest.config.js`, `conftest.py`, `setup.py` or the `convert.py` you asked for ended up in
+  `.sidecar/scratchpad/`, along with new tests in `tests/` and files like `verifier.py` or
+  `src/VerifyEmail.tsx`. Now it moves only scripts named like scratch (`reproduce_issue.py`,
+  `repro.py`, `scratch.py`, `test_repro.py`; `verify_*`, `debug_*`, `check_*`, `compare_*` and
+  `test_*` only in the workspace root, and not where the project already keeps such files), never
+  anything in a test directory, and only files this run wrote with a file tool or named in one of
+  its commands. A file you or a background agent created during the run stays where it is.
+- **A link whose target doesn't exist is judged by where it points.** File tools refuse paths
+  that lead out of the workspace through a link. A link to a missing file couldn't be
+  followed, so it was treated as a new file inside the workspace; it's now judged by its target.
+
+- **Thinking could not be turned off on Ollama**
+  ([#469](https://github.com/nedonatelli/sidecar/issues/469)). With
+  `sidecar.ollama.disableThinking` on, chat requests sent `think: false` inside the model options,
+  which Ollama ignores, so the model kept thinking. It is now sent where Ollama reads it.
+- **Bedrock reads static keys from the AWS config file**
+  ([#112](https://github.com/nedonatelli/sidecar/issues/112)). Keys set for the active profile in
+  `~/.aws/config` (or `AWS_CONFIG_FILE`) were ignored, as the AWS SDKs accept them there. The
+  credentials file still wins.
+- **A Copilot model id or family matches only Copilot's models**
+  ([#230](https://github.com/nedonatelli/sidecar/issues/230)). If another extension offered a
+  model with the configured id or family, SideCar used it without notice. Now only Copilot's
+  models match; otherwise SideCar uses Copilot's first model and says so.
+- **Retrieved context is more accurate, and compaction no longer holds up the next turn**
+  ([#426](https://github.com/nedonatelli/sidecar/issues/426)):
+  - A caller or callee found through the symbol graph now shows the right lines. Its body started
+    one line early and lost its last line, and a call on a function's last line, including any
+    one-line function, was not linked to its caller.
+  - When summarizing old turns takes too long, the request is cancelled instead of left running.
+    On a local Ollama the agent's next turn used to wait behind it. Stop cancels it too.
+  - The workspace context used before the index is ready now includes each file exactly as it is.
+    A step meant to keep only the relevant parts never kept anything out, and it removed the line
+    break before every `### ` line in a file. That step is gone.
+- **Scheduled-task `onSave` globs match workspace-relative paths**
+  ([#431](https://github.com/nedonatelli/sidecar/issues/431)). A glob was tested only against the
+  saved file's absolute path and its file name, so `src/**/*.ts` never fired and only `**/`-prefixed
+  or bare-name patterns worked. It is now also tested against the path relative to the workspace
+  folder. Patterns that worked before still do.
+- **Integration fixes** ([#427](https://github.com/nedonatelli/sidecar/issues/427)):
+  - `mutation_test` in a shadow workspace or fork runs the tests there. It wrote each mutant into
+    the shadow but ran the tests on the main tree, so every mutant "survived".
+  - The audit-recovery notice at startup no longer holds up the rest of startup. Until it was
+    answered, stale shadows were not swept and spending was not restored.
+  - GitHub check runs and PR review comments are read past the first page of 100, so a failing
+    check on page 2 is no longer missed.
+  - The dependency vulnerability check asks about the version `package-lock.json` (or
+    `npm-shrinkwrap.json`) installed. For `^4.17.0` it asked about 4.17.0 and reported advisories
+    fixed in the version actually installed. Without a lockfile it still uses the range's floor.
+  - Custom tools get the Windows system variables (`SystemRoot`, `windir`, `COMSPEC`, `PATHEXT`,
+    `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`), without which Python fails to start on Windows.
+  - Stopping a background agent keeps its slot until the run has stopped, so a queued run no
+    longer starts beside it and goes over `sidecar.bgMaxConcurrent`.
 - **Failed edits get more accurate guidance**
   ([#161](https://github.com/nedonatelli/sidecar/issues/161)). When an `edit_file` call doesn't
   land, the agent is told less that is wrong:
@@ -123,6 +357,27 @@ All notable changes to the SideCar extension will be documented in this file.
   ([#419](https://github.com/nedonatelli/sidecar/issues/419)). The button only greyed out the plan
   card. The plan stayed pending, so a later "ok" ran the rejected plan, and any other message was
   taken as feedback to revise it. Reject now works like typing "no".
+- **The chat panel's buttons act on the message they belong to**
+  ([#419](https://github.com/nedonatelli/sidecar/issues/419)):
+  - ↻ on an older answer regenerated the latest one and left the old answer on screen. Only the
+    latest answer can now be regenerated, it replaces the old one, and the prompt's images go with it.
+  - After `/help`, `/usage`, a GitHub command or a "hi", deleting or editing a later message could
+    act on the wrong one, and editing a command bubble sent the command to the model. Those bubbles
+    no longer count as messages.
+  - Retry and Edit sent a prompt without its attached files. They now keep them.
+  - After Cancel on an edit, the message's buttons did nothing. They work again.
+  - A long chat's older messages, scrolled back into view, came back with Edit on answers and without
+    their plan buttons or attachment labels.
+  - A prompt with an image now runs with its text, so project context and skills apply to it, and
+    Reconnect re-sends it.
+  - Switching to autonomous mode answered open questions with "Allow" and stopped the run at a
+    checkpoint. It now approves only the pending tool approvals.
+  - A run replaced by a new message or New Chat could end the new run's answer early and show its
+    leftover text there.
+  - `/batch` can be stopped from the panel.
+  - `/verbose` changes the setting where it is set, so a workspace value no longer hides the change.
+  - Branch in the Sessions view asks for the name first; cancelling no longer loads the session and
+    stops the running agent.
 - **Error cards no longer mistake numbers for status codes**
   ([#435](https://github.com/nedonatelli/sidecar/issues/435)). A code such as 429 or 401 was
   matched anywhere in the message, so "prompt is too long: 204291 tokens" showed as a rate limit
@@ -271,6 +526,19 @@ All notable changes to the SideCar extension will be documented in this file.
 - **Accepting an inline edit from the status bar applies it.** In hosts without a diff preview,
   accepting from the status bar or the `SideCar: Accept Inline Edit` command told the agent the
   edit was applied without inserting anything; only Tab inserted it.
+- **Agent commands run reliably in the terminal and report what really happened**
+  ([#422](https://github.com/nedonatelli/sidecar/issues/422)):
+  - On Windows with Git Bash, a command that waits for input, such as `cat` or `git commit` with
+    no message, no longer hangs for two minutes, and `2>nul` no longer creates a `nul` file.
+  - Two commands in one turn no longer interrupt each other in the agent terminal; they run one
+    after the other.
+  - A `run_tests` run that times out is reported as unfinished, not as a pass. A command the
+    terminal reports no exit code for, such as one you stopped with Ctrl+C, counts as failed.
+  - Stop cancels a command still waiting for the shell, and closing a session no longer leaves a
+    waiting command hanging.
+  - A `.bat` file written with a heredoc keeps its `2>nul` as written.
+  - When pytest is not installed, `run_tests` runs `unittest` with `python3` if that is the
+    Python it found, so it no longer fails on Debian and Ubuntu.
 
 ### Documentation
 
@@ -286,6 +554,10 @@ All notable changes to the SideCar extension will be documented in this file.
 - **The CI tool's error and description name the GitHub sign-in in VS Code** instead of a "Set
   GitHub Token" command that does not exist. The `sidecar.firstTokenTimeout` description says
   that `0` falls back to `sidecar.requestTimeout` rather than disabling the timeout.
+
+### Stats
+- 11115 total tests (611 test files)
+- 87 built-in tools, 11 skills
 
 ## [0.135.0] - 2026-11-03
 

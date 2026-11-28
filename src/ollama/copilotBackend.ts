@@ -8,9 +8,9 @@ const COPILOT = { vendor: 'copilot' } as const;
 const warnedSubstitutions = new Set<string>();
 
 /**
- * The model SideCar actually uses for a configured Copilot model id: the id,
- * else the family, else a Copilot model with that display name, else Copilot's
- * first available model. Used by both the chat
+ * The model SideCar actually uses for a configured Copilot model id: the
+ * Copilot model with that id, else that family, else that display name, else
+ * Copilot's first available model. Used by both the chat
  * path and the context-length lookup, so the two can't disagree.
  *
  * The last step used to call `selectChatModels()` with no selector, which
@@ -25,8 +25,10 @@ export async function resolveCopilotModel(
   modelId: string,
   select: typeof vscode.lm.selectChatModels = (s) => vscode.lm.selectChatModels(s),
 ): Promise<vscode.LanguageModelChat | null> {
-  let models = await select({ id: modelId });
-  if (models.length === 0) models = await select({ family: modelId });
+  // Every step asks for Copilot's models: an id or family match from another
+  // extension would be the same silent cross-vendor substitution.
+  let models = await select({ ...COPILOT, id: modelId });
+  if (models.length === 0) models = await select({ ...COPILOT, family: modelId });
   if (models.length > 0) return models[0];
   models = await select(COPILOT);
   if (models.length === 0) return null;

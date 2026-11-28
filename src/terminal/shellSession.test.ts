@@ -490,6 +490,32 @@ describe('ShellSession lifecycle (#114)', () => {
     expect((session as unknown as { proc: { pid: number } | null }).proc?.pid).toBe(replacement!.pid);
     expect(session.isAlive).toBe(true);
   }, 30_000);
+
+  // #422: the abort listener was attached only once a command had the shell.
+  it('Stop reaches a command still queued behind another (#422)', async () => {
+    session = new ShellSession(os.tmpdir());
+    const first = session.execute(sleepCmd(3), { timeout: 20_000 });
+    const controller = new AbortController();
+    const queued = session.execute('echo queued', { signal: controller.signal });
+    setTimeout(() => controller.abort(), 100);
+    const started = Date.now();
+    const result = await queued;
+    expect(Date.now() - started).toBeLessThan(2_000); // not after `first` finished
+    expect(result.timedOut).toBe(true);
+    expect(result.stdout).toContain('aborted');
+    expect(result.stdout).not.toContain('queued');
+    await first;
+  }, 30_000);
+
+  it('dispose settles a command still queued behind another (#422)', async () => {
+    session = new ShellSession(os.tmpdir());
+    const first = session.execute(sleepCmd(5), { timeout: 20_000 });
+    const queued = session.execute('echo queued');
+    await new Promise((r) => setTimeout(r, 100));
+    session.dispose();
+    await expect(queued).rejects.toThrow('disposed before the command ran');
+    await first;
+  }, 30_000);
 });
 
 // #260: on POSIX the shell leads its own process group, so disposing it reaches

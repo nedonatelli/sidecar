@@ -2324,6 +2324,9 @@ describe('completionGate — classifyTestResult', () => {
     expect(classifyTestResult('something\n(exit code: 2)')).toBe('fail');
     expect(classifyTestResult('done\n(exit code: 0)')).toBe('pass');
   });
+  it('treats exit code -1 (no real exit code) as failure, not a pass on partial output (#422)', () => {
+    expect(classifyTestResult('ok  \texample.com/pkg/a\t0.01s\n(exit code: -1)')).toBe('fail');
+  });
 });
 
 // #280: a test script weakened to run nothing exits 0, and exit 0 alone read as

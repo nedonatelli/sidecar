@@ -35,8 +35,8 @@ const VALID_OPERATORS: readonly MutationOperator[] = ['relational', 'arithmetic'
 async function mutationTest(input: Record<string, unknown>, context?: ToolExecutorContext): Promise<string> {
   const file = typeof input.file === 'string' ? input.file.trim() : '';
   const testCommand = typeof input.test_command === 'string' ? input.test_command.trim() : '';
-  if (!file) return 'Error: `file` is required (the source file to mutate).';
-  if (!testCommand) return 'Error: `test_command` is required (the command that runs this file’s tests).';
+  if (!file) throw new Error('`file` is required (the source file to mutate).');
+  if (!testCommand) throw new Error('`test_command` is required (the command that runs this file’s tests).');
 
   const cfg = getConfig();
   const maxMutants =
@@ -61,7 +61,7 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
     isProtectedWritePath(relFile) ??
     (isSensitiveFile(relFile) ? `"${file}" looks like a credential file, which the agent may not write.` : null) ??
     realPathRefusal(rootUri.fsPath, relFile, 'write');
-  if (pathError) return `Error: ${pathError}`;
+  if (pathError) throw new Error(pathError);
   const uriFor = (p: string): Uri => Uri.joinPath(rootUri, p);
 
   // The original's exact bytes, for the restore. Decoding and re-encoding as
@@ -85,7 +85,9 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
       await workspace.fs.writeFile(uriFor(p), bytes);
     },
     async runTest(): Promise<{ passed: boolean; output: string }> {
-      const r = await runVerificationCommand(testCommand, perTestTimeoutMs, signal);
+      // The mutants are written under the run's root (a shadow or fork when
+      // context.cwd is set), so the tests must run there too, not in the main tree.
+      const r = await runVerificationCommand(testCommand, perTestTimeoutMs, signal, context);
       return { passed: r.exitCode === 0 && !r.timedOut, output: r.output };
     },
   };
@@ -94,7 +96,7 @@ async function mutationTest(input: Record<string, unknown>, context?: ToolExecut
   try {
     run = await runMutationTest(relFile, io, { operators, maxMutants, signal });
   } catch (err) {
-    return `Error: mutation test failed to run: ${err instanceof Error ? err.message : String(err)}`;
+    throw new Error(`mutation test failed to run: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (run.stopped && run.results.length === 0) return `Mutation testing of \`${file}\` was stopped.`;

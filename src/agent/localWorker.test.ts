@@ -288,3 +288,31 @@ describe('runLocalWorker — failure path', () => {
     expect(result.output).toBe('string rejection');
   });
 });
+
+// #475: the same for delegate_task's worker.
+describe('runLocalWorker: a worker that did not finish is a failure (#475)', () => {
+  it('fails at the iteration cap, with the reason and the partial output', async () => {
+    runAgentLoopMock.mockImplementation(async (_client, _msgs, cb) => {
+      cb.onText('half a summary');
+      cb.onOutcome?.('timeout', { aborted: false, scaffoldInterventions: 0, termination: 'max-iterations' });
+      cb.onDone();
+    });
+    const result = await runLocalWorker('x', undefined, makeParentCallbacks(), new AbortController().signal, {
+      maxIterations: 3,
+    });
+    expect(result.success).toBe(false);
+    expect(result.output).toContain('The delegated worker did not finish: it used all 3 of its iterations');
+    expect(result.output).toContain('half a summary');
+  });
+
+  it('succeeds on a natural finish', async () => {
+    runAgentLoopMock.mockImplementation(async (_client, _msgs, cb) => {
+      cb.onText('SUMMARY');
+      cb.onOutcome?.(null, { aborted: false, scaffoldInterventions: 0, termination: 'natural' });
+      cb.onDone();
+    });
+    const result = await runLocalWorker('x', undefined, makeParentCallbacks(), new AbortController().signal);
+    expect(result.success).toBe(true);
+    expect(result.output).toBe('SUMMARY');
+  });
+});

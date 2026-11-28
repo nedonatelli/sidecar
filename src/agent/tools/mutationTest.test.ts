@@ -29,8 +29,8 @@ function suite(passes: (content: string) => boolean): void {
 
 describe('mutation_test tool', () => {
   it('requires file and test_command', async () => {
-    expect(await exec({ test_command: 'pytest' })).toMatch(/`file` is required/);
-    expect(await exec({ file: 'm.py' })).toMatch(/`test_command` is required/);
+    await expect(exec({ test_command: 'pytest' })).rejects.toThrow(/`file` is required/);
+    await expect(exec({ file: 'm.py' })).rejects.toThrow(/`test_command` is required/);
   });
 
   it('skips when the baseline test does not pass on the original', async () => {
@@ -68,6 +68,18 @@ describe('mutation_test tool', () => {
     // 1 baseline run + at most 2 mutant runs (cap), not all 4.
     expect(runs).toBeLessThanOrEqual(3);
   });
+
+  // In a shadow the mutants are written under context.cwd, so the test runs
+  // must get the same context or they run on the main tree. (#427)
+  it('runs the test command with the tool context, so a shadow run tests the shadow', async () => {
+    suite((c) => c === ORIGINAL);
+    const spy = runVerificationCommand as unknown as ReturnType<typeof vi.fn>;
+    spy.mockClear();
+    const ctx = { cwd: '/tmp/.sidecar/shadows/task-1' };
+    await exec({ file: 'm.py', test_command: 'pytest', operators: ['relational'] }, ctx as never);
+    expect(spy).toHaveBeenCalled();
+    for (const call of spy.mock.calls) expect(call[3]).toBe(ctx);
+  });
 });
 
 // The restore decoded and re-encoded the file as UTF-8, permanently changing
@@ -79,8 +91,7 @@ describe('mutation_test tool — file bytes', () => {
     writeFile.mockClear();
     vi.spyOn(workspace.fs, 'readFile').mockResolvedValue(latin1 as never);
     suite(() => true);
-    const out = await exec({ file: 'm.py', test_command: 'pytest' });
-    expect(out).toMatch(/not UTF-8/);
+    await expect(exec({ file: 'm.py', test_command: 'pytest' })).rejects.toThrow(/not UTF-8/);
     expect(writeFile).not.toHaveBeenCalled();
   });
 
@@ -108,7 +119,7 @@ describe('mutation_test tool — where it may write', () => {
       const writeFile = vi.spyOn(workspace.fs, 'writeFile');
       writeFile.mockClear();
       suite(() => true);
-      expect(await exec({ file, test_command: 'pytest' })).toMatch(/^Error: /);
+      await expect(exec({ file, test_command: 'pytest' })).rejects.toThrow();
       expect(writeFile).not.toHaveBeenCalled();
     },
   );

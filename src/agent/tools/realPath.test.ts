@@ -47,6 +47,27 @@ describe('realWorkspaceRelative', () => {
     expect(realWorkspaceRelative(root, 'src/a.ts')).toBe('src/a.ts');
     expect(realWorkspaceRelative(root, 'src/new/b.ts')).toBe('src/new/b.ts');
   });
+
+  it('judges a link whose target is missing by that target', () => {
+    fs.symlinkSync(path.join(outside, 'missing'), path.join(root, 'broken-out'), 'junction');
+    fs.symlinkSync(path.join(root, 'src', 'missing'), path.join(root, 'broken-in'), 'junction');
+    expect(realWorkspaceRelative(root, 'broken-out')).toBeNull();
+    expect(realWorkspaceRelative(root, 'broken-out/x.txt')).toBeNull();
+    expect(realWorkspaceRelative(root, 'broken-in/x.txt')).toBe('src/missing/x.txt');
+  });
+
+  // Writing through a file symlink creates its target. Creating one needs a
+  // privilege on Windows, so the test runs where the link can be made.
+  it('refuses a write through a file link to a missing file outside', (ctx) => {
+    try {
+      fs.symlinkSync(path.join(outside, 'planted.txt'), path.join(root, 'notes.txt'), 'file');
+      fs.symlinkSync('loop', path.join(root, 'loop'), 'file');
+    } catch {
+      ctx.skip();
+    }
+    expect(realPathRefusal(root, 'notes.txt', 'write')).toMatch(/outside the workspace/);
+    expect(realWorkspaceRelative(root, 'loop')).toBeNull();
+  });
 });
 
 describe('approval-free reads judge the real target', () => {

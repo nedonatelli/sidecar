@@ -73,14 +73,21 @@ describe('EditTimelineStore', () => {
     expect(cb).toHaveBeenCalledOnce(); // not called again
   });
 
-  it('list sorts by most-recently-edited first', async () => {
-    store.record('a.ts', 'x', 'y');
-    // Ensure different timestamps
-    await new Promise((r) => setTimeout(r, 2));
-    store.record('b.ts', 'x', 'y');
-    const paths = store.list().map((e) => e.relPath);
-    expect(paths[0]).toBe('b.ts');
-    expect(paths[1]).toBe('a.ts');
+  it('list sorts by most-recently-edited first', () => {
+    // Set the clock rather than wait on a timer: a short setTimeout can fire
+    // before Date.now() ticks, leaving both edits with the same timestamp.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(1_000);
+      store.record('a.ts', 'x', 'y');
+      vi.setSystemTime(1_005);
+      store.record('b.ts', 'x', 'y');
+      const paths = store.list().map((e) => e.relPath);
+      expect(paths[0]).toBe('b.ts');
+      expect(paths[1]).toBe('a.ts');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

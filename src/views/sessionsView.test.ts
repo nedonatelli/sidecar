@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Memento, TreeDataProvider, ExtensionContext } from 'vscode';
+import { commands, window, type Memento, type TreeDataProvider, type ExtensionContext } from 'vscode';
 import { SessionManager } from '../agent/sessions.js';
 import { registerSessionsView } from './sessionsView.js';
 
@@ -73,5 +73,48 @@ describe('Sessions view (#120)', () => {
     for (const d of context.subscriptions) d.dispose();
     new SessionManager(state).save('after dispose', []);
     expect(refreshed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Sessions view Branch (#419)', () => {
+  function registerBranch(loadSession: () => void, branchCurrentSession: (name?: string) => void) {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    vi.spyOn(commands, 'registerCommand').mockImplementation(((id: string, cb: (...args: unknown[]) => unknown) => {
+      handlers.set(id, cb);
+      return { dispose: () => {} };
+    }) as never);
+    const context = { subscriptions: [] } as unknown as ExtensionContext;
+    registerSessionsView(context, new SessionManager(memento()), {
+      loadSession,
+      saveCurrentSession: () => {},
+      branchCurrentSession,
+    });
+    return handlers.get('sidecar.sessions.branch')!;
+  }
+  const item = { session: { id: 's1', name: 'old work' } };
+
+  beforeEach(() => vi.restoreAllMocks());
+
+  it('does not load the session when the name prompt is cancelled', async () => {
+    // Loading the session stops a running agent; a cancelled Branch used to do that anyway.
+    const loadSession = vi.fn();
+    const branch = vi.fn();
+    vi.spyOn(window, 'showInputBox').mockResolvedValue(undefined);
+    await registerBranch(loadSession, branch)(item);
+    expect(loadSession).not.toHaveBeenCalled();
+    expect(branch).not.toHaveBeenCalled();
+  });
+
+  it('loads the session, then branches it, once named', async () => {
+    const calls: string[] = [];
+    vi.spyOn(window, 'showInputBox').mockImplementation(async () => {
+      calls.push('ask');
+      return 'try-b';
+    });
+    await registerBranch(
+      () => calls.push('load'),
+      (name) => calls.push('branch ' + name),
+    )(item);
+    expect(calls).toEqual(['ask', 'load', 'branch try-b']);
   });
 });

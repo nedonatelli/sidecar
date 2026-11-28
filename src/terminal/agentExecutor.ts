@@ -63,12 +63,23 @@ export interface AgentTerminalOptions {
  *
  * Grouped rather than appended because `<cmd> < /dev/null` binds the redirect to
  * the LAST element of a pipeline and would break `echo x | cat`.
+ *
+ * Git Bash on Windows gets the group on one line. Its shell integration never
+ * reports the end of a command sent across two lines, so the newline form timed
+ * out every command, `echo` included. The newline is there for a trailing `#`
+ * comment, a heredoc, or a closing `&`, which one line can't hold, so those
+ * commands go unwrapped instead.
  */
 export function guardStdin(command: string, shellPath = env.shell, platform = process.platform): string {
   const shell = (shellPath || '').toLowerCase();
-  const posix = /(^|\/)(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
-  // Git Bash: a cmd-style `2>nul` would create an undeletable `nul` file (#395).
-  if (posix) return `{ ${platform === 'win32' ? rewriteNulRedirects(command) : command}\n} < /dev/null`;
+  // Either separator: on Windows `env.shell` is `c:\program files\git\bin\bash.exe`.
+  const posix = /(^|[\\/])(bash|zsh|sh|dash|ksh)(\d|\.exe)?$/.test(shell);
+  if (posix && platform === 'win32') {
+    // A cmd-style `2>nul` would create an undeletable `nul` file (#395).
+    const cmd = rewriteNulRedirects(command);
+    return /[\n#]|<<|[;&|]\s*$/.test(cmd) ? cmd : `{ ${cmd}; } < /dev/null`;
+  }
+  if (posix) return `{ ${command}\n} < /dev/null`;
   if (/cmd\.exe$/.test(shell)) return `(${command}) < NUL`;
   // fish, nushell, PowerShell, or anything unrecognized: leave alone. A command
   // that hangs is recoverable; a command that cannot parse is not.
@@ -80,6 +91,8 @@ export class AgentTerminalExecutor implements Disposable {
   private readonly terminalName: string;
   private readonly shellIntegrationTimeoutMs: number;
   private disposables: Disposable[] = [];
+  /** Tail of the run queue. See execute. */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(options: AgentTerminalOptions = {}) {
     this.terminalName = options.terminalName ?? 'SideCar Agent';
@@ -98,8 +111,20 @@ export class AgentTerminalExecutor implements Disposable {
    * Returns a `ShellResult` on success (streamed output + exit code from
    * `onDidEndTerminalShellExecution`), or `null` if shell integration is
    * unavailable so the caller can fall back to `ShellSession`.
+   *
+   * One command at a time: a turn's tool calls run in parallel, and
+   * `executeCommand` interrupts whatever the terminal is running with ^C, so a
+   * second `run_command` (or a completion-gate check) cut the first one short.
    */
-  async execute(command: string, options: ShellExecuteOptions = {}): Promise<ShellResult | null> {
+  execute(command: string, options: ShellExecuteOptions = {}): Promise<ShellResult | null> {
+    const run = this.queue.then(() => this.executeNow(command, options));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async executeNow(command: string, options: ShellExecuteOptions): Promise<ShellResult | null> {
+    // Stopped while it waited for its turn; an abort listener added now would never fire.
+    if (options.signal?.aborted) return { stdout: '\n\n⚠️ Command aborted', exitCode: -1, timedOut: true };
     const terminal = await this.getReadyTerminal();
     if (!terminal) return null;
 
@@ -207,7 +232,9 @@ export class AgentTerminalExecutor implements Disposable {
       // execution in every terminal.
       const endListener = window.onDidEndTerminalShellExecution((ev: TerminalShellExecutionEndEvent) => {
         if (ev.execution === execution) {
-          exitCode = ev.exitCode ?? 0;
+          // Undefined when the user ^C'd the command or the integration could
+          // not tell; VS Code's docs advise reading that as a failure.
+          exitCode = ev.exitCode ?? -1;
           finish();
         }
       });

@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { describeScaffold, type ScaffoldDescriptor } from '../../src/agent/scaffoldVersion.js';
-import { hasProblematicThinking } from '../../src/config/modelAgentBehavior.js';
 import { DEFAULT_MAX_ITERATIONS } from '../../src/agent/loop/state.js';
 import { resolveModelCapability } from '../../src/ollama/modelCapability.js';
 import { resolveScaffoldingProfile, type ScaffoldingOverrides } from '../../src/agent/scaffoldingProfile.js';
@@ -57,15 +56,14 @@ function readExtensionVersion(): string {
  * snapshot built from the top layer would report every underlying flag at a
  * default the run never used.
  *
- * `thinkingEnabled` reads the same field the Ollama backend reads, plus the
- * per-model suppression the agent loop applies — describing what the run DID,
- * not what was requested.
+ * `thinkingEnabled` reads the same field the Ollama backend reads, so it
+ * describes what the run DID, not what was requested.
  */
 export function currentProvenance(model: string, runConfig: Record<string, unknown>): BaselineProvenance {
   return {
     model,
     extensionVersion: readExtensionVersion(),
-    thinkingEnabled: runConfig.ollamaDisableThinking !== true && !hasProblematicThinking(model),
+    thinkingEnabled: runConfig.ollamaDisableThinking !== true,
     maxIterations: harnessMaxIterations(model, runConfig),
     scaffold: describeScaffold(runConfig),
   };

@@ -122,7 +122,11 @@ export interface LoopState {
   //   out-of-resources — token budget or request timeout
   //   max-iterations   — the iteration cap was reached
   //   stuck            — burst cap / repeated-action cycle bail
-  termination?: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck';
+  //   error            — the loop threw (a backend error, mostly); the
+  //                      message is in `terminationError` (#271)
+  termination?: 'natural' | 'aborted' | 'out-of-resources' | 'max-iterations' | 'stuck' | 'error';
+  /** The thrown error's message when `termination` is 'error'. finalize.ts buckets on it. */
+  terminationError?: string;
   unrepairedMalformedCalls: number;
   /** Turns whose text was discarded as degenerate (token salad). Bounded retry: 1 retry, then bail. */
   degenerateTurns: number;
@@ -371,6 +375,9 @@ export interface LoopState {
    */
   editedSinceRead: Set<string>;
 
+  /** See ToolExecutorContext.appliedEdits. Maintained by the fs tools. */
+  appliedEdits: Map<string, Array<{ search: string; replace: string }>>;
+
   // True once the unapplied-edit nudge has fired this run. Bounds the nudge to
   // one injection so a false positive (an explanatory code block) costs at most
   // one extra message. unappliedEditHook is the only writer.
@@ -520,6 +527,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     alreadyDoneChecked: false,
     filesReadThisRun: new Set<string>(),
     editedSinceRead: new Set<string>(),
+    appliedEdits: new Map(),
     unappliedEditNudged: false,
     toolCallCounts: new Map<string, number>(),
     gateState: createGateState(lastUserText(copiedMessages), {

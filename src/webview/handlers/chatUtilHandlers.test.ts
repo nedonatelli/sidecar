@@ -4,7 +4,7 @@ import {
   handleShowSystemPrompt,
   handleDeleteMessage,
   handleExportChat,
-  handleUserMessageWithImages,
+  userContentWithImages,
 } from './chatUtilHandlers.js';
 
 // ---------------------------------------------------------------------------
@@ -187,56 +187,42 @@ describe('handleExportChat', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleUserMessageWithImages
+// userContentWithImages
 // ---------------------------------------------------------------------------
 
-describe('handleUserMessageWithImages', () => {
-  function makeState() {
-    return { messages: [] as Array<{ role: string; content: unknown }>, saveHistory: vi.fn() };
-  }
-
-  it('pushes a user message with image blocks followed by a text block', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, 'look at this', [{ mediaType: 'image/png', data: 'aGVsbG8=' }]);
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0].role).toBe('user');
-    const blocks = state.messages[0].content as Array<{ type: string; text?: string }>;
+describe('userContentWithImages', () => {
+  it('puts the image blocks first, then the text', () => {
+    const blocks = userContentWithImages('look at this', [{ mediaType: 'image/png', data: 'aGVsbG8=' }]) as Array<{
+      type: string;
+      text?: string;
+    }>;
     expect(blocks).toHaveLength(2);
     expect(blocks[0].type).toBe('image');
     expect(blocks[1]).toEqual({ type: 'text', text: 'look at this' });
   });
 
   it('supports multiple images in a single submission', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, 'compare', [
+    const blocks = userContentWithImages('compare', [
       { mediaType: 'image/png', data: 'a' },
       { mediaType: 'image/jpeg', data: 'b' },
       { mediaType: 'image/png', data: 'c' },
-    ]);
-    const blocks = state.messages[0].content as Array<{ type: string }>;
+    ]) as Array<{ type: string }>;
     expect(blocks).toHaveLength(4); // 3 images + 1 text
     expect(blocks.slice(0, 3).every((b) => b.type === 'image')).toBe(true);
   });
 
   it('attaches an empty text block when text is empty (preserves Anthropic content shape)', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, '', [{ mediaType: 'image/png', data: 'x' }]);
-    const blocks = state.messages[0].content as Array<{ type: string; text?: string }>;
+    const blocks = userContentWithImages('', [{ mediaType: 'image/png', data: 'x' }]) as Array<{
+      type: string;
+      text?: string;
+    }>;
     expect(blocks[1]).toEqual({ type: 'text', text: '' });
   });
 
-  it('persists history immediately after pushing', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, 'a', [{ mediaType: 'image/png', data: 'x' }]);
-    expect(state.saveHistory).toHaveBeenCalledOnce();
-  });
-
   it('sets the correct base64 data and mediaType on the image block', () => {
-    const state = makeState();
-    handleUserMessageWithImages(state as never, '', [{ mediaType: 'image/jpeg', data: 'anVzdA==' }]);
-    const block = (
-      state.messages[0].content as Array<{ type: string; source?: { media_type: string; data: string } }>
-    )[0];
+    const block = userContentWithImages('', [{ mediaType: 'image/jpeg', data: 'anVzdA==' }])[0] as {
+      source?: { media_type: string; data: string };
+    };
     expect(block.source?.media_type).toBe('image/jpeg');
     expect(block.source?.data).toBe('anVzdA==');
   });

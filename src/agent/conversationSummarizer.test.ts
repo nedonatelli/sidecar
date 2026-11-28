@@ -287,6 +287,64 @@ describe('ConversationSummarizer', () => {
       const result = await resultPromise;
       expect(result.messages).toBeDefined();
     });
+
+    // #426: the timeout used to stop waiting but leave the request running, so
+    // on a single-slot Ollama the next turn queued behind it.
+    describe('cancelling the request (#426)', () => {
+      const longMessages = (): ChatMessage[] => {
+        const out: ChatMessage[] = [];
+        for (let i = 0; i < 8; i++) {
+          out.push({ role: 'user', content: `Query ${i} with content`.repeat(5) });
+          out.push({ role: 'assistant', content: `Response ${i} with content`.repeat(5) });
+        }
+        return out;
+      };
+      /** A completion that never finishes unless its signal aborts. */
+      const hangingClient = () => {
+        const client = createMockClient();
+        const signals: (AbortSignal | undefined)[] = [];
+        client.complete = vi.fn(
+          (_m: unknown, _n: unknown, signal?: AbortSignal) =>
+            new Promise<string>((_resolve, reject) => {
+              signals.push(signal);
+              signal?.addEventListener('abort', () =>
+                reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+              );
+            }),
+        ) as never;
+        return { client, signals };
+      };
+
+      it('aborts the request when the timeout fires', async () => {
+        const { client, signals } = hangingClient();
+        const result = await new ConversationSummarizer(client as any).summarize(longMessages(), {
+          keepRecentTurns: 2,
+          minCharsToSave: 100,
+          maxSummaryLength: 100,
+          summaryTimeoutMs: 20,
+        });
+        expect(client.complete).toHaveBeenCalledTimes(1);
+        expect(signals[0]?.aborted).toBe(true);
+        expect(result.freedChars).toBeGreaterThan(0); // deterministic fallback used
+      });
+
+      it("the caller's signal (Stop) cancels the request before the timeout", async () => {
+        const { client, signals } = hangingClient();
+        const stop = new AbortController();
+        const pending = new ConversationSummarizer(client as any).summarize(longMessages(), {
+          keepRecentTurns: 2,
+          minCharsToSave: 100,
+          maxSummaryLength: 100,
+          summaryTimeoutMs: 60_000,
+          signal: stop.signal,
+        });
+        await vi.waitFor(() => expect(client.complete).toHaveBeenCalledTimes(1));
+        stop.abort();
+        const result = await pending;
+        expect(signals[0]?.aborted).toBe(true);
+        expect(result.freedChars).toBeGreaterThan(0);
+      });
+    });
   });
 
   describe('character accounting', () => {

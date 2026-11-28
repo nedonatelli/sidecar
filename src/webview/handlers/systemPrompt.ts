@@ -29,7 +29,6 @@ import {
   rewriteQuery,
 } from '../../agent/retrieval/index.js';
 import type { CompleteFn } from '../../agent/retrieval/index.js';
-import { enhanceContextWithSmartElements } from '../../agent/context.js';
 import { parseSidecarMd, selectSidecarMdSections } from '../../agent/sidecarMdParser.js';
 import { renderDesignMdContext } from '../../config/designMdLoader.js';
 import { resolveToolTier } from './messageUtils.js';
@@ -555,9 +554,8 @@ export async function injectSystemContext(
       }
     } else {
       const contextBudget = Math.max(0, maxSystemChars - prompt.length - toolOverheadChars);
-      let context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
+      const context = await getWorkspaceContext(getFilePatterns(), getMaxFiles());
       if (context) {
-        context = enhanceContextWithSmartElements(context, text);
         const trimmed =
           context.length > contextBudget ? context.slice(0, contextBudget - 30) + '\n... (context truncated)' : context;
         prompt += `\n\n## Workspace Context (reference files — not your task)\n${trimmed}`;

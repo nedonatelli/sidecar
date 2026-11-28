@@ -59,6 +59,7 @@ export function finalize(state: LoopState, callbacks: AgentCallbacks): ChatMessa
       aborted: signals.aborted,
       scaffoldInterventions: countScaffoldInterventions(state),
       ...scaffoldInterventionBreakdown(state),
+      termination: state.termination,
     });
   } catch (e) {
     state.logger?.error(`onOutcome error: ${e}`);
@@ -106,6 +107,7 @@ export function buildRunFailureSignals(state: LoopState): RunFailureSignals {
     toolErrors,
     gateExhausted,
     loopStopped: state.termination === 'stuck',
+    runError: state.termination === 'error' ? (state.terminationError ?? '') : undefined,
   };
 }
 

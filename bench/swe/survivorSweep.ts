@@ -100,7 +100,12 @@ function listProcesses(deps: SweepDeps): ProcRow[] {
       deps.run('powershell', [
         '-NoProfile',
         '-Command',
-        'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress',
+        // Windows PowerShell writes redirected output in the console code page
+        // (437 here), which encodes some characters as control bytes: "→" is
+        // 0x1A, "•" 0x07. One process with such a character in its command line
+        // made the whole listing fail to parse, and the sweep found nothing.
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ' +
+          'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress',
       ]),
     );
   }

@@ -29,6 +29,14 @@ export type FailureBucket =
    * (#271).
    */
   | 'loop-stopped'
+  /**
+   * The run ended on an error from outside the model's reasoning: the backend
+   * or the transport (an HTTP 502, vLLM's "EngineCore encountered an issue",
+   * a dropped connection). These fell through to `bad-reasoning`, so a server
+   * outage counted against the model: 69 of 100 runs in one nemotron3-super
+   * canary, 66 of them 502s (#271).
+   */
+  | 'infra'
   /** Produced output but never acted, or stalled without progress. */
   | 'bad-reasoning';
 
@@ -49,9 +57,40 @@ export interface RunFailureSignals {
   gateExhausted: boolean;
   /** A loop control stopped the run (`termination: 'stuck'`). Optional for callers built before #271. */
   loopStopped?: boolean;
+  /**
+   * The message of the error the run ended on (`termination: 'error'`), or
+   * undefined when it did not end on one. Optional for callers built before
+   * #271's infra bucket.
+   */
+  runError?: string;
 }
 
 const HIGH_TOOL_ERROR_RATE = 0.5;
+
+/**
+ * A backend's rejection of a tool call the model wrote, after the loop's
+ * re-asks ran out: JSON or XML that did not parse, or a tool name the request
+ * did not offer. Mirrors the matchers in loop.ts (not imported: loop.ts
+ * imports this module's callers).
+ */
+const MODEL_CALL_ERROR =
+  /error parsing tool call|invalid character |unexpected end of JSON input|XML syntax error|expected element type <|tool '[\s\S]+' not found/i;
+
+/** Ollama aborting generation that repeats itself: a degenerate-output stop. */
+const DEGENERATE_OUTPUT_ERROR = /token repeat limit reached/i;
+
+/**
+ * The bucket for a run that ended on an error. Most are `infra`; two kinds
+ * are the model's own output, refused by the backend:
+ * - a tool call it could not parse, or a tool not offered -> `malformed-call`;
+ * - generation aborted for repeating itself -> `loop-stopped`, the bucket the
+ *   loop's own degenerate-output stop already uses.
+ */
+export function classifyRunError(message: string): 'infra' | 'malformed-call' | 'loop-stopped' {
+  if (MODEL_CALL_ERROR.test(message)) return 'malformed-call';
+  if (DEGENERATE_OUTPUT_ERROR.test(message)) return 'loop-stopped';
+  return 'infra';
+}
 
 /**
  * Classify a run into a failure bucket, or `null` when it succeeded. Order
@@ -63,6 +102,11 @@ export function classifyFailureBucket(s: RunFailureSignals): FailureBucket | nul
   if (s.aborted) return null;
   // Natural completion with no exhausted gate is a success.
   if (s.completedNaturally && !s.gateExhausted) return null;
+
+  // Ended on an error: the error, not the run's other signals, is why it
+  // stopped. Checked before the tool-error rate, which a run that had barely
+  // started can trip by chance.
+  if (s.runError !== undefined) return classifyRunError(s.runError);
 
   // Couldn't produce valid tool calls — the syntactic failure class.
   if (s.unrepairedMalformedCalls > 0) return 'malformed-call';

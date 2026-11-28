@@ -52,10 +52,7 @@ This ordering ensures the most valuable context gets priority, especially on loc
 
 ## Configuration
 
-Smart context is enabled by default with no additional configuration. It applies automatically to:
-
-- Workspace index context (when the index is ready)
-- Fallback glob-based context (via `enhanceContextWithSmartElements`)
+Smart context is enabled by default with no additional configuration. It applies automatically to the workspace index context (when the index is ready). The fallback glob-based context, used before the index is ready, passes whole files through unfiltered.
 
 The workspace context budget is controlled by `sidecar.maxFiles` and the internal context cap. For local models, tool definitions reserve ~10K chars of the budget to prevent oversized prompts.
 

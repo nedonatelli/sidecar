@@ -128,7 +128,7 @@ Run an agent task on a recurring interval, a cron schedule, or whenever a matchi
   },
   {
     "name": "lint-on-ts-save",
-    "onSave": ["**/src/**/*.ts", "**/src/**/*.tsx"],
+    "onSave": ["src/**/*.ts", "src/**/*.tsx"],
     "prompt": "A TypeScript file under src/ was just saved. Run the linter on the files changed since the last commit and fix any new warnings.",
     "enabled": true
   },
@@ -150,7 +150,7 @@ Run an agent task on a recurring interval, a cron schedule, or whenever a matchi
 | `enabled` | boolean | Yes | Must be `true` for the task to run. A task with `enabled` missing or `false` is skipped and is not listed by **Run Scheduled Task Now** |
 | `intervalMinutes` | number | No | Run every N minutes (minimum 1). Ignored when `cron` is set |
 | `cron` | string | No | 5-field cron expression. Takes precedence over `intervalMinutes` |
-| `onSave` | string[] | No | Run when a saved file matches any of these globs. Each glob is matched against the file's absolute path and its bare file name, so start a directory glob with `**/` |
+| `onSave` | string[] | No | Run when a saved file matches any of these globs. Write globs relative to the workspace folder (`src/**/*.ts`); a bare name pattern (`*.ts`, `package.json`) matches in any directory. See [The `onSave` file trigger](#the-onsave-file-trigger) |
 | `targetPaths` | string[] | No | Files the task will write. When set, tasks with unsaved changes in these paths run in a Shadow Workspace |
 
 Exactly one trigger type should be set per task. If both `cron` and `intervalMinutes` are present, `cron` wins.
@@ -189,12 +189,20 @@ A QuickPick lists all enabled tasks by name. Selecting one fires it immediately.
 
 When `onSave` globs are set, the task fires within a few seconds of a matching file being saved — useful for reactive agents that keep derived artifacts in sync.
 
+A glob must match the whole path it is tested against. Each one is tested against three forms of the saved file's path, all with forward slashes, and the task fires if any of them matches:
+
+- the path relative to the workspace folder that holds the file (`src/agent/x.ts`), which in a single-folder workspace is the path event hooks get in `$SIDECAR_FILE`
+- the absolute path (`/home/me/proj/src/agent/x.ts`)
+- the bare file name (`x.ts`)
+
+So `src/**/*.ts` matches TypeScript files anywhere under `src/`, including `src/x.ts`, and `*.ts` or `package.json` match by name in any directory. A file saved outside every workspace folder has no relative path, so only absolute and name patterns can match it. In a multi-root workspace, a relative glob is matched within each folder, without the folder's name in front.
+
 The prompt is sent exactly as written: the saved file's path is not passed to the agent, and `$SIDECAR_FILE` in a prompt stays literal text. Write the prompt so it doesn't depend on knowing which file was saved:
 
 ```json
 {
   "name": "update-snapshots",
-  "onSave": ["**/src/**/*.test.ts"],
+  "onSave": ["src/**/*.test.ts"],
   "prompt": "A test file under src/ was saved. Run the test suite with --updateSnapshot to refresh any outdated snapshots, then stage the updated snapshot files.",
   "enabled": true
 }
@@ -230,7 +238,7 @@ When `targetPaths` is set and any of those files are open with unsaved changes, 
 ```json
 {
   "name": "openapi-sync",
-  "onSave": ["**/src/routes/**/*.ts"],
+  "onSave": ["src/routes/**/*.ts"],
   "prompt": "A route file under src/routes/ was saved. Regenerate the OpenAPI spec and update docs/api/ accordingly.",
   "enabled": true
 }

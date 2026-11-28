@@ -527,6 +527,43 @@ describe('tools.ts', () => {
       const result = await tool!.executor({ input: 'test input' });
       expect(typeof result).toBe('string');
     });
+
+    // The whitelist had only POSIX names, so on Windows Python failed at
+    // startup without SystemRoot, USERPROFILE or APPDATA. (#427)
+    it('passes the Windows startup variables and nothing outside the whitelist', async () => {
+      const settings = await import('../config/settings.js');
+      vi.mocked(settings.getConfig).mockReturnValue({
+        shellMaxOutputMB: 10,
+        shellTimeout: 120,
+        customTools: [{ name: 'py_tool', description: 'python', command: 'python tool.py' }],
+        baseUrl: 'http://localhost:11434',
+        provider: 'auto',
+        delegateTaskEnabled: false,
+      } as never);
+      vi.spyOn(workspaceTrust, 'checkWorkspaceConfigTrust').mockResolvedValue('trusted');
+      await initCustomToolsTrust();
+
+      const windowsKeys = ['SystemRoot', 'windir', 'COMSPEC', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA'];
+      const saved = new Map<string, string | undefined>();
+      for (const k of [...windowsKeys, 'SIDECAR_TEST_API_KEY']) saved.set(k, process.env[k]);
+      // Keep real values (a Windows host needs them); give absent ones a stand-in.
+      for (const k of windowsKeys) process.env[k] ??= `C:/stand-in/${k}`;
+      process.env.SIDECAR_TEST_API_KEY = 'sk-should-not-leak';
+      try {
+        const { execFile } = await import('child_process');
+        const execFileMock = vi.mocked(execFile);
+        execFileMock.mockClear();
+        await findTool('custom_py_tool')!.executor({ input: 'x' });
+        const env = (execFileMock.mock.calls[0][2] as { env: Record<string, string> }).env;
+        for (const k of windowsKeys) expect(env[k], k).toBe(process.env[k]);
+        expect(Object.values(env)).not.toContain('sk-should-not-leak');
+      } finally {
+        for (const [k, v] of saved) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+      }
+    });
   });
 
   describe('disposeShellSession', () => {

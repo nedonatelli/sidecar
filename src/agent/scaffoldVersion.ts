@@ -80,6 +80,148 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.49** (2026-11) — the completion gate waives findings it can't
+ *   usefully demand: edits only to scratch-named scripts, and test demands
+ *   once no command can run (`run_command`/`run_tests` spent or not offered);
+ *   waivers are logged as `completion_gate` action `waived` (#505). PATCH.
+ *   Canary (ministral seeds 11+22, gemma4:26b-a4b seed 11): resolve 1=1, 1=1,
+ *   4→3 (the one-task drop traced to volatile output plus one symmetric split
+ *   at a waiver); 26b exhausted 15→0, tool calls −23%, wall 240→181 min.
+ * - **7.0.48** (2026-11) — on Windows/Git Bash the MSYS process-group
+ *   cleanup skips members that started more than a second after a tracked
+ *   shell or background command exited, so a reused group id no longer gets
+ *   an unrelated group killed (#422). PATCH. No recorded run shows a reuse.
+ *   Not canaried.
+ * - **7.0.47** (2026-11) — tool failures that returned as ordinary results
+ *   throw (database, mutation_test, research_*, git_commit with nothing
+ *   staged, git_stash), and get_diagnostics refuses in a shadow or fork run
+ *   whose cwd is not the workspace root (#476). PATCH. None of these tools is
+ *   in the SWE catalog; SWE cwd is the root. Not canaried.
+ * - **7.0.46** (2026-11) — the completion gate gives no credit for a test
+ *   or lint call that never ran (collection crash, background, refused,
+ *   timed out, redirected, no runner); one predicate, `checkDidNotRun`
+ *   (#471, #473). PATCH. Canary 130 runs/arm: resolve 27 = 27, 127/130
+ *   patches identical, `incomplete` 1→11.
+ * - **7.0.45** (2026-11) — scratch cleanup counts a reference only from a
+ *   file that stays (a fixpoint), so a helper only another scratch file
+ *   imports is moved too; `scratchCleanupOnAbort` (set by the SWE harness)
+ *   cleans a timed-out run (#511). PATCH. Lite-300: 8 runs for the fixpoint,
+ *   7 gemma4:31b timeouts with 24 leaked files. Not canaried.
+ * - **7.0.44** (2026-11) — the tool-call re-ask covers Ollama's XML parser
+ *   errors (`XML syntax error…`, `expected element type <function> but have
+ *   <parameter>`) with an XML-specific nudge, and a rejected tool "name" that
+ *   is prose (apostrophes, any length) is recognized and quoted cut to 80
+ *   characters (#501). PATCH: widens two matchers of the existing re-ask.
+ *   Lite-300: 10 runs ended on these messages. Not canaried.
+ * - **7.0.43** (2026-11) — `git_search_history` is bounded: each `git log`
+ *   has a 45 s timeout, takes the run's abort signal and runs with
+ *   GIT_NO_LAZY_FETCH, so a partial clone reports content search unavailable
+ *   instead of downloading its history. A failed search says why; if every
+ *   search failed the tool errors instead of saying "No commits found".
+ *   PATCH. Not canaried: only qwen3-coder calls the tool (0 calls in ~16k
+ *   recorded runs of other models; 3 stalls in qwen's first 25 Lite tasks).
+ * - **7.0.42** (2026-11) — the system prompt names only the tools the session
+ *   offers (`offersTool`; SWE passes its exclusion list). PATCH. Bundle canary:
+ *   e4b `run_tests` calls 31->0; red-check gate 29 firings->0 (it arms only on
+ *   `run_tests`); resolve 13% in both arms.
+ * - **7.0.41** (2026-11) — Ollama's mid-stream "tool 'x' not found" re-asks
+ *   with a `tool-not-offered` nudge instead of ending the run (shares the
+ *   parse-retry limit). PATCH. ministral-3 seed 11: not-found deaths 4->1.
+ * - **7.0.40** (2026-11) — the SWE harness's wrappers resolve tools only from
+ *   the run's catalog (`offeredToolFinder`); hidden `run_tests` / `git_commit`
+ *   stay hidden. PATCH, harness-only. Bundle canary: e4b resolve 13% both arms.
+ * - **7.0.39** (2026-11) — identical tool calls in one response run once
+ *   (`executeToolUses`, fence writes exempt). PATCH. Did not fire in the
+ *   v0.137 bundle canary; e4b resolve 13% in both arms (150 pairs, 3/3).
+ * - **7.0.38** (2026-11) — a `path` carrying the line range or a closing
+ *   quote (`x.py\`,start_line:5`) is repaired before validation, and the
+ *   path-length cap goes 80 → 240 (#509). PATCH: one more deterministic
+ *   input repair. gemma4:31b Lite-300: 25 refused calls in 137 runs; 13
+ *   refusals of a real 103-char Sphinx path across five models. Not canaried.
+ * - **7.0.37** (2026-11) — `pattern` is read as `query` for tools that take a
+ *   `query` and declare no `pattern` (git_search_history; #504). PATCH: one
+ *   entry in the existing param-synonym table. qwen3-coder Lite-300: 8 of 17
+ *   git_search_history calls sent `pattern`, all bounced. Not canaried.
+ * - **7.0.36** (2026-11) — `spawn_agent` and `delegate_task` fail when their
+ *   sub-run did not finish (#475): the loop's termination, now on `onOutcome`'s
+ *   meta, decides, and anything but a natural finish returns an error result
+ *   with the reason and the partial output. PATCH: no mechanism added or
+ *   removed. SWE runs called spawn_agent once in Lite-300 and delegate_task
+ *   never, so SWE results are unaffected.
+ * - **7.0.34** (2026-11) — a run that ends on a thrown error gets
+ *   `termination: 'error'` and the message; its failure bucket is `infra`
+ *   (new), or `malformed-call` / `loop-stopped` when the backend refused the
+ *   model's own output (#271). Infra runs are not evidence for tier learning.
+ *   PATCH: no in-run behavior changes; classification and modelPerformance do.
+ * - **7.0.26** (2026-11) — a missed `edit_file` search that the run's own
+ *   earlier edit replaced says so and shows what that edit wrote
+ *   (`LoopState.appliedEdits`, cleared by `write_file`). PATCH. e4b SWE canary
+ *   (150 pairs): stale-anchor failures 173→40 (15 pairs lower, 5 higher,
+ *   p=0.041), failed edits 655→495 (p=0.34), runs with ≥10 stale failures
+ *   5→0; resolve 13% in both arms, every outcome null.
+ * - **7.0.25** (2026-11) — a failed `grep` is not a proven absence (#474).
+ *   Only exit 1 (or an empty exit 0) counts as absent and is recorded in
+ *   `zeroHitPatterns`; a failed or timed-out relaxed-identifier search or
+ *   literal retry says the answer is unknown and quotes grep's stderr, and
+ *   matches printed before a failure carry a partial-results note. PATCH. Not
+ *   canaried: these paths need grep itself to fail, and recorded runs show
+ *   no reply from them.
+ * - **7.0.24** (2026-11) — a timed-out `run_tests` is an error, not a result;
+ *   shell fixes (Part of #422). The model gets "did not finish, so this
+ *   output is partial" with `is_error`, and the completion gate doesn't count
+ *   the run; `exit code: -1` classifies as a fail. Also: terminal commands run
+ *   one at a time, an unknown terminal exit code is -1, the Git Bash stdin
+ *   guard applies on Windows, and the unittest fallback uses `python3` when
+ *   that's what was found. PATCH. e4b SWE canary (150 pairs): resolve 13% in
+ *   both arms, no discordant pairs; no `run_tests` timed out, so the error
+ *   path wasn't exercised there.
+ * - **7.0.23** (2026-11) — a commit SideCar couldn't check is held for
+ *   approval. The commit review returned "no concerns" when a git call inside
+ *   the repository failed or timed out, so the commit went ahead unchecked; it
+ *   now holds the commit, keeping whatever it found before the failure. PATCH.
+ *   SWE runs make no commits, so eval runs are unaffected.
+ * - **7.0.22** (2026-11) — scratch cleanup moves only scratch this run made,
+ *   by narrower name rules (#418). A file is moved only if this run's file
+ *   tools wrote it or one of its commands names it, never from a test
+ *   directory, and bare root scripts (`conftest.py`, `setup.py`) are kept.
+ *   PATCH. gemma4:31b SWE canary on the #387 tasks: patches carrying scratch
+ *   0/24 → 3/24 (the three test-directory files now kept), resolve 10 vs 11
+ *   (1 discordant pair, traced to volatile tool output).
+ * - **7.0.21** (2026-11) — a link whose target doesn't exist is judged by
+ *   that target. The workspace path check couldn't follow such a link, so it
+ *   judged it as a new file at the link's own path. PATCH. Eval tasks contain
+ *   no such links.
+ * - **7.0.20** (2026-11) — Ollama's `think: false` is sent where Ollama reads
+ *   it; the per-model thinking list is removed (#469). Chat requests put
+ *   `think` inside `options`, which Ollama doesn't read, so neither
+ *   `ollama.disableThinking` nor the problematic-thinking model list ever
+ *   turned thinking off. `think` is now a top-level field, sent only when the
+ *   user turns thinking off (setting or chat header switch), and the list is
+ *   gone. PATCH. The default eval models (gemma4:e4b, gemma4:31b, ministral-3)
+ *   send the same requests; the eval backend's one-shot `complete()` (prompt
+ *   eval, retrieval judge) now really runs thinking-off.
+ * - **7.0.19** (2026-11) — image prompts run with their text; autonomy
+ *   answers only approvals (#419). A prompt with images ran with empty text,
+ *   so retrieval, skill matching and message framing saw nothing; it now runs
+ *   with its text, and keeps its images on regenerate and Reconnect.
+ *   Switching to autonomous answers "Allow" only on cards that offer it:
+ *   clarifying questions, checkpoints, diff previews and irrecoverable
+ *   reconfirms stay pending instead of getting "Allow". PATCH. No eval: the
+ *   evals send no images and never switch modes mid-run.
+ * - **7.0.18** (2026-11) — graph-expanded retrieval hits use 1-based lines
+ *   (#426). Caller and callee bodies in system-prompt retrieval and
+ *   `project_knowledge_search` started a line early and lost their last line,
+ *   and a call on a function's last line was never attributed. The
+ *   summarizer's timeout and Stop cancel its request. The fallback workspace
+ *   context (index not ready) is passed verbatim; a filter that never filtered
+ *   and joined lines before `### ` headings is removed. PATCH. No eval: neither
+ *   eval harness attaches a symbol graph or calls injectSystemContext.
+ * - **7.0.17** (2026-11) — integration tool results (#427). `mutation_test`
+ *   in a shadow or fork runs its tests there, not on the main tree, so mutants
+ *   can be killed. GitHub check runs and review comments are read past the
+ *   first page. The dependency check asks OSV about the version an npm
+ *   lockfile installed. Custom tools start on Windows. PATCH. No eval: the SWE
+ *   and agent evals use none of these tools.
  * - **7.0.16** (2026-11) — auto-fix reads which files a call changed. The
  *   auto-fix pass took its files from `write_file`/`edit_file` calls by name
  *   and input path; it now reads each call's outcome (ADR-008), so a refused or
@@ -426,7 +568,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.16';
+export const SCAFFOLD_VERSION = '7.0.49';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

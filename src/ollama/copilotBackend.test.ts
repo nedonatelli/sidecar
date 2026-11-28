@@ -238,8 +238,8 @@ describe('CopilotBackend.getModelContextLength', () => {
 
   it('after a fallback, reports the context of the model the chat path uses (#230)', async () => {
     // Only Copilot's fallback answers: the configured id and family match nothing.
-    vi.mocked(vscode.lm.selectChatModels).mockImplementation((async (sel?: { vendor?: string }) =>
-      sel?.vendor === 'copilot'
+    vi.mocked(vscode.lm.selectChatModels).mockImplementation((async (sel?: Record<string, string>) =>
+      sel?.vendor === 'copilot' && !sel.id && !sel.family
         ? [{ id: 'gpt-6-luna', name: 'GPT-6 Luna', vendor: 'copilot', maxInputTokens: 272_000 }]
         : []) as never);
     vi.spyOn(logger, 'warn').mockImplementation(() => {});
@@ -318,6 +318,15 @@ describe('resolveCopilotModel (#230)', () => {
     expect((await resolveCopilotModel('CLAUDE-SONNET-5-5', select))?.id).toBe('claude-sonnet-5-5');
     expect(warn).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("matches an id or family only among Copilot's models", async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    // other-ext-model is another vendor's id and family: Copilot's first model is used, and said so.
+    expect((await resolveCopilotModel('other-ext-model', select))?.id).toBe('gpt-6-luna');
+    for (const [sel] of vi.mocked(select).mock.calls) expect(sel?.vendor).toBe('copilot');
+    expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
 

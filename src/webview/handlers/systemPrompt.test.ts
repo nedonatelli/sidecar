@@ -33,9 +33,9 @@ vi.mock('../../agent/retrieval/index.js', () => ({
   rewriteQuery: vi.fn().mockResolvedValue(['rewritten query']),
 }));
 
-vi.mock('../../agent/context.js', () => ({
+vi.mock('../../agent/context.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../agent/context.js')>()),
   pruneHistory: vi.fn((msgs: unknown[]) => msgs),
-  enhanceContextWithSmartElements: vi.fn((ctx: string) => ctx),
 }));
 
 vi.mock('../../agent/skillLoader.js', () => ({
@@ -449,6 +449,21 @@ describe('injectSystemContext', () => {
     const { prompt: result } = await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'any', false);
     expect(result).toContain('## Workspace Context');
     expect(result).toContain('raw file tree content');
+
+    vi.mocked(getWorkspaceEnabled).mockReturnValue(false);
+  });
+
+  it('passes the fallback workspace context through verbatim (#426)', async () => {
+    // The removed enhanceContextWithSmartElements never filtered anything (its
+    // header regex captured an empty path), but it did drop the inner header and
+    // the newline before every `### ` line, gluing markdown headings to the line above.
+    const { getWorkspaceEnabled, getWorkspaceContext } = await import('../../config/workspace.js');
+    vi.mocked(getWorkspaceEnabled).mockReturnValue(true);
+    const ctx = '## Workspace Context\n\n### README.md\n```\nintro\n### Usage\nrun it\n```\n';
+    vi.mocked(getWorkspaceContext).mockResolvedValueOnce(ctx);
+
+    const { prompt: result } = await injectSystemContext('BASE', 200_000, makeState(), makeConfig(), 'any', false);
+    expect(result).toContain(ctx);
 
     vi.mocked(getWorkspaceEnabled).mockReturnValue(false);
   });

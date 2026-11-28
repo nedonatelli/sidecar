@@ -19,7 +19,6 @@ import type { ExtensionContext } from 'vscode';
 import type { AgentCallbacks } from '../../agent/loop.js';
 import {
   handleUserMessage,
-  handleUserMessageWithImages,
   handleAttachFile,
   handleAttachActiveFile,
   handleDroppedPaths,
@@ -79,6 +78,7 @@ import {
   handleListMemories,
   handleSearchMemories,
   handleToggleVerbose,
+  handleSetThinking,
   handleGetSkillsForMenu,
 } from './infoHandlers.js';
 import {
@@ -218,8 +218,7 @@ export function buildDispatchHandlers(
     userMessage: async (msg) => {
       state.activeFileIncluded = msg.activeFileIncluded ?? false;
       if (msg.images && msg.images.length > 0) {
-        handleUserMessageWithImages(state, msg.text || '', msg.images);
-        await handleUserMessage(state, '');
+        await handleUserMessage(state, msg.text || '', { images: msg.images });
         return;
       }
       const text = msg.text || '';
@@ -291,7 +290,9 @@ export function buildDispatchHandlers(
             farewell: 'See you later — I’ll be right here when you need anything.',
           };
           state.postMessage({ command: 'assistantMessage', content: replies[smallTalk] });
-          state.postMessage({ command: 'done' });
+          // The count tells the webview the "hi" bubble has no history entry,
+          // so a later delete or edit there can't hit the next prompt (#419).
+          state.postMessage({ command: 'done', messageCount: state.messages.length });
           return;
         }
       }
@@ -411,7 +412,7 @@ export function buildDispatchHandlers(
         customModes: modeConfig.customModes.map((m) => ({ name: m.name, description: m.description })),
       });
       if (msg.agentMode === 'autonomous') {
-        state.resolveAllConfirms('Allow');
+        state.allowPendingApprovals();
       }
     },
 
@@ -626,6 +627,7 @@ export function buildDispatchHandlers(
     deleteMessage: (msg) => handleDeleteMessage(state, msg.index ?? -1),
     editMessage: (msg) => handleEditMessage(state, msg.index ?? -1, msg.text ?? ''),
     toggleVerbose: () => handleToggleVerbose(state),
+    setThinking: (msg) => handleSetThinking(state, msg.thinkingEnabled === true),
     compactContext: () => handleCompactContext(state),
     getSkillsForMenu: () => handleGetSkillsForMenu(state),
     openSkillPicker: async (msg) => {

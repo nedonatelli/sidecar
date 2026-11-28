@@ -1,4 +1,4 @@
-import { workspace, window, commands } from 'vscode';
+import { workspace, window, commands, ConfigurationTarget } from 'vscode';
 import { AGENT_MAX_OUTPUT_TOKENS } from './constants.js';
 import { getCachedApiKey, getCachedFallbackApiKey } from './settings/secrets.js';
 import { trustFilteredConfig, ensureSensitiveWorkspaceSettingsTrust } from './workspaceTrust.js';
@@ -504,6 +504,24 @@ export function isUserSet(
     inspected?.workspaceValue !== undefined ||
     inspected?.workspaceFolderValue !== undefined
   );
+}
+
+/**
+ * Update a `sidecar.*` setting in the scope it is set in, Global when it is
+ * set nowhere. A Global write under a workspace value changed nothing: the
+ * workspace value still won (#419). Not for SENSITIVE_WORKSPACE_KEYS, whose
+ * workspace values the user must allow first.
+ */
+export async function updateSettingWhereSet(key: string, value: unknown): Promise<void> {
+  const cfg = workspace.getConfiguration('sidecar');
+  const scope = cfg.inspect(key);
+  const target =
+    scope?.workspaceFolderValue !== undefined
+      ? ConfigurationTarget.WorkspaceFolder
+      : scope?.workspaceValue !== undefined
+        ? ConfigurationTarget.Workspace
+        : ConfigurationTarget.Global;
+  await cfg.update(key, value, target);
 }
 
 /** Clamp a number to a minimum value, falling back to the default if invalid. */

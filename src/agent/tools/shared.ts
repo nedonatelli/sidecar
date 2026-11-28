@@ -141,6 +141,14 @@ export interface ToolExecutorContext {
    */
   editedSinceRead?: Set<string>;
   /**
+   * The edit_file calls that changed each file this run, oldest first, as the
+   * model sent them. A later miss whose search is text one of them replaced
+   * names that edit: a re-read clears `editedSinceRead`, but the model still
+   * searched for its own replaced text in 24-29% of failed edits on e4b.
+   * Threaded from `LoopState.appliedEdits`; absent in unit tests.
+   */
+  appliedEdits?: Map<string, Array<{ search: string; replace: string }>>;
+  /**
    * Workspace index for the current session. When set, `write_file` and
    * `edit_file` call `invalidateFile` after each successful disk write so
    * the next `loadFileContent` call gets fresh content rather than the
@@ -288,6 +296,9 @@ export function resolveRootUri(context?: ToolExecutorContext): Uri {
   return getRootUri();
 }
 
+/** Longest relative path `validateFilePath` accepts. */
+export const MAX_FILE_PATH_CHARS = 240;
+
 /** Reject obviously invalid file paths that indicate the model hallucinated. */
 export function validateFilePath(filePath: string): string | null {
   if (!filePath || filePath.trim().length === 0) {
@@ -298,8 +309,12 @@ export function validateFilePath(filePath: string): string | null {
     return `invalid characters in file path: ${filePath.slice(0, 80)}`;
   }
   // Reject paths containing spaces that are clearly not file names
-  // (e.g., "... ```) that contain diagram content")
-  if (filePath.length > 80) {
+  // (e.g., "... ```) that contain diagram content"). Prose is caught by the
+  // 60-char segment rule below; this cap only stops runaway strings. It was
+  // 80, which refused real files (#509): a Sphinx test fixture under
+  // tests/roots/test-ext-autosummary-imported_members/ is 103 chars, and five
+  // Lite-300 models were refused reading it.
+  if (filePath.length > MAX_FILE_PATH_CHARS) {
     return `file path too long (${filePath.length} chars): ${filePath.slice(0, 80)}...`;
   }
   // Reject paths that don't have at least one valid-looking segment
@@ -328,13 +343,16 @@ export function validateFilePath(filePath: string): string | null {
  * Where a path under `root` really lands, as a forward-slash path relative to
  * the real root: symbolic links and junctions followed, Windows 8.3 short
  * names (`SIDECA~1`) expanded. A path that does not exist yet is resolved
- * through its deepest existing ancestor. Null when it lands outside the root.
+ * through its deepest existing ancestor. A link whose target does not exist
+ * is judged by that target: writing through it creates the target. Null when
+ * it lands outside the root.
  */
 export function realWorkspaceRelative(root: string, filePath: string): string | null {
   const absRoot = path.resolve(root);
   const realRoot = realpathOrSelf(absRoot);
   let existing = path.resolve(absRoot, filePath);
   const rest: string[] = [];
+  let hops = 0;
   for (;;) {
     if (existing === absRoot) {
       existing = realRoot;
@@ -344,6 +362,13 @@ export function realWorkspaceRelative(root: string, filePath: string): string | 
       existing = fs.realpathSync.native(existing);
       break;
     } catch {
+      const target = readlinkOrNull(existing);
+      if (target !== null) {
+        // A chain this long is a loop; the OS gives up sooner.
+        if (++hops > 40) return null;
+        existing = path.resolve(path.dirname(existing), target);
+        continue;
+      }
       const parent = path.dirname(existing);
       if (parent === existing) return null;
       rest.unshift(path.basename(existing));
@@ -353,6 +378,14 @@ export function realWorkspaceRelative(root: string, filePath: string): string | 
   const rel = path.relative(realRoot, path.join(existing, ...rest));
   if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
   return rel.split(path.sep).join('/');
+}
+
+function readlinkOrNull(p: string): string | null {
+  try {
+    return fs.readlinkSync(p);
+  } catch {
+    return null;
+  }
 }
 
 function realpathOrSelf(p: string): string {

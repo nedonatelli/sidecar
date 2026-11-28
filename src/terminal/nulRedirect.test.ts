@@ -39,6 +39,35 @@ describe('rewriteNulRedirects', () => {
     expect(rewriteNulRedirects('grep "a >nul" f 2>nul')).toBe('grep "a >nul" f 2>/dev/null');
   });
 
+  describe('heredoc bodies (#422)', () => {
+    it('leaves a .bat file written through a heredoc as cmd syntax', () => {
+      const cmd = "cat > build.bat <<'EOF'\ndel out.txt 2>nul\nEOF\nls x 2>nul";
+      expect(rewriteNulRedirects(cmd)).toBe("cat > build.bat <<'EOF'\ndel out.txt 2>nul\nEOF\nls x 2>/dev/null");
+    });
+
+    it('rewrites the redirect on the heredoc line itself', () => {
+      expect(rewriteNulRedirects('cat <<EOF 2>nul\ndel a 2>nul\nEOF')).toBe('cat <<EOF 2>/dev/null\ndel a 2>nul\nEOF');
+    });
+
+    it('handles <<- with a tab-indented delimiter, and two heredocs on one line', () => {
+      expect(rewriteNulRedirects('cat <<-EOF\n\tdel a 2>nul\n\tEOF\nb 2>nul')).toBe(
+        'cat <<-EOF\n\tdel a 2>nul\n\tEOF\nb 2>/dev/null',
+      );
+      expect(rewriteNulRedirects('cat <<A <<B\nx >nul\nA\ny >nul\nB\nz >nul')).toBe(
+        'cat <<A <<B\nx >nul\nA\ny >nul\nB\nz >/dev/null',
+      );
+    });
+
+    it('does not treat a quoted << or a here-string as a heredoc', () => {
+      expect(rewriteNulRedirects('echo "<<EOF"\nls 2>nul')).toBe('echo "<<EOF"\nls 2>/dev/null');
+      expect(rewriteNulRedirects('cat <<<EOF\nls 2>nul')).toBe('cat <<<EOF\nls 2>/dev/null');
+    });
+
+    it('treats a body with no delimiter line as running to the end, as bash does', () => {
+      expect(rewriteNulRedirects('cat <<EOF\ndel a 2>nul')).toBe('cat <<EOF\ndel a 2>nul');
+    });
+  });
+
   it('keeps an unterminated quote verbatim', () => {
     expect(rewriteNulRedirects('echo "x >nul')).toBe('echo "x >nul');
   });

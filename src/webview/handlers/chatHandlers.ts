@@ -76,12 +76,7 @@ export {
 
 export { ensureProviderRunning, connectWithRetry, handleRestartOllama } from './connectionHandlers.js';
 
-export {
-  handleShowSystemPrompt,
-  handleDeleteMessage,
-  handleExportChat,
-  handleUserMessageWithImages,
-} from './chatUtilHandlers.js';
+export { handleShowSystemPrompt, handleDeleteMessage, handleExportChat } from './chatUtilHandlers.js';
 
 export { handleGenerateCommit, handleRegenSection } from './generateHandlers.js';
 
@@ -97,6 +92,7 @@ import {
   isContinuationRequest,
 } from './messageUtils.js';
 import { getContentText } from '../../ollama/types.js';
+import { userContentWithImages, type PromptImage } from './chatUtilHandlers.js';
 import { buildBaseSystemPrompt, injectSystemContext, enrichAndPruneMessages } from './systemPrompt.js';
 import { connectWithRetry, ensureProviderRunning } from './connectionHandlers.js';
 import { createAgentCallbacks } from './agentCallbacks.js';
@@ -392,6 +388,13 @@ export interface UserMessageOptions {
    * plan again: in plan mode it runs as cautious. Applies to this run only.
    */
   leavePlanMode?: boolean;
+  /**
+   * Images sent with the prompt. They go into the prompt's own history entry,
+   * so the run sees the prompt's text: an image prompt used to run with empty
+   * text, which skipped retrieval and skill matching and left Reconnect and
+   * the withdraw of an unsent prompt with nothing to act on (#419).
+   */
+  images?: PromptImage[];
 }
 
 /**
@@ -416,6 +419,10 @@ export async function handleUserMessage(
     state.abortController.abort();
     state.abortController = null;
     state.chatGeneration++;
+    // The superseded run's onDone would otherwise post `done` into this run's
+    // bubble, and its buffered text would follow (#419).
+    state.cancelCallbacks?.();
+    state.cancelCallbacks = null;
   }
 
   // @-prefixed model sentinels. Strip the sentinel from the stored message
@@ -427,8 +434,9 @@ export async function handleUserMessage(
 
   let pushedUserMessage: ChatMessage | null = null;
   let superseded = false;
-  if (turnText) {
-    const messageText = prepareUserMessageText(state, turnText);
+  const images = options.images ?? [];
+  if (turnText || images.length > 0) {
+    const messageText = turnText ? prepareUserMessageText(state, turnText) : '';
     // A prompt the last run failed on stays in history so Retry and /resume can
     // re-run it (#76). What arrives next decides what that prompt becomes:
     //   - the same message: a RETRY. Re-use the kept prompt. Both Retry buttons
@@ -440,7 +448,7 @@ export async function handleUserMessage(
     //     an unanswered one and the model answers both -- the v0.124.0 bug.
     const kept = runWasActive ? null : unansweredTrailingPrompt(state.messages);
     const keptText = kept ? getContentText(kept.content) : null;
-    if (kept && (keptText === messageText || keptText === turnText)) {
+    if (kept && images.length === 0 && (keptText === messageText || keptText === turnText)) {
       pushedUserMessage = kept;
     } else {
       if (kept && !options.continuesFailedTurn && !isContinuationRequest(turnText)) {
@@ -449,7 +457,10 @@ export async function handleUserMessage(
         state.pendingPartialAssistant = null;
         superseded = true;
       }
-      pushedUserMessage = { role: 'user', content: messageText };
+      pushedUserMessage = {
+        role: 'user',
+        content: images.length > 0 ? userContentWithImages(messageText, images) : messageText,
+      };
       recordUserAuthoredText(messageText);
       state.messages.push(pushedUserMessage);
     }
@@ -536,7 +547,7 @@ export async function handleUserMessage(
             },
       );
       withdrawUnsentUserMessage();
-      state.pendingReconnectPrompt = text;
+      state.pendingReconnectPrompt = { text, images };
       return;
     }
 
@@ -844,7 +855,7 @@ export async function handleReconnect(state: ChatState): Promise<void> {
     // earlier, answered one; re-running that deleted its answer.
     const prompt = state.pendingReconnectPrompt;
     state.pendingReconnectPrompt = null;
-    if (prompt) await handleUserMessage(state, prompt);
+    if (prompt) await handleUserMessage(state, prompt.text, { images: prompt.images });
   } else {
     state.postMessage({
       command: 'error',
@@ -862,16 +873,30 @@ export async function handleReconnect(state: ChatState): Promise<void> {
 
 /** Re-run the last user message, discarding the most recent assistant turn. */
 export async function handleRegenerateResponse(state: ChatState): Promise<void> {
+  // A notice, not an `error`: the webview ends the run on an error (#419).
+  if (state.abortController) {
+    state.postMessage({
+      command: 'notice',
+      content: 'Cannot regenerate while the agent is running. Press Escape to stop first.',
+    });
+    return;
+  }
   const last = lastUserTextMessage(state.messages);
   if (!last) return;
 
-  // Remove from the last user message onward — which strips the stale assistant
-  // turn AND every tool_use/tool_result pair it produced. Splicing at the last
-  // `role: 'user'` message instead would cut between a tool_use and its result.
-  state.messages.splice(last.index);
+  // Remove everything after the last user message — which strips the stale
+  // assistant turn AND every tool_use/tool_result pair it produced. Splicing at
+  // the last `role: 'user'` message instead would cut between a tool_use and
+  // its result. The prompt itself stays, images and all: handleUserMessage
+  // re-runs a trailing prompt sent again with the same text. Re-sending its
+  // text alone dropped the images (#419).
+  state.messages.splice(last.index + 1);
   state.saveHistory();
+  // Re-render, or the stale answer's bubble stays above the new one (#419).
+  state.postMessage({ command: 'chatCleared' });
+  state.postMessage({ command: 'init', messages: state.messages });
 
-  await handleUserMessage(state, last.text);
+  await handleUserMessage(state, getContentText(last.message.content));
 }
 
 /**

@@ -11,7 +11,6 @@ import type { ExtensionContext } from 'vscode';
 
 vi.mock('./chatHandlers.js', () => ({
   handleUserMessage: vi.fn().mockResolvedValue(undefined),
-  handleUserMessageWithImages: vi.fn(),
   handleAttachFile: vi.fn(),
   handleAttachActiveFile: vi.fn(),
   handleDroppedPaths: vi.fn(),
@@ -103,7 +102,7 @@ function makeState(overrides: Partial<ChatState> = {}): ChatState {
     clearChat: vi.fn(),
     abort: vi.fn(),
     cancelInstall: vi.fn(),
-    resolveAllConfirms: vi.fn(),
+    allowPendingApprovals: vi.fn(),
     resolveConfirm: vi.fn(),
     resolveClarification: vi.fn(),
     refreshModelRouter: vi.fn(),
@@ -111,6 +110,7 @@ function makeState(overrides: Partial<ChatState> = {}): ChatState {
     currentSteerQueue: null,
     pendingPlan: null,
     pendingPlanMessages: [],
+    messages: [],
     changelog: { hasChanges: vi.fn().mockReturnValue(false), getChangeSummary: vi.fn().mockResolvedValue([]) },
     ...overrides,
   } as unknown as ChatState;
@@ -342,7 +342,7 @@ describe('buildDispatchHandlers', () => {
     await expect(invoke(handlers, 'changeAgentMode', { agentMode: 'ultra-turbo' })).resolves.not.toThrow();
   });
 
-  it('changeAgentMode resolves all confirms when switching to autonomous', async () => {
+  it('changeAgentMode allows the pending approvals when switching to autonomous', async () => {
     const { getConfig } = await import('../../config/settings.js');
     vi.mocked(getConfig).mockReturnValueOnce({
       customModes: [],
@@ -353,7 +353,7 @@ describe('buildDispatchHandlers', () => {
       verboseMode: false,
     } as unknown as ReturnType<typeof getConfig>);
     await invoke(handlers, 'changeAgentMode', { agentMode: 'autonomous' });
-    expect(state.resolveAllConfirms).toHaveBeenCalledWith('Allow');
+    expect(state.allowPendingApprovals).toHaveBeenCalled();
   });
 
   // The dropdown wrote Global only; a workspace agentMode still won, so the UI
@@ -450,12 +450,12 @@ describe('buildDispatchHandlers', () => {
 
   // ── userMessage with images ───────────────────────────────────────────────
 
-  it('userMessage with images calls handleUserMessageWithImages then handleUserMessage', async () => {
-    const { handleUserMessageWithImages, handleUserMessage } = await import('./chatHandlers.js');
+  it('userMessage with images runs the prompt text with its images', async () => {
+    // It used to push the images itself and run an empty prompt (#419).
+    const { handleUserMessage } = await import('./chatHandlers.js');
     const img = { mediaType: 'image/png', data: 'abc' };
     await invoke(handlers, 'userMessage', { text: 'describe this', images: [img] });
-    expect(handleUserMessageWithImages).toHaveBeenCalledWith(state, 'describe this', [img]);
-    expect(handleUserMessage).toHaveBeenCalledWith(state, '');
+    expect(handleUserMessage).toHaveBeenCalledWith(state, 'describe this', { images: [img] });
   });
 
   // ── steerCancel / steerEdit ───────────────────────────────────────────────
@@ -887,7 +887,8 @@ describe('buildDispatchHandlers', () => {
     expect(state.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'assistantMessage', content: expect.stringContaining('Hi!') }),
     );
-    expect(state.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'done' }));
+    // With the history length, so the webview drops the "hi" bubble's index (#419).
+    expect(state.postMessage).toHaveBeenCalledWith({ command: 'done', messageCount: 0 });
     expect(handleUserMessage).not.toHaveBeenCalled();
   });
 

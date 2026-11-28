@@ -140,7 +140,8 @@ describe('project_knowledge_search tool', () => {
 
     expect(response).toContain('Found 1 direct + 1 graph-reached');
     expect(response).toContain('vector: 0.900');
-    expect(response).toContain('src/routes/users.ts:5-20\tfunction\thandleUsers');
+    // Graph rows are 0-based (5-20); the tool reports 1-based like direct hits (#426).
+    expect(response).toContain('src/routes/users.ts:6-21\tfunction\thandleUsers');
     expect(response).toContain('graph: called-by (1 hop from requireAuth)');
   });
 

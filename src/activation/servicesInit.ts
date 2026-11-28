@@ -54,7 +54,10 @@ export function initCoreServices(context: ExtensionContext): InitializedServices
         });
         context.subscriptions.push(processRegistry);
 
-        await initAuditBufferRecovery();
+        // Not awaited: the recovery notice is non-modal and waits for the
+        // user's answer, which held up the shadow sweep and spend restore
+        // until it was given. (#427)
+        void initAuditBufferRecovery().catch((err) => logger.warn('[SideCar] Audit buffer recovery failed:', err));
         await initShadowSweep().catch((err) => logger.warn('[SideCar] Shadow sweep failed:', err));
 
         spendTracker.init(sidecarDir);

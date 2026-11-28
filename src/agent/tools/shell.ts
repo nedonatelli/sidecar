@@ -273,6 +273,15 @@ async function executeShell(
       `If you only needed to confirm it starts, this timeout already shows it launched without crashing.`
     ).trim();
   }
+  // A cut-off test run is not a result. On the terminal path its exit code
+  // stays 0, so partial output (go's `ok  pkg/a`) classified as a pass.
+  // Thrown, so the completion gate does not count it as a test run.
+  if (result.timedOut) {
+    throw new Error(
+      `${result.stdout.trim()}\n\nThe test run did not finish, so this output is partial: it is neither a pass ` +
+        'nor a fail. Re-run it scoped with `file` to the tests that cover your change.',
+    );
+  }
   if (NOT_RUN_EXIT_CODES.has(result.exitCode)) throw notRunError(result.stdout, result.exitCode);
   const status = result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : '';
   return result.stdout.trim() + status || '(no output)';
@@ -290,13 +299,18 @@ async function executeShell(
  * integrated terminal runs the user's login shell with the real PATH, exactly
  * like `run_tests`. Returns `timedOut` so callers can tell a timeout (which
  * must NOT be read as "parses cleanly") from a genuine result.
+ *
+ * Pass the tool `context` when the command must run where the agent is
+ * editing: in a shadow or fork run (`context.cwd`) it routes through that
+ * run's cwd-rooted ShellSession instead of the main-tree terminal.
  */
 export async function runVerificationCommand(
   command: string,
   timeoutMs: number,
   signal?: AbortSignal,
+  context?: ToolExecutorContext,
 ): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
-  const executor = buildExecutor();
+  const executor = buildExecutor(context);
   const r = await executor.execute(command, { timeout: timeoutMs, signal });
   return { exitCode: r.exitCode, output: r.stdout, timedOut: r.timedOut };
 }
@@ -501,19 +515,25 @@ export async function runTests(input: Record<string, unknown>, context?: ToolExe
       const pyTests = await workspace.findFiles('**/{test_*,*_test}.py', '**/node_modules/**', 1);
       if (pyTests.length > 0) {
         let pytestAvailable = false;
+        // The interpreter the probe found. A bare `python` exits 127 on
+        // Debian/Ubuntu without python-is-python3; `python3` is missing on
+        // most Windows installs.
+        let python = 'python';
         try {
           const probe = await buildExecutor(context).execute('python3 -m pytest --version', {
             timeout: 10_000,
             signal: context?.signal,
           });
-          pytestAvailable = probe.exitCode === 0;
+          // A timed-out probe keeps exit code 0 on the terminal path.
+          if (!probe.timedOut && !NOT_RUN_EXIT_CODES.has(probe.exitCode)) python = 'python3';
+          pytestAvailable = probe.exitCode === 0 && !probe.timedOut;
         } catch {
           /* treat as unavailable → unittest fallback */
         }
         if (pytestAvailable) {
           command = 'python3 -m pytest';
         } else {
-          command = file ? 'python -m unittest' : 'python -m unittest discover';
+          command = file ? `${python} -m unittest` : `${python} -m unittest discover`;
         }
       }
     }

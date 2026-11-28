@@ -75,15 +75,26 @@ export function killMsysProcessGroup(
   list: () => string = () => execFileSync(psPath, ['-W', '-l'], { encoding: 'utf8', timeout: 5000 }),
   exec: (cmd: string, args: string[]) => void = (cmd, args) =>
     execFileSync(cmd, args, { stdio: 'ignore', timeout: 5000 }),
+  opts: { leaderExitedAt?: number; now?: number } = {},
 ): number {
   let found = 0;
+  const now = opts.now ?? Date.now();
   for (const line of list().split('\n')) {
-    // PID PPID PGID WINPID ...; a status letter (I, S, O) may lead the line.
+    // PID PPID PGID WINPID TTY UID STIME COMMAND; a status letter (I, S, O) may lead the line.
     const cols = line
       .trim()
       .replace(/^[A-Z]\s+/, '')
       .split(/\s+/);
     if (cols.length < 4 || Number(cols[2]) !== pgid || !/^\d+$/.test(cols[3])) continue;
+    // The group's leader has exited, so its id is free for MSYS to hand out
+    // again (#422). Our members all started while the leader was alive; a
+    // process that started later belongs to a group that reused the id.
+    if (opts.leaderExitedAt !== undefined) {
+      const bounds = msysStartBounds(cols.slice(6), now);
+      // Unreadable, or not certainly before the exit (STIME is to the second,
+      // or to the day for a process over 24 hours old): leave it alone.
+      if (!bounds || bounds[1] > opts.leaderExitedAt + 1000) continue;
+    }
     found++;
     try {
       exec('taskkill', ['/pid', cols[3], '/T', '/F']);
@@ -92,6 +103,35 @@ export function killMsysProcessGroup(
     }
   }
   return found;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * When a process in MSYS `ps -l` output started, as [earliest, latest] epoch
+ * ms, from the STIME column onward. `ps` prints `HH:MM:SS` for a process
+ * started in the last 24 hours and `Mon DD` (two columns) for an older one.
+ * Undefined when the column cannot be read.
+ */
+export function msysStartBounds(stime: readonly string[], now: number): [number, number] | undefined {
+  const clock = /^(\d{1,2}):(\d{2}):(\d{2})$/.exec(stime[0] ?? '');
+  if (clock) {
+    const d = new Date(now);
+    d.setHours(Number(clock[1]), Number(clock[2]), Number(clock[3]), 0);
+    // A time later than now is from yesterday.
+    let start = d.getTime();
+    if (start > now + 60_000) start -= 24 * 3600_000;
+    return [start, start + 999];
+  }
+  const month = MONTHS.indexOf(stime[0] ?? '');
+  const day = Number(stime[1]);
+  if (month < 0 || !Number.isInteger(day) || day < 1 || day > 31) return undefined;
+  const d = new Date(now);
+  d.setMonth(month, day);
+  d.setHours(0, 0, 0, 0);
+  // A date later than now is from last year.
+  if (d.getTime() > now) d.setFullYear(d.getFullYear() - 1);
+  return [d.getTime(), d.getTime() + 24 * 3600_000 - 1];
 }
 
 /**

@@ -34,8 +34,11 @@ export function parseAwsCredentialsIni(content: string, profile: string): Record
 /**
  * Resolve AWS credentials the way the AWS SDKs do, in priority order:
  * 1. Environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`).
- * 2. The shared credentials file (`~/.aws/credentials`) for the active profile
- *    (`AWS_PROFILE`, default `default`).
+ * 2. The shared credentials file (`~/.aws/credentials`, or
+ *    `AWS_SHARED_CREDENTIALS_FILE`) for the active profile (`AWS_PROFILE`,
+ *    default `default`).
+ * 3. Static keys in that profile of the shared config file (`~/.aws/config`,
+ *    or `AWS_CONFIG_FILE`), which the SDKs also accept.
  * Returns null when no static credentials are found — the caller surfaces a
  * clear "configure AWS credentials" error rather than a cryptic 403.
  *
@@ -46,6 +49,7 @@ export function resolveAwsCredentials(
   env: NodeJS.ProcessEnv = process.env,
   // AWS_SHARED_CREDENTIALS_FILE is the AWS CLI/SDK's documented override (#112).
   credentialsPath: string = env.AWS_SHARED_CREDENTIALS_FILE || path.join(os.homedir(), '.aws', 'credentials'),
+  configPath: string = env.AWS_CONFIG_FILE || path.join(os.homedir(), '.aws', 'config'),
 ): AwsCredentials | null {
   if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
     return {
@@ -54,8 +58,13 @@ export function resolveAwsCredentials(
       sessionToken: env.AWS_SESSION_TOKEN,
     };
   }
+  const profile = env.AWS_PROFILE || 'default';
+  return readStaticKeys(credentialsPath, profile) ?? readStaticKeys(configPath, profile);
+}
+
+function readStaticKeys(file: string, profile: string): AwsCredentials | null {
   try {
-    const ini = parseAwsCredentialsIni(fs.readFileSync(credentialsPath, 'utf8'), env.AWS_PROFILE || 'default');
+    const ini = parseAwsCredentialsIni(fs.readFileSync(file, 'utf8'), profile);
     if (ini?.aws_access_key_id && ini?.aws_secret_access_key) {
       return {
         accessKeyId: ini.aws_access_key_id,
@@ -64,7 +73,7 @@ export function resolveAwsCredentials(
       };
     }
   } catch {
-    // no credentials file — fall through
+    // no such file — fall through
   }
   return null;
 }

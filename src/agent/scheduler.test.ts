@@ -5,7 +5,7 @@ import { workspace } from 'vscode';
 import { checkDocumentGate } from './documentGate.js';
 import { runAgentLoopInSandbox } from './shadow/sandbox.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Scheduler } from './scheduler.js';
+import { Scheduler, onSaveMatchPaths } from './scheduler.js';
 import type { ScheduledTask } from '../config/settings.js';
 import type { AgentLogger } from './logger.js';
 import { runAgentLoop } from './loop.js';
@@ -364,6 +364,84 @@ describe('Scheduler', () => {
       };
       scheduler.start([task]);
       expect(vi.mocked(mockLogger.warn)).toHaveBeenCalledWith(expect.stringContaining('invalid cron'));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // onSave trigger (#431)
+  // -------------------------------------------------------------------------
+  describe('onSave trigger', () => {
+    let fire: (fsPath: string) => void;
+    let folders: typeof workspace.workspaceFolders;
+    let saveSpy: { mockRestore: () => void };
+
+    beforeEach(() => {
+      folders = workspace.workspaceFolders;
+      saveSpy = vi.spyOn(workspace, 'onDidSaveTextDocument').mockImplementation(((listener: (doc: unknown) => void) => {
+        fire = (fsPath) => listener({ uri: { fsPath } });
+        return { dispose: () => {} };
+      }) as never);
+    });
+    afterEach(() => {
+      (workspace as { workspaceFolders: unknown }).workspaceFolders = folders;
+      saveSpy.mockRestore();
+    });
+
+    const setFolders = (...paths: string[]) => {
+      (workspace as { workspaceFolders: unknown }).workspaceFolders = paths.map((p) => ({ uri: { fsPath: p } }));
+    };
+    const fired = (globs: string[], fsPath: string): boolean => {
+      vi.mocked(mockLogger.info!).mockClear();
+      scheduler.start([{ name: 'on-save', enabled: true, prompt: 'p', onSave: globs }]);
+      fire(fsPath);
+      return vi.mocked(mockLogger.info!).mock.calls.some(([m]) => String(m).includes('"on-save" triggered by save'));
+    };
+
+    it('matches a workspace-relative glob against the path inside the folder', () => {
+      setFolders('/home/u/proj');
+      expect(fired(['src/**/*.ts'], '/home/u/proj/src/agent/x.ts')).toBe(true);
+      expect(fired(['src/**/*.ts'], '/home/u/proj/src/x.ts')).toBe(true);
+      expect(fired(['src/**/*.ts'], '/home/u/proj/test/x.ts')).toBe(false);
+    });
+
+    it('matches a Windows backslash path against a forward-slash glob, ignoring drive-letter case', () => {
+      setFolders('C:\\Users\\u\\proj');
+      expect(fired(['src/**/*.ts'], 'c:\\Users\\u\\proj\\src\\agent\\x.ts')).toBe(true);
+    });
+
+    it('keeps the bare-name and **/-prefixed forms working', () => {
+      setFolders('/home/u/proj');
+      expect(fired(['*.ts'], '/home/u/proj/src/x.ts')).toBe(true);
+      expect(fired(['**/src/**/*.ts'], '/home/u/proj/src/x.ts')).toBe(true);
+    });
+
+    it('does not treat a file outside every folder as relative to one', () => {
+      setFolders('/home/u/proj');
+      expect(fired(['src/**/*.ts'], '/home/u/other/src/x.ts')).toBe(false);
+      expect(fired(['**/src/**/*.ts'], '/home/u/other/src/x.ts')).toBe(true);
+    });
+  });
+
+  describe('onSaveMatchPaths', () => {
+    it('returns relative, absolute and file name, all forward-slash', () => {
+      expect(onSaveMatchPaths('C:\\w\\proj\\src\\a.ts', ['C:\\w\\proj'])).toEqual([
+        'src/a.ts',
+        'C:/w/proj/src/a.ts',
+        'a.ts',
+      ]);
+    });
+
+    it('takes the innermost folder when folders nest', () => {
+      expect(onSaveMatchPaths('/w/proj/pkg/src/a.ts', ['/w/proj', '/w/proj/pkg'])[0]).toBe('src/a.ts');
+    });
+
+    it('does not match a sibling folder that shares a name prefix', () => {
+      expect(onSaveMatchPaths('/w/proj-b/src/a.ts', ['/w/proj'])).toEqual(['/w/proj-b/src/a.ts', 'a.ts']);
+    });
+
+    it('omits the relative form for a file outside every folder', () => {
+      expect(onSaveMatchPaths('/elsewhere/a.ts', ['/w/proj'])).toEqual(['/elsewhere/a.ts', 'a.ts']);
+      expect(onSaveMatchPaths('/elsewhere/a.ts', [])).toEqual(['/elsewhere/a.ts', 'a.ts']);
     });
   });
 

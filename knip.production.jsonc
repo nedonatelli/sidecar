@@ -24,6 +24,7 @@
     "src/agent/ablation.ts",
     "src/agent/ablationStats.ts",
     "src/agent/scaffoldVersion.ts",
+    "src/config/modelAgentBehavior.ts",
     "src/ollama/hostUrl.ts",
   ],
   "ignoreExportsUsedInFile": true,

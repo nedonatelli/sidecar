@@ -22,6 +22,7 @@ import type { SkillLoader } from '../agent/skillLoader.js';
 import type { ProposedContentProvider } from '../edits/proposedContentProvider.js';
 import type { InlineEditProvider } from '../edits/inlineEditProvider.js';
 import type { ExtensionMessage } from './chatWebview.js';
+import type { PromptImage } from './handlers/chatUtilHandlers.js';
 import { getConfig } from '../config/settings.js';
 import { DocumentationIndexer } from '../config/documentationIndexer.js';
 import { AgentMemory } from '../agent/agentMemory.js';
@@ -77,7 +78,7 @@ export class ChatState {
    * -- it used to re-run the last prompt LEFT in history, the previous,
    * already-answered turn, deleting its answer.
    */
-  pendingReconnectPrompt: string | null = null;
+  pendingReconnectPrompt: { text: string; images: PromptImage[] } | null = null;
   abortController: AbortController | null = null;
   /** Cancels the stale-flush-timer of the current agent run's callback set. */
   cancelCallbacks: (() => void) | null = null;
@@ -113,6 +114,8 @@ export class ChatState {
   notebookModeActive = false;
   notebookRequireCitations: 'strict' | 'advisory' | 'off' = 'strict';
   private pendingConfirms = new Map<string, (choice: string | undefined) => void>();
+  /** The buttons each pending confirm card offers; clarify cards have none. */
+  private pendingConfirmActions = new Map<string, string[]>();
 
   /** Live chat-view visibility, set by ChatViewProvider at resolve time.
    *  Approval surfaces use it to suppress redundant editor toasts when the
@@ -278,6 +281,7 @@ export class ChatState {
     const id = `confirm_${++this.confirmCounter}`;
     return new Promise((resolve) => {
       this.pendingConfirms.set(id, resolve);
+      this.pendingConfirmActions.set(id, actions);
       this.postMessage({
         command: 'confirm',
         content: message,
@@ -292,6 +296,7 @@ export class ChatState {
     const resolve = this.pendingConfirms.get(id);
     if (resolve) {
       this.pendingConfirms.delete(id);
+      this.pendingConfirmActions.delete(id);
       resolve(choice);
     }
   }
@@ -306,6 +311,22 @@ export class ChatState {
       this.postMessage({ command: 'dismissConfirm', confirmId: id });
     }
     this.pendingConfirms.clear();
+    this.pendingConfirmActions.clear();
+  }
+
+  /**
+   * Answer "Allow" on every pending card that offers it -- the tool approvals
+   * -- when the user switches to autonomous mode. The rest are questions
+   * autonomy does not answer: resolving them all with "Allow" sent "Allow" as
+   * the reply to a clarifying question (whose card stayed up), and stopped
+   * the run at a checkpoint, whose buttons are Continue and Stop here (#419).
+   */
+  allowPendingApprovals(): void {
+    for (const [id, actions] of this.pendingConfirmActions) {
+      if (!actions.includes('Allow')) continue;
+      this.resolveConfirm(id, 'Allow');
+      this.postMessage({ command: 'dismissConfirm', confirmId: id });
+    }
   }
 
   /**
@@ -412,6 +433,10 @@ export class ChatState {
     // overwrite the cleared messages with old conversation history.
     this.abort();
     this.abortController = null;
+    // And its callbacks: their buffered text and final `done` would land in
+    // the new chat (#419).
+    this.cancelCallbacks?.();
+    this.cancelCallbacks = null;
     this.messages = [];
     this.clearPendingInteractions();
     this.changelog.clear();

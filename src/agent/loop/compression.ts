@@ -334,6 +334,7 @@ export async function applyBudgetCompression(
   client: SideCarClient,
   state: LoopState,
   callbacks?: { onText: (text: string) => void },
+  signal?: AbortSignal,
 ): Promise<CompressionOutcome> {
   let estimatedTokens = projectedPromptTokens(state);
 
@@ -355,6 +356,7 @@ export async function applyBudgetCompression(
       minCharsToSave: 2000,
       maxSummaryLength: state.scaffoldingProfile?.compactionMaxSummaryChars ?? 800,
       summaryTimeoutMs: 5000,
+      signal,
       // Preserve the user's own messages verbatim above the model summary so
       // standing instructions survive compaction (a weak summarizer drops them —
       // measured: gemma4/ministral lose "remember X" / "must be even"). Config
