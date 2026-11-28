@@ -40,6 +40,28 @@ notes the bumps it ships in `CHANGELOG.md`. Leaving it to release time let
 
 ## Registry
 
+### 7.0.50 — a thinking-only turn is re-prompted, not taken as the reply (2026-11)
+
+PATCH: no mechanism in the scaffold descriptor is added, removed or
+re-defaulted. Comparable with 7.0.49, noting the patch.
+
+- **What changed** (#506): a turn with thinking but no reply text and no tool
+  call used to have its thinking promoted to the reply. When tools are offered
+  and the thinking is 1500 characters or more, or holds a code fence, it is now
+  held back from the history, and the loop injects a `thinking-only` nudge
+  telling the model nothing ran and to act. At most two per run
+  (`MAX_THINKING_ONLY_REPROMPTS`). After that, and in runs with no tools,
+  the thinking is promoted as before.
+- **Eval impact:** fewer empty patches from thinking models that reason about
+  an edit without making it. In Lite-300, 40 of qwen3.8:27b's 44 empty patches
+  came from such turns. A run that used to end there now keeps working, so
+  some runs are longer.
+- **Measured:** canary on qwen3.8:27b, the 71 Lite-300 seed-11 tasks that
+  ended with an empty patch, off (main e7256938) vs treat. Empty patches
+  63 → 27 (36 tasks gained a patch, none lost one). Resolved 1 → 14 (13 gained,
+  none lost). Nudges 0 → 123 in 68 runs. Timeouts 2 → 5, `incomplete` endings
+  3 = 3, total task time 818 → 720 min. Results on #519.
+
 ### 7.0.49 — the completion gate waives demands it can't usefully make (2026-11)
 
 PATCH: no mechanism in the scaffold descriptor is added, removed or

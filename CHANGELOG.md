@@ -4,6 +4,16 @@ All notable changes to the SideCar extension will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A model that reasons but doesn't act is asked to act**
+  ([#506](https://github.com/nedonatelli/sidecar/issues/506)). When a thinking model ended a turn
+  with only its reasoning (no reply and no tool call), that reasoning became its reply, and the
+  run could end with nothing changed. Long reasoning, or reasoning that contains code, is now kept
+  out of the conversation while tools are available, and the model is told nothing ran and asked to
+  take the next step, up to twice per run. On qwen3.8:27b this turned 36 of 63 empty results into
+  patches, and 13 more tasks were solved.
+
 ## [0.137.0] - 2026-11-23
 
 Copilot Chat can hand a task to SideCar: the new `sidecar_delegate` tool runs SideCar's agent on
