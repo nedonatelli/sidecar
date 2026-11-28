@@ -80,6 +80,12 @@
  *   over-engineering 36.6→29.6KB mean patch, 6/50 reverts, do-no-harm clean;
  *   resolve non-regression vacuous at 7B/Verified, re-verify on a resolvable
  *   class — see Prove-or-Prune Ledger).
+ * - **7.0.50** (2026-11) — a thinking-only turn (no reply, no tool call) whose
+ *   thinking is long (1500+ chars) or holds a code fence is held back from the
+ *   reply while tools are offered, and the model is re-prompted to act, at
+ *   most twice per run (`thinking-only` nudge, #506). PATCH. Canary
+ *   (qwen3.8:27b, the 71 Lite-300 empty-patch tasks): empty 63→27 (36-0
+ *   paired), resolve 1→14 (13-0), timeouts 2→5, wall 818→720 task-min.
  * - **7.0.49** (2026-11) — the completion gate waives findings it can't
  *   usefully demand: edits only to scratch-named scripts, and test demands
  *   once no command can run (`run_command`/`run_tests` spent or not offered);
@@ -568,7 +574,7 @@
  *   scaffolding, impact gate, numerical-contract gate).
  */
 
-export const SCAFFOLD_VERSION = '7.0.49';
+export const SCAFFOLD_VERSION = '7.0.50';
 
 /** Config-like shape `describeScaffold` reads — a partial SideCarConfig or an
  *  ablation arm's merged override. All optional; defaults mirror settings.ts. */

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, onTestFinished } from 'vitest';
 import {
   runAgentLoop,
   toolCallParseErrorDetail,
@@ -18,11 +18,14 @@ import type { SideCarClient } from '../ollama/client.js';
 import type { AgentCallbacks, AgentOptions } from './loop.js';
 import type { PolicyHook } from './loop/policyHook.js';
 import { SteerQueue } from './steerQueue.js';
+import { MAX_THINKING_ONLY_REPROMPTS } from './loop/streamTurn.js';
 
-// Mock getToolDefinitions to avoid workspace API calls in tests
+// Mock getToolDefinitions to avoid workspace API calls in tests. The catalog
+// is empty unless a test sets `catalog.tools` (and clears it after).
+const catalog = vi.hoisted(() => ({ tools: [] as ToolDefinition[] }));
 vi.mock('./tools.js', () => ({
-  getToolDefinitions: () => [],
-  getToolDefinitionsForTier: () => [],
+  getToolDefinitions: () => catalog.tools,
+  getToolDefinitionsForTier: () => catalog.tools,
   getDiagnostics: async () => 'No diagnostics',
 }));
 
@@ -868,6 +871,86 @@ describe('runAgentLoop', () => {
     await runAgentLoop(makeMockClient(alwaysCut), [{ role: 'user', content: 'go' }], cb, new AbortController().signal);
     expect(turns).toBe(3);
     expect(cb.texts.join('').match(/reached the output limit/g)).toHaveLength(2);
+    vi.restoreAllMocks();
+  });
+
+  // Reasoning that ends with no reply and no tool call is not an answer
+  // (#506). It used to be promoted to the reply, enter the history, and end
+  // the run once the other re-prompts were spent. It is held back only while
+  // tools are offered, so these tests offer one.
+  const WORK_IN_PROGRESS = 'Let me think about which line to change before I edit it. '.repeat(40);
+  const offerReadFile = () => {
+    catalog.tools = [MOCK_TOOLS[0]];
+    onTestFinished(() => {
+      catalog.tools = [];
+    });
+  };
+
+  it('re-prompts a thinking-only turn to act and keeps the thinking out of the history', async () => {
+    offerReadFile();
+    let turn = 0;
+    const seen: ChatMessage[][] = [];
+    async function* replies(msgs: ChatMessage[]): AsyncGenerator<StreamEvent> {
+      seen.push([...msgs]);
+      turn++;
+      if (turn === 1) {
+        yield { type: 'thinking', thinking: WORK_IN_PROGRESS };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      } else {
+        yield { type: 'text', text: 'It is 4.' };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      }
+    }
+    const client = {
+      streamChat: (msgs: ChatMessage[]) => replies(msgs),
+      getSystemPrompt: () => '',
+      getRouter: () => null,
+    } as unknown as SideCarClient;
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+
+    const cb = makeCallbacks();
+    await runAgentLoop(client, [{ role: 'user', content: 'what is 2+2?' }], cb, new AbortController().signal);
+
+    expect(turn).toBe(2);
+    expect(cb.texts.join('')).toContain('reasoned but took no action');
+    const second = JSON.stringify(seen[1]);
+    expect(second).toContain('[No action taken]');
+    expect(second).not.toContain('Let me think about which line to change');
+    vi.restoreAllMocks();
+  });
+
+  it(`re-prompts at most ${MAX_THINKING_ONLY_REPROMPTS} times, then accepts the thinking as the answer`, async () => {
+    offerReadFile();
+    let turns = 0;
+    async function* alwaysThinking(): AsyncGenerator<StreamEvent> {
+      turns++;
+      yield { type: 'thinking', thinking: WORK_IN_PROGRESS };
+      yield { type: 'stop', stopReason: 'end_turn' };
+    }
+    vi.spyOn(await import('../config/settings.js'), 'getConfig').mockReturnValue({
+      requestTimeout: 30,
+      agentMaxIterations: 25,
+      agentMaxTokens: 100000,
+      autoFixOnFailure: false,
+      autoFixMaxRetries: 3,
+    } as ReturnType<typeof import('../config/settings.js').getConfig>);
+    const cb = makeCallbacks();
+    await runAgentLoop(
+      makeMockClient(alwaysThinking),
+      [{ role: 'user', content: 'what is 2+2?' }],
+      cb,
+      new AbortController().signal,
+    );
+    expect(turns).toBe(MAX_THINKING_ONLY_REPROMPTS + 1);
+    expect(cb.texts.join('').match(/reasoned but took no action/g)).toHaveLength(MAX_THINKING_ONLY_REPROMPTS);
+    // The last turn's thinking was promoted, so the user still sees an answer.
+    expect(cb.texts.join('')).toContain('Let me think about which line to change');
     vi.restoreAllMocks();
   });
 

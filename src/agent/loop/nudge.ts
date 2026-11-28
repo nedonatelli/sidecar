@@ -40,6 +40,7 @@ export const NUDGE_SOURCES = [
   'degenerate-output',
   'output-limit',
   'empty-response',
+  'thinking-only',
   'cycle-nudge',
   'final-answer',
   // the multi-file edit planner's turn (editPlanner.ts, recorded by dispatchToolUses)

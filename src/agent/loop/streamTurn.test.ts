@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from 'vitest';
 import { stubLoopState } from './testHelpers.js';
-import { streamOneTurn, resolveTurnContent } from './streamTurn';
+import {
+  streamOneTurn,
+  resolveTurnContent,
+  shouldHoldBackThinking,
+  MAX_THINKING_ONLY_REPROMPTS,
+  THINKING_ONLY_WORK_CHARS,
+} from './streamTurn';
 import { applyFenceWrite } from './fenceWrite.js';
 import type { AgentCallbacks } from '../loop.js';
 import type { StreamEvent } from '../../ollama/types.js';
@@ -320,6 +326,112 @@ describe('streamOneTurn answer-in-thinking fallback', () => {
     );
     expect(result.fullText).toBe('');
     expect(result.pendingToolUses).toHaveLength(1);
+  });
+});
+
+// Lite-300 qwen3.8:27b, django__django-11848: four turns of 8-17k characters of
+// thinking about an edit never made, each promoted to the reply, each followed
+// by [Code not applied], and the run ended 'natural' at iteration 7 with an
+// empty patch (#506).
+describe('streamOneTurn holds back work-in-progress thinking when tools are offered (#506)', () => {
+  const EDIT_FILE = { name: 'edit_file', description: 'edit', input_schema: { type: 'object', properties: {} } };
+  const LOOPING =
+    'The current code is:\n```python\nif year < 70:\n    year += 2000\nelse:\n    year += 1900\n```\n' +
+    "Wait, I'm still writing the hardcoded version. Let me actually write the dynamic version:\n";
+
+  function clientYielding(events: StreamEvent[]): any {
+    return {
+      getSystemPrompt: () => '',
+      async *streamChat() {
+        for (const ev of events) yield ev;
+      },
+    };
+  }
+
+  function withTools(repromptsUsed = 0) {
+    const state = stubLoopState({
+      approvalMode: 'autonomous',
+      messages: [{ role: 'user', content: 'fix parse_http_date' }],
+      tools: [EDIT_FILE as any],
+    });
+    state.thinkingOnlyReprompts = repromptsUsed;
+    return state;
+  }
+
+  async function turn(thinking: string, state: ReturnType<typeof withTools>, onText = vi.fn()) {
+    const events: StreamEvent[] = [
+      { type: 'thinking', thinking },
+      { type: 'stop', stopReason: 'end_turn' },
+    ];
+    return streamOneTurn(clientYielding(events), state, new AbortController().signal, makeCallbacks({ onText }), 0);
+  }
+
+  it('holds back a long trace: no reply text, and the held-back length is reported', async () => {
+    const thinking = LOOPING.repeat(20);
+    const onText = vi.fn();
+    const result = await turn(thinking, withTools(), onText);
+    expect(result.fullText).toBe('');
+    expect(result.heldBackThinkingChars).toBe(thinking.trim().length);
+    expect(onText).not.toHaveBeenCalled();
+  });
+
+  it('holds back a short trace that carries a code block', async () => {
+    const result = await turn(LOOPING, withTools());
+    expect(LOOPING.length).toBeLessThan(THINKING_ONLY_WORK_CHARS);
+    expect(result.fullText).toBe('');
+    expect(result.heldBackThinkingChars).toBeGreaterThan(0);
+  });
+
+  it('still promotes a short prose answer', async () => {
+    const result = await turn('The file exports a greet function that returns a hello message.', withTools());
+    expect(result.fullText).toBe('The file exports a greet function that returns a hello message.');
+    expect(result.heldBackThinkingChars).toBeUndefined();
+  });
+
+  it('still promotes when no tools are offered: the thinking is the only answer there can be', async () => {
+    const state = withTools();
+    (state as any).tools = [];
+    const result = await turn(LOOPING.repeat(20), state);
+    expect(result.fullText).toBe(LOOPING.repeat(20).trim());
+    expect(result.heldBackThinkingChars).toBeUndefined();
+  });
+
+  it(`promotes once ${MAX_THINKING_ONLY_REPROMPTS} re-prompts are spent, so the run still gets an answer`, async () => {
+    const result = await turn(LOOPING.repeat(20), withTools(MAX_THINKING_ONLY_REPROMPTS));
+    expect(result.fullText).toBe(LOOPING.repeat(20).trim());
+    expect(result.heldBackThinkingChars).toBeUndefined();
+  });
+
+  it('does not touch a turn that produced real text', async () => {
+    const events: StreamEvent[] = [
+      { type: 'thinking', thinking: LOOPING.repeat(20) },
+      { type: 'text', text: 'Done.' },
+      { type: 'stop', stopReason: 'end_turn' },
+    ];
+    const result = await streamOneTurn(
+      clientYielding(events),
+      withTools(),
+      new AbortController().signal,
+      makeCallbacks(),
+      0,
+    );
+    expect(result.fullText).toBe('Done.');
+    expect(result.heldBackThinkingChars).toBeUndefined();
+  });
+});
+
+describe('shouldHoldBackThinking (#506)', () => {
+  it('holds back long or code-bearing thinking while tools are offered and re-prompts remain', () => {
+    expect(shouldHoldBackThinking('x'.repeat(THINKING_ONLY_WORK_CHARS), true, 0)).toBe(true);
+    expect(shouldHoldBackThinking('x'.repeat(THINKING_ONLY_WORK_CHARS - 1), true, 0)).toBe(false);
+    expect(shouldHoldBackThinking('short\n```py\nx = 1\n```', true, 0)).toBe(true);
+  });
+
+  it('never holds back with no tools, or once the re-prompts are spent', () => {
+    const long = 'x'.repeat(5000);
+    expect(shouldHoldBackThinking(long, false, 0)).toBe(false);
+    expect(shouldHoldBackThinking(long, true, MAX_THINKING_ONLY_REPROMPTS - 1)).toBe(true);
+    expect(shouldHoldBackThinking(long, true, MAX_THINKING_ONLY_REPROMPTS)).toBe(false);
   });
 });
 

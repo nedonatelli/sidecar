@@ -905,6 +905,31 @@ export async function runAgentLoop(
           break;
         }
 
+        // Reasoning with no reply and no tool call (#506). The thinking was
+        // held back from the reply (streamTurn.ts shouldHoldBackThinking), so
+        // it never enters the history; tell the model nothing ran and ask it
+        // to act. Checked before the output-limit branch: that one asks the
+        // model to continue text it can no longer see. Bounded by
+        // MAX_THINKING_ONLY_REPROMPTS -- after that the thinking is promoted.
+        if (!fullText.trim() && rawTurn.heldBackThinkingChars !== undefined) {
+          state.thinkingOnlyReprompts += 1;
+          state.logger?.info(
+            `Thinking-only turn (${rawTurn.heldBackThinkingChars} chars, no reply, no tool call) — re-prompting to act`,
+          );
+          callbacks.onText('\n\n⚙️ The model reasoned but took no action — re-prompting...\n');
+          injectNudge(state, 'thinking-only', [
+            {
+              type: 'text' as const,
+              text:
+                '[No action taken] Your last turn was reasoning only: it ended without a reply or a tool call, ' +
+                'so nothing ran and no file changed. If you know the next step, take it now with a tool call ' +
+                '(edit_file for a change of a few lines), and keep your reasoning short. If the task is ' +
+                'finished, give your final answer as plain text.',
+            },
+          ]);
+          continue;
+        }
+
         // Cut off at the output limit. Every backend reports it (Ollama's
         // `length` is mapped to max_tokens), but nothing acted on it: a
         // reasoning model stopped mid-thought, or an answer stopped mid-

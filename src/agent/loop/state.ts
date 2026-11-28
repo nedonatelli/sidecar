@@ -212,6 +212,11 @@ export interface LoopState {
   // Count of "you were cut off at the output limit, continue" reprompts.
   // Bounded at 2 in loop.ts. loop.ts is the only writer.
   truncatedTurnContinues: number;
+  // Count of "you reasoned but did not act" reprompts: a turn with thinking but
+  // no text and no tool call, held back from the reply (#506). Bounded by
+  // MAX_THINKING_ONLY_REPROMPTS, which streamTurn.ts reads; loop.ts is the only
+  // writer.
+  thinkingOnlyReprompts: number;
 
   // Per-file auto-fix retry counter. autoFix.ts is the only writer.
   autoFixRetriesByFile: Map<string, number>;
@@ -498,6 +503,7 @@ export function initLoopState(messages: ChatMessage[], options: AgentOptions): L
     recentMutationCalls: [],
     emptyTurnReprompts: 0,
     truncatedTurnContinues: 0,
+    thinkingOnlyReprompts: 0,
     autoFixRetriesByFile: new Map<string, number>(),
     fullRewriteCountByFile: new Map<string, number>(),
     isolateNudgesByFile: new Map<string, number>(),

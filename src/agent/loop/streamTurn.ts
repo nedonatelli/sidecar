@@ -78,6 +78,42 @@ export interface TurnResult {
   fenceWrite?: { path: string; content: string };
   /** The code a text-only turn printed for its one target file (textParsing printedCodeTarget), for the same check. */
   printedCode?: { path: string; code: string };
+  /**
+   * Set when the turn was thinking only and that thinking was held back from
+   * the reply (see {@link shouldHoldBackThinking}): its length in characters.
+   * `fullText` is empty, and the loop re-prompts the model to act (#506).
+   */
+  heldBackThinkingChars?: number;
+}
+
+/** How many thinking-only turns in a run are re-prompted before the thinking is accepted as the reply (#506). */
+export const MAX_THINKING_ONLY_REPROMPTS = 2;
+
+/**
+ * Thinking this long is work in progress, not a short answer. The answer the
+ * fallback below was written for was one sentence; the traces that ended
+ * Lite-300 runs with nothing on disk were 3-17k characters (#506).
+ */
+export const THINKING_ONLY_WORK_CHARS = 1500;
+
+/**
+ * Whether a thinking-only turn's thinking should be held back from the reply,
+ * and the model re-prompted to act, instead of being promoted to the reply.
+ *
+ * Promoting it is right for a short answer that arrived on the thinking
+ * channel. It is wrong for reasoning about an edit the model never made: that
+ * trace -- often looping over the same unchanged code block -- went into the
+ * history as the model's reply, fired the code-not-applied re-prompt on every
+ * turn, and once those were spent ended the run 'natural' with nothing on disk
+ * (Lite-300 qwen3.8:27b: 40 of 44 empty patches; #506).
+ *
+ * Held back only while tools are offered (with none, the thinking is the only
+ * answer there can be) and only for the first MAX_THINKING_ONLY_REPROMPTS such
+ * turns, so a model that answers only in thinking still gets its answer out.
+ */
+export function shouldHoldBackThinking(thinking: string, toolsOffered: boolean, repromptsUsed: number): boolean {
+  if (!toolsOffered || repromptsUsed >= MAX_THINKING_ONLY_REPROMPTS) return false;
+  return thinking.length >= THINKING_ONLY_WORK_CHARS || thinking.includes('```');
 }
 
 /**
@@ -391,6 +427,9 @@ export async function streamOneTurn(
   // thinking, the thinking IS the response, so surface it as text — otherwise
   // the user is left with a blank answer. Fires onText so finalText/observers
   // see it. Never fires when the model produced real text or a tool call.
+  // Long or code-bearing thinking in a run with tools is held back instead,
+  // and the loop re-prompts the model to act (shouldHoldBackThinking, #506).
+  let heldBackThinkingChars: number | undefined;
   if (
     terminated === 'none' &&
     fullTextParts.length === 0 &&
@@ -398,7 +437,9 @@ export async function streamOneTurn(
     fullThinkingParts.length > 0
   ) {
     const promoted = fullThinkingParts.join('').trim();
-    if (promoted) {
+    if (promoted && shouldHoldBackThinking(promoted, iterTools.length > 0, state.thinkingOnlyReprompts)) {
+      heldBackThinkingChars = promoted.length;
+    } else if (promoted) {
       fullTextParts.push(promoted);
       callbacks.onText(promoted);
     }
@@ -409,6 +450,7 @@ export async function streamOneTurn(
     pendingToolUses,
     stopReason,
     terminated,
+    ...(heldBackThinkingChars !== undefined ? { heldBackThinkingChars } : {}),
   };
 }
 
